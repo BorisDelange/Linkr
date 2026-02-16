@@ -159,7 +159,7 @@ export async function executePython(
     // so user scripts can write files (e.g. dataset.to_csv("data/datasets/foo.csv"))
     await pyodide.runPythonAsync(`
 import os
-for _d in ['data', 'data/datasets', 'datasets']:
+for _d in ['data', 'data/databases', 'data/datasets']:
     os.makedirs(_d, exist_ok=True)
 del _d
 `)

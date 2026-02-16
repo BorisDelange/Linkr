@@ -18,6 +18,9 @@ const ROOT_ORDER: Record<string, number> = {
   'pipeline': 6,
   'scripts': 7,
   'dashboards': 8,
+  'data': 9,
+  'datasets_analyses': 10,
+  'attachments': 11,
 }
 
 function sortNodes(a: TreeNode, b: TreeNode): number {

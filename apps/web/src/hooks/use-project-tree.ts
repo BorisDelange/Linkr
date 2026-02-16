@@ -104,8 +104,12 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
 
     // --- .gitignore ---
     virtual.push(
-      vFile('virtual:.gitignore', '.gitignore', null, 'data/\n.cache/\ndatasets/\n', 'plaintext'),
+      vFile('virtual:.gitignore', '.gitignore', null, 'data/\n.cache/\n', 'plaintext'),
     )
+
+    // --- data/ (gitignored — databases + datasets) ---
+    const dataFolderId = 'virtual:data'
+    virtual.push(vFolder(dataFolderId, 'data', null))
 
     // --- databases/ ---
     const linkedIds = project?.linkedDataSourceIds ?? []
@@ -167,18 +171,21 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
-    // --- datasets/ (virtual read-only mirror of dataset file tree) ---
-    if (datasetFiles.length > 0) {
-      const datasetsFolderId = 'virtual:datasets'
-      virtual.push(vFolder(datasetsFolderId, 'datasets', null))
+    // --- data/databases/ (virtual mirror of imported database files) ---
+    virtual.push(vFolder('virtual:data/databases', 'databases', dataFolderId))
 
+    // --- data/datasets/ (virtual read-only mirror of dataset file tree) ---
+    const datasetsFolderId = 'virtual:data/datasets'
+    virtual.push(vFolder(datasetsFolderId, 'datasets', dataFolderId))
+
+    if (datasetFiles.length > 0) {
       // Build virtual nodes preserving the tree structure
       for (const df of datasetFiles) {
         const parentId = df.parentId
-          ? `virtual:datasets/${df.parentId}`
+          ? `virtual:data/datasets/${df.parentId}`
           : datasetsFolderId
         if (df.type === 'folder') {
-          virtual.push(vFolder(`virtual:datasets/${df.id}`, df.name, parentId))
+          virtual.push(vFolder(`virtual:data/datasets/${df.id}`, df.name, parentId))
         } else {
           // Show column metadata as content
           const meta = {
@@ -188,7 +195,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
             updatedAt: df.updatedAt,
           }
           virtual.push(
-            vFile(`virtual:datasets/${df.id}`, df.name, parentId,
+            vFile(`virtual:data/datasets/${df.id}`, df.name, parentId,
               JSON.stringify(meta, null, 2)),
           )
         }

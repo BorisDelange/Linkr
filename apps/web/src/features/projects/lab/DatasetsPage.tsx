@@ -107,6 +107,7 @@ export function DatasetsPage() {
       loadFileData(selectedFileId)
       loadAnalyses(selectedFileId)
       setSelectedColumnId(null)
+      setDataTableVisible(true)
     }
   }, [selectedFileId, loadFileData, loadAnalyses])
 
@@ -345,7 +346,11 @@ export function DatasetsPage() {
                           <ContextMenu key={analysis.id}>
                             <ContextMenuTrigger asChild>
                               <button
-                                onClick={() => selectAnalysis(isActive ? null : analysis.id)}
+                                onClick={() => {
+                                  const newId = isActive ? null : analysis.id
+                                  selectAnalysis(newId)
+                                  if (newId) setAnalysesVisible(true)
+                                }}
                                 onDoubleClick={() => handleStartAnalysisRename(analysis.id, analysis.name)}
                                 className={cn(
                                   'group flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors hover:bg-accent/50',
@@ -547,7 +552,10 @@ export function DatasetsPage() {
                           <DatasetTable
                             fileId={selectedFileId!}
                             selectedColumnId={selectedColumnId}
-                            onSelectColumn={setSelectedColumnId}
+                            onSelectColumn={(colId) => {
+                              setSelectedColumnId(colId)
+                              if (colId) setStatsVisible(true)
+                            }}
                           />
                         </Allotment.Pane>
 

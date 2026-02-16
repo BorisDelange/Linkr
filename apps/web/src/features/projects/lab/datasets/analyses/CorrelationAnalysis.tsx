@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -26,11 +27,24 @@ function pearsonCorrelation(x: number[], y: number[]): number {
   return den === 0 ? 0 : numSum / den
 }
 
-function getCorrelationColor(r: number): string {
+function getCorrelationStyle(r: number, isDiag: boolean): React.CSSProperties {
+  if (isDiag) return { backgroundColor: 'var(--color-muted)', color: 'var(--color-muted-foreground)' }
   const abs = Math.abs(r)
-  if (abs < 0.2) return 'var(--color-muted-foreground)'
-  if (r > 0) return `rgba(59, 130, 246, ${abs})` // blue for positive
-  return `rgba(239, 68, 68, ${abs})` // red for negative
+  if (abs < 0.1) return { color: 'var(--color-muted-foreground)' }
+  const bgAlpha = abs * 0.25 // subtle background: 0–25% opacity
+  const textAlpha = Math.max(0.4, abs) // readable text: 40–100%
+  if (r > 0) {
+    return {
+      backgroundColor: `rgba(59, 130, 246, ${bgAlpha})`,
+      color: `rgba(59, 130, 246, ${textAlpha})`,
+      fontWeight: abs > 0.5 ? 600 : 400,
+    }
+  }
+  return {
+    backgroundColor: `rgba(239, 68, 68, ${bgAlpha})`,
+    color: `rgba(239, 68, 68, ${textAlpha})`,
+    fontWeight: abs > 0.5 ? 600 : 400,
+  }
 }
 
 export function CorrelationAnalysis({ analysis }: CorrelationAnalysisProps) {
@@ -144,11 +158,7 @@ export function CorrelationAnalysis({ analysis }: CorrelationAnalysisProps) {
                   <td
                     key={matrix.columns[j].id}
                     className="border-b px-2 py-1.5 text-center tabular-nums font-mono text-[11px]"
-                    style={{
-                      backgroundColor: i === j ? 'var(--color-muted)' : undefined,
-                      color: i === j ? 'var(--color-muted-foreground)' : getCorrelationColor(r),
-                      fontWeight: Math.abs(r) > 0.5 && i !== j ? 600 : 400,
-                    }}
+                    style={getCorrelationStyle(r, i === j)}
                   >
                     {r.toFixed(2)}
                   </td>

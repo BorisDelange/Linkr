@@ -219,27 +219,22 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
         {stats.categories && (
           <div className="space-y-1 border-t pt-3">
             <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_distribution')}</h4>
-            <ResponsiveContainer width="100%" height={Math.min(stats.categories.items.length * 22 + 20, 350)}>
-              <BarChart
-                data={stats.categories.items}
-                layout="vertical"
-                margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
-              >
-                <XAxis type="number" tick={{ fontSize: 9 }} />
-                <YAxis
-                  type="category"
-                  dataKey="value"
-                  tick={{ fontSize: 9 }}
-                  width={80}
-                  tickFormatter={(v: string) => v.length > 12 ? v.slice(0, 12) + '…' : v}
-                />
-                <Tooltip
-                  formatter={(value) => [Number(value).toLocaleString(), 'Count']}
-                  contentStyle={{ fontSize: 11 }}
-                />
-                <Bar dataKey="count" fill="var(--color-primary)" radius={[0, 2, 2, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="space-y-1">
+              {stats.categories.items.map((item) => (
+                <div key={item.value} className="group">
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-[10px] text-muted-foreground truncate flex-1" title={item.value}>{item.value}</span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">{item.count} ({item.pct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="h-2 w-full rounded-sm bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-sm bg-primary/60"
+                      style={{ width: `${(item.count / (stats.categories!.items[0]?.count || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
             {stats.categories.truncated && (
               <p className="text-[10px] text-muted-foreground italic mt-1">
                 {t('datasets.stats_categories_truncated', { shown: MAX_CATEGORIES, total: stats.categories.totalCategories })}

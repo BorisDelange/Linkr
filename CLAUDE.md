@@ -258,7 +258,7 @@ my-project/
 ├── project.json              # Project metadata (name, description, status, badges)
 ├── README.md                 # Markdown documentation
 ├── tasks.json                # Todos + notes
-├── .gitignore                # Excludes data/, .cache/, and datasets/
+├── .gitignore                # Excludes data/ and .cache/
 │
 ├── databases/                # One JSON per database (connection config + schema mapping)
 │   ├── mimic-iv.json
@@ -282,10 +282,6 @@ my-project/
 ├── attachments/              # Images/files for README (versioned in git)
 │   └── screenshot.png
 │
-├── datasets/                 # ⚠️ GITIGNORED — raw dataset data (CSV, Parquet)
-│   ├── patients.csv
-│   └── labs.parquet
-│
 ├── datasets_analyses/        # VERSIONED — analysis configs linked to datasets
 │   ├── patients/             # folder name = dataset name (sans extension)
 │   │   ├── _columns.json     # Column metadata
@@ -294,10 +290,13 @@ my-project/
 │   └── labs/
 │       └── summary.json
 │
-├── data/                     # ⚠️ GITIGNORED — binary data (DuckDB, Parquet, CSV)
-│   ├── mimic-iv.duckdb
-│   ├── eicu/                 # Parquet folders
-│   └── datasets/             # Pipeline-generated datasets
+├── data/                     # ⚠️ GITIGNORED — all binary/data files
+│   ├── databases/            # Imported databases (DuckDB files, Parquet folders)
+│   │   ├── mimic-iv.duckdb
+│   │   └── eicu/
+│   └── datasets/             # All datasets (imported CSV/Parquet + script-generated)
+│       ├── patients.csv
+│       └── mortality_dataset.csv
 │
 └── .cache/                   # ⚠️ GITIGNORED — temporary caches (stats, etc.)
 ```
@@ -306,8 +305,8 @@ my-project/
 - **Todos/notes** in `tasks.json` (separate from `project.json` to keep git history clean)
 - **Pipeline** as single `pipeline.json` (DAG is a connected graph, splitting makes no sense)
 - **Cohorts/databases/dashboards**: one file each (independent evolution, cleaner git history)
-- **Datasets**: data files in `datasets/` (gitignored), analysis configs in `datasets_analyses/` (versioned). Linked by naming convention: `datasets/foo.csv` → `datasets_analyses/foo/`
-- **Binary data** in `data/` (always gitignored, never in git)
+- **Datasets**: data files in `data/datasets/` (gitignored), analysis configs in `datasets_analyses/` (versioned). Linked by naming convention: `data/datasets/foo.csv` → `datasets_analyses/foo/`
+- **Databases**: config JSON in `databases/`, binary data in `data/databases/` (gitignored)
 - **Attachments** in `attachments/` (versioned, part of documentation)
 - **IDE visibility**: entire project tree visible, with deletion warnings on structural files (`project.json`, `README.md`, `tasks.json`, `pipeline/pipeline.json`, `.gitignore`)
 - **README attachments** use standard markdown paths: `![alt](attachments/filename.png)` — resolved to blob URLs at render time in local mode

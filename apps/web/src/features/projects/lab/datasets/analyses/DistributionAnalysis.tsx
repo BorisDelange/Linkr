@@ -194,33 +194,23 @@ export function DistributionAnalysis({ analysis }: DistributionAnalysisProps) {
             </div>
           )}
 
-          {/* Categorical: horizontal bar chart */}
+          {/* Categorical: simple bar list */}
           {!dist.isNumeric && dist.categories && dist.categories.length > 0 && (
-            <div className="space-y-1">
-              <ResponsiveContainer width="100%" height={Math.min(dist.categories.length * 22 + 20, 350)}>
-                <BarChart
-                  data={dist.categories}
-                  layout="vertical"
-                  margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
-                >
-                  <XAxis type="number" tick={{ fontSize: 9 }} />
-                  <YAxis
-                    type="category"
-                    dataKey="value"
-                    tick={{ fontSize: 9 }}
-                    width={80}
-                    tickFormatter={(v: string) => v.length > 14 ? v.slice(0, 14) + '…' : v}
-                  />
-                  <Tooltip
-                    formatter={(value, _name, props) => {
-                      const pct = props.payload?.pct
-                      return [`${Number(value).toLocaleString()} (${pct?.toFixed(1)}%)`, 'Count']
-                    }}
-                    contentStyle={{ fontSize: 11 }}
-                  />
-                  <Bar dataKey="count" fill="var(--color-primary)" radius={[0, 2, 2, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="space-y-1.5">
+              {dist.categories.map((cat) => (
+                <div key={cat.value}>
+                  <div className="flex items-center justify-between gap-2 mb-0.5">
+                    <span className="text-[10px] text-muted-foreground truncate flex-1" title={cat.value}>{cat.value}</span>
+                    <span className="text-[10px] tabular-nums text-muted-foreground shrink-0">{cat.count} ({cat.pct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="h-2.5 w-full rounded-sm bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-sm bg-primary/60"
+                      style={{ width: `${(cat.count / (dist.categories![0]?.count || 1)) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
               {dist.truncated && (
                 <p className="text-[10px] text-muted-foreground italic">
                   {t('datasets.stats_categories_truncated', { shown: MAX_CATEGORIES, total: dist.totalCategories })}
