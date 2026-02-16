@@ -1,0 +1,1 @@
+apps/web/public/data/**/*.parquet filter=lfs diff=lfs merge=lfs -text

@@ -28,9 +28,20 @@ build/
 # Logs
 *.log
 
-# Database (local dev)
+# Data files
 *.db
 *.sqlite
+*.parquet
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.duckdb
+*.arrow
+*.feather
+
+# Exception: bundled demo dataset (tracked via Git LFS)
+!apps/web/public/data/**/*.parquet
 
 # Turbo
 .turbo/
