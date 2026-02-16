@@ -179,3 +179,127 @@ export function extractReturnVars(code: string): string[] {
   }
   return [...vars]
 }
+
+// Python builtins and common names to exclude from param inference
+const PYTHON_BUILTINS = new Set([
+  'print', 'len', 'range', 'int', 'float', 'str', 'bool', 'list', 'dict',
+  'set', 'tuple', 'type', 'isinstance', 'issubclass', 'hasattr', 'getattr',
+  'setattr', 'delattr', 'super', 'property', 'classmethod', 'staticmethod',
+  'abs', 'all', 'any', 'bin', 'chr', 'dir', 'divmod', 'enumerate', 'eval',
+  'exec', 'filter', 'format', 'frozenset', 'globals', 'hash', 'hex', 'id',
+  'input', 'iter', 'map', 'max', 'min', 'next', 'object', 'oct', 'open',
+  'ord', 'pow', 'repr', 'reversed', 'round', 'slice', 'sorted', 'sum',
+  'vars', 'zip', 'None', 'True', 'False', 'Exception', 'ValueError',
+  'TypeError', 'KeyError', 'IndexError', 'RuntimeError', 'StopIteration',
+  'NotImplementedError', 'AttributeError', 'ImportError', 'OSError',
+  'FileNotFoundError', 'ZeroDivisionError', 'AssertionError',
+  // Common imports that are always available in Pyodide
+  'np', 'pd', 'plt', 'matplotlib', 'numpy', 'pandas', 'os', 'sys', 'io',
+  'json', 'math', 're', 'datetime', 'collections', 'itertools', 'functools',
+  'pathlib', 'csv', 'time', 'random', 'copy', 'typing',
+  // Our bridge function
+  'sql_query',
+])
+
+/**
+ * Extract names that are defined locally in a cell (assignments, imports, for-vars, function/class defs).
+ */
+function extractLocalDefs(code: string): Set<string> {
+  const defs = new Set<string>()
+  for (const line of code.split('\n')) {
+    const trimmed = line.trimStart()
+    // Assignment: name = ... or name: type = ...
+    const assignMatch = trimmed.match(/^(\w+)\s*(?::\s*\w[\w\[\], |]*?)?\s*=/)
+    if (assignMatch) defs.add(assignMatch[1])
+    // for var in ...:
+    const forMatch = trimmed.match(/^for\s+(\w+)/)
+    if (forMatch) defs.add(forMatch[1])
+    // def funcname(...)
+    const defMatch = trimmed.match(/^def\s+(\w+)/)
+    if (defMatch) defs.add(defMatch[1])
+    // class ClassName
+    const classMatch = trimmed.match(/^class\s+(\w+)/)
+    if (classMatch) defs.add(classMatch[1])
+    // import name / from ... import name
+    const importMatch = trimmed.match(/^import\s+(\w+)/)
+    if (importMatch) defs.add(importMatch[1])
+    const fromImportMatch = trimmed.match(/^from\s+\S+\s+import\s+(.+)/)
+    if (fromImportMatch) {
+      for (const part of fromImportMatch[1].split(',')) {
+        const asMatch = part.trim().match(/(\w+)(?:\s+as\s+(\w+))?/)
+        if (asMatch) defs.add(asMatch[2] || asMatch[1])
+      }
+    }
+    // with ... as name:
+    const withMatch = trimmed.match(/^with\s+.+\s+as\s+(\w+)/)
+    if (withMatch) defs.add(withMatch[1])
+  }
+  return defs
+}
+
+/**
+ * Extract bare names used in code (identifiers that look like variable references).
+ * This is a rough heuristic — it finds all \b\w+\b tokens that could be variable names.
+ */
+function extractUsedNames(code: string): Set<string> {
+  const names = new Set<string>()
+  // Remove comments and string literals to avoid false positives
+  const cleaned = code
+    .replace(/#.*$/gm, '')            // remove comments
+    .replace(/"""[\s\S]*?"""/g, '')   // remove triple-quoted strings
+    .replace(/'''[\s\S]*?'''/g, '')
+    .replace(/"(?:[^"\\]|\\.)*"/g, '') // remove double-quoted strings
+    .replace(/'(?:[^'\\]|\\.)*'/g, '') // remove single-quoted strings
+
+  // Find all identifiers (word boundary ensures we get standalone names)
+  const identRe = /\b([a-zA-Z_]\w*)\b/g
+  let m: RegExpExecArray | null
+  while ((m = identRe.exec(cleaned)) !== null) {
+    names.add(m[1])
+  }
+  return names
+}
+
+/**
+ * Infer the params (dependencies) of a cell by finding names that are:
+ * 1. Used in the code
+ * 2. Not defined locally in the cell
+ * 3. Not Python builtins
+ * 4. Exported by another cell (i.e., available in the notebook namespace)
+ */
+export function inferCellParams(code: string, allExports: Set<string>): string[] {
+  const used = extractUsedNames(code)
+  const localDefs = extractLocalDefs(code)
+
+  const params: string[] = []
+  for (const name of used) {
+    if (localDefs.has(name)) continue
+    if (PYTHON_BUILTINS.has(name)) continue
+    if (!allExports.has(name)) continue
+    params.push(name)
+  }
+  return params.sort()
+}
+
+/**
+ * Recompute params for all cells based on the full set of exports across the notebook.
+ * This is the main function to call after any cell edit.
+ */
+export function recomputeAllParams(cells: MarimoCell[]): MarimoCell[] {
+  // Gather all exports across all cells
+  const allExports = new Set<string>()
+  for (const cell of cells) {
+    for (const v of cell.exports) {
+      allExports.add(v)
+    }
+  }
+
+  return cells.map((cell) => {
+    const params = inferCellParams(cell.code, allExports)
+    // Only update if params actually changed (avoid unnecessary rerenders)
+    if (params.length === cell.params.length && params.every((p, i) => p === cell.params[i])) {
+      return cell
+    }
+    return { ...cell, params }
+  })
+}

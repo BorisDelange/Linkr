@@ -4,7 +4,7 @@
  * Each @app.cell becomes an editable cell with inline output.
  * Cells form a reactive DAG: running cell A auto-re-executes downstream cells.
  */
-import { useMemo, useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Play, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { parseMarimoFile, serializeMarimoFile, extractReturnVars, type MarimoCell } from '@/lib/marimo-parser'
+import { parseMarimoFile, serializeMarimoFile, extractReturnVars, recomputeAllParams, type MarimoCell } from '@/lib/marimo-parser'
 import { PyodideCellExecutor, type CellResult } from '@/lib/cell-executor'
 import { type CellStatus, getExecutionOrder, getDownstreamCells, detectCycle } from '@/lib/marimo-dag'
 
@@ -170,12 +170,14 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
 
   const updateCellCode = useCallback((cellId: string, newCode: string) => {
     setCells((prev) => {
-      const next = prev.map((c) => {
+      const updated = prev.map((c) => {
         if (c.id !== cellId) return c
         // Auto-update exports from the code
         const exports = extractReturnVars(newCode)
         return { ...c, code: newCode, exports }
       })
+      // Recompute params for all cells (a new export may be consumed elsewhere)
+      const next = recomputeAllParams(updated)
       syncToFile(next)
       return next
     })
@@ -205,7 +207,9 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
 
   const removeCell = useCallback((cellId: string) => {
     setCells((prev) => {
-      const next = prev.filter((c) => c.id !== cellId)
+      const filtered = prev.filter((c) => c.id !== cellId)
+      // Recompute params since an export source may have been removed
+      const next = recomputeAllParams(filtered)
       syncToFile(next)
       return next
     })
