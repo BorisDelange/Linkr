@@ -1,0 +1,39 @@
+image: node:22-alpine
+
+stages:
+  - build
+  - deploy
+
+build:
+  stage: build
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+      - apps/web/node_modules/
+  script:
+    - npm ci
+    - cd apps/web && npx vite build --base /linkr/linkr-v2/
+  artifacts:
+    paths:
+      - apps/web/dist
+
+pages:
+  stage: deploy
+  dependencies:
+    - build
+  script:
+    - mkdir -p public
+    - cp -r apps/web/dist/* public/
+    # Headers for SharedArrayBuffer (required by DuckDB-WASM, Pyodide, webR)
+    - |
+      cat > public/_headers <<'EOF'
+      /*
+        Cross-Origin-Opener-Policy: same-origin
+        Cross-Origin-Embedder-Policy: credentialless
+      EOF
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
