@@ -686,7 +686,7 @@ export const useFileStore = create<FileState>((set, get) => ({
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
-      descriptionKey: 'files.copy',
+      descriptionKey: 'files.duplicate',
       descriptionParams: { name: newName },
       timestamp: Date.now(),
       undo: () => {
@@ -859,7 +859,7 @@ export const useFileStore = create<FileState>((set, get) => ({
   executionResults: [],
   addExecutionResult: (result) =>
     set((s) => {
-      const execTabId = `__exec_${result.language}__`
+      const execTabId = '__exec_console__'
       return {
         executionResults: [...s.executionResults, result],
         activeOutputTab: execTabId,
@@ -875,22 +875,33 @@ export const useFileStore = create<FileState>((set, get) => ({
         r.id === id ? { ...r, ...updates } : r
       ),
     })),
-  clearExecutionResults: () => set({ executionResults: [] }),
-  clearExecutionResultsByLanguage: (lang) =>
+  clearExecutionResults: () =>
     set((s) => {
-      const remaining = s.executionResults.filter((r) => r.language !== lang)
-      const tabId = `__exec_${lang}__`
-      // If active tab was this language's exec tab and no more results, switch away
-      const activeTab = s.activeOutputTab === tabId && remaining.length > 0
-        ? `__exec_${remaining[remaining.length - 1].language}__`
-        : s.activeOutputTab === tabId
-          ? (s.outputTabs[s.outputTabs.length - 1]?.id ?? null)
-          : s.activeOutputTab
+      const tabId = '__exec_console__'
+      const activeTab = s.activeOutputTab === tabId
+        ? (s.outputTabs[s.outputTabs.length - 1]?.id ?? null)
+        : s.activeOutputTab
       return {
-        executionResults: remaining,
+        executionResults: [],
         activeOutputTab: activeTab,
         outputTabOrder: s.outputTabOrder.filter((tid) => tid !== tabId),
       }
+    }),
+  clearExecutionResultsByLanguage: (lang) =>
+    set((s) => {
+      const remaining = s.executionResults.filter((r) => r.language !== lang)
+      const tabId = '__exec_console__'
+      if (remaining.length === 0) {
+        const activeTab = s.activeOutputTab === tabId
+          ? (s.outputTabs[s.outputTabs.length - 1]?.id ?? null)
+          : s.activeOutputTab
+        return {
+          executionResults: remaining,
+          activeOutputTab: activeTab,
+          outputTabOrder: s.outputTabOrder.filter((tid) => tid !== tabId),
+        }
+      }
+      return { executionResults: remaining }
     }),
 
   undoStack: [],

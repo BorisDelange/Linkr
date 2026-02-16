@@ -36,9 +36,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { useFileStore, type ExecLanguage } from '@/stores/file-store'
+import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
@@ -50,10 +56,11 @@ import * as duckdbEngine from '@/lib/duckdb/engine'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { FileTree } from './files/FileTree'
-import { OutputPanel, getExecLang, EXEC_TAB_LABELS, getTabIcon } from './files/OutputPanel'
+import { OutputPanel, getTabIcon } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
+import { DatasetTable } from './lab/datasets/DatasetTable'
 import { RunButton } from './files/RunButton'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
@@ -82,7 +89,7 @@ export function FilesPage() {
     setActiveOutputTab,
     closeOutputTab,
     reorderAllOutputTabs,
-    clearExecutionResultsByLanguage,
+    clearExecutionResults,
     outputVisible,
     setOutputVisible,
     loadProjectFiles,
@@ -137,14 +144,11 @@ export function FilesPage() {
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
 
-  // Group execution results by language (for output tab badges)
-  const resultsByLang = useMemo(() => {
-    const map = new Map<ExecLanguage, number>()
-    for (const r of executionResults) {
-      map.set(r.language, (map.get(r.language) ?? 0) + 1)
-    }
-    return map
-  }, [executionResults])
+  // Detect if selected file is a dataset file (show DataTable instead of CodeEditor)
+  const datasetFileId = selectedFileId?.startsWith('virtual:data/datasets/')
+    ? selectedFileId.replace('virtual:data/datasets/', '')
+    : null
+  const isDatasetFile = datasetFileId !== null && selectedNode?.type === 'file'
 
   /** Execute SQL against the active DuckDB connection. */
   const executeSql = useCallback(
@@ -354,10 +358,41 @@ export function FilesPage() {
     setCloseConfirmFileId(null)
   }, [closeConfirmFileId, revertFile, closeFile])
 
-  // Cmd+K: clear terminal via custom event
+  // Close all file tabs (force close without save prompt)
+  const handleCloseAllFiles = useCallback(() => {
+    for (const fid of openFileIds) closeFile(fid)
+  }, [openFileIds, closeFile])
+
+  // Close all file tabs except the given one
+  const handleCloseOtherFiles = useCallback((keepId: string) => {
+    for (const fid of openFileIds) {
+      if (fid !== keepId) closeFile(fid)
+    }
+  }, [openFileIds, closeFile])
+
+  // Close all output tabs
+  const handleCloseAllOutputTabs = useCallback(() => {
+    clearExecutionResults()
+    for (const tab of outputTabs) closeOutputTab(tab.id)
+  }, [outputTabs, closeOutputTab, clearExecutionResults])
+
+  // Close all output tabs except the given one
+  const handleCloseOtherOutputTabs = useCallback((keepId: string) => {
+    if (keepId === '__exec_console__') {
+      for (const tab of outputTabs) closeOutputTab(tab.id)
+    } else {
+      clearExecutionResults()
+      for (const tab of outputTabs) {
+        if (tab.id !== keepId) closeOutputTab(tab.id)
+      }
+    }
+  }, [outputTabs, closeOutputTab, clearExecutionResults])
+
+  // Cmd+K: clear terminal + console output
   const handleClearTerminal = useCallback(() => {
     window.dispatchEvent(new CustomEvent('linkr:clear-terminal'))
-  }, [])
+    clearExecutionResults()
+  }, [clearExecutionResults])
 
   // Cmd+N: open new file dialog
   const handleNewFile = useCallback(() => {
@@ -645,70 +680,84 @@ export function FilesPage() {
                       const isVirtual = node.virtual === true
                       const isDirty = !isVirtual && _dirtyVersion >= 0 && isFileDirty(fid)
                       return (
-                        <button
-                          key={fid}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('file-tab-id', fid)
-                            e.dataTransfer.effectAllowed = 'move'
-                            setDragFileId(fid)
-                          }}
-                          onDragOver={(e) => {
-                            if (!e.dataTransfer.types.includes('file-tab-id')) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
-                            setDropFileInsert({ id: fid, side })
-                          }}
-                          onDragLeave={() => setDropFileInsert(null)}
-                          onDrop={(e) => {
-                            e.preventDefault()
-                            const side = dropFileInsert?.side ?? 'right'
-                            setDropFileInsert(null)
-                            setDragFileId(null)
-                            const draggedId = e.dataTransfer.getData('file-tab-id')
-                            if (!draggedId || draggedId === fid) return
-                            const fromIdx = openFileIds.indexOf(draggedId)
-                            let toIdx = openFileIds.indexOf(fid)
-                            if (side === 'right') toIdx = Math.min(toIdx + 1, openFileIds.length - 1)
-                            if (fromIdx < toIdx) toIdx--
-                            if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderOpenFiles(fromIdx, toIdx)
-                          }}
-                          onDragEnd={() => { setDragFileId(null); setDropFileInsert(null) }}
-                          onClick={() => {
-                            selectFile(fid)
-                            if (!editorVisible) setEditorVisible(true)
-                          }}
-                          className={cn(
-                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                            isActive
-                              ? 'bg-background text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/50',
-                            dragFileId === fid && 'opacity-40',
-                          )}
-                        >
-                          {dropFileInsert?.id === fid && dropFileInsert.side === 'left' && dragFileId !== fid && (
-                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                          )}
-                          {dropFileInsert?.id === fid && dropFileInsert.side === 'right' && dragFileId !== fid && (
-                            <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                          )}
-                          {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
-                          <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
-                          {isDirty && (
-                            <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-                          )}
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCloseFile(fid)
-                            }}
-                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                          >
-                            <X size={10} />
-                          </span>
-                        </button>
+                        <ContextMenu key={fid}>
+                          <ContextMenuTrigger asChild>
+                            <button
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('file-tab-id', fid)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDragFileId(fid)
+                              }}
+                              onDragOver={(e) => {
+                                if (!e.dataTransfer.types.includes('file-tab-id')) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                                setDropFileInsert({ id: fid, side })
+                              }}
+                              onDragLeave={() => setDropFileInsert(null)}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                const side = dropFileInsert?.side ?? 'right'
+                                setDropFileInsert(null)
+                                setDragFileId(null)
+                                const draggedId = e.dataTransfer.getData('file-tab-id')
+                                if (!draggedId || draggedId === fid) return
+                                const fromIdx = openFileIds.indexOf(draggedId)
+                                let toIdx = openFileIds.indexOf(fid)
+                                if (side === 'right') toIdx = Math.min(toIdx + 1, openFileIds.length - 1)
+                                if (fromIdx < toIdx) toIdx--
+                                if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderOpenFiles(fromIdx, toIdx)
+                              }}
+                              onDragEnd={() => { setDragFileId(null); setDropFileInsert(null) }}
+                              onClick={() => {
+                                selectFile(fid)
+                                if (!editorVisible) setEditorVisible(true)
+                              }}
+                              className={cn(
+                                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                isActive
+                                  ? 'bg-background text-foreground'
+                                  : 'text-muted-foreground hover:bg-accent/50',
+                                dragFileId === fid && 'opacity-40',
+                              )}
+                            >
+                              {dropFileInsert?.id === fid && dropFileInsert.side === 'left' && dragFileId !== fid && (
+                                <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                              )}
+                              {dropFileInsert?.id === fid && dropFileInsert.side === 'right' && dragFileId !== fid && (
+                                <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                              )}
+                              {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
+                              <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
+                              {isDirty && (
+                                <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
+                              )}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleCloseFile(fid)
+                                }}
+                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                              >
+                                <X size={10} />
+                              </span>
+                            </button>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem onClick={() => handleCloseFile(fid)}>
+                              {t('files.close')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleCloseOtherFiles(fid)}>
+                              {t('files.close_others')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={handleCloseAllFiles}>
+                              {t('files.close_all')}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       )
                     })}
                   </div>
@@ -721,143 +770,170 @@ export function FilesPage() {
                   {/* Output tabs */}
                   <div className="flex items-center overflow-x-auto">
                     {outputTabOrder.map((tabId) => {
-                      const execLang = getExecLang(tabId)
+                      const isConsole = tabId === '__exec_console__'
                       const isActive = activeOutputTab === tabId
 
-                      if (execLang) {
-                        const count = resultsByLang.get(execLang) ?? 0
+                      if (isConsole) {
                         return (
-                          <button
-                            key={tabId}
-                            draggable
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData('output-tab-id', tabId)
-                              e.dataTransfer.effectAllowed = 'move'
-                              setDragOutputTabId(tabId)
-                            }}
-                            onDragOver={(e) => {
-                              if (!e.dataTransfer.types.includes('output-tab-id')) return
-                              e.preventDefault()
-                              e.dataTransfer.dropEffect = 'move'
-                              const rect = e.currentTarget.getBoundingClientRect()
-                              const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
-                              setDropOutputInsert({ id: tabId, side })
-                            }}
-                            onDragLeave={() => setDropOutputInsert(null)}
-                            onDrop={(e) => {
-                              e.preventDefault()
-                              const side = dropOutputInsert?.side ?? 'right'
-                              setDropOutputInsert(null)
-                              setDragOutputTabId(null)
-                              const draggedId = e.dataTransfer.getData('output-tab-id')
-                              if (!draggedId || draggedId === tabId) return
-                              const fromIdx = outputTabOrder.indexOf(draggedId)
-                              let toIdx = outputTabOrder.indexOf(tabId)
-                              if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
-                              if (fromIdx < toIdx) toIdx--
-                              if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
-                            }}
-                            onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
-                            onClick={() => {
-                              setActiveOutputTab(tabId)
-                              if (!outputVisible) setOutputVisible(true)
-                            }}
-                            className={cn(
-                              'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                              isActive && outputVisible
-                                ? 'bg-primary/10 text-foreground'
-                                : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                              dragOutputTabId === tabId && 'opacity-40',
-                            )}
-                          >
-                            {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'left' && dragOutputTabId !== tabId && (
-                              <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                            )}
-                            {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'right' && dragOutputTabId !== tabId && (
-                              <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                            )}
-                            <span>{EXEC_TAB_LABELS[execLang]}</span>
-                            <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                              {count}
-                            </span>
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                clearExecutionResultsByLanguage(execLang)
-                              }}
-                              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                            >
-                              <X size={10} />
-                            </span>
-                          </button>
+                          <ContextMenu key={tabId}>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('output-tab-id', tabId)
+                                  e.dataTransfer.effectAllowed = 'move'
+                                  setDragOutputTabId(tabId)
+                                }}
+                                onDragOver={(e) => {
+                                  if (!e.dataTransfer.types.includes('output-tab-id')) return
+                                  e.preventDefault()
+                                  e.dataTransfer.dropEffect = 'move'
+                                  const rect = e.currentTarget.getBoundingClientRect()
+                                  const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                                  setDropOutputInsert({ id: tabId, side })
+                                }}
+                                onDragLeave={() => setDropOutputInsert(null)}
+                                onDrop={(e) => {
+                                  e.preventDefault()
+                                  const side = dropOutputInsert?.side ?? 'right'
+                                  setDropOutputInsert(null)
+                                  setDragOutputTabId(null)
+                                  const draggedId = e.dataTransfer.getData('output-tab-id')
+                                  if (!draggedId || draggedId === tabId) return
+                                  const fromIdx = outputTabOrder.indexOf(draggedId)
+                                  let toIdx = outputTabOrder.indexOf(tabId)
+                                  if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                                  if (fromIdx < toIdx) toIdx--
+                                  if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+                                }}
+                                onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
+                                onClick={() => {
+                                  setActiveOutputTab(tabId)
+                                  if (!outputVisible) setOutputVisible(true)
+                                }}
+                                className={cn(
+                                  'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                  isActive && outputVisible
+                                    ? 'bg-primary/10 text-foreground'
+                                    : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                  dragOutputTabId === tabId && 'opacity-40',
+                                )}
+                              >
+                                {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'left' && dragOutputTabId !== tabId && (
+                                  <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                                )}
+                                {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'right' && dragOutputTabId !== tabId && (
+                                  <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                                )}
+                                <span>{t('files.console')}</span>
+                                <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                                  {executionResults.length}
+                                </span>
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    clearExecutionResults()
+                                  }}
+                                  className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                                >
+                                  <X size={10} />
+                                </span>
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onClick={() => clearExecutionResults()}>
+                                {t('files.close')}
+                              </ContextMenuItem>
+                              <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tabId)}>
+                                {t('files.close_others')}
+                              </ContextMenuItem>
+                              <ContextMenuItem onClick={handleCloseAllOutputTabs}>
+                                {t('files.close_all')}
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         )
                       }
 
-                      const tab = outputTabs.find((t) => t.id === tabId)
+                      const tab = outputTabs.find((ot) => ot.id === tabId)
                       if (!tab) return null
 
                       return (
-                        <button
-                          key={tab.id}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('output-tab-id', tab.id)
-                            e.dataTransfer.effectAllowed = 'move'
-                            setDragOutputTabId(tab.id)
-                          }}
-                          onDragOver={(e) => {
-                            if (!e.dataTransfer.types.includes('output-tab-id')) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
-                            setDropOutputInsert({ id: tab.id, side })
-                          }}
-                          onDragLeave={() => setDropOutputInsert(null)}
-                          onDrop={(e) => {
-                            e.preventDefault()
-                            const side = dropOutputInsert?.side ?? 'right'
-                            setDropOutputInsert(null)
-                            setDragOutputTabId(null)
-                            const draggedId = e.dataTransfer.getData('output-tab-id')
-                            if (!draggedId || draggedId === tab.id) return
-                            const fromIdx = outputTabOrder.indexOf(draggedId)
-                            let toIdx = outputTabOrder.indexOf(tab.id)
-                            if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
-                            if (fromIdx < toIdx) toIdx--
-                            if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
-                          }}
-                          onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
-                          onClick={() => {
-                            setActiveOutputTab(tab.id)
-                            if (!outputVisible) setOutputVisible(true)
-                          }}
-                          className={cn(
-                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                            tab.id === activeOutputTab && outputVisible
-                              ? 'bg-primary/10 text-foreground'
-                              : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                            dragOutputTabId === tab.id && 'opacity-40',
-                          )}
-                        >
-                          {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'left' && dragOutputTabId !== tab.id && (
-                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                          )}
-                          {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'right' && dragOutputTabId !== tab.id && (
-                            <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
-                          )}
-                          {getTabIcon(tab.type)}
-                          <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              closeOutputTab(tab.id)
-                            }}
-                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                          >
-                            <X size={10} />
-                          </span>
-                        </button>
+                        <ContextMenu key={tab.id}>
+                          <ContextMenuTrigger asChild>
+                            <button
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('output-tab-id', tab.id)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDragOutputTabId(tab.id)
+                              }}
+                              onDragOver={(e) => {
+                                if (!e.dataTransfer.types.includes('output-tab-id')) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                const rect = e.currentTarget.getBoundingClientRect()
+                                const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                                setDropOutputInsert({ id: tab.id, side })
+                              }}
+                              onDragLeave={() => setDropOutputInsert(null)}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                const side = dropOutputInsert?.side ?? 'right'
+                                setDropOutputInsert(null)
+                                setDragOutputTabId(null)
+                                const draggedId = e.dataTransfer.getData('output-tab-id')
+                                if (!draggedId || draggedId === tab.id) return
+                                const fromIdx = outputTabOrder.indexOf(draggedId)
+                                let toIdx = outputTabOrder.indexOf(tab.id)
+                                if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                                if (fromIdx < toIdx) toIdx--
+                                if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+                              }}
+                              onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
+                              onClick={() => {
+                                setActiveOutputTab(tab.id)
+                                if (!outputVisible) setOutputVisible(true)
+                              }}
+                              className={cn(
+                                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                tab.id === activeOutputTab && outputVisible
+                                  ? 'bg-primary/10 text-foreground'
+                                  : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                dragOutputTabId === tab.id && 'opacity-40',
+                              )}
+                            >
+                              {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'left' && dragOutputTabId !== tab.id && (
+                                <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                              )}
+                              {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'right' && dragOutputTabId !== tab.id && (
+                                <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                              )}
+                              {getTabIcon(tab.type)}
+                              <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  closeOutputTab(tab.id)
+                                }}
+                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                              >
+                                <X size={10} />
+                              </span>
+                            </button>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem onClick={() => closeOutputTab(tab.id)}>
+                              {t('files.close')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tab.id)}>
+                              {t('files.close_others')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={handleCloseAllOutputTabs}>
+                              {t('files.close_all')}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       )
                     })}
                   </div>
@@ -872,7 +948,14 @@ export function FilesPage() {
                     <Allotment>
                       {/* Editor panel */}
                       <Allotment.Pane minSize={150} visible={editorVisible}>
-                        {selectedNode ? (
+                        {selectedNode && isDatasetFile && datasetFileId ? (
+                          <DatasetTable
+                            key={datasetFileId}
+                            fileId={datasetFileId}
+                            selectedColumnId={null}
+                            onSelectColumn={() => {}}
+                          />
+                        ) : selectedNode ? (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}

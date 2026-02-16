@@ -222,7 +222,7 @@ export function FileTreeItem({
               {!isFolder && (
                 <ContextMenuItem onClick={() => duplicateFile(node.id)}>
                   <Copy size={14} />
-                  {t('files.copy')}
+                  {t('files.duplicate')}
                 </ContextMenuItem>
               )}
               {!isFolder && (

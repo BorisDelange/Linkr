@@ -74,7 +74,7 @@ export function AnalysesPanel({ datasetFileId, hideTabBar }: AnalysesPanelProps)
   if (hideTabBar) {
     return (
       <div className="flex h-full flex-col">
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="min-h-0 flex-1">
           {activeAnalysis ? (
             <AnalysisContent analysis={activeAnalysis} />
           ) : (

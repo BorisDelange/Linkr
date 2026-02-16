@@ -85,7 +85,6 @@ export function DatasetsPage() {
   const [createAnalysisOpen, setCreateAnalysisOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [dataTableVisible, setDataTableVisible] = useState(true)
-  const [analysesVisible, setAnalysesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
@@ -110,6 +109,14 @@ export function DatasetsPage() {
       setDataTableVisible(true)
     }
   }, [selectedFileId, loadFileData, loadAnalyses])
+
+  // React to analysis selection changes (e.g. from createAnalysis auto-select)
+  useEffect(() => {
+    if (selectedAnalysisId) {
+      setDataTableVisible(false)
+      setStatsVisible(false)
+    }
+  }, [selectedAnalysisId])
 
   const selectedFile = files.find((f) => f.id === selectedFileId && f.type === 'file')
   const undoAction = peekUndo()
@@ -201,9 +208,6 @@ export function DatasetsPage() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleSaveFile, undoAction, performUndo])
-
-  // Whether to show the analyses split pane
-  const showAnalyses = analysesVisible && !!selectedFileId && !!selectedAnalysisId
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -349,7 +353,12 @@ export function DatasetsPage() {
                                 onClick={() => {
                                   const newId = isActive ? null : analysis.id
                                   selectAnalysis(newId)
-                                  if (newId) setAnalysesVisible(true)
+                                  if (newId) {
+                                    setDataTableVisible(false)
+                                    setStatsVisible(false)
+                                  } else {
+                                    setDataTableVisible(true)
+                                  }
                                 }}
                                 onDoubleClick={() => handleStartAnalysisRename(analysis.id, analysis.name)}
                                 className={cn(
@@ -440,22 +449,6 @@ export function DatasetsPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        variant={analysesVisible ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => setAnalysesVisible(!analysesVisible)}
-                        disabled={!selectedFileId}
-                      >
-                        {analysesVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t('datasets.toggle_analyses')}
-                    </TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
                         variant={statsVisible ? 'secondary' : 'ghost'}
                         size="icon-xs"
                         onClick={() => setStatsVisible(!statsVisible)}
@@ -471,14 +464,14 @@ export function DatasetsPage() {
                 </div>
               </div>
 
-              {/* File tabs */}
+              {/* File tabs + analysis tabs */}
               {openFileIds.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
                   <div className="flex items-center overflow-x-auto">
                     {openFileIds.map((fid) => {
                       const node = files.find((n) => n.id === fid)
                       if (!node) return null
-                      const isActive = fid === selectedFileId
+                      const isActive = fid === selectedFileId && !selectedAnalysisId
                       const isDirty = _dirtyVersion >= 0 && isFileDirty(fid)
                       return (
                         <button
@@ -510,7 +503,11 @@ export function DatasetsPage() {
                             setDragFileId(null)
                             setDropFileTarget(null)
                           }}
-                          onClick={() => selectFile(fid)}
+                          onClick={() => {
+                            selectFile(fid)
+                            selectAnalysis(null)
+                            setDataTableVisible(true)
+                          }}
                           className={cn(
                             'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                             isActive
@@ -536,19 +533,57 @@ export function DatasetsPage() {
                         </button>
                       )
                     })}
+
+                    {/* Analysis tabs for the selected file */}
+                    {selectedFileId && analyses.length > 0 && (
+                      <>
+                        <div className="mx-1 h-4 w-px shrink-0 bg-border" />
+                        {analyses.map((analysis) => {
+                          const isActive = analysis.id === selectedAnalysisId
+                          return (
+                            <button
+                              key={analysis.id}
+                              onClick={() => {
+                                if (isActive) {
+                                  selectAnalysis(null)
+                                  setDataTableVisible(true)
+                                } else {
+                                  selectAnalysis(analysis.id)
+                                  setDataTableVisible(false)
+                                  setStatsVisible(false)
+                                }
+                              }}
+                              className={cn(
+                                'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                isActive
+                                  ? 'bg-background text-foreground'
+                                  : 'text-muted-foreground hover:bg-accent/50',
+                              )}
+                            >
+                              <BarChart3 size={12} className="shrink-0 text-violet-500" />
+                              <span className="max-w-[140px] truncate">{analysis.name}</span>
+                            </button>
+                          )
+                        })}
+                      </>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Content area: (data table | analyses) | stats — nested Allotment */}
+              {/* Content area: data table or analysis | stats */}
               <div className="min-h-0 flex-1 overflow-hidden">
                 {selectedFile ? (
                   <Allotment proportionalLayout={false}>
-                    {/* Left: data table + analyses (inner split) */}
+                    {/* Main content: data table or analysis */}
                     <Allotment.Pane minSize={200}>
-                      <Allotment proportionalLayout={false}>
-                        {/* Data table */}
-                        <Allotment.Pane minSize={200} visible={dataTableVisible}>
+                      {selectedAnalysisId ? (
+                        <AnalysesPanel
+                          datasetFileId={selectedFileId!}
+                          hideTabBar
+                        />
+                      ) : (
+                        dataTableVisible ? (
                           <DatasetTable
                             fileId={selectedFileId!}
                             selectedColumnId={selectedColumnId}
@@ -557,23 +592,12 @@ export function DatasetsPage() {
                               if (colId) setStatsVisible(true)
                             }}
                           />
-                        </Allotment.Pane>
-
-                        {/* Analyses panel (content only, tab bar is above) */}
-                        <Allotment.Pane
-                          minSize={200}
-                          visible={showAnalyses}
-                        >
-                          <div className="h-full border-l">
-                            {selectedFileId && (
-                              <AnalysesPanel
-                                datasetFileId={selectedFileId}
-                                hideTabBar
-                              />
-                            )}
+                        ) : (
+                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                            {t('datasets.data_table_hidden')}
                           </div>
-                        </Allotment.Pane>
-                      </Allotment>
+                        )
+                      )}
                     </Allotment.Pane>
 
                     {/* Right: column stats */}

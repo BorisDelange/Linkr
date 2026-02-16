@@ -72,56 +72,6 @@ export function RunButton({
 
   return (
     <div className="flex items-center gap-1.5">
-      {/* Connection selector — only for SQL files */}
-      {isSql && connections.length > 0 && (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="xs" className="gap-1 max-w-[160px]">
-              <Database size={12} className="shrink-0" />
-              <span className="truncate">
-                {activeConn?.name ?? t('connections.select')}
-              </span>
-              <ChevronDown size={10} className="shrink-0 opacity-50" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-[200px]">
-            {warehouseConns.length > 0 && (
-              <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('connections.warehouse_databases')}
-                </DropdownMenuLabel>
-                {warehouseConns.map((c) => (
-                  <ConnectionMenuItem
-                    key={c.id}
-                    entry={c}
-                    isActive={activeConnectionId === c.id}
-                    onSelect={() => setActiveConnection(c.id)}
-                  />
-                ))}
-              </>
-            )}
-            {warehouseConns.length > 0 && customConns.length > 0 && (
-              <DropdownMenuSeparator />
-            )}
-            {customConns.length > 0 && (
-              <>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {t('connections.custom_connections')}
-                </DropdownMenuLabel>
-                {customConns.map((c) => (
-                  <ConnectionMenuItem
-                    key={c.id}
-                    entry={c}
-                    isActive={activeConnectionId === c.id}
-                    onSelect={() => setActiveConnection(c.id)}
-                  />
-                ))}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )}
-
       {/* Run / Stop button */}
       <div className="flex">
         {isExecuting ? (
@@ -174,6 +124,56 @@ export function RunButton({
           </>
         )}
       </div>
+
+      {/* Connection selector — only for SQL files */}
+      {isSql && connections.length > 0 && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="xs" className="gap-1 max-w-[160px]">
+              <Database size={12} className="shrink-0" />
+              <span className="truncate">
+                {activeConn?.name ?? t('connections.select')}
+              </span>
+              <ChevronDown size={10} className="shrink-0 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[200px]">
+            {warehouseConns.length > 0 && (
+              <>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('connections.warehouse_databases')}
+                </DropdownMenuLabel>
+                {warehouseConns.map((c) => (
+                  <ConnectionMenuItem
+                    key={c.id}
+                    entry={c}
+                    isActive={activeConnectionId === c.id}
+                    onSelect={() => setActiveConnection(c.id)}
+                  />
+                ))}
+              </>
+            )}
+            {warehouseConns.length > 0 && customConns.length > 0 && (
+              <DropdownMenuSeparator />
+            )}
+            {customConns.length > 0 && (
+              <>
+                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  {t('connections.custom_connections')}
+                </DropdownMenuLabel>
+                {customConns.map((c) => (
+                  <ConnectionMenuItem
+                    key={c.id}
+                    entry={c}
+                    isActive={activeConnectionId === c.id}
+                    onSelect={() => setActiveConnection(c.id)}
+                  />
+                ))}
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   )
 }

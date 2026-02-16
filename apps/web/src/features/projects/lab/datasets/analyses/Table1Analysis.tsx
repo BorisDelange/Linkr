@@ -1,99 +1,82 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Check } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { TypeBadge } from '../TypeBadge'
-import type { DatasetAnalysis, DatasetColumn } from '@/types'
+import { generateTable1Code } from '../code-generators/table1'
+import { AnalysisShell } from './AnalysisShell'
+import type { DatasetAnalysis } from '@/types'
 
 interface Table1AnalysisProps {
   analysis: DatasetAnalysis
 }
 
-interface VariableRow {
-  column: DatasetColumn
-  total: number
-  nonNull: number
-  nullCount: number
-  // Numeric
-  mean?: number
-  std?: number
-  median?: number
-  min?: number
-  max?: number
-  q1?: number
-  q3?: number
-  // Categorical
-  categories?: { value: string; count: number; pct: number }[]
-}
-
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0
-  const idx = (p / 100) * (sorted.length - 1)
-  const lo = Math.floor(idx)
-  const hi = Math.ceil(idx)
-  if (lo === hi) return sorted[lo]
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
-}
-
-function fmt(n: number): string {
-  return n.toLocaleString(undefined, { maximumFractionDigits: 2 })
-}
-
 export function Table1Analysis({ analysis }: Table1AnalysisProps) {
   const { t } = useTranslation()
-  const { files, getFileRows, _dirtyVersion } = useDatasetStore()
+  const { files, updateAnalysis } = useDatasetStore()
 
   const file = files.find((f) => f.id === analysis.datasetFileId)
   const columns = file?.columns ?? []
-  const rows = _dirtyVersion >= 0 ? getFileRows(analysis.datasetFileId) : []
 
-  const table = useMemo((): VariableRow[] => {
-    if (columns.length === 0 || rows.length === 0) return []
+  const config = analysis.config
+  const selectedColumns = (config.selectedColumns as string[] | undefined) ?? columns.map((c) => c.id)
+  const groupByColumn = (config.groupByColumn as string | undefined) ?? ''
 
-    return columns.map((col) => {
-      const values = rows.map((r) => r[col.id])
-      const nonNullValues = values.filter((v) => v != null && v !== '')
-      const total = values.length
-      const nonNull = nonNullValues.length
-      const nullCount = total - nonNull
+  // Generate Python code from config
+  const generatedCode = useMemo(
+    () => generateTable1Code(config, columns),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(config), JSON.stringify(columns.map((c) => ({ id: c.id, name: c.name, type: c.type })))],
+  )
 
-      const numericValues = nonNullValues.map(Number).filter((n) => !isNaN(n))
-      const isNumeric = col.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length)
-
-      if (isNumeric && numericValues.length > 0) {
-        const sorted = [...numericValues].sort((a, b) => a - b)
-        const sum = sorted.reduce((a, b) => a + b, 0)
-        const mean = sum / sorted.length
-        const variance = sorted.reduce((acc, v) => acc + (v - mean) ** 2, 0) / sorted.length
-        const std = Math.sqrt(variance)
-        return {
-          column: col,
-          total,
-          nonNull,
-          nullCount,
-          mean,
-          std,
-          median: percentile(sorted, 50),
-          min: sorted[0],
-          max: sorted[sorted.length - 1],
-          q1: percentile(sorted, 25),
-          q3: percentile(sorted, 75),
-        }
+  // Config change handler — respects code customization (AnalysisShell handles the warning)
+  const handleConfigChange = useCallback(
+    (changes: Record<string, unknown>) => {
+      const isCustomized = (config.isCodeCustomized as boolean) ?? false
+      if (isCustomized) {
+        // AnalysisShell will show the overwrite warning before applying
+        // For now, just pass the full new config
       }
+      updateAnalysis(analysis.id, {
+        config: { ...config, ...changes },
+      })
+    },
+    [analysis.id, config, updateAnalysis],
+  )
 
-      // Categorical
-      const counts = new Map<string, number>()
-      for (const v of nonNullValues) {
-        const key = String(v)
-        counts.set(key, (counts.get(key) ?? 0) + 1)
-      }
-      const categories = [...counts.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([value, count]) => ({ value, count, pct: (count / total) * 100 }))
+  const toggleColumn = useCallback(
+    (colId: string) => {
+      const current = selectedColumns
+      const next = current.includes(colId)
+        ? current.filter((id) => id !== colId)
+        : [...current, colId]
+      handleConfigChange({ selectedColumns: next })
+    },
+    [selectedColumns, handleConfigChange],
+  )
 
-      return { column: col, total, nonNull, nullCount, categories }
-    })
-  }, [columns, rows, _dirtyVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  const selectAll = useCallback(() => {
+    handleConfigChange({ selectedColumns: columns.map((c) => c.id) })
+  }, [columns, handleConfigChange])
+
+  const selectNone = useCallback(() => {
+    handleConfigChange({ selectedColumns: [] })
+  }, [handleConfigChange])
+
+  // Categorical columns for group-by
+  const categoricalColumns = useMemo(
+    () => columns.filter((c) => c.type === 'string' || c.type === 'boolean'),
+    [columns],
+  )
 
   if (columns.length === 0) {
     return (
@@ -103,53 +86,93 @@ export function Table1Analysis({ analysis }: Table1AnalysisProps) {
     )
   }
 
-  return (
-    <div className="h-full overflow-auto">
-      <table className="w-full text-xs border-collapse">
-        <thead className="sticky top-0 z-10 bg-muted">
-          <tr>
-            <th className="border-b px-3 py-2 text-left font-medium">Variable</th>
-            <th className="border-b px-3 py-2 text-left font-medium w-12">Type</th>
-            <th className="border-b px-3 py-2 text-right font-medium">n</th>
-            <th className="border-b px-3 py-2 text-right font-medium">{t('datasets.stats_missing')}</th>
-            <th className="border-b px-3 py-2 text-right font-medium">Mean ± SD</th>
-            <th className="border-b px-3 py-2 text-right font-medium">{t('datasets.stats_median')} [IQR]</th>
-            <th className="border-b px-3 py-2 text-left font-medium">n (%) / Range</th>
-          </tr>
-        </thead>
-        <tbody>
-          {table.map((row) => (
-            <tr key={row.column.id} className="hover:bg-accent/30">
-              <td className="border-b px-3 py-1.5 font-medium">{row.column.name}</td>
-              <td className="border-b px-3 py-1.5"><TypeBadge type={row.column.type} size="sm" /></td>
-              <td className="border-b px-3 py-1.5 text-right tabular-nums">{row.nonNull}</td>
-              <td className="border-b px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                {row.nullCount > 0 ? `${row.nullCount} (${((row.nullCount / row.total) * 100).toFixed(1)}%)` : '—'}
-              </td>
-              <td className="border-b px-3 py-1.5 text-right tabular-nums">
-                {row.mean != null ? `${fmt(row.mean)} ± ${fmt(row.std!)}` : '—'}
-              </td>
-              <td className="border-b px-3 py-1.5 text-right tabular-nums">
-                {row.median != null ? `${fmt(row.median)} [${fmt(row.q1!)}–${fmt(row.q3!)}]` : '—'}
-              </td>
-              <td className="border-b px-3 py-1.5">
-                {row.categories ? (
-                  <div className="space-y-0.5">
-                    {row.categories.map((cat) => (
-                      <div key={cat.value} className="flex items-center gap-1">
-                        <span className="truncate max-w-[100px]" title={cat.value}>{cat.value}</span>
-                        <span className="text-muted-foreground tabular-nums">{cat.count} ({cat.pct.toFixed(1)}%)</span>
-                      </div>
-                    ))}
+  const configPanel = (
+    <div className="p-3 space-y-4">
+      {/* Variables selection */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <Label className="text-xs">{t('datasets.analysis_variables')}</Label>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={selectAll}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              {t('common.select_all')}
+            </button>
+            <span className="text-[10px] text-muted-foreground">/</span>
+            <button
+              onClick={selectNone}
+              className="text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              {t('common.select_none')}
+            </button>
+          </div>
+        </div>
+        <ScrollArea className="max-h-[200px]">
+          <div className="space-y-0.5">
+            {columns.map((col) => {
+              const isSelected = selectedColumns.includes(col.id)
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => toggleColumn(col.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
+                    isSelected
+                      ? 'bg-accent text-accent-foreground'
+                      : 'text-muted-foreground hover:bg-accent/50',
+                  )}
+                >
+                  <div
+                    className={cn(
+                      'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                      isSelected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-muted-foreground/30',
+                    )}
+                  >
+                    {isSelected && <Check size={10} />}
                   </div>
-                ) : row.min != null ? (
-                  <span className="tabular-nums">{fmt(row.min!)} – {fmt(row.max!)}</span>
-                ) : '—'}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  <span className="truncate">{col.name}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">{col.type}</span>
+                </button>
+              )
+            })}
+          </div>
+        </ScrollArea>
+        <p className="text-[10px] text-muted-foreground">
+          {selectedColumns.length} / {columns.length} {t('datasets.analysis_selected')}
+        </p>
+      </div>
+
+      {/* Group by */}
+      <div className="space-y-1.5">
+        <Label className="text-xs">{t('datasets.analysis_group_by')}</Label>
+        <Select
+          value={groupByColumn || '__none__'}
+          onValueChange={(v) => handleConfigChange({ groupByColumn: v === '__none__' ? undefined : v })}
+        >
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__none__">{t('datasets.analysis_group_by_none')}</SelectItem>
+            {categoricalColumns.map((col) => (
+              <SelectItem key={col.id} value={col.name}>
+                {col.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
     </div>
+  )
+
+  return (
+    <AnalysisShell
+      analysis={analysis}
+      configPanel={configPanel}
+      generatedCode={generatedCode}
+    />
   )
 }

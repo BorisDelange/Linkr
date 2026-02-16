@@ -1,25 +1,11 @@
 import { useTranslation } from 'react-i18next'
-import { useFileStore, type ExecLanguage, type ExecutionResult } from '@/stores/file-store'
+import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { OutputTable } from './OutputTable'
-import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
-
-export const EXEC_LANGUAGES: ExecLanguage[] = ['python', 'r', 'sql']
-
-export const EXEC_TAB_LABELS: Record<ExecLanguage, string> = {
-  python: 'Python',
-  r: 'R',
-  sql: 'SQL',
-}
-
-export function getExecLang(tabId: string): ExecLanguage | null {
-  for (const l of EXEC_LANGUAGES) {
-    if (tabId === `__exec_${l}__`) return l
-  }
-  return null
-}
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -50,36 +36,18 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
     closeOutputTab,
     reorderAllOutputTabs,
     executionResults,
-    clearExecutionResultsByLanguage,
+    clearExecutionResults,
   } = useFileStore()
 
-  // Group execution results by language
-  const resultsByLang = useMemo(() => {
-    const map = new Map<ExecLanguage, number>()
-    for (const r of executionResults) {
-      map.set(r.language, (map.get(r.language) ?? 0) + 1)
-    }
-    return map
-  }, [executionResults])
-
-  const activeExecLang = activeOutputTab ? getExecLang(activeOutputTab) : null
-  const showExecContent = activeExecLang !== null
-
-  // Results for the currently active exec tab
-  const currentResults = useMemo(
-    () =>
-      activeExecLang
-        ? executionResults.filter((r) => r.language === activeExecLang)
-        : [],
-    [executionResults, activeExecLang]
-  )
+  const isConsoleTab = activeOutputTab === '__exec_console__'
+  const showExecContent = isConsoleTab
 
   // Auto-scroll sentinel
   const scrollSentinelRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!showExecContent || currentResults.length === 0) return
+    if (!showExecContent || executionResults.length === 0) return
     const timer = setTimeout(() => {
       if (scrollSentinelRef.current) {
         scrollSentinelRef.current.scrollIntoView({ behavior: 'smooth' })
@@ -93,7 +61,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
       }
     }, 50)
     return () => clearTimeout(timer)
-  }, [showExecContent, currentResults.length])
+  }, [showExecContent, executionResults.length])
 
   // --- Drag/drop for all tabs (unified) ---
   const [dragTabId, setDragTabId] = useState<string | null>(null)
@@ -203,12 +171,11 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
             }}
           >
             {outputTabOrder.map((tabId) => {
-              const execLang = getExecLang(tabId)
+              const isConsole = tabId === '__exec_console__'
               const isActive = activeOutputTab === tabId
 
-              // Exec tab (Python/R/SQL)
-              if (execLang) {
-                const count = resultsByLang.get(execLang) ?? 0
+              // Console tab (unified execution output)
+              if (isConsole) {
                 return (
                   <button
                     key={tabId}
@@ -228,14 +195,14 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
                       dropTargetId === tabId && dragTabId !== tabId && 'ring-1 ring-inset ring-primary/50'
                     )}
                   >
-                    <span>{EXEC_TAB_LABELS[execLang]}</span>
+                    <span>{t('files.console')}</span>
                     <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                      {count}
+                      {executionResults.length}
                     </span>
                     <span
                       onClick={(e) => {
                         e.stopPropagation()
-                        clearExecutionResultsByLanguage(execLang)
+                        clearExecutionResults()
                       }}
                       className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
                     >
@@ -292,9 +259,9 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
             </button>
           )}
           <div className="flex items-center shrink-0 border-l">
-            {activeExecLang && (
+            {isConsoleTab && (
               <button
-                onClick={() => clearExecutionResultsByLanguage(activeExecLang)}
+                onClick={() => clearExecutionResults()}
                 className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
                 title={t('files.clear_output')}
               >
@@ -318,7 +285,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
         {showExecContent && (
           <ScrollArea className="h-full" ref={scrollAreaRef}>
             <div className="p-2 space-y-1">
-              {currentResults.map((result) => (
+              {executionResults.map((result) => (
                 <ResultCard key={result.id} result={result} />
               ))}
               <div ref={scrollSentinelRef} />
@@ -396,51 +363,61 @@ function ResultCard({ result }: { result: ExecutionResult }) {
   }, [displayText])
 
   return (
-    <div
-      className={cn(
-        'rounded-md border p-3',
-        result.success
-          ? 'border-green-500/30 bg-green-500/5'
-          : 'border-red-500/30 bg-red-500/5'
-      )}
-    >
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-medium">
-          {result.fileName}
-        </span>
-        <div className="flex items-center gap-1">
-          {hasCode && (
-            <button
-              onClick={() => setShowCode((v) => !v)}
-              className={cn(
-                'rounded p-1 transition-colors',
-                showCode
-                  ? 'bg-accent text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
-              )}
-              title={showCode ? t('files.show_output') : t('files.show_code')}
-            >
-              <Code size={12} />
-            </button>
-          )}
-          <button
-            onClick={handleCopy}
-            className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
-            title={t('files.copy')}
-          >
-            {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-          </button>
-          <span className="ml-1 text-[10px] text-muted-foreground">
-            {new Date(result.timestamp).toLocaleTimeString()}
+    <TooltipProvider delayDuration={300}>
+      <div
+        className={cn(
+          'rounded-md border p-3',
+          result.success
+            ? 'border-green-500/30 bg-green-500/5'
+            : 'border-red-500/30 bg-red-500/5'
+        )}
+      >
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium">
+            {result.fileName}
           </span>
-          {result.duration > 0 && (
-            <span className="text-[10px] text-muted-foreground">{result.duration}ms</span>
-          )}
+          <div className="flex items-center gap-1">
+            {hasCode && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setShowCode((v) => !v)}
+                    className={cn(
+                      'rounded p-1 transition-colors',
+                      showCode
+                        ? 'bg-accent text-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                    )}
+                  >
+                    <Code size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{showCode ? t('files.show_output') : t('files.show_code')}</TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleCopy}
+                  className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+                >
+                  {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{t('files.copy')}</TooltipContent>
+            </Tooltip>
+            <span className="ml-1 text-[10px] text-muted-foreground">
+              {new Date(result.timestamp).toLocaleTimeString()}
+            </span>
+            {result.duration > 0 && (
+              <span className="text-[10px] text-muted-foreground">{result.duration}ms</span>
+            )}
+          </div>
         </div>
+        <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
+          {displayText}
+        </pre>
       </div>
-      <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
-        {displayText}
-      </pre>
-    </div>
+    </TooltipProvider>
   )
 }
