@@ -76,19 +76,29 @@ export function useReadmeAttachments(projectUid: string) {
 
   /**
    * Resolves `attachments/filename.png` paths in markdown to blob URLs.
+   * Handles both ![alt](attachments/file) and <img src="attachments/file" ...> formats.
    */
   const resolveAttachmentUrls = useCallback((markdown: string): string => {
     if (!markdown) return markdown
-    return markdown.replace(
+    // Markdown image syntax: ![alt](attachments/file)
+    let result = markdown.replace(
       /!\[([^\]]*)\]\(attachments\/([^)]+)\)/g,
       (_match, alt: string, fileName: string) => {
         const blobUrl = blobUrlsRef.current.get(fileName)
-        if (blobUrl) {
-          return `![${alt}](${blobUrl})`
-        }
+        if (blobUrl) return `![${alt}](${blobUrl})`
         return _match
       },
     )
+    // HTML img syntax: <img src="attachments/file" ...>
+    result = result.replace(
+      /(<img\s[^>]*?)src="attachments\/([^"]+)"([^>]*?>)/g,
+      (_match, before: string, fileName: string, after: string) => {
+        const blobUrl = blobUrlsRef.current.get(fileName)
+        if (blobUrl) return `${before}src="${blobUrl}"${after}`
+        return _match
+      },
+    )
+    return result
   }, [])
 
   return {

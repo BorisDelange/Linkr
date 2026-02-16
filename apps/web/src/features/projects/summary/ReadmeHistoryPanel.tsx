@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
+import { remarkPlugins, rehypePlugins, urlTransform } from './SummaryReadmeTab'
 import { Button } from '@/components/ui/button'
 import type { ReadmeSnapshot } from '@/types'
 
@@ -127,7 +127,7 @@ export function ReadmeHistoryPanel({
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="flex-1 overflow-auto p-4">
             <div className="prose prose-sm dark:prose-invert max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
                 {resolveAttachmentUrls(previewContent)}
               </ReactMarkdown>
             </div>

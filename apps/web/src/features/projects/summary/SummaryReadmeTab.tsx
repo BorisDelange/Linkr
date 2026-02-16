@@ -2,6 +2,11 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import 'katex/dist/katex.min.css'
 import {
   Pencil,
   Check,
@@ -23,6 +28,9 @@ import {
   Table,
   History,
   Paperclip,
+  Sigma,
+  HelpCircle,
+  Copy,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -31,11 +39,66 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { useAppStore } from '@/stores/app-store'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { ReadmeHistoryPanel } from './ReadmeHistoryPanel'
 import { ReadmeAttachmentsDialog } from './ReadmeAttachmentsDialog'
+
+export const remarkPlugins = [remarkGfm, remarkMath]
+
+/** Extend default sanitize schema to allow img width/height/alt, blob: URLs, and KaTeX */
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    img: [...(defaultSchema.attributes?.img ?? []), 'alt', 'width', 'height'],
+    // KaTeX generates spans/divs with class and style
+    span: [...(defaultSchema.attributes?.span ?? []), 'className', 'style'],
+    div: [...(defaultSchema.attributes?.div ?? []), 'className', 'style'],
+    math: ['xmlns'],
+    annotation: ['encoding'],
+  },
+  protocols: {
+    ...defaultSchema.protocols,
+    src: [...(defaultSchema.protocols?.src ?? []), 'blob'],
+  },
+  tagNames: [
+    ...(defaultSchema.tagNames ?? []),
+    // KaTeX tags
+    'math', 'semantics', 'mrow', 'mi', 'mo', 'mn', 'msup', 'msub',
+    'msubsup', 'mfrac', 'mover', 'munder', 'munderover', 'msqrt',
+    'mroot', 'mtable', 'mtr', 'mtd', 'mtext', 'mspace', 'annotation',
+  ],
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const rehypePlugins: any[] = [rehypeRaw, [rehypeSanitize, sanitizeSchema], rehypeKatex]
+
+/** Allow blob: URLs in addition to default safe protocols */
+const safeProtocol = /^(https?|ircs?|mailto|xmpp|blob)$/i
+export function urlTransform(value: string): string {
+  const colon = value.indexOf(':')
+  const questionMark = value.indexOf('?')
+  const numberSign = value.indexOf('#')
+  const slash = value.indexOf('/')
+  if (
+    colon === -1 ||
+    (slash !== -1 && colon > slash) ||
+    (questionMark !== -1 && colon > questionMark) ||
+    (numberSign !== -1 && colon > numberSign) ||
+    safeProtocol.test(value.slice(0, colon))
+  ) {
+    return value
+  }
+  return ''
+}
 
 interface SummaryReadmeTabProps {
   uid: string
@@ -67,17 +130,30 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
     if (mode !== 'edit') setLocalReadme(readme)
   }, [readme, mode])
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     updateProjectReadme(uid, localReadme)
     setMode('view')
-  }
+  }, [uid, localReadme, updateProjectReadme])
 
   const handleCancel = () => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     setLocalReadme(readme)
     setMode('view')
   }
+
+  // Cmd/Ctrl+S to save in edit mode
+  useEffect(() => {
+    if (mode !== 'edit') return
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSave()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [mode, handleSave])
 
   const handleRestore = (snapshotId: string) => {
     restoreReadmeVersion(uid, snapshotId)
@@ -116,6 +192,12 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
           text.substring(lineStart)
         cursorStart = cursorEnd = lineStart + newlinePrefix.length + (start - lineStart)
       }
+    } else if (format === 'footnote') {
+      const ref = `[^1]`
+      const def = `\n\n[^1]: Your footnote text`
+      replacement = text.substring(0, end) + ref + text.substring(end) + def
+      cursorStart = end + ref.length + def.length - 19
+      cursorEnd = end + ref.length + def.length
     } else if (format === 'table') {
       const tableTemplate = '\n| Column 1 | Column 2 | Column 3 |\n| --- | --- | --- |\n| | | |\n'
       replacement = text.substring(0, start) + tableTemplate + text.substring(end)
@@ -194,6 +276,15 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
           {t('summary.readme')}
         </h2>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-2 text-xs text-muted-foreground"
+            onClick={() => setAttachmentsOpen(true)}
+          >
+            <Paperclip size={12} />
+            {t('summary.attachments')}
+          </Button>
           {mode === 'edit' ? (
             <>
               <Button
@@ -217,15 +308,6 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
             </>
           ) : (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 px-2 text-xs text-muted-foreground"
-                onClick={() => setAttachmentsOpen(true)}
-              >
-                <Paperclip size={12} />
-                {t('summary.attachments')}
-              </Button>
               <Button
                 variant="ghost"
                 size="sm"
@@ -266,7 +348,7 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
             </div>
             <div className="overflow-auto p-4">
               <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
                   {resolveAttachmentUrls(localReadme)}
                 </ReactMarkdown>
               </div>
@@ -278,7 +360,7 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
           <div className="h-full overflow-auto p-4">
             {readme ? (
               <div className="prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
                   {resolveAttachmentUrls(readme)}
                 </ReactMarkdown>
               </div>
@@ -311,6 +393,7 @@ type MarkdownFormat =
   | 'ul' | 'ol' | 'checklist'
   | 'code' | 'codeblock' | 'quote'
   | 'link' | 'image' | 'hr' | 'table'
+  | 'math_inline' | 'math_block' | 'footnote'
 
 function getFormatTokens(format: MarkdownFormat) {
   const m: Record<MarkdownFormat, { before: string; after: string; placeholder: string; newlinePrefix?: string }> = {
@@ -330,6 +413,9 @@ function getFormatTokens(format: MarkdownFormat) {
     image:         { before: '![', after: '](url)', placeholder: 'alt text' },
     hr:            { before: '\n---\n', after: '', placeholder: '' },
     table:         { before: '', after: '', placeholder: '' },
+    math_inline:   { before: '$', after: '$', placeholder: 'E = mc^2' },
+    math_block:    { before: '$$\n', after: '\n$$', placeholder: '\\sum_{i=1}^{n} x_i' },
+    footnote:      { before: '', after: '', placeholder: '' },
   }
   return m[format]
 }
@@ -357,12 +443,19 @@ const toolbarGroups: { format: MarkdownFormat; icon: React.ReactNode; label: str
     { format: 'image', icon: <Image size={14} />, label: 'Image' },
   ],
   [
+    { format: 'math_inline', icon: <Sigma size={14} />, label: 'Inline math' },
+    { format: 'math_block', icon: <span className="text-[10px] font-bold leading-none">$$</span>, label: 'Math block' },
+  ],
+  [
+    { format: 'footnote', icon: <span className="text-[10px] font-bold leading-none">fn</span>, label: 'Footnote' },
     { format: 'hr', icon: <Minus size={14} />, label: 'Horizontal rule' },
     { format: 'table', icon: <Table size={14} />, label: 'Table' },
   ],
 ]
 
 function MarkdownToolbar({ onFormat }: { onFormat: (f: MarkdownFormat) => void }) {
+  const { t } = useTranslation()
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex shrink-0 items-center gap-0.5 border-b px-2 py-1">
@@ -389,7 +482,137 @@ function MarkdownToolbar({ onFormat }: { onFormat: (f: MarkdownFormat) => void }
             ))}
           </div>
         ))}
+
+        {/* Help button */}
+        <Separator orientation="vertical" className="mx-1 h-4" />
+        <Dialog>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DialogTrigger asChild>
+                <button
+                  type="button"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  <HelpCircle size={14} />
+                </button>
+              </DialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {t('summary.markdown_help')}
+            </TooltipContent>
+          </Tooltip>
+          <DialogContent className="max-h-[80vh] max-w-2xl overflow-auto">
+            <DialogHeader>
+              <DialogTitle>{t('summary.markdown_help')}</DialogTitle>
+            </DialogHeader>
+            <MarkdownHelpContent />
+          </DialogContent>
+        </Dialog>
       </div>
     </TooltipProvider>
+  )
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(text.replace(/\\n/g, '\n'))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+    >
+      {copied ? <Check size={10} className="text-primary" /> : <Copy size={10} />}
+    </button>
+  )
+}
+
+function MarkdownHelpContent() {
+  const { t } = useTranslation()
+  const sections: { title: string; rows: [string, string][] }[] = [
+    {
+      title: t('summary.help_basic'),
+      rows: [
+        ['# Heading 1', t('summary.help_heading', { level: '1' })],
+        ['## Heading 2', t('summary.help_heading', { level: '2' })],
+        ['### Heading 3', t('summary.help_heading', { level: '3' })],
+        ['**bold**', t('summary.help_bold')],
+        ['_italic_', t('summary.help_italic')],
+        ['~~strikethrough~~', t('summary.help_strikethrough')],
+      ],
+    },
+    {
+      title: t('summary.help_lists'),
+      rows: [
+        ['- item', t('summary.help_bullet')],
+        ['1. item', t('summary.help_numbered')],
+        ['- [ ] task', t('summary.help_checklist')],
+      ],
+    },
+    {
+      title: t('summary.help_content'),
+      rows: [
+        ['`code`', t('summary.help_inline_code')],
+        ['```\\ncode\\n```', t('summary.help_code_block')],
+        ['> quote', t('summary.help_quote')],
+        ['[text](url)', t('summary.help_link')],
+        ['![alt](url)', t('summary.help_image')],
+        ['---', t('summary.help_hr')],
+      ],
+    },
+    {
+      title: t('summary.help_tables'),
+      rows: [
+        ['| A | B |\\n| --- | --- |\\n| 1 | 2 |', t('summary.help_table')],
+      ],
+    },
+    {
+      title: t('summary.help_math'),
+      rows: [
+        ['$E = mc^2$', t('summary.help_inline_math')],
+        ['$$\\n\\\\sum_{i=1}^{n} x_i\\n$$', t('summary.help_block_math')],
+      ],
+    },
+    {
+      title: t('summary.help_footnotes'),
+      rows: [
+        ['text[^1]\\n\\n[^1]: note', t('summary.help_footnote')],
+      ],
+    },
+  ]
+
+  return (
+    <div className="space-y-4 text-sm">
+      {sections.map((section) => (
+        <div key={section.title}>
+          <h3 className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+            {section.title}
+          </h3>
+          <div className="overflow-hidden rounded-lg border">
+            <table className="w-full">
+              <tbody>
+                {section.rows.map(([syntax, desc], i) => (
+                  <tr key={i} className={i > 0 ? 'border-t' : ''}>
+                    <td className="bg-muted/30 px-3 py-1.5">
+                      <div className="flex items-start gap-1.5">
+                        <code className="flex-1 text-xs whitespace-pre-wrap">{syntax.replace(/\\n/g, '\n')}</code>
+                        <CopyButton text={syntax} />
+                      </div>
+                    </td>
+                    <td className="px-3 py-1.5 text-xs text-muted-foreground">{desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }

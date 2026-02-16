@@ -217,19 +217,16 @@ export function ProjectSettingsPage() {
                 )}
 
                 {/* Add badge */}
-                <div className="flex items-end gap-3">
-                  <div className="flex-1 space-y-2">
-                    <Label>{t('project_settings.badge_label')}</Label>
+                <div className="space-y-2">
+                  <Label>{t('project_settings.badge_label')}</Label>
+                  <div className="flex items-center gap-3">
                     <Input
                       value={newBadgeLabel}
                       onChange={(e) => setNewBadgeLabel(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddBadge()}
                       placeholder={t('project_settings.badge_label_placeholder')}
-                      className="h-8 text-sm"
+                      className="h-8 w-48 text-sm"
                     />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>{t('project_settings.badge_color')}</Label>
                     <div className="flex items-center gap-1.5">
                       {PRESET_COLORS.map((c) => (
                         <button
@@ -261,17 +258,17 @@ export function ProjectSettingsPage() {
                         </div>
                       </div>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddBadge}
+                      disabled={!newBadgeLabel.trim()}
+                      className="gap-1"
+                    >
+                      <Plus size={14} />
+                      {t('project_settings.add_badge')}
+                    </Button>
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={handleAddBadge}
-                    disabled={!newBadgeLabel.trim()}
-                    className="gap-1"
-                  >
-                    <Plus size={14} />
-                    {t('project_settings.add_badge')}
-                  </Button>
                 </div>
               </CardContent>
             </Card>

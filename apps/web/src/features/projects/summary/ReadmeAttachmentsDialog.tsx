@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Upload, Copy, Trash2, Image as ImageIcon } from 'lucide-react'
+import { Upload, Copy, Check, Trash2, Image as ImageIcon } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -82,7 +82,7 @@ export function ReadmeAttachmentsDialog({
   }, [])
 
   const copyMarkdown = useCallback((fileName: string) => {
-    const md = `![${fileName}](attachments/${fileName})`
+    const md = `<img src="attachments/${fileName}" alt="${fileName}" width="300" />`
     navigator.clipboard.writeText(md)
   }, [])
 
@@ -166,6 +166,7 @@ function AttachmentRow({
   onDelete: () => void
 }) {
   const { t } = useTranslation()
+  const [copied, setCopied] = useState(false)
   const isImage = attachment.mimeType.startsWith('image/')
   const [thumbnailUrl] = useState(() => {
     if (isImage) {
@@ -174,6 +175,12 @@ function AttachmentRow({
     }
     return null
   })
+
+  const handleCopy = () => {
+    onCopy()
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
 
   return (
     <div className="flex items-center gap-3 rounded-lg border px-3 py-2">
@@ -211,11 +218,11 @@ function AttachmentRow({
       <Button
         variant="ghost"
         size="sm"
-        className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+        className={`h-6 w-6 p-0 ${copied ? 'text-primary' : 'text-muted-foreground hover:text-foreground'}`}
         title={t('summary.copy_markdown')}
-        onClick={onCopy}
+        onClick={handleCopy}
       >
-        <Copy size={12} />
+        {copied ? <Check size={12} /> : <Copy size={12} />}
       </Button>
       <Button
         variant="ghost"
