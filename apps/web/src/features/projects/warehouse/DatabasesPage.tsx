@@ -110,7 +110,6 @@ export function DatabasesPage() {
                 onSetActive={() => uid && setActiveDataSource(uid, ds.id)}
                 onTestConnection={() => testConnection(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
-                onEdit={() => {}}
                 onRemove={() => setSourceToUnlink(ds)}
               />
             ))}

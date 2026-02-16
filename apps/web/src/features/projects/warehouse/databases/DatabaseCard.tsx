@@ -25,7 +25,7 @@ interface DatabaseCardProps {
   onSetActive?: () => void
   onTestConnection: () => void
   onReconnect?: () => void
-  onEdit: () => void
+  onEdit?: () => void
   onRemove: () => void
 }
 
@@ -191,15 +191,17 @@ export function DatabaseCard({
               {t('databases.test_connection')}
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
-            className="gap-1.5 text-xs"
-          >
-            <Pencil size={12} />
-            {t('databases.edit')}
-          </Button>
+          {onEdit && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onEdit}
+              className="gap-1.5 text-xs"
+            >
+              <Pencil size={12} />
+              {t('databases.edit')}
+            </Button>
+          )}
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

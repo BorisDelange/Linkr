@@ -7,6 +7,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { initStorage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
+import { seedDemoDatabase } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -61,6 +62,17 @@ export function App() {
   useEffect(() => {
     i18n.changeLanguage(language)
   }, [language, i18n])
+
+  // Seed demo database on first launch, then reload stores
+  useEffect(() => {
+    if (projectsLoaded && dataSourcesLoaded) {
+      seedDemoDatabase().then(() => {
+        loadProjects()
+        loadDataSources()
+      })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectsLoaded, dataSourcesLoaded])
 
   // Auto-mount data sources when entering a project
   useEffect(() => {
