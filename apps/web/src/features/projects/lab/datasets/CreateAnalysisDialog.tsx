@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TableIcon, BarChart3, FileText, GitCompareArrows, Grid3X3 } from 'lucide-react'
 import {
@@ -176,6 +176,15 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const [name, setName] = useState('')
   const [selectedType, setSelectedType] = useState<DatasetAnalysisType>('table1')
   const { analyses, createAnalysis } = useDatasetStore()
+
+  // Set default name when dialog opens
+  useEffect(() => {
+    if (open) {
+      const defaultNameKey = ANALYSIS_TYPES.find((a) => a.value === selectedType)?.nameKey
+      if (defaultNameKey) setName(t(defaultNameKey))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const nameExists = analyses.some(
     (a) => a.datasetFileId === datasetFileId && a.name.toLowerCase() === name.trim().toLowerCase()

@@ -51,6 +51,7 @@ import { useRuntimeStore } from '@/stores/runtime-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
+import { useDatasetStore } from '@/stores/dataset-store'
 import { useProjectTree } from '@/hooks/use-project-tree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
@@ -60,7 +61,6 @@ import { OutputPanel, getTabIcon } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
-import { DatasetTable } from './lab/datasets/DatasetTable'
 import { RunButton } from './files/RunButton'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
@@ -106,6 +106,7 @@ export function FilesPage() {
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
+  const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: datasetDirtyVersion } = useDatasetStore()
   const { nodes } = useProjectTree(activeProjectUid)
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
@@ -132,8 +133,9 @@ export function FilesPage() {
       loadDataSources()
       loadCohorts()
       loadPipelines()
+      loadProjectDatasets(activeProjectUid)
     }
-  }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines])
+  }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
@@ -144,11 +146,38 @@ export function FilesPage() {
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
 
-  // Detect if selected file is a dataset file (show DataTable instead of CodeEditor)
-  const datasetFileId = selectedFileId?.startsWith('virtual:data/datasets/')
-    ? selectedFileId.replace('virtual:data/datasets/', '')
-    : null
-  const isDatasetFile = datasetFileId !== null && selectedNode?.type === 'file'
+  // When a dataset file is selected, redirect it to an output tab instead of a file tab
+  useEffect(() => {
+    if (!selectedFileId?.startsWith('virtual:data/datasets/')) return
+    const node = nodes.find((n) => n.id === selectedFileId)
+    if (!node || node.type !== 'file') return
+
+    const dsFileId = selectedFileId.replace('virtual:data/datasets/', '')
+    const dsFile = datasetFiles.find((f) => f.id === dsFileId)
+    if (!dsFile) return
+
+    // Close the file tab that was auto-opened by selectFile
+    closeFile(selectedFileId)
+
+    // Load data then open as output tab
+    const outputTabId = `dataset:${dsFileId}`
+    loadFileData(dsFileId).then(() => {
+      const rows = getFileRows(dsFileId)
+      const columns = dsFile.columns ?? []
+      const headers = columns.map((c) => c.name)
+      const tableRows = rows.map((row) =>
+        columns.map((c) => (row[c.id] != null ? String(row[c.id]) : ''))
+      )
+      addOutputTab({
+        id: outputTabId,
+        label: dsFile.name,
+        type: 'table',
+        content: { headers, rows: tableRows },
+      })
+      setOutputVisible(true)
+      setEditorVisible(false)
+    })
+  }, [selectedFileId, nodes, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
 
   /** Execute SQL against the active DuckDB connection. */
   const executeSql = useCallback(
@@ -948,14 +977,7 @@ export function FilesPage() {
                     <Allotment>
                       {/* Editor panel */}
                       <Allotment.Pane minSize={150} visible={editorVisible}>
-                        {selectedNode && isDatasetFile && datasetFileId ? (
-                          <DatasetTable
-                            key={datasetFileId}
-                            fileId={datasetFileId}
-                            selectedColumnId={null}
-                            onSelectColumn={() => {}}
-                          />
-                        ) : selectedNode ? (
+                        {selectedNode ? (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}

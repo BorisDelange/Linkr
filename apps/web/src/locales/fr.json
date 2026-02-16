@@ -426,7 +426,11 @@
     "data_table_hidden": "Le tableau de données est masqué. Utilisez le bouton ci-dessus pour l'afficher.",
     "analysis_toggle_config": "Afficher/masquer le panneau config/code",
     "analysis_toggle_output": "Afficher/masquer le panneau résultat",
-    "analysis_name_exists": "Une analyse avec ce nom existe déjà."
+    "analysis_name_exists": "Une analyse avec ce nom existe déjà.",
+    "analysis_save": "Sauvegarder",
+    "analysis_save_tooltip": "Sauvegarder la configuration de l'analyse",
+    "analysis_auto_run": "Auto",
+    "analysis_auto_run_tooltip": "Exécuter automatiquement à l'ouverture (masque le panneau config)"
   },
   "subsets": {
     "title": "Sous-ensembles",
@@ -552,6 +556,7 @@
     "file_type": "Type de fichier",
     "file_name": "Nom du fichier",
     "file_name_placeholder": "ex. script",
+    "name_already_exists": "Un fichier ou dossier avec ce nom existe déjà ici",
     "type_text": "Texte brut",
     "type_r": "Script R",
     "type_python": "Script Python",

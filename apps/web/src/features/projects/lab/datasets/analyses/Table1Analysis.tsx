@@ -14,79 +14,46 @@ import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { generateTable1Code } from '../code-generators/table1'
 import { AnalysisShell } from './AnalysisShell'
-import type { DatasetAnalysis } from '@/types'
+import type { DatasetAnalysis, DatasetColumn } from '@/types'
 
-interface Table1AnalysisProps {
-  analysis: DatasetAnalysis
+// --- Config panel (extracted so AnalysisShell can pass onConfigChange) ---
+
+interface Table1ConfigPanelProps {
+  columns: DatasetColumn[]
+  selectedColumns: string[]
+  groupByColumn: string
+  categoricalColumns: DatasetColumn[]
+  onConfigChange: (changes: Record<string, unknown>) => void
 }
 
-export function Table1Analysis({ analysis }: Table1AnalysisProps) {
+function Table1ConfigPanel({
+  columns,
+  selectedColumns,
+  groupByColumn,
+  categoricalColumns,
+  onConfigChange,
+}: Table1ConfigPanelProps) {
   const { t } = useTranslation()
-  const { files, updateAnalysis } = useDatasetStore()
-
-  const file = files.find((f) => f.id === analysis.datasetFileId)
-  const columns = file?.columns ?? []
-
-  const config = analysis.config
-  const selectedColumns = (config.selectedColumns as string[] | undefined) ?? columns.map((c) => c.id)
-  const groupByColumn = (config.groupByColumn as string | undefined) ?? ''
-
-  // Generate Python code from config
-  const generatedCode = useMemo(
-    () => generateTable1Code(config, columns),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [JSON.stringify(config), JSON.stringify(columns.map((c) => ({ id: c.id, name: c.name, type: c.type })))],
-  )
-
-  // Config change handler — respects code customization (AnalysisShell handles the warning)
-  const handleConfigChange = useCallback(
-    (changes: Record<string, unknown>) => {
-      const isCustomized = (config.isCodeCustomized as boolean) ?? false
-      if (isCustomized) {
-        // AnalysisShell will show the overwrite warning before applying
-        // For now, just pass the full new config
-      }
-      updateAnalysis(analysis.id, {
-        config: { ...config, ...changes },
-      })
-    },
-    [analysis.id, config, updateAnalysis],
-  )
 
   const toggleColumn = useCallback(
     (colId: string) => {
-      const current = selectedColumns
-      const next = current.includes(colId)
-        ? current.filter((id) => id !== colId)
-        : [...current, colId]
-      handleConfigChange({ selectedColumns: next })
+      const next = selectedColumns.includes(colId)
+        ? selectedColumns.filter((id) => id !== colId)
+        : [...selectedColumns, colId]
+      onConfigChange({ selectedColumns: next })
     },
-    [selectedColumns, handleConfigChange],
+    [selectedColumns, onConfigChange],
   )
 
   const selectAll = useCallback(() => {
-    handleConfigChange({ selectedColumns: columns.map((c) => c.id) })
-  }, [columns, handleConfigChange])
+    onConfigChange({ selectedColumns: columns.map((c) => c.id) })
+  }, [columns, onConfigChange])
 
   const selectNone = useCallback(() => {
-    handleConfigChange({ selectedColumns: [] })
-  }, [handleConfigChange])
+    onConfigChange({ selectedColumns: [] })
+  }, [onConfigChange])
 
-  // Categorical columns for group-by
-  const categoricalColumns = useMemo(
-    () => columns.filter((c) => c.type === 'string' || c.type === 'boolean'),
-    [columns],
-  )
-
-  if (columns.length === 0) {
-    return (
-      <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
-        {t('datasets.empty_dataset')}
-      </div>
-    )
-  }
-
-  const configPanel = (
+  return (
     <div className="p-3 space-y-4">
       {/* Variables selection */}
       <div className="space-y-1.5">
@@ -150,7 +117,7 @@ export function Table1Analysis({ analysis }: Table1AnalysisProps) {
         <Label className="text-xs">{t('datasets.analysis_group_by')}</Label>
         <Select
           value={groupByColumn || '__none__'}
-          onValueChange={(v) => handleConfigChange({ groupByColumn: v === '__none__' ? undefined : v })}
+          onValueChange={(v) => onConfigChange({ groupByColumn: v === '__none__' ? undefined : v })}
         >
           <SelectTrigger className="h-8 text-xs">
             <SelectValue />
@@ -167,11 +134,60 @@ export function Table1Analysis({ analysis }: Table1AnalysisProps) {
       </div>
     </div>
   )
+}
+
+// --- Main Table1 analysis component ---
+
+interface Table1AnalysisProps {
+  analysis: DatasetAnalysis
+}
+
+export function Table1Analysis({ analysis }: Table1AnalysisProps) {
+  const { t } = useTranslation()
+  const { files } = useDatasetStore()
+
+  const file = files.find((f) => f.id === analysis.datasetFileId)
+  const columns = file?.columns ?? []
+
+  const config = analysis.config
+  const selectedColumns = (config.selectedColumns as string[] | undefined) ?? columns.map((c) => c.id)
+  const groupByColumn = (config.groupByColumn as string | undefined) ?? ''
+
+  // Generate Python code from config
+  const generatedCode = useMemo(
+    () => generateTable1Code(config, columns),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(config), JSON.stringify(columns.map((c) => ({ id: c.id, name: c.name, type: c.type })))],
+  )
+
+  // Categorical columns for group-by
+  const categoricalColumns = useMemo(
+    () => columns.filter((c) => c.type === 'string' || c.type === 'boolean'),
+    [columns],
+  )
+
+  if (columns.length === 0) {
+    return (
+      <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
+        {t('datasets.empty_dataset')}
+      </div>
+    )
+  }
+
+  const renderConfigPanel = (onConfigChange: (changes: Record<string, unknown>) => void) => (
+    <Table1ConfigPanel
+      columns={columns}
+      selectedColumns={selectedColumns}
+      groupByColumn={groupByColumn}
+      categoricalColumns={categoricalColumns}
+      onConfigChange={onConfigChange}
+    />
+  )
 
   return (
     <AnalysisShell
       analysis={analysis}
-      configPanel={configPanel}
+      configPanel={renderConfigPanel}
       generatedCode={generatedCode}
     />
   )

@@ -426,7 +426,11 @@
     "data_table_hidden": "Data table is hidden. Use the toggle button above to show it.",
     "analysis_toggle_config": "Toggle config/code panel",
     "analysis_toggle_output": "Toggle output panel",
-    "analysis_name_exists": "An analysis with this name already exists."
+    "analysis_name_exists": "An analysis with this name already exists.",
+    "analysis_save": "Save",
+    "analysis_save_tooltip": "Save analysis configuration",
+    "analysis_auto_run": "Auto",
+    "analysis_auto_run_tooltip": "Auto-run on open (hides config panel)"
   },
   "subsets": {
     "title": "Subsets",
@@ -552,6 +556,7 @@
     "file_type": "File type",
     "file_name": "File name",
     "file_name_placeholder": "e.g. script",
+    "name_already_exists": "A file or folder with this name already exists here",
     "type_text": "Plain text",
     "type_r": "R script",
     "type_python": "Python script",

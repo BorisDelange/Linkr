@@ -40,14 +40,22 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
+  SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from '@/components/ui/collapsible'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { LinkRLogo } from '@/components/ui/linkr-logo'
 
 interface NavItem {
@@ -158,6 +166,8 @@ export function AppSidebar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { activeProjectUid, closeProject } = useAppStore()
+  const { state: sidebarState } = useSidebar()
+  const isCollapsed = sidebarState === 'collapsed'
 
   const inProject = activeProjectUid !== null
 
@@ -188,6 +198,39 @@ export function AppSidebar() {
     const isChildActive = entry.children.some(
       (child) => location.pathname === `/projects/${activeProjectUid}/${child.segment}`,
     )
+
+    // When collapsed, show a dropdown menu from the icon
+    if (isCollapsed) {
+      return (
+        <SidebarMenuItem key={entry.labelKey}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton isActive={isChildActive} tooltip={t(entry.labelKey)}>
+                <entry.icon className={isChildActive ? '' : entry.iconColor} />
+                <span>{t(entry.labelKey)}</span>
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start" className="min-w-[180px]">
+              {entry.children.map((child) => {
+                const path = `/projects/${activeProjectUid}/${child.segment}`
+                const isActive = location.pathname === path
+                return (
+                  <DropdownMenuItem
+                    key={child.segment}
+                    className={isActive ? 'bg-accent' : ''}
+                    onClick={() => navigate(path)}
+                  >
+                    <child.icon size={14} className={isActive ? '' : child.iconColor} />
+                    <span>{t(child.labelKey)}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      )
+    }
+
     return (
       <Collapsible
         key={entry.labelKey}
@@ -216,6 +259,37 @@ export function AppSidebar() {
     const isChildActive = entry.children.some(
       (child) => location.pathname === child.path,
     )
+
+    if (isCollapsed) {
+      return (
+        <SidebarMenuItem key={entry.labelKey}>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <SidebarMenuButton isActive={isChildActive} tooltip={t(entry.labelKey)}>
+                <entry.icon className={isChildActive ? '' : entry.iconColor} />
+                <span>{t(entry.labelKey)}</span>
+              </SidebarMenuButton>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="right" align="start" className="min-w-[180px]">
+              {entry.children.map((child) => {
+                const isActive = location.pathname === child.path
+                return (
+                  <DropdownMenuItem
+                    key={child.path}
+                    className={isActive ? 'bg-accent' : ''}
+                    onClick={() => navigate(child.path)}
+                  >
+                    <child.icon size={14} className={isActive ? '' : child.iconColor} />
+                    <span>{t(child.labelKey)}</span>
+                  </DropdownMenuItem>
+                )
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </SidebarMenuItem>
+      )
+    }
+
     return (
       <Collapsible
         key={entry.labelKey}
@@ -365,6 +439,7 @@ export function AppSidebar() {
           </SidebarMenu>
         </SidebarFooter>
       )}
+      <SidebarRail />
     </Sidebar>
   )
 }

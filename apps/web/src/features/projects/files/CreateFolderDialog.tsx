@@ -41,12 +41,16 @@ export function CreateFolderDialog({
 
   const folderTree = useMemo(() => buildFolderTree(files), [files])
 
+  const trimmedName = name.trim()
+  const actualParentId = selectedParentId === '__root__' ? null : selectedParentId
+  const isDuplicate = trimmedName.length > 0 && files.some(
+    (f) => f.name === trimmedName && f.parentId === actualParentId
+  )
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
-    const actualParentId =
-      selectedParentId === '__root__' ? null : selectedParentId
-    createFolder(name.trim(), actualParentId)
+    if (!trimmedName || isDuplicate) return
+    createFolder(trimmedName, actualParentId)
     setName('')
     onOpenChange(false)
   }
@@ -103,6 +107,9 @@ export function CreateFolderDialog({
                 placeholder={t('files.folder_name_placeholder')}
                 autoFocus
               />
+              {isDuplicate && (
+                <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">
@@ -113,7 +120,7 @@ export function CreateFolderDialog({
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <Button type="submit" disabled={!trimmedName || isDuplicate}>
               {t('common.create')}
             </Button>
           </DialogFooter>

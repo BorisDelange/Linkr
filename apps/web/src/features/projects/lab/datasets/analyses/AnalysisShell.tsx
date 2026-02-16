@@ -1,8 +1,8 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, Eye, EyeOff } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, Eye, EyeOff, Save } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -30,21 +30,24 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 interface AnalysisShellProps {
   analysis: DatasetAnalysis
-  configPanel: React.ReactNode
+  configPanel: (onConfigChange: (changes: Record<string, unknown>) => void) => React.ReactNode
   generatedCode: string
 }
 
 export function AnalysisShell({ analysis, configPanel, generatedCode }: AnalysisShellProps) {
   const { t } = useTranslation()
-  const { files, getFileRows, updateAnalysis, _dirtyVersion } = useDatasetStore()
+  const { files, getFileRows, updateAnalysis, saveAnalysis, isAnalysisDirty, _dirtyVersion } = useDatasetStore()
+
+  const autoRun = (analysis.config.autoRun as boolean) ?? false
 
   // null = left pane hidden; 'config' | 'code' = left pane visible with that tab
-  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>('config')
+  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(autoRun ? null : 'config')
   const [isExecuting, setIsExecuting] = useState(false)
   const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [overwriteConfirmOpen, setOverwriteConfirmOpen] = useState(false)
   const [rightVisible, setRightVisible] = useState(true)
   const pendingConfigChange = useRef<Record<string, unknown> | null>(null)
+  const hasAutoRun = useRef(false)
   const leftVisible = activeTab !== null
 
   const config = analysis.config
@@ -79,6 +82,13 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
     })
   }, [analysis.id, config, updateAnalysis])
 
+  // Save analysis config
+  const handleSave = useCallback(() => {
+    saveAnalysis(analysis.id)
+  }, [analysis.id, saveAnalysis])
+
+  const isDirty = _dirtyVersion >= 0 && isAnalysisDirty(analysis.id)
+
   // Run the analysis
   const handleRun = useCallback(async () => {
     setIsExecuting(true)
@@ -102,9 +112,25 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
     }
   }, [currentCode, analysis.datasetFileId, columns, getFileRows])
 
-  // Handle config change from parent — warn if code is customized
-  const handleConfigChangeFromParent = useCallback(
-    (newConfig: Record<string, unknown>) => {
+  // Auto-run on mount (once)
+  useEffect(() => {
+    if (autoRun && !hasAutoRun.current && columns.length > 0) {
+      hasAutoRun.current = true
+      handleRun()
+    }
+  }, [autoRun, columns.length, handleRun])
+
+  // Toggle auto-run
+  const handleToggleAutoRun = useCallback(() => {
+    updateAnalysis(analysis.id, {
+      config: { ...config, autoRun: !autoRun },
+    })
+  }, [analysis.id, config, autoRun, updateAnalysis])
+
+  // Handle config change from config panel — warn if code is customized
+  const handleConfigChange = useCallback(
+    (changes: Record<string, unknown>) => {
+      const newConfig = { ...config, ...changes }
       if (isCustomized) {
         pendingConfigChange.current = newConfig
         setOverwriteConfirmOpen(true)
@@ -112,7 +138,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
         updateAnalysis(analysis.id, { config: newConfig })
       }
     },
-    [analysis.id, isCustomized, updateAnalysis],
+    [analysis.id, config, isCustomized, updateAnalysis],
   )
 
   const handleConfirmOverwrite = useCallback(() => {
@@ -181,6 +207,22 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
           </button>
 
           <div className="ml-auto flex items-center gap-1">
+            {isDirty && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleSave}
+                    className="h-6 gap-1 text-xs"
+                  >
+                    <Save size={12} />
+                    {t('datasets.analysis_save')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('datasets.analysis_save_tooltip')}</TooltipContent>
+              </Tooltip>
+            )}
             <Button
               size="sm"
               onClick={handleRun}
@@ -201,6 +243,24 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
                 {t('datasets.analysis_reset_code')}
               </Button>
             )}
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={handleToggleAutoRun}
+                  className={cn(
+                    'flex items-center gap-1 rounded px-2 py-1 text-[10px] transition-colors',
+                    autoRun
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:bg-accent/50',
+                  )}
+                >
+                  <Play size={10} />
+                  {t('datasets.analysis_auto_run')}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">{t('datasets.analysis_auto_run_tooltip')}</TooltipContent>
+            </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
@@ -226,7 +286,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
             <Allotment.Pane preferredSize="45%" minSize={leftVisible ? 200 : 0} visible={leftVisible}>
               <div className="flex h-full flex-col border-r">
                 <div className="min-h-0 flex-1 overflow-auto">
-                  {activeTab === 'config' && configPanel}
+                  {activeTab === 'config' && configPanel(handleConfigChange)}
                   {activeTab === 'code' && (
                     <CodeEditor
                       value={currentCode}

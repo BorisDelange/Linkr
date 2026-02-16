@@ -119,13 +119,16 @@ export function CreateFileDialog({
   const selectedType = fileTypes.find((ft) => ft.id === fileType)!
   const folderTree = useMemo(() => buildFolderTree(files), [files])
 
+  const finalName = name.includes('.') ? name.trim() : `${name.trim()}${selectedType.ext}`
+  const actualParentId = selectedParentId === '__root__' ? null : selectedParentId
+  const isDuplicate = finalName.length > 0 && files.some(
+    (f) => f.name === finalName && f.parentId === actualParentId
+  )
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const finalName = name.includes('.') ? name : `${name}${selectedType.ext}`
-    if (!finalName.trim()) return
-    const actualParentId =
-      selectedParentId === '__root__' ? null : selectedParentId
-    createFile(finalName.trim(), actualParentId, selectedType.lang)
+    if (!finalName || isDuplicate) return
+    createFile(finalName, actualParentId, selectedType.lang)
     setName('')
     setFileType('py')
     onOpenChange(false)
@@ -218,6 +221,9 @@ export function CreateFileDialog({
                 placeholder={`${t('files.file_name_placeholder')}${selectedType.ext}`}
                 autoFocus
               />
+              {isDuplicate && (
+                <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">
@@ -228,7 +234,7 @@ export function CreateFileDialog({
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <Button type="submit" disabled={!name.trim() || isDuplicate}>
               {t('common.create')}
             </Button>
           </DialogFooter>
