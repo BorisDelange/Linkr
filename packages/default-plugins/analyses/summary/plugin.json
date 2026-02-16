@@ -1,0 +1,19 @@
+{
+  "id": "linkr-analysis-summary",
+  "name": {
+    "en": "Summary",
+    "fr": "Résumé"
+  },
+  "description": {
+    "en": "Data quality overview: row and column counts, completeness, missing values, type distribution, and per-column statistics.",
+    "fr": "Vue d'ensemble de la qualité des données : nombre de lignes et colonnes, complétude, valeurs manquantes, distribution des types, et statistiques par colonne."
+  },
+  "version": "1.0.0",
+  "category": "analysis",
+  "tags": ["descriptive", "data-quality", "overview"],
+  "runtime": ["js-widget"],
+  "languages": [],
+  "icon": "FileText",
+  "configSchema": {},
+  "component": "SummaryAnalysis"
+}

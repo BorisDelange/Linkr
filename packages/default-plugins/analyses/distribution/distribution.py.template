@@ -1,0 +1,78 @@
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+# --- Distribution analysis ---
+# 'dataset' is a pandas DataFrame injected automatically.
+
+columns = {{selectedColumns}}
+bins = {{bins}}
+max_categories = {{maxCategories}}
+
+fig_count = 0
+for col in columns:
+    if col not in dataset.columns:
+        continue
+
+    series = dataset[col].dropna()
+    if len(series) == 0:
+        continue
+
+    # Try numeric
+    numeric_series = pd.to_numeric(series, errors='coerce').dropna()
+
+    if len(numeric_series) > 0 and len(numeric_series) / len(series) > 0.5:
+        # Numeric: histogram + stats
+        fig, (ax_hist, ax_text) = plt.subplots(
+            2, 1, figsize=(8, 4), height_ratios=[3, 1],
+            gridspec_kw={'hspace': 0.4}
+        )
+
+        ax_hist.hist(numeric_series, bins=bins, edgecolor='white', alpha=0.8)
+        ax_hist.set_title(col, fontsize=11, fontweight='bold')
+        ax_hist.set_ylabel('Count')
+
+        stats_text = (
+            f"n = {len(numeric_series)}  |  "
+            f"Mean = {numeric_series.mean():.2f}  |  "
+            f"SD = {numeric_series.std():.2f}  |  "
+            f"Median = {numeric_series.median():.2f}  |  "
+            f"Min = {numeric_series.min():.2f}  |  "
+            f"Max = {numeric_series.max():.2f}"
+        )
+        ax_text.axis('off')
+        ax_text.text(0.5, 0.5, stats_text, ha='center', va='center',
+                     fontsize=9, transform=ax_text.transAxes)
+
+        plt.tight_layout()
+        fig_count += 1
+    else:
+        # Categorical: bar chart
+        counts = series.value_counts().head(max_categories)
+        if len(counts) == 0:
+            continue
+
+        fig, ax = plt.subplots(figsize=(8, max(3, len(counts) * 0.35)))
+        bars = ax.barh(range(len(counts)), counts.values, alpha=0.8)
+        ax.set_yticks(range(len(counts)))
+        ax.set_yticklabels(counts.index, fontsize=9)
+        ax.set_xlabel('Count')
+        ax.set_title(col, fontsize=11, fontweight='bold')
+        ax.invert_yaxis()
+
+        # Add count labels
+        for i, (bar, count) in enumerate(zip(bars, counts.values)):
+            pct = count / len(series) * 100
+            ax.text(bar.get_width() + 0.5, i, f'{count} ({pct:.1f}%)',
+                    va='center', fontsize=8)
+
+        if len(series.value_counts()) > max_categories:
+            ax.set_xlabel(f'Count (showing top {max_categories} of {len(series.value_counts())} categories)')
+
+        plt.tight_layout()
+        fig_count += 1
+
+if fig_count == 0:
+    print("No columns with data to display.")

@@ -52,6 +52,35 @@ import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
 import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
+import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
+import type { AnalysisLanguage } from '@/types'
+
+const LANG_BADGE: Record<string, { label: string; color: string }> = {
+  python: { label: 'PY', color: 'text-blue-500 bg-blue-500/10' },
+  r: { label: 'R', color: 'text-orange-500 bg-orange-500/10' },
+  'js-widget': { label: 'JS', color: 'text-emerald-500 bg-emerald-500/10' },
+}
+
+function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: string }) {
+  // Infer from plugin if not set
+  let lang = language
+  if (!lang) {
+    const plugin = getAnalysisPlugin(type)
+    if (plugin) {
+      const rt = plugin.manifest.runtime
+      if (rt.length === 1 && rt[0] === 'js-widget') lang = 'js-widget'
+      else if (rt.includes('script') && plugin.manifest.languages.length > 0) lang = plugin.manifest.languages[0]
+    }
+  }
+  if (!lang) return null
+  const badge = LANG_BADGE[lang]
+  if (!badge) return null
+  return (
+    <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', badge.color)}>
+      {badge.label}
+    </span>
+  )
+}
 
 export function DatasetsPage() {
   const { t } = useTranslation()
@@ -418,7 +447,10 @@ export function DatasetsPage() {
                                     onClick={(e) => e.stopPropagation()}
                                   />
                                 ) : (
-                                  <span className="truncate">{analysis.name}</span>
+                                  <>
+                                    <span className="truncate">{analysis.name}</span>
+                                    <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
+                                  </>
                                 )}
                               </button>
                             </ContextMenuTrigger>
@@ -616,6 +648,7 @@ export function DatasetsPage() {
                                 >
                                   <BarChart3 size={12} className="shrink-0 text-violet-500" />
                                   <span className="max-w-[140px] truncate">{analysis.name}</span>
+                                  <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
                                   <span
                                     onClick={(e) => {
                                       e.stopPropagation()

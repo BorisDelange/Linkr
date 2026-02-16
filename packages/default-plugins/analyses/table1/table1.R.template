@@ -1,0 +1,65 @@
+library(dplyr)
+library(tidyr)
+
+# --- Table 1: Descriptive statistics ---
+# 'dataset' is a data.frame injected automatically.
+
+columns <- {{selectedColumns}}
+group_by_col <- {{groupByColumn}}
+
+describe_column <- function(x, col_name, total_n) {
+  n <- sum(!is.na(x))
+  missing <- sum(is.na(x))
+  missing_pct <- if (missing > 0) {
+    sprintf("%d (%.1f%%)", missing, missing / total_n * 100)
+  } else {
+    "\u2014"
+  }
+
+  if (is.logical(x)) {
+    counts <- table(x[!is.na(x)])
+    cats <- paste(
+      sapply(names(counts), function(v) sprintf("%s: %d (%.1f%%)", v, counts[v], counts[v] / total_n * 100)),
+      collapse = "; "
+    )
+    data.frame(
+      Variable = col_name, n = n, Missing = missing_pct,
+      `Mean \u00b1 SD` = "\u2014", `Median [IQR]` = "\u2014",
+      Categories = if (nchar(cats) > 0) cats else "\u2014",
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  } else if (is.numeric(x)) {
+    s <- x[!is.na(x)]
+    mean_sd <- if (length(s) > 0) sprintf("%.2f \u00b1 %.2f", mean(s), sd(s)) else "\u2014"
+    q <- if (length(s) > 0) quantile(s, probs = c(0.25, 0.5, 0.75)) else c(0, 0, 0)
+    median_iqr <- if (length(s) > 0) sprintf("%.2f [%.2f\u2013%.2f]", q[2], q[1], q[3]) else "\u2014"
+    data.frame(
+      Variable = col_name, n = n, Missing = missing_pct,
+      `Mean \u00b1 SD` = mean_sd, `Median [IQR]` = median_iqr,
+      Categories = "\u2014",
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  } else {
+    counts <- sort(table(x[!is.na(x)]), decreasing = TRUE)
+    counts <- head(counts, 10)
+    cats <- paste(
+      sapply(names(counts), function(v) sprintf("%s: %d (%.1f%%)", v, counts[v], counts[v] / total_n * 100)),
+      collapse = "; "
+    )
+    data.frame(
+      Variable = col_name, n = n, Missing = missing_pct,
+      `Mean \u00b1 SD` = "\u2014", `Median [IQR]` = "\u2014",
+      Categories = if (nchar(cats) > 0) cats else "\u2014",
+      check.names = FALSE, stringsAsFactors = FALSE
+    )
+  }
+}
+
+total_n <- nrow(dataset)
+valid_cols <- columns[columns %in% colnames(dataset)]
+
+result <- do.call(rbind, lapply(valid_cols, function(col) {
+  describe_column(dataset[[col]], col, total_n)
+}))
+
+result

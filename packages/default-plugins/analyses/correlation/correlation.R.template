@@ -1,0 +1,56 @@
+library(stats)
+library(graphics)
+library(grDevices)
+
+# --- Correlation matrix ---
+# 'dataset' is a data.frame injected automatically.
+
+columns <- {{selectedColumns}}
+method <- {{method}}
+
+# Filter to selected columns and keep numeric only
+valid_cols <- columns[columns %in% colnames(dataset)]
+numeric_df <- dataset[valid_cols]
+numeric_df <- numeric_df[, sapply(numeric_df, is.numeric), drop = FALSE]
+
+if (ncol(numeric_df) < 2) {
+  cat("Need at least 2 numeric columns for correlation analysis.\n")
+} else {
+  # Remove rows with any NA
+  complete_df <- numeric_df[complete.cases(numeric_df), , drop = FALSE]
+
+  if (nrow(complete_df) < 2) {
+    cat("Need at least 2 complete rows for correlation analysis.\n")
+  } else {
+    # Compute correlation matrix
+    corr <- cor(complete_df, method = method)
+    n <- ncol(corr)
+
+    # Result as data.frame
+    result <- as.data.frame(round(corr, 3))
+
+    # Heatmap
+    col_palette <- colorRampPalette(c("#ef4444", "#ffffff", "#3b82f6"))(100)
+
+    par(mar = c(max(nchar(colnames(corr))) * 0.4 + 1, max(nchar(colnames(corr))) * 0.4 + 1, 3, 5))
+    image(1:n, 1:n, t(corr[n:1, ]), col = col_palette, zlim = c(-1, 1),
+          axes = FALSE, xlab = "", ylab = "",
+          main = sprintf("%s Correlation Matrix (n=%d complete rows)",
+                         paste0(toupper(substring(method, 1, 1)), substring(method, 2)),
+                         nrow(complete_df)))
+
+    axis(1, at = 1:n, labels = colnames(corr), las = 2, cex.axis = 0.8)
+    axis(2, at = 1:n, labels = rev(colnames(corr)), las = 1, cex.axis = 0.8)
+
+    # Add correlation values
+    for (i in 1:n) {
+      for (j in 1:n) {
+        val <- corr[n - j + 1, i]
+        text_col <- if (abs(val) > 0.6) "white" else "black"
+        text(i, j, sprintf("%.2f", val), cex = max(0.5, 1.2 - n * 0.05), col = text_col)
+      }
+    }
+
+    box()
+  }
+}

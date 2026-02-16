@@ -1,0 +1,43 @@
+import pandas as pd
+import numpy as np
+
+# --- Table 1: Descriptive statistics ---
+# 'dataset' is a pandas DataFrame injected automatically.
+
+columns = {{selectedColumns}}
+group_by = {{groupByColumn}}
+
+def describe_column(series, total_n):
+    """Compute descriptive stats for a single column."""
+    n = series.notna().sum()
+    missing = series.isna().sum()
+    missing_pct = f"{missing} ({missing / total_n * 100:.1f}%)" if missing > 0 else "\u2014"
+
+    if pd.api.types.is_bool_dtype(series):
+        counts = series.dropna().value_counts().head(10)
+        cats = "; ".join(f"{v}: {c} ({c/total_n*100:.1f}%)" for v, c in counts.items())
+        return {"n": n, "Missing": missing_pct, "Mean \u00b1 SD": "\u2014",
+                "Median [IQR]": "\u2014", "Categories": cats if cats else "\u2014"}
+    elif pd.api.types.is_numeric_dtype(series):
+        s = series.dropna().astype(float)
+        mean_sd = f"{s.mean():.2f} \u00b1 {s.std():.2f}" if len(s) > 0 else "\u2014"
+        q1, med, q3 = s.quantile([0.25, 0.5, 0.75]) if len(s) > 0 else (0, 0, 0)
+        median_iqr = f"{med:.2f} [{q1:.2f}\u2013{q3:.2f}]" if len(s) > 0 else "\u2014"
+        return {"n": n, "Missing": missing_pct, "Mean \u00b1 SD": mean_sd,
+                "Median [IQR]": median_iqr, "Categories": "\u2014"}
+    else:
+        counts = series.dropna().value_counts().head(10)
+        cats = "; ".join(f"{v}: {c} ({c/total_n*100:.1f}%)" for v, c in counts.items())
+        return {"n": n, "Missing": missing_pct, "Mean \u00b1 SD": "\u2014",
+                "Median [IQR]": "\u2014", "Categories": cats if cats else "\u2014"}
+
+total_n = len(dataset)
+rows = []
+for col in columns:
+    if col not in dataset.columns:
+        continue
+    stats = describe_column(dataset[col], total_n)
+    rows.append({"Variable": col, **stats})
+
+result = pd.DataFrame(rows)
+result

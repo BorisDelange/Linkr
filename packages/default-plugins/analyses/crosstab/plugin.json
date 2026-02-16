@@ -1,0 +1,47 @@
+{
+  "id": "linkr-analysis-crosstab",
+  "name": {
+    "en": "Cross-tabulation",
+    "fr": "Tableau croisé"
+  },
+  "description": {
+    "en": "Contingency table between two categorical variables with counts, percentages, row/column totals, and chi-squared test.",
+    "fr": "Tableau de contingence entre deux variables catégorielles avec effectifs, pourcentages, totaux lignes/colonnes, et test du chi-deux."
+  },
+  "version": "1.0.0",
+  "category": "analysis",
+  "tags": ["descriptive", "table", "chi-squared"],
+  "runtime": ["script"],
+  "languages": ["python", "r"],
+  "icon": "Grid3X3",
+  "configSchema": {
+    "rowColumn": {
+      "type": "column-select",
+      "multi": false,
+      "filter": "categorical",
+      "label": { "en": "Row variable", "fr": "Variable en ligne" }
+    },
+    "colColumn": {
+      "type": "column-select",
+      "multi": false,
+      "filter": "categorical",
+      "label": { "en": "Column variable", "fr": "Variable en colonne" }
+    },
+    "maxCategories": {
+      "type": "number",
+      "label": { "en": "Max categories", "fr": "Catégories max" },
+      "default": 30,
+      "min": 5,
+      "max": 100
+    },
+    "showPercentages": {
+      "type": "boolean",
+      "label": { "en": "Show percentages", "fr": "Afficher les pourcentages" },
+      "default": true
+    }
+  },
+  "templates": {
+    "python": "crosstab.py.template",
+    "r": "crosstab.R.template"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "id": "linkr-analysis-table1",
+  "name": {
+    "en": "Table 1",
+    "fr": "Tableau 1"
+  },
+  "description": {
+    "en": "Descriptive statistics table with counts, percentages, means, medians, and IQR for each variable. Supports optional group-by.",
+    "fr": "Tableau de statistiques descriptives avec effectifs, pourcentages, moyennes, médianes et IQR pour chaque variable. Supporte un regroupement optionnel."
+  },
+  "version": "1.0.0",
+  "category": "analysis",
+  "tags": ["descriptive", "table"],
+  "runtime": ["script"],
+  "languages": ["python", "r"],
+  "icon": "TableIcon",
+  "configSchema": {
+    "selectedColumns": {
+      "type": "column-select",
+      "multi": true,
+      "label": { "en": "Variables", "fr": "Variables" },
+      "defaultAll": true
+    },
+    "groupByColumn": {
+      "type": "column-select",
+      "multi": false,
+      "optional": true,
+      "filter": "categorical",
+      "label": { "en": "Group by", "fr": "Grouper par" }
+    }
+  },
+  "templates": {
+    "python": "table1.py.template",
+    "r": "table1.R.template"
+  }
+}

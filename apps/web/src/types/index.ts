@@ -433,7 +433,9 @@ export interface DatasetData {
   rows: Record<string, unknown>[]
 }
 
-export type DatasetAnalysisType = 'table1' | 'distribution' | 'summary' | 'correlation' | 'crosstab' | 'custom'
+export type DatasetAnalysisType = string
+
+export type AnalysisLanguage = 'python' | 'r' | 'js-widget'
 
 export interface DatasetAnalysis {
   id: string

@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@default-plugins': path.resolve(__dirname, '../../packages/default-plugins'),
     },
   },
   optimizeDeps: {

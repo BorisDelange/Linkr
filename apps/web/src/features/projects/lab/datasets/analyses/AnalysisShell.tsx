@@ -23,7 +23,7 @@ import {
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { executeAnalysisCode } from '../analysis-executor'
+import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
 import { AnalysisOutputRenderer } from './AnalysisOutputRenderer'
 import type { DatasetAnalysis } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -32,9 +32,10 @@ interface AnalysisShellProps {
   analysis: DatasetAnalysis
   configPanel: (onConfigChange: (changes: Record<string, unknown>) => void) => React.ReactNode
   generatedCode: string
+  language?: 'python' | 'r'
 }
 
-export function AnalysisShell({ analysis, configPanel, generatedCode }: AnalysisShellProps) {
+export function AnalysisShell({ analysis, configPanel, generatedCode, language = 'python' }: AnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis, isAnalysisDirty, _dirtyVersion } = useDatasetStore()
 
@@ -90,16 +91,19 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
   const isDirty = _dirtyVersion >= 0 && isAnalysisDirty(analysis.id)
 
   // Run the analysis
+  const isExecutingRef = useRef(false)
   const handleRun = useCallback(async () => {
+    if (isExecutingRef.current) return
+    isExecutingRef.current = true
     setIsExecuting(true)
     setResult(null)
     setRightVisible(true)
     try {
       const rows = getFileRows(analysis.datasetFileId)
-      const output = await executeAnalysisCode(currentCode, rows, columns)
+      const exec = language === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+      const output = await exec(currentCode, rows, columns)
       setResult(output)
     } catch (err) {
-      console.error('[AnalysisShell] execution error:', err)
       setResult({
         stdout: '',
         stderr: err instanceof Error ? err.message : String(err),
@@ -108,9 +112,10 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
         html: null,
       })
     } finally {
+      isExecutingRef.current = false
       setIsExecuting(false)
     }
-  }, [currentCode, analysis.datasetFileId, columns, getFileRows])
+  }, [currentCode, analysis.datasetFileId, columns, getFileRows, language])
 
   // Auto-run on mount (once)
   useEffect(() => {
@@ -290,7 +295,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode }: Analysis
                   {activeTab === 'code' && (
                     <CodeEditor
                       value={currentCode}
-                      language="python"
+                      language={language}
                       onChange={handleCodeChange}
                       height="100%"
                     />

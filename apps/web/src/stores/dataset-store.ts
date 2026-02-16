@@ -53,7 +53,7 @@ interface DatasetState {
   revertFile: (id: string) => void
 
   loadAnalyses: (datasetFileId: string) => Promise<void>
-  createAnalysis: (datasetFileId: string, name: string, type: DatasetAnalysis['type']) => void
+  createAnalysis: (datasetFileId: string, name: string, type: DatasetAnalysis['type'], initialConfig?: Record<string, unknown>) => void
   updateAnalysis: (id: string, changes: Partial<DatasetAnalysis>) => void
   deleteAnalysis: (id: string) => void
   renameAnalysis: (id: string, newName: string) => void
@@ -637,18 +637,18 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }
   },
 
-  createAnalysis: (datasetFileId, name, type) => {
+  createAnalysis: (datasetFileId, name, type, initialConfig) => {
     const id = `analysis-${fileCounter++}`
     const analysis: DatasetAnalysis = {
       id,
       datasetFileId,
       name,
       type,
-      config: {},
+      config: initialConfig ?? {},
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
-    _savedAnalysisSnapshot.set(id, '{}')
+    _savedAnalysisSnapshot.set(id, JSON.stringify(analysis.config))
     set((s) => ({
       analyses: [...s.analyses, analysis],
       selectedAnalysisId: id,

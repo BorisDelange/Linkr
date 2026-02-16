@@ -8,6 +8,10 @@ import '@fontsource/inter/700.css'
 import '@/lib/i18n'
 import '@/index.css'
 import { App } from '@/app/App'
+import { registerDefaultPlugins } from '@/lib/analysis-plugins/default-plugins'
+
+// Register built-in analysis plugins before rendering
+registerDefaultPlugins()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

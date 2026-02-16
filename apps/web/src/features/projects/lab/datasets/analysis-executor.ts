@@ -1,14 +1,15 @@
 /**
- * Analysis executor — runs Python analysis scripts with dataset injection.
+ * Analysis executor — runs analysis scripts with dataset injection.
  *
- * Injects the dataset rows into Pyodide as a pandas DataFrame named `dataset`,
- * then executes the user's analysis code. The result is captured as a RuntimeOutput
- * (table, figures, stdout, stderr).
+ * Supports Python (Pyodide) and R (webR) runtimes.
+ * Injects dataset rows as a DataFrame / data.frame named `dataset`,
+ * then executes the user's analysis code.
  */
 
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
 import { getPyodide, executePython } from '@/lib/runtimes/pyodide-engine'
+import { getWebR, executeR } from '@/lib/runtimes/webr-engine'
 
 /**
  * Build the Python preamble that creates the `dataset` DataFrame.
@@ -74,4 +75,67 @@ export async function executeAnalysisCode(
 
   // Execute through the existing Pyodide engine (captures table, figures, stdout, stderr)
   return executePython(fullCode, null)
+}
+
+// ---------------------------------------------------------------------------
+// R execution
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the R preamble that creates the `dataset` data.frame.
+ *
+ * Writes the JSON to a temporary file in webR's virtual FS, then reads it with
+ * jsonlite::fromJSON. Column IDs are renamed to human-readable column names and
+ * types are coerced to match the column metadata.
+ */
+function buildRInjectionCode(columns: DatasetColumn[]): string {
+  const renameEntries = columns
+    .map((c) => `  ${JSON.stringify(c.id)} = ${JSON.stringify(c.name)}`)
+    .join(',\n')
+
+  const coercions = columns
+    .map((c) => {
+      const name = JSON.stringify(c.name)
+      if (c.type === 'number')
+        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.numeric(dataset[[${name}]])`
+      if (c.type === 'date')
+        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.POSIXct(dataset[[${name}]], tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"))`
+      return null
+    })
+    .filter(Boolean)
+    .join('\n')
+
+  return `library(jsonlite)
+dataset <- fromJSON("/tmp/_linkr_dataset.json")
+.rename_map <- c(
+${renameEntries}
+)
+.existing <- intersect(names(.rename_map), colnames(dataset))
+if (length(.existing) > 0) names(dataset)[match(.existing, colnames(dataset))] <- .rename_map[.existing]
+rm(.rename_map, .existing)
+${coercions}
+`
+}
+
+/**
+ * Execute an analysis R script against a dataset.
+ */
+export async function executeAnalysisCodeR(
+  code: string,
+  rows: Record<string, unknown>[],
+  columns: DatasetColumn[],
+): Promise<RuntimeOutput> {
+  const webR = await getWebR()
+
+  // Write dataset JSON to webR virtual filesystem
+  const jsonData = JSON.stringify(rows)
+  const encoder = new TextEncoder()
+  const bytes = encoder.encode(jsonData)
+  await webR.FS.writeFile('/tmp/_linkr_dataset.json', bytes)
+
+  // Build full code: injection preamble + user script
+  const preamble = buildRInjectionCode(columns)
+  const fullCode = preamble + '\n' + code
+
+  return executeR(fullCode, null)
 }

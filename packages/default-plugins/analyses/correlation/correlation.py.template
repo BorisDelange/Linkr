@@ -1,0 +1,58 @@
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+
+# --- Correlation matrix ---
+# 'dataset' is a pandas DataFrame injected automatically.
+
+columns = {{selectedColumns}}
+method = {{method}}
+
+# Filter to selected numeric columns
+valid_cols = [c for c in columns if c in dataset.columns]
+numeric_df = dataset[valid_cols].apply(pd.to_numeric, errors='coerce')
+
+# Drop columns that are entirely NaN
+numeric_df = numeric_df.dropna(axis=1, how='all')
+
+if numeric_df.shape[1] < 2:
+    print("Need at least 2 numeric columns for correlation analysis.")
+else:
+    # Compute correlation matrix
+    corr = numeric_df.corr(method=method)
+
+    # Display as table
+    result = corr.round(3)
+
+    # Heatmap visualization
+    n = len(corr.columns)
+    fig_size = max(6, n * 0.6)
+    fig, ax = plt.subplots(figsize=(fig_size, fig_size))
+
+    # Custom colormap: red (negative) - white (zero) - blue (positive)
+    cmap = mcolors.LinearSegmentedColormap.from_list(
+        'correlation', ['#ef4444', '#ffffff', '#3b82f6']
+    )
+
+    im = ax.imshow(corr.values, cmap=cmap, vmin=-1, vmax=1, aspect='equal')
+    plt.colorbar(im, ax=ax, shrink=0.8)
+
+    ax.set_xticks(range(n))
+    ax.set_yticks(range(n))
+    ax.set_xticklabels(corr.columns, rotation=45, ha='right', fontsize=9)
+    ax.set_yticklabels(corr.columns, fontsize=9)
+
+    # Add correlation values as text
+    for i in range(n):
+        for j in range(n):
+            val = corr.values[i, j]
+            color = 'white' if abs(val) > 0.6 else 'black'
+            ax.text(j, i, f'{val:.2f}', ha='center', va='center',
+                    fontsize=max(7, 10 - n * 0.3), color=color)
+
+    ax.set_title(f'{method.capitalize()} Correlation Matrix (n={len(numeric_df.dropna())} complete rows)',
+                 fontsize=11, pad=10)
+    plt.tight_layout()

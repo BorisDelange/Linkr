@@ -1,0 +1,53 @@
+library(graphics)
+
+# --- Distribution analysis ---
+# 'dataset' is a data.frame injected automatically.
+
+columns <- {{selectedColumns}}
+bins <- {{bins}}
+max_categories <- {{maxCategories}}
+
+valid_cols <- columns[columns %in% colnames(dataset)]
+
+for (col in valid_cols) {
+  x <- dataset[[col]]
+  x_clean <- x[!is.na(x)]
+  if (length(x_clean) == 0) next
+
+  # Try numeric
+  x_num <- suppressWarnings(as.numeric(x_clean))
+  n_valid <- sum(!is.na(x_num))
+
+  if (n_valid > 0 && n_valid / length(x_clean) > 0.5) {
+    # Numeric: histogram + stats
+    x_num <- x_num[!is.na(x_num)]
+
+    par(mfrow = c(1, 1), mar = c(4, 4, 3, 1))
+    hist(x_num, breaks = bins, main = col, xlab = col, ylab = "Count",
+         col = rgb(0.4, 0.6, 0.9, 0.7), border = "white")
+
+    stats <- sprintf(
+      "n=%d | Mean=%.2f | SD=%.2f | Median=%.2f | Min=%.2f | Max=%.2f",
+      length(x_num), mean(x_num), sd(x_num), median(x_num),
+      min(x_num), max(x_num)
+    )
+    mtext(stats, side = 1, line = 3, cex = 0.7)
+  } else {
+    # Categorical: bar chart
+    counts <- sort(table(x_clean), decreasing = TRUE)
+    counts <- head(counts, max_categories)
+
+    if (length(counts) == 0) next
+
+    par(mfrow = c(1, 1), mar = c(4, max(nchar(names(counts))) * 0.5 + 2, 3, 1))
+    barplot(rev(counts), horiz = TRUE, main = col,
+            xlab = "Count", las = 1, cex.names = 0.8,
+            col = rgb(0.4, 0.6, 0.9, 0.7), border = "white")
+
+    total_cats <- length(table(x_clean))
+    if (total_cats > max_categories) {
+      mtext(sprintf("Showing top %d of %d categories", max_categories, total_cats),
+            side = 1, line = 3, cex = 0.7)
+    }
+  }
+}
