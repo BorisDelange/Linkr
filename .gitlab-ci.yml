@@ -13,7 +13,7 @@ build:
       - apps/web/node_modules/
   script:
     - npm ci
-    - cd apps/web && npx vite build --base /linkr/linkr-v2/
+    - cd apps/web && npx vite build --base /
   artifacts:
     paths:
       - apps/web/dist
