@@ -79,6 +79,7 @@ export function FilesPage() {
     addOutputTab,
     setActiveOutputTab,
     closeOutputTab,
+    reorderAllOutputTabs,
     clearExecutionResultsByLanguage,
     outputVisible,
     setOutputVisible,
@@ -108,7 +109,9 @@ export function FilesPage() {
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [editorVisible, setEditorVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
-  const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
+  const [dropFileInsert, setDropFileInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
+  const [dragOutputTabId, setDragOutputTabId] = useState<string | null>(null)
+  const [dropOutputInsert, setDropOutputInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
 
   // Load connections, files, and other stores when the project changes
@@ -630,30 +633,43 @@ export function FilesPage() {
                             if (!e.dataTransfer.types.includes('file-tab-id')) return
                             e.preventDefault()
                             e.dataTransfer.dropEffect = 'move'
-                            setDropFileTarget(fid)
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                            setDropFileInsert({ id: fid, side })
                           }}
-                          onDragLeave={() => setDropFileTarget(null)}
+                          onDragLeave={() => setDropFileInsert(null)}
                           onDrop={(e) => {
                             e.preventDefault()
-                            setDropFileTarget(null)
+                            const side = dropFileInsert?.side ?? 'right'
+                            setDropFileInsert(null)
                             setDragFileId(null)
                             const draggedId = e.dataTransfer.getData('file-tab-id')
                             if (!draggedId || draggedId === fid) return
                             const fromIdx = openFileIds.indexOf(draggedId)
-                            const toIdx = openFileIds.indexOf(fid)
-                            if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
+                            let toIdx = openFileIds.indexOf(fid)
+                            if (side === 'right') toIdx = Math.min(toIdx + 1, openFileIds.length - 1)
+                            if (fromIdx < toIdx) toIdx--
+                            if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderOpenFiles(fromIdx, toIdx)
                           }}
-                          onDragEnd={() => { setDragFileId(null); setDropFileTarget(null) }}
-                          onClick={() => selectFile(fid)}
+                          onDragEnd={() => { setDragFileId(null); setDropFileInsert(null) }}
+                          onClick={() => {
+                            selectFile(fid)
+                            if (!editorVisible) setEditorVisible(true)
+                          }}
                           className={cn(
-                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                             isActive
                               ? 'bg-background text-foreground'
                               : 'text-muted-foreground hover:bg-accent/50',
                             dragFileId === fid && 'opacity-40',
-                            dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50',
                           )}
                         >
+                          {dropFileInsert?.id === fid && dropFileInsert.side === 'left' && dragFileId !== fid && (
+                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
+                          {dropFileInsert?.id === fid && dropFileInsert.side === 'right' && dragFileId !== fid && (
+                            <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
                           {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
                           <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
                           {isDirty && (
@@ -689,17 +705,53 @@ export function FilesPage() {
                         return (
                           <button
                             key={tabId}
+                            draggable
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('output-tab-id', tabId)
+                              e.dataTransfer.effectAllowed = 'move'
+                              setDragOutputTabId(tabId)
+                            }}
+                            onDragOver={(e) => {
+                              if (!e.dataTransfer.types.includes('output-tab-id')) return
+                              e.preventDefault()
+                              e.dataTransfer.dropEffect = 'move'
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                              setDropOutputInsert({ id: tabId, side })
+                            }}
+                            onDragLeave={() => setDropOutputInsert(null)}
+                            onDrop={(e) => {
+                              e.preventDefault()
+                              const side = dropOutputInsert?.side ?? 'right'
+                              setDropOutputInsert(null)
+                              setDragOutputTabId(null)
+                              const draggedId = e.dataTransfer.getData('output-tab-id')
+                              if (!draggedId || draggedId === tabId) return
+                              const fromIdx = outputTabOrder.indexOf(draggedId)
+                              let toIdx = outputTabOrder.indexOf(tabId)
+                              if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                              if (fromIdx < toIdx) toIdx--
+                              if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+                            }}
+                            onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
                             onClick={() => {
                               setActiveOutputTab(tabId)
                               if (!outputVisible) setOutputVisible(true)
                             }}
                             className={cn(
-                              'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                              'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                               isActive && outputVisible
                                 ? 'bg-primary/10 text-foreground'
                                 : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                              dragOutputTabId === tabId && 'opacity-40',
                             )}
                           >
+                            {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'left' && dragOutputTabId !== tabId && (
+                              <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                            )}
+                            {dropOutputInsert?.id === tabId && dropOutputInsert.side === 'right' && dragOutputTabId !== tabId && (
+                              <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                            )}
                             <span>{EXEC_TAB_LABELS[execLang]}</span>
                             <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
                               {count}
@@ -723,17 +775,53 @@ export function FilesPage() {
                       return (
                         <button
                           key={tab.id}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('output-tab-id', tab.id)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragOutputTabId(tab.id)
+                          }}
+                          onDragOver={(e) => {
+                            if (!e.dataTransfer.types.includes('output-tab-id')) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                            setDropOutputInsert({ id: tab.id, side })
+                          }}
+                          onDragLeave={() => setDropOutputInsert(null)}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            const side = dropOutputInsert?.side ?? 'right'
+                            setDropOutputInsert(null)
+                            setDragOutputTabId(null)
+                            const draggedId = e.dataTransfer.getData('output-tab-id')
+                            if (!draggedId || draggedId === tab.id) return
+                            const fromIdx = outputTabOrder.indexOf(draggedId)
+                            let toIdx = outputTabOrder.indexOf(tab.id)
+                            if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                            if (fromIdx < toIdx) toIdx--
+                            if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
+                          }}
+                          onDragEnd={() => { setDragOutputTabId(null); setDropOutputInsert(null) }}
                           onClick={() => {
                             setActiveOutputTab(tab.id)
                             if (!outputVisible) setOutputVisible(true)
                           }}
                           className={cn(
-                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                             tab.id === activeOutputTab && outputVisible
                               ? 'bg-primary/10 text-foreground'
                               : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                            dragOutputTabId === tab.id && 'opacity-40',
                           )}
                         >
+                          {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'left' && dragOutputTabId !== tab.id && (
+                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
+                          {dropOutputInsert?.id === tab.id && dropOutputInsert.side === 'right' && dragOutputTabId !== tab.id && (
+                            <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
                           {getTabIcon(tab.type)}
                           <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
                           <span

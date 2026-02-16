@@ -378,6 +378,8 @@
     "stats_categories_truncated": "Showing top {{shown}} of {{total}} categories",
     "stats_missing": "Missing",
     "stats_completeness": "Completeness",
+    "stats_all_same_value": "All values identical",
+    "stats_no_data": "No data for this column",
     "discard": "Discard",
     "save_and_close": "Save & close",
     "unsaved_changes": "Unsaved changes",
