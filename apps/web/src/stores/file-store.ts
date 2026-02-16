@@ -8,7 +8,7 @@ export type FileNode = IdeFile
 export interface OutputTab {
   id: string
   label: string
-  type: 'figure' | 'table' | 'text' | 'html'
+  type: 'figure' | 'table' | 'text' | 'html' | 'markdown'
   content: unknown
 }
 
@@ -97,9 +97,8 @@ function getLanguageForFile(name: string): string {
     sh: 'shell',
     json: 'json',
     md: 'markdown',
-    rmd: 'markdown',
-    qmd: 'markdown',
-    ipynb: 'json',
+    csv: 'plaintext',
+    tsv: 'plaintext',
     txt: 'plaintext',
   }
   return map[ext ?? ''] ?? 'plaintext'

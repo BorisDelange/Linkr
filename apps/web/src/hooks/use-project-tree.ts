@@ -22,9 +22,24 @@ export interface VirtualFileNode {
   readOnly: true
 }
 
+/** Bridge node for dataset files: NOT virtual (editable), but delegates CRUD to dataset-store. */
+export interface DatasetBridgeNode {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  content: string
+  language: string
+  virtual?: false
+  readOnly?: false
+  datasetBridge: true
+  datasetFileId: string
+}
+
 export type TreeNode =
   | (FileNode & { virtual?: false; readOnly?: false })
   | VirtualFileNode
+  | DatasetBridgeNode
 
 // --- Helpers ---
 
@@ -40,6 +55,21 @@ function vFile(
 
 function vFolder(id: string, name: string, parentId: string | null): VirtualFileNode {
   return { id, name, type: 'folder', parentId, content: '', language: '', virtual: true, readOnly: true }
+}
+
+function dsBridgeFile(
+  id: string,
+  name: string,
+  parentId: string | null,
+  content: string,
+  datasetFileId: string,
+  language = 'json',
+): DatasetBridgeNode {
+  return { id, name, type: 'file', parentId, content, language, datasetBridge: true, datasetFileId }
+}
+
+function dsBridgeFolder(id: string, name: string, parentId: string | null, datasetFileId: string): DatasetBridgeNode {
+  return { id, name, type: 'folder', parentId, content: '', language: '', datasetBridge: true, datasetFileId }
 }
 
 /** Slugify a name for use in file paths. */
@@ -176,29 +206,28 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
     // --- data/databases/ (virtual mirror of imported database files) ---
     virtual.push(vFolder('virtual:data/databases', 'databases', dataFolderId))
 
-    // --- data/datasets/ (virtual read-only mirror of dataset file tree) ---
+    // --- data/datasets/ (bridge nodes — editable, delegates CRUD to dataset-store) ---
     const datasetsFolderId = 'virtual:data/datasets'
     virtual.push(vFolder(datasetsFolderId, 'datasets', dataFolderId))
 
+    const bridgeNodes: DatasetBridgeNode[] = []
     if (datasetFiles.length > 0) {
-      // Build virtual nodes preserving the tree structure
       for (const df of datasetFiles) {
         const parentId = df.parentId
-          ? `virtual:data/datasets/${df.parentId}`
+          ? `ds-bridge:${df.parentId}`
           : datasetsFolderId
         if (df.type === 'folder') {
-          virtual.push(vFolder(`virtual:data/datasets/${df.id}`, df.name, parentId))
+          bridgeNodes.push(dsBridgeFolder(`ds-bridge:${df.id}`, df.name, parentId, df.id))
         } else {
-          // Show column metadata as content
           const meta = {
             columns: df.columns ?? [],
             rowCount: df.rowCount ?? 0,
             createdAt: df.createdAt,
             updatedAt: df.updatedAt,
           }
-          virtual.push(
-            vFile(`virtual:data/datasets/${df.id}`, df.name, parentId,
-              JSON.stringify(meta, null, 2)),
+          bridgeNodes.push(
+            dsBridgeFile(`ds-bridge:${df.id}`, df.name, parentId,
+              JSON.stringify(meta, null, 2), df.id),
           )
         }
       }
@@ -215,6 +244,8 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
         )
       }
     }
+
+    // --- datasets_analyses/ — update IDs to use bridge node references ---
 
     // --- datasets_analyses/ (virtual read-only mirror of analysis configs) ---
     if (datasetAnalyses.length > 0) {
@@ -247,7 +278,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
-    return [...virtual, ...files]
+    return [...virtual, ...bridgeNodes, ...files]
   }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets, datasetFiles, datasetAnalyses, sharedFsFileNames])
 
   return { nodes }

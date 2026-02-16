@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { useFileStore } from '@/stores/file-store'
-import type { TreeNode } from '@/hooks/use-project-tree'
+import { useDatasetStore } from '@/stores/dataset-store'
+import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import {
   File,
   FileCode,
@@ -97,9 +98,12 @@ export function FileTreeItem({
 }: FileTreeItemProps) {
   const { t } = useTranslation()
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode } = useFileStore()
+  const datasetStore = useDatasetStore()
   const [renameOpen, setRenameOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
+  const isBridge = 'datasetBridge' in node && (node as DatasetBridgeNode).datasetBridge === true
+  const bridgeDatasetFileId = isBridge ? (node as DatasetBridgeNode).datasetFileId : undefined
   const isVirtual = node.virtual === true
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
@@ -115,13 +119,13 @@ export function FileTreeItem({
   }
 
   const handleDragStart = (e: React.DragEvent) => {
-    if (isVirtual) { e.preventDefault(); return }
+    if (isVirtual && !isBridge) { e.preventDefault(); return }
     e.dataTransfer.setData('text/plain', node.id)
     e.dataTransfer.effectAllowed = 'move'
   }
 
   const handleDragOver = (e: React.DragEvent) => {
-    if (!isFolder || isVirtual) return
+    if (!isFolder || (isVirtual && !isBridge)) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     setDragOver(true)
@@ -134,12 +138,19 @@ export function FileTreeItem({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    if (!isFolder || isVirtual) return
+    if (!isFolder || (isVirtual && !isBridge)) return
     const draggedId = e.dataTransfer.getData('text/plain')
     if (!draggedId || draggedId === node.id) return
     // Prevent dropping a folder into itself or its descendants
     const descendants = getAllDescendantIds(files, draggedId)
     if (descendants.includes(node.id)) return
+    // Bridge nodes delegate move to dataset-store
+    if (isBridge && draggedId.startsWith('ds-bridge:')) {
+      const draggedDsId = draggedId.replace('ds-bridge:', '')
+      datasetStore.moveNode(draggedDsId, bridgeDatasetFileId!)
+      if (!expandedFolders.includes(node.id)) toggleFolder(node.id)
+      return
+    }
     moveNode(draggedId, node.id)
     if (!expandedFolders.includes(node.id)) {
       toggleFolder(node.id)
@@ -165,7 +176,7 @@ export function FileTreeItem({
         <ContextMenuTrigger asChild>
           <button
             onClick={handleClick}
-            draggable={!isVirtual}
+            draggable={!isVirtual || isBridge}
             onDragStart={handleDragStart}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -189,13 +200,13 @@ export function FileTreeItem({
             {!isFolder && <span className="w-3 shrink-0" />}
             {getFileIcon(node.name, node.type, isExpanded)}
             <span className="truncate">{node.name}</span>
-            {isVirtual && !isFolder && (
+            {isVirtual && !isBridge && !isFolder && (
               <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
             )}
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
-          {isVirtual ? (
+          {isVirtual && !isBridge ? (
             <>
               <ContextMenuItem
                 onClick={() => {
@@ -219,7 +230,7 @@ export function FileTreeItem({
                 <Pencil size={14} />
                 {t('files.rename')}
               </ContextMenuItem>
-              {!isFolder && (
+              {!isFolder && !isBridge && (
                 <ContextMenuItem onClick={() => duplicateFile(node.id)}>
                   <Copy size={14} />
                   {t('files.duplicate')}
@@ -231,7 +242,7 @@ export function FileTreeItem({
                   {t('files.download')}
                 </ContextMenuItem>
               )}
-              {isFolder && (
+              {isFolder && !isBridge && (
                 <ContextMenuItem disabled>
                   <FolderInput size={14} />
                   {t('files.move')}
@@ -259,7 +270,13 @@ export function FileTreeItem({
               <ContextMenuSeparator />
               <ContextMenuItem
                 variant="destructive"
-                onClick={() => deleteNode(node.id)}
+                onClick={() => {
+                  if (isBridge && bridgeDatasetFileId) {
+                    datasetStore.deleteNode(bridgeDatasetFileId)
+                  } else {
+                    deleteNode(node.id)
+                  }
+                }}
               >
                 <Trash2 size={14} />
                 {t('files.delete')}
@@ -282,12 +299,16 @@ export function FileTreeItem({
           />
         ))}
 
-      {!isVirtual && (
+      {(!isVirtual || isBridge) && (
         <RenameDialog
           open={renameOpen}
           onOpenChange={setRenameOpen}
           nodeId={node.id}
           currentName={node.name}
+          onRename={isBridge && bridgeDatasetFileId
+            ? (newName: string) => datasetStore.renameNode(bridgeDatasetFileId, newName)
+            : undefined
+          }
         />
       )}
     </>

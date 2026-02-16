@@ -92,7 +92,7 @@ export function FileTree({ showVirtualFiles }: FileTreeProps) {
     e.preventDefault()
     setRootDragOver(false)
     const draggedId = e.dataTransfer.getData('text/plain')
-    if (!draggedId || draggedId.startsWith('virtual:')) return
+    if (!draggedId || draggedId.startsWith('virtual:') || draggedId.startsWith('ds-bridge:')) return
     const node = nodes.find((f) => f.id === draggedId)
     if (!node || node.parentId === null) return
     moveNode(draggedId, null)

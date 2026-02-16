@@ -5,10 +5,7 @@ import {
   FileText,
   FileCode,
   Database,
-  Terminal,
-  BookOpen,
-  Table2,
-  FileJson,
+  Notebook,
   FolderOpen,
 } from 'lucide-react'
 import {
@@ -62,35 +59,27 @@ const fileTypes = [
     iconColor: 'text-amber-500',
   },
   {
-    id: 'ipynb',
-    label: 'files.type_jupyter',
-    ext: '.ipynb',
-    lang: 'json',
-    icon: Table2,
-    iconColor: 'text-orange-500',
+    id: 'marimo',
+    label: 'files.type_marimo',
+    ext: '.py',
+    lang: 'python',
+    icon: Notebook,
+    iconColor: 'text-emerald-500',
   },
   {
-    id: 'rmd',
-    label: 'files.type_rmd',
-    ext: '.Rmd',
+    id: 'md',
+    label: 'files.type_markdown',
+    ext: '.md',
     lang: 'markdown',
-    icon: BookOpen,
-    iconColor: 'text-violet-500',
+    icon: FileText,
+    iconColor: 'text-muted-foreground',
   },
   {
-    id: 'qmd',
-    label: 'files.type_quarto',
-    ext: '.qmd',
-    lang: 'markdown',
-    icon: FileJson,
-    iconColor: 'text-teal-500',
-  },
-  {
-    id: 'sh',
-    label: 'files.type_shell',
-    ext: '.sh',
-    lang: 'shell',
-    icon: Terminal,
+    id: 'csv',
+    label: 'files.type_csv',
+    ext: '.csv',
+    lang: 'plaintext',
+    icon: FileText,
     iconColor: 'text-green-500',
   },
   {
@@ -129,6 +118,14 @@ export function CreateFileDialog({
     e.preventDefault()
     if (!finalName || isDuplicate) return
     createFile(finalName, actualParentId, selectedType.lang)
+    // If creating a marimo notebook, inject boilerplate so it's detected as marimo
+    if (fileType === 'marimo') {
+      const { files: currentFiles, updateFileContent } = useFileStore.getState()
+      const created = currentFiles.find((f) => f.name === finalName && f.parentId === actualParentId)
+      if (created) {
+        updateFileContent(created.id, 'import marimo\n\napp = marimo.App()\n\n@app.cell\ndef __():\n    print("Hello from marimo!")\n    return\n')
+      }
+    }
     setName('')
     setFileType('py')
     onOpenChange(false)

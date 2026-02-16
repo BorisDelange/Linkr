@@ -10,10 +10,11 @@ group_by_col <- {{groupByColumn}}
 describe_column <- function(x, col_name, total_n) {
   n <- sum(!is.na(x))
   missing <- sum(is.na(x))
+  em_dash <- "—"
   missing_pct <- if (missing > 0) {
     sprintf("%d (%.1f%%)", missing, missing / total_n * 100)
   } else {
-    "\u2014"
+    em_dash
   }
 
   if (is.logical(x)) {
@@ -24,20 +25,20 @@ describe_column <- function(x, col_name, total_n) {
     )
     data.frame(
       Variable = col_name, n = n, Missing = missing_pct,
-      `Mean \u00b1 SD` = "\u2014", `Median [IQR]` = "\u2014",
-      Categories = if (nchar(cats) > 0) cats else "\u2014",
-      check.names = FALSE, stringsAsFactors = FALSE
+      Mean.SD = em_dash, Median.IQR = em_dash,
+      Categories = if (nchar(cats) > 0) cats else em_dash,
+      stringsAsFactors = FALSE
     )
   } else if (is.numeric(x)) {
     s <- x[!is.na(x)]
-    mean_sd <- if (length(s) > 0) sprintf("%.2f \u00b1 %.2f", mean(s), sd(s)) else "\u2014"
+    mean_sd <- if (length(s) > 0) sprintf("%.2f +/- %.2f", mean(s), sd(s)) else em_dash
     q <- if (length(s) > 0) quantile(s, probs = c(0.25, 0.5, 0.75)) else c(0, 0, 0)
-    median_iqr <- if (length(s) > 0) sprintf("%.2f [%.2f\u2013%.2f]", q[2], q[1], q[3]) else "\u2014"
+    median_iqr <- if (length(s) > 0) sprintf("%.2f [%.2f - %.2f]", q[2], q[1], q[3]) else em_dash
     data.frame(
       Variable = col_name, n = n, Missing = missing_pct,
-      `Mean \u00b1 SD` = mean_sd, `Median [IQR]` = median_iqr,
-      Categories = "\u2014",
-      check.names = FALSE, stringsAsFactors = FALSE
+      Mean.SD = mean_sd, Median.IQR = median_iqr,
+      Categories = em_dash,
+      stringsAsFactors = FALSE
     )
   } else {
     counts <- sort(table(x[!is.na(x)]), decreasing = TRUE)
@@ -48,9 +49,9 @@ describe_column <- function(x, col_name, total_n) {
     )
     data.frame(
       Variable = col_name, n = n, Missing = missing_pct,
-      `Mean \u00b1 SD` = "\u2014", `Median [IQR]` = "\u2014",
-      Categories = if (nchar(cats) > 0) cats else "\u2014",
-      check.names = FALSE, stringsAsFactors = FALSE
+      Mean.SD = em_dash, Median.IQR = em_dash,
+      Categories = if (nchar(cats) > 0) cats else em_dash,
+      stringsAsFactors = FALSE
     )
   }
 }

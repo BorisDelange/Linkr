@@ -50,7 +50,15 @@ function serialiseColumnSelect(
   language: 'python' | 'r',
 ): string {
   if (field.multi) {
-    const ids = Array.isArray(value) ? (value as string[]) : []
+    let ids = Array.isArray(value) ? (value as string[]) : []
+    // If no columns selected and defaultAll is true, use all columns
+    // (optionally filtered by the field's type filter)
+    if (ids.length === 0 && field.defaultAll) {
+      const filtered = field.filter
+        ? columns.filter(c => (field.filter === 'numeric' ? c.type === 'number' : c.type === 'string'))
+        : columns
+      ids = filtered.map(c => c.id)
+    }
     const names = ids
       .map(id => columns.find(c => c.id === id)?.name)
       .filter((n): n is string => n != null)

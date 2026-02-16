@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -69,6 +69,8 @@ import { EnvironmentsDialog } from './files/EnvironmentsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
+
+const LazyMarimoTest = lazy(() => import('./files/MarimoTest').then(m => ({ default: m.MarimoTest })))
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -145,14 +147,18 @@ export function FilesPage() {
   const undoAction = peekUndo()
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
+  const isMarimoNotebook = useMemo(() => {
+    if (!selectedNode?.content || !selectedNode.name.endsWith('.py')) return false
+    return selectedNode.content.includes('import marimo') || selectedNode.content.includes('marimo.App')
+  }, [selectedNode?.content, selectedNode?.name])
 
   // When a dataset file is selected, redirect it to an output tab instead of a file tab
   useEffect(() => {
-    if (!selectedFileId?.startsWith('virtual:data/datasets/')) return
+    if (!selectedFileId?.startsWith('ds-bridge:')) return
     const node = nodes.find((n) => n.id === selectedFileId)
     if (!node || node.type !== 'file') return
 
-    const dsFileId = selectedFileId.replace('virtual:data/datasets/', '')
+    const dsFileId = selectedFileId.replace('ds-bridge:', '')
     const dsFile = datasetFiles.find((f) => f.id === dsFileId)
     if (!dsFile) return
 
@@ -178,6 +184,33 @@ export function FilesPage() {
       setEditorVisible(false)
     })
   }, [selectedFileId, nodes, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
+
+  // When a CSV/TSV IDE file is selected, open it as a table in the output panel (hide editor)
+  useEffect(() => {
+    if (!selectedFileId || selectedFileId.startsWith('ds-bridge:') || selectedFileId.startsWith('virtual:')) return
+    const node = nodes.find((n) => n.id === selectedFileId)
+    if (!node || node.type !== 'file') return
+    const ext = node.name.split('.').pop()?.toLowerCase()
+    if (ext !== 'csv' && ext !== 'tsv') return
+    const content = node.content ?? ''
+    if (!content.trim()) return
+
+    const delimiter = ext === 'tsv' ? '\t' : ','
+    const lines = content.split('\n').filter((l) => l.trim())
+    if (lines.length < 1) return
+    const headers = lines[0].split(delimiter).map((h) => h.trim().replace(/^"|"$/g, ''))
+    const tableRows = lines.slice(1, 1001).map((line) =>
+      line.split(delimiter).map((cell) => cell.trim().replace(/^"|"$/g, ''))
+    )
+
+    addOutputTab({
+      id: `csv-preview:${selectedFileId}`,
+      label: node.name,
+      type: 'table',
+      content: { headers, rows: tableRows },
+    })
+    setOutputVisible(true)
+  }, [selectedFileId, nodes, addOutputTab, setOutputVisible])
 
   /** Execute SQL against the active DuckDB connection. */
   const executeSql = useCallback(
@@ -300,9 +333,19 @@ export function FilesPage() {
     [activeConnectionId, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
   )
 
+  const isMarkdown = selectedLanguage === 'markdown' || selectedNode?.name.endsWith('.md')
+
   const runCode = useCallback(
     (code: string, label: string) => {
-      if (isSql && activeConnectionId) {
+      if (isMarkdown) {
+        addOutputTab({
+          id: `markdown-${label}`,
+          label: `Preview — ${label}`,
+          type: 'markdown',
+          content: code,
+        })
+        setOutputVisible(true)
+      } else if (isSql && activeConnectionId) {
         executeSql(code, label)
       } else if (selectedLanguage === 'python') {
         executeCode(code, label, 'python')
@@ -310,7 +353,7 @@ export function FilesPage() {
         executeCode(code, label, 'r')
       }
     },
-    [isSql, activeConnectionId, executeSql, executeCode, selectedLanguage]
+    [isMarkdown, isSql, activeConnectionId, executeSql, executeCode, selectedLanguage, addOutputTab, setOutputVisible]
   )
 
   const handleRunFile = useCallback(() => {
@@ -977,7 +1020,18 @@ export function FilesPage() {
                     <Allotment>
                       {/* Editor panel */}
                       <Allotment.Pane minSize={150} visible={editorVisible}>
-                        {selectedNode ? (
+                        {selectedNode && isMarimoNotebook ? (
+                          <Suspense fallback={
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                              Loading Marimo...
+                            </div>
+                          }>
+                            <LazyMarimoTest
+                              key={selectedFileId}
+                              code={selectedNode.content ?? ''}
+                            />
+                          </Suspense>
+                        ) : selectedNode ? (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}

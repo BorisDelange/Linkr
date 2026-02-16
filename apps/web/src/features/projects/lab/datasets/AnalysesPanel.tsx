@@ -158,7 +158,7 @@ export function AnalysesPanel({ datasetFileId, hideTabBar }: AnalysesPanelProps)
       <div className="flex h-full flex-col">
         <div className="min-h-0 flex-1">
           {activeAnalysis ? (
-            <AnalysisContent analysis={activeAnalysis} />
+            <AnalysisContent key={activeAnalysis.id} analysis={activeAnalysis} />
           ) : (
             <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
               {t('datasets.select_analysis')}
@@ -179,7 +179,7 @@ export function AnalysesPanel({ datasetFileId, hideTabBar }: AnalysesPanelProps)
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-auto">
         {activeAnalysis ? (
-          <AnalysisContent analysis={activeAnalysis} />
+          <AnalysisContent key={activeAnalysis.id} analysis={activeAnalysis} />
         ) : (
           <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
             {t('datasets.select_analysis')}

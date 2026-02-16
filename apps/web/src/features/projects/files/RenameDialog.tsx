@@ -18,6 +18,8 @@ interface RenameDialogProps {
   onOpenChange: (open: boolean) => void
   nodeId: string
   currentName: string
+  /** Optional override for rename — used by dataset bridge nodes. */
+  onRename?: (newName: string) => void
 }
 
 export function RenameDialog({
@@ -25,6 +27,7 @@ export function RenameDialog({
   onOpenChange,
   nodeId,
   currentName,
+  onRename,
 }: RenameDialogProps) {
   const { t } = useTranslation()
   const { renameNode } = useFileStore()
@@ -36,7 +39,11 @@ export function RenameDialog({
       onOpenChange(false)
       return
     }
-    renameNode(nodeId, name.trim())
+    if (onRename) {
+      onRename(name.trim())
+    } else {
+      renameNode(nodeId, name.trim())
+    }
     onOpenChange(false)
   }
 

@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -15,6 +17,8 @@ export function getTabIcon(type: string) {
       return <TableIcon size={12} />
     case 'html':
       return <Globe size={12} />
+    case 'markdown':
+      return <FileText size={12} />
     default:
       return <FileText size={12} />
   }
@@ -338,6 +342,15 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
             </pre>
           </ScrollArea>
         )}
+        {!showExecContent && activeTab?.type === 'markdown' && (
+          <ScrollArea className="h-full">
+            <div className="prose prose-sm dark:prose-invert max-w-none p-4">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {String(activeTab.content)}
+              </ReactMarkdown>
+            </div>
+          </ScrollArea>
+        )}
       </div>
     </div>
   )
@@ -410,7 +423,11 @@ function ResultCard({ result }: { result: ExecutionResult }) {
               {new Date(result.timestamp).toLocaleTimeString()}
             </span>
             {result.duration > 0 && (
-              <span className="text-[10px] text-muted-foreground">{result.duration}ms</span>
+              <span className="text-[10px] text-muted-foreground">
+                {result.duration >= 1000
+                  ? `${(result.duration / 1000).toFixed(1)}s`
+                  : `${result.duration}ms`}
+              </span>
             )}
           </div>
         </div>
