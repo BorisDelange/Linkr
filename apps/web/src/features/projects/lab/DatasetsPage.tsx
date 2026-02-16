@@ -12,11 +12,10 @@ import {
   X,
   Table2,
   Plus,
-  Eye,
-  EyeOff,
   BarChart3,
   Pencil,
   Trash2,
+  Box,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -52,6 +51,7 @@ import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
 import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
+import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
 import type { AnalysisLanguage } from '@/types'
 
@@ -115,7 +115,6 @@ export function DatasetsPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [createAnalysisOpen, setCreateAnalysisOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
-  const [dataTableVisible, setDataTableVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
@@ -123,6 +122,7 @@ export function DatasetsPage() {
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [environmentsOpen, setEnvironmentsOpen] = useState(false)
 
   // Load datasets when the project changes
   useEffect(() => {
@@ -137,17 +137,9 @@ export function DatasetsPage() {
       loadFileData(selectedFileId)
       loadAnalyses(selectedFileId)
       setSelectedColumnId(null)
-      setDataTableVisible(true)
+      selectAnalysis(null)
     }
-  }, [selectedFileId, loadFileData, loadAnalyses])
-
-  // React to analysis selection changes (e.g. from createAnalysis auto-select)
-  useEffect(() => {
-    if (selectedAnalysisId) {
-      setDataTableVisible(false)
-      setStatsVisible(false)
-    }
-  }, [selectedAnalysisId])
+  }, [selectedFileId, loadFileData, loadAnalyses, selectAnalysis])
 
   const selectedFile = files.find((f) => f.id === selectedFileId && f.type === 'file')
   const undoAction = peekUndo()
@@ -205,12 +197,8 @@ export function DatasetsPage() {
 
   // Close analysis tab helpers
   const handleCloseAnalysis = useCallback((id: string) => {
-    const wasSelected = selectedAnalysisId === id
     closeAnalysis(id)
-    if (wasSelected) {
-      setDataTableVisible(true)
-    }
-  }, [selectedAnalysisId, closeAnalysis])
+  }, [closeAnalysis])
 
   const handleCloseOtherAnalyses = useCallback((keepId: string) => {
     const state = useDatasetStore.getState()
@@ -224,7 +212,6 @@ export function DatasetsPage() {
     for (const aid of state.openAnalysisIds) {
       closeAnalysis(aid)
     }
-    setDataTableVisible(true)
   }, [closeAnalysis])
 
   // Analysis rename helpers
@@ -417,14 +404,7 @@ export function DatasetsPage() {
                             <ContextMenuTrigger asChild>
                               <button
                                 onClick={() => {
-                                  const newId = isActive ? null : analysis.id
-                                  selectAnalysis(newId)
-                                  if (newId) {
-                                    setDataTableVisible(false)
-                                    setStatsVisible(false)
-                                  } else {
-                                    setDataTableVisible(true)
-                                  }
+                                  selectAnalysis(isActive ? null : analysis.id)
                                 }}
                                 onDoubleClick={() => handleStartAnalysisRename(analysis.id, analysis.name)}
                                 className={cn(
@@ -500,21 +480,20 @@ export function DatasetsPage() {
                   </Tooltip>
                 )}
 
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant={dataTableVisible ? 'secondary' : 'ghost'}
-                      size="icon-xs"
-                      onClick={() => setDataTableVisible(!dataTableVisible)}
-                      disabled={!selectedFileId}
-                    >
-                      {dataTableVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>{t('datasets.toggle_data_table')}</TooltipContent>
-                </Tooltip>
-
                 <div className="ml-auto flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setEnvironmentsOpen(true)}
+                      >
+                        <Box size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('environments.title')}</TooltipContent>
+                  </Tooltip>
+
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -576,7 +555,6 @@ export function DatasetsPage() {
                               onClick={() => {
                                 selectFile(fid)
                                 selectAnalysis(null)
-                                setDataTableVisible(true)
                               }}
                               className={cn(
                                 'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
@@ -630,14 +608,7 @@ export function DatasetsPage() {
                               <ContextMenuTrigger asChild>
                                 <button
                                   onClick={() => {
-                                    if (isActive) {
-                                      selectAnalysis(null)
-                                      setDataTableVisible(true)
-                                    } else {
-                                      selectAnalysis(analysis.id)
-                                      setDataTableVisible(false)
-                                      setStatsVisible(false)
-                                    }
+                                    selectAnalysis(isActive ? null : analysis.id)
                                   }}
                                   className={cn(
                                     'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
@@ -692,20 +663,14 @@ export function DatasetsPage() {
                           hideTabBar
                         />
                       ) : (
-                        dataTableVisible ? (
-                          <DatasetTable
-                            fileId={selectedFileId!}
-                            selectedColumnId={selectedColumnId}
-                            onSelectColumn={(colId) => {
-                              setSelectedColumnId(colId)
-                              if (colId) setStatsVisible(true)
-                            }}
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-                            {t('datasets.data_table_hidden')}
-                          </div>
-                        )
+                        <DatasetTable
+                          fileId={selectedFileId!}
+                          selectedColumnId={selectedColumnId}
+                          onSelectColumn={(colId) => {
+                            setSelectedColumnId(colId)
+                            if (colId) setStatsVisible(true)
+                          }}
+                        />
                       )}
                     </Allotment.Pane>
 
@@ -802,6 +767,11 @@ export function DatasetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <EnvironmentsDialog
+        open={environmentsOpen}
+        onOpenChange={setEnvironmentsOpen}
+      />
     </TooltipProvider>
   )
 }
