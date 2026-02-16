@@ -193,8 +193,33 @@ export function PluginsTab() {
               key={plugin.id}
               type="button"
               onClick={() => openPlugin(plugin.id)}
-              className="group flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
+              className="group relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
             >
+              {/* Action buttons — top-right, visible on hover */}
+              {!plugin.isBuiltIn && (
+                <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => handleExport(plugin.id, e)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
+                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                    title={t('plugins.export')}
+                  >
+                    <Download size={12} />
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
+                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  >
+                    <Trash2 size={12} />
+                  </span>
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <Icon size={18} className="shrink-0 text-muted-foreground" />
                 <span className="text-sm font-medium truncate">
@@ -227,29 +252,6 @@ export function PluginsTab() {
                   <span className="text-[10px] text-muted-foreground shrink-0">
                     v{plugin.manifest.version ?? '1.0.0'}
                   </span>
-                  {!plugin.isBuiltIn && (
-                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => handleExport(plugin.id, e)}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        title={t('plugins.export')}
-                      >
-                        <Download size={12} />
-                      </span>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
-                        onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
-                        className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 size={12} />
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </button>
