@@ -9,7 +9,6 @@ import {
   FolderPlus,
   Upload,
   PanelLeft,
-  PanelRight,
   Terminal,
   Settings2,
   Keyboard,
@@ -18,6 +17,8 @@ import {
   Plug,
   X,
   Lock,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -503,7 +504,7 @@ export function FilesPage() {
                       size="icon-xs"
                       onClick={() => setEditorVisible(!editorVisible)}
                     >
-                      <PanelLeft size={14} />
+                      {editorVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
@@ -601,7 +602,7 @@ export function FilesPage() {
                         onClick={() => setOutputVisible(!outputVisible)}
                         disabled={!hasOutput}
                       >
-                        <PanelRight size={14} />
+                        {outputVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('files.toggle_output')}</TooltipContent>
