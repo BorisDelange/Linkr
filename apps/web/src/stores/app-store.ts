@@ -93,7 +93,100 @@ function createDemoProject(): Project {
     ],
     todos: [],
     notes: '',
-    readme: '## Overview\n\nThis project predicts **in-hospital mortality** from the first 24 hours of ICU stay, using the MIMIC-IV demo database (100 patients, OMOP CDM format).\n\n## Pipeline\n\nThe analysis is split into three sequential scripts:\n\n1. **`01_cohort_extraction.sql`** — Selects hospital stays $\\geq$ 24 h with at least one measurement in the first 24 hours. Computes age, sex, length of stay, and in-hospital mortality flag.\n2. **`02_feature_engineering.py`** — Extracts H0–H24 vital signs (heart rate, blood pressure, SpO$_2$, temperature…), laboratory values (hemoglobin, creatinine, electrolytes…), and neurological scores (GCS). Aggregates and pivots from OMOP long format to a one-row-per-patient wide dataset.\n3. **`03_analysis.R`** — Descriptive statistics (Table 1 with Wilcoxon tests), logistic regression with median imputation, ROC curve and AUC.\n\n## Data\n\nThe data source is a DuckDB instance loaded with the **MIMIC-IV demo** OMOP CDM tables — 100 patients with ICU stays, measurements, and outcomes.\n',
+    readme: `# Early Prediction of In-Hospital Mortality in the ICU Using First-24-Hour Data
+
+## Background
+
+Mortality prediction in the intensive care unit (ICU) is central to clinical decision-making, resource allocation, and benchmarking of care quality. Established severity scores — APACHE II, SAPS II, SOFA — have been widely adopted but present well-known limitations: they were developed on historical cohorts, rely on fixed variable sets, and use pre-defined weighting schemes that do not adapt to local case-mix. Several studies have shown that logistic regression and machine learning models trained on routinely collected electronic health record (EHR) data can match or outperform these traditional scores.
+
+This project explores whether a **simple logistic regression model**, fitted on variables available within the **first 24 hours** of ICU admission, can effectively discriminate between survivors and non-survivors — using only data from the OMOP Common Data Model.
+
+## Objective
+
+Develop and evaluate a predictive model for **in-hospital mortality** among ICU patients, using demographics and physiological measurements collected during the first 24 hours of stay (H0–H24).
+
+## Data
+
+The dataset is the **MIMIC-IV demo** (version 2.2), a freely available subset of the MIMIC-IV clinical database, mapped to the **OMOP CDM v5.4** format. It contains 100 unique patients with ICU stays at Beth Israel Deaconess Medical Center (Boston, USA).
+
+After applying inclusion criteria (hospital stay $\\geq$ 24 h, at least one measurement in H0–H24), the final cohort comprises **242 ICU visits** from 100 patients, with **13 deaths** (5.4% mortality rate).
+
+## Methods
+
+The analysis pipeline consists of three sequential scripts:
+
+### 1. Cohort extraction (\`01_cohort_extraction.sql\`)
+
+- Select hospital stays with length of stay $\\geq$ 24 hours
+- Require at least one recorded measurement in the H0–H24 window
+- Compute demographics (age, sex), length of stay, and in-hospital mortality flag (death occurring between admission and discharge + 1 day)
+
+### 2. Feature engineering (\`02_feature_engineering.py\`)
+
+Extract and aggregate measurements from the first 24 hours:
+
+| Category | Variables | Aggregation |
+|---|---|---|
+| **Vital signs** (7) | Heart rate, SBP, DBP, MBP, respiratory rate, SpO$_2$, temperature | Mean, min, max |
+| **Laboratory** (15) | Hemoglobin, hematocrit, platelets, WBC, Na, K, Cl, HCO$_3$, creatinine, BUN, glucose, anion gap, Ca, Mg, phosphate | First value |
+| **Neurological** (3) | GCS eye, verbal, motor | Minimum |
+
+The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (242 rows $\\times$ 45 columns).
+
+### 3. Statistical analysis (\`03_analysis.R\`)
+
+- **Descriptive statistics** (Table 1): comparison of survivors vs. non-survivors using Wilcoxon rank-sum tests
+- **Logistic regression**: features with < 30% missing data are selected (16 / 40 features), missing values imputed by median, binary outcome modeled with \`glm(..., family = binomial)\`
+- **Evaluation**: ROC curve and AUC, confusion matrix at threshold 0.5
+
+## Results
+
+### Population characteristics
+
+|  | Survivors (n = 229) | Non-survivors (n = 13) | p-value |
+|---|---|---|---|
+| Age, years | 62.1 (14.7) | 70.1 (11.9) | 0.048 |
+| Length of stay, hours | 180.4 (157.3) | 247.8 (185.5) | 0.085 |
+| Creatinine, mg/dL | 1.6 (1.9) | 2.1 (1.5) | 0.014 |
+| Potassium, mEq/L | 4.3 (0.8) | 5.0 (0.7) | 0.001 |
+| Glucose, mg/dL | 165.6 (120.4) | 181.8 (47.8) | 0.018 |
+| BUN, mg/dL | 26.1 (21.2) | 39.8 (23.4) | 0.014 |
+
+Values are mean (SD).
+
+Non-survivors were significantly **older** (70.1 vs. 62.1 years, p = 0.048) and presented with higher **creatinine** (p = 0.014), **potassium** (p = 0.001), **glucose** (p = 0.018), and **BUN** (p = 0.014) levels at admission.
+
+### Model performance
+
+The logistic regression model achieved an **AUC of 0.923**, indicating excellent discrimination. Significant predictors at the $\\alpha$ = 0.01 level were:
+
+- **Sex** (male, OR increased, p = 0.008)
+- **Age** (p = 0.009)
+- **Creatinine** (p = 0.003)
+
+Confusion matrix at threshold 0.5:
+
+|  | Predicted alive | Predicted dead |
+|---|---|---|
+| **Actually alive** | 228 | 1 |
+| **Actually dead** | 10 | 3 |
+
+Sensitivity: 23.1% — Specificity: 99.6% — PPV: 75.0%
+
+## Limitations
+
+- **Small sample size**: 100 patients / 13 deaths limits statistical power and generalizability. The high AUC may reflect overfitting.
+- **Demo dataset**: MIMIC-IV demo is a convenience sample, not representative of the full MIMIC-IV cohort.
+- **No external validation**: the model is evaluated on the training set only (no train/test split given the small sample).
+- **Single-center data**: results from Beth Israel Deaconess Medical Center may not transfer to other ICU populations.
+- **Simple model**: logistic regression was chosen for interpretability; ensemble methods or neural networks might improve sensitivity.
+
+## References
+
+1. Johnson, A. et al. *MIMIC-IV, a freely accessible electronic health record dataset.* Sci Data 10, 1 (2023).
+2. Knaus, W.A. et al. *APACHE II: a severity of disease classification system.* Crit Care Med 13, 818–829 (1985).
+3. Le Gall, J.R. et al. *A new Simplified Acute Physiology Score (SAPS II).* JAMA 270, 2957–2963 (1993).
+`,
     createdAt: '2026-02-10T00:00:00.000Z',
     updatedAt: '2026-02-10T00:00:00.000Z',
   }
