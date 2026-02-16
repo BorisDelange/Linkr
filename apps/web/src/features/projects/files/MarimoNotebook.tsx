@@ -11,6 +11,12 @@ import {
   RotateCcw, Loader2, CheckCircle2, XCircle, AlertTriangle, Circle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { parseMarimoFile, serializeMarimoFile, extractReturnVars, recomputeAllParams, type MarimoCell } from '@/lib/marimo-parser'
 import { PyodideCellExecutor, type CellResult } from '@/lib/cell-executor'
@@ -313,6 +319,7 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
               onFocus={() => setActiveCell(cell.id)}
               onCodeChange={(code) => updateCellCode(cell.id, code)}
               onRun={() => runCell(cell.id)}
+              onRunAll={runAll}
               onAddBelow={() => addCell(cell.id)}
               onRemove={() => removeCell(cell.id)}
               onMoveUp={() => moveCell(cell.id, 'up')}
@@ -340,6 +347,7 @@ interface CellBlockProps {
   onFocus: () => void
   onCodeChange: (code: string) => void
   onRun: () => void
+  onRunAll: () => void
   onAddBelow: () => void
   onRemove: () => void
   onMoveUp: () => void
@@ -357,6 +365,7 @@ function CellBlock({
   onFocus,
   onCodeChange,
   onRun,
+  onRunAll,
   onAddBelow,
   onRemove,
   onMoveUp,
@@ -388,12 +397,18 @@ function CellBlock({
         el.selectionStart = el.selectionEnd = start + 4
       })
     }
-    // Shift+Enter runs this cell
-    if (e.key === 'Enter' && e.shiftKey) {
+    // Cmd/Ctrl+Shift+Enter → run all cells
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+      e.preventDefault()
+      onRunAll()
+      return
+    }
+    // Cmd/Ctrl+Enter or Shift+Enter → run this cell
+    if (e.key === 'Enter' && ((e.metaKey || e.ctrlKey) || e.shiftKey)) {
       e.preventDefault()
       onRun()
     }
-  }, [onCodeChange, onRun])
+  }, [onCodeChange, onRun, onRunAll])
 
   return (
     <div
@@ -423,43 +438,77 @@ function CellBlock({
           </span>
         )}
         {!readOnly && (
-          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={onRun}
-              className="rounded p-0.5 hover:bg-accent text-green-600"
-              title="Run cell (Shift+Enter)"
-            >
-              <Play size={12} />
-            </button>
-            <button
-              onClick={onMoveUp}
-              disabled={isFirst}
-              className="rounded p-0.5 hover:bg-accent disabled:opacity-25"
-            >
-              <ChevronUp size={12} />
-            </button>
-            <button
-              onClick={onMoveDown}
-              disabled={isLast}
-              className="rounded p-0.5 hover:bg-accent disabled:opacity-25"
-            >
-              <ChevronDown size={12} />
-            </button>
-            <button
-              onClick={onAddBelow}
-              className="rounded p-0.5 hover:bg-accent"
-              title="Add cell below"
-            >
-              <Plus size={12} />
-            </button>
-            <button
-              onClick={onRemove}
-              className="rounded p-0.5 hover:bg-destructive/20 text-destructive"
-              title="Delete cell"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
+          <TooltipProvider delayDuration={300}>
+            <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onRun}
+                    className="rounded p-0.5 hover:bg-accent text-green-600"
+                  >
+                    <Play size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('files.marimo_run_cell')} (⌘↵)
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onMoveUp}
+                    disabled={isFirst}
+                    className="rounded p-0.5 hover:bg-accent disabled:opacity-25"
+                  >
+                    <ChevronUp size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('common.move_up', 'Move up')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onMoveDown}
+                    disabled={isLast}
+                    className="rounded p-0.5 hover:bg-accent disabled:opacity-25"
+                  >
+                    <ChevronDown size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('common.move_down', 'Move down')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onAddBelow}
+                    className="rounded p-0.5 hover:bg-accent"
+                  >
+                    <Plus size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('files.marimo_add_cell')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={onRemove}
+                    className="rounded p-0.5 hover:bg-destructive/20 text-destructive"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {t('common.delete', 'Delete')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         )}
       </div>
 
