@@ -1,17 +1,134 @@
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+} from 'recharts'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { BarChart3 } from 'lucide-react'
+import { TypeBadge } from './TypeBadge'
 
 interface ColumnStatsPanelProps {
   fileId: string | null
   columnId: string | null
 }
 
+const MAX_CATEGORIES = 20
+const HISTOGRAM_BINS = 15
+
+// --- Stat helpers ---
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0
+  const idx = (p / 100) * (sorted.length - 1)
+  const lo = Math.floor(idx)
+  const hi = Math.ceil(idx)
+  if (lo === hi) return sorted[lo]
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo)
+}
+
+function computeNumericStats(values: number[]) {
+  const sorted = [...values].sort((a, b) => a - b)
+  const n = sorted.length
+  const sum = sorted.reduce((a, b) => a + b, 0)
+  const mean = sum / n
+  const variance = sorted.reduce((acc, v) => acc + (v - mean) ** 2, 0) / n
+  const std = Math.sqrt(variance)
+  const min = sorted[0]
+  const max = sorted[n - 1]
+  const median = percentile(sorted, 50)
+  const q1 = percentile(sorted, 25)
+  const q3 = percentile(sorted, 75)
+  const iqr = q3 - q1
+
+  return { min, max, mean, median, std, q1, q3, iqr, n, sorted }
+}
+
+function buildHistogram(sorted: number[], bins: number) {
+  if (sorted.length === 0) return []
+  const min = sorted[0]
+  const max = sorted[sorted.length - 1]
+  if (min === max) return [{ label: String(min), count: sorted.length, pct: 100 }]
+  const step = (max - min) / bins
+  const result: { label: string; count: number; pct: number }[] = []
+  for (let i = 0; i < bins; i++) {
+    const lo = min + i * step
+    const hi = i === bins - 1 ? max + 1 : min + (i + 1) * step
+    const count = sorted.filter((v) => v >= lo && v < hi).length
+    result.push({
+      label: `${lo.toFixed(1)}`,
+      count,
+      pct: (count / sorted.length) * 100,
+    })
+  }
+  return result
+}
+
+function buildCategoryDistribution(values: unknown[]) {
+  const counts = new Map<string, number>()
+  for (const v of values) {
+    const key = String(v)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const total = values.length
+  const entries = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+  const truncated = entries.length > MAX_CATEGORIES
+  const visible = entries.slice(0, MAX_CATEGORIES)
+  return {
+    items: visible.map(([value, count]) => ({ value, count, pct: (count / total) * 100 })),
+    truncated,
+    totalCategories: entries.length,
+  }
+}
+
+function StatRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-muted-foreground shrink-0">{label}</span>
+      <span className="text-right tabular-nums truncate">{typeof value === 'number' ? value.toLocaleString(undefined, { maximumFractionDigits: 2 }) : value}</span>
+    </div>
+  )
+}
+
+// --- Component ---
+
 export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
   const { t } = useTranslation()
   const { files, getFileRows, _dirtyVersion } = useDatasetStore()
 
-  if (!fileId || !columnId) {
+  const file = fileId ? files.find((f) => f.id === fileId) : null
+  const column = file?.columns?.find((c) => c.id === columnId)
+  const rows = fileId && _dirtyVersion >= 0 ? getFileRows(fileId) : []
+
+  const stats = useMemo(() => {
+    if (!column || !columnId) return null
+
+    const allValues = rows.map((r) => r[columnId])
+    const nonNullValues = allValues.filter((v) => v != null && v !== '')
+    const total = allValues.length
+    const nonNull = nonNullValues.length
+    const nullCount = total - nonNull
+    const uniqueCount = new Set(nonNullValues.map(String)).size
+
+    const numericValues = nonNullValues.map(Number).filter((n) => !isNaN(n))
+    const isNumeric = column.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length)
+
+    let numeric = null
+    let histogram: { label: string; count: number; pct: number }[] = []
+    if (isNumeric && numericValues.length > 0) {
+      numeric = computeNumericStats(numericValues)
+      histogram = buildHistogram(numeric.sorted, HISTOGRAM_BINS)
+    }
+
+    let categories = null
+    if (!isNumeric && nonNullValues.length > 0) {
+      categories = buildCategoryDistribution(nonNullValues)
+    }
+
+    return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, categories }
+  }, [column, columnId, rows, _dirtyVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!fileId || !columnId || !column) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center p-6">
         <BarChart3 size={24} className="text-muted-foreground/50" />
@@ -20,72 +137,114 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     )
   }
 
-  const file = files.find((f) => f.id === fileId)
-  const column = file?.columns?.find((c) => c.id === columnId)
-  const rows = _dirtyVersion >= 0 ? getFileRows(fileId) : []
-
-  if (!column) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center text-center p-6">
-        <p className="text-xs text-muted-foreground">{t('datasets.column_not_found')}</p>
-      </div>
-    )
-  }
-
-  // Compute basic statistics
-  const values = rows.map((r) => r[columnId]).filter((v) => v != null)
-  const total = rows.length
-  const nonNull = values.length
-  const nullCount = total - nonNull
-
-  const numericValues = values.map(Number).filter((n) => !isNaN(n))
-  const isNumeric = column.type === 'number' || (numericValues.length > 0 && numericValues.length === values.length)
+  if (!stats) return null
 
   return (
     <div className="flex h-full flex-col">
+      {/* Header */}
       <div className="border-b px-3 py-2">
-        <h3 className="text-xs font-medium">{t('datasets.column_stats')}</h3>
-        <p className="mt-0.5 text-[10px] text-muted-foreground truncate">{column.name}</p>
+        <div className="flex items-center gap-1.5">
+          <TypeBadge type={column.type} />
+          <h3 className="text-xs font-medium truncate">{column.name}</h3>
+        </div>
       </div>
-      <div className="flex-1 overflow-auto p-3 space-y-3">
-        <div className="space-y-1.5 text-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('datasets.stats_type')}</span>
-            <span>{column.type}</span>
+
+      <div className="flex-1 overflow-auto p-3 space-y-4 text-xs">
+        {/* Completeness bar */}
+        {stats.total > 0 && (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">{t('datasets.stats_completeness')}</span>
+              <span className="tabular-nums">{((stats.nonNull / stats.total) * 100).toFixed(1)}%</span>
+            </div>
+            <div className="h-3 w-full rounded-sm bg-destructive/15 overflow-hidden">
+              <div
+                className="h-full rounded-sm bg-emerald-500/70 transition-all"
+                style={{ width: `${(stats.nonNull / stats.total) * 100}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>{stats.nonNull} {t('datasets.stats_non_null').toLowerCase()}</span>
+              <span>{stats.nullCount} {t('datasets.stats_missing').toLowerCase()}</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('datasets.stats_total')}</span>
-            <span>{total}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('datasets.stats_non_null')}</span>
-            <span>{nonNull}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('datasets.stats_null')}</span>
-            <span>{nullCount}</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-muted-foreground">{t('datasets.stats_unique')}</span>
-            <span>{new Set(values.map(String)).size}</span>
-          </div>
+        )}
+
+        {/* Summary counts */}
+        <div className="space-y-1 border-t pt-3">
+          <StatRow label={t('datasets.stats_total')} value={stats.total} />
+          <StatRow label={t('datasets.stats_unique')} value={stats.uniqueCount} />
         </div>
 
-        {isNumeric && numericValues.length > 0 && (
-          <div className="space-y-1.5 text-xs border-t pt-3">
-            <h4 className="font-medium text-muted-foreground">{t('datasets.stats_numeric')}</h4>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t('datasets.stats_min')}</span>
-              <span>{Math.min(...numericValues).toFixed(2)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t('datasets.stats_max')}</span>
-              <span>{Math.max(...numericValues).toFixed(2)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">{t('datasets.stats_mean')}</span>
-              <span>{(numericValues.reduce((a, b) => a + b, 0) / numericValues.length).toFixed(2)}</span>
-            </div>
+        {/* Numeric statistics */}
+        {stats.isNumeric && stats.numeric && (
+          <div className="space-y-1 border-t pt-3">
+            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_numeric')}</h4>
+            <StatRow label={t('datasets.stats_min')} value={stats.numeric.min} />
+            <StatRow label="Q1 (25%)" value={stats.numeric.q1} />
+            <StatRow label={t('datasets.stats_median')} value={stats.numeric.median} />
+            <StatRow label="Q3 (75%)" value={stats.numeric.q3} />
+            <StatRow label={t('datasets.stats_max')} value={stats.numeric.max} />
+            <StatRow label="IQR" value={stats.numeric.iqr} />
+            <StatRow label={t('datasets.stats_mean')} value={stats.numeric.mean} />
+            <StatRow label={t('datasets.stats_std')} value={stats.numeric.std} />
+          </div>
+        )}
+
+        {/* Numeric histogram (Recharts) */}
+        {stats.isNumeric && stats.histogram.length > 1 && (
+          <div className="space-y-1 border-t pt-3">
+            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_distribution')}</h4>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={stats.histogram} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 9 }}
+                  tickFormatter={(v: number) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  interval="preserveStartEnd"
+                />
+                <YAxis tick={{ fontSize: 9 }} width={30} />
+                <Tooltip
+                  formatter={(value) => [Number(value).toLocaleString(), 'Count']}
+                  labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  contentStyle={{ fontSize: 11 }}
+                />
+                <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Category distribution (horizontal bar chart) */}
+        {stats.categories && (
+          <div className="space-y-1 border-t pt-3">
+            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_distribution')}</h4>
+            <ResponsiveContainer width="100%" height={Math.min(stats.categories.items.length * 22 + 20, 350)}>
+              <BarChart
+                data={stats.categories.items}
+                layout="vertical"
+                margin={{ top: 4, right: 4, bottom: 4, left: 4 }}
+              >
+                <XAxis type="number" tick={{ fontSize: 9 }} />
+                <YAxis
+                  type="category"
+                  dataKey="value"
+                  tick={{ fontSize: 9 }}
+                  width={80}
+                  tickFormatter={(v: string) => v.length > 12 ? v.slice(0, 12) + '…' : v}
+                />
+                <Tooltip
+                  formatter={(value) => [Number(value).toLocaleString(), 'Count']}
+                  contentStyle={{ fontSize: 11 }}
+                />
+                <Bar dataKey="count" fill="var(--color-primary)" radius={[0, 2, 2, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            {stats.categories.truncated && (
+              <p className="text-[10px] text-muted-foreground italic mt-1">
+                {t('datasets.stats_categories_truncated', { shown: MAX_CATEGORIES, total: stats.categories.totalCategories })}
+              </p>
+            )}
           </div>
         )}
       </div>

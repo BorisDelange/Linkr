@@ -137,7 +137,7 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
       </div>
 
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto pb-3">
+      <div className="min-h-0 flex-1 overflow-auto">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             {/* Column headers */}
@@ -229,6 +229,8 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
             )}
           </TableBody>
         </Table>
+        {/* Spacer so the horizontal scrollbar doesn't overlap the last row */}
+        <div className="h-3 shrink-0" />
       </div>
 
       {/* Pagination bar */}

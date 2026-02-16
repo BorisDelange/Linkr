@@ -700,20 +700,20 @@ export const useFileStore = create<FileState>((set, get) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, content } : f)),
       _dirtyVersion: s._dirtyVersion + 1,
     }))
-    // Per-file debounce timer
-    const existingTimer = _contentSaveTimers.get(id)
-    if (existingTimer) clearTimeout(existingTimer)
     const { editorSettings } = useAppStore.getState()
-    const delay = editorSettings.autoSave ? editorSettings.autoSaveDelay : 500
-    _contentSaveTimers.set(id, setTimeout(() => {
-      _contentSaveTimers.delete(id)
-      getStorage().ideFiles.update(id, { content }).then(() => {
-        if (editorSettings.autoSave) {
+    // Only persist to IndexedDB when autoSave is enabled.
+    // Otherwise, content stays in-memory only until explicit saveFile().
+    if (editorSettings.autoSave) {
+      const existingTimer = _contentSaveTimers.get(id)
+      if (existingTimer) clearTimeout(existingTimer)
+      _contentSaveTimers.set(id, setTimeout(() => {
+        _contentSaveTimers.delete(id)
+        getStorage().ideFiles.update(id, { content }).then(() => {
           _savedContent.set(id, content)
           useFileStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-        }
-      }).catch(() => {})
-    }, delay))
+        }).catch(() => {})
+      }, editorSettings.autoSaveDelay))
+    }
   },
 
   isFileDirty: (id) => {

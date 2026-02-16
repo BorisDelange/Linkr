@@ -79,7 +79,6 @@ export function FilesPage() {
     addOutputTab,
     setActiveOutputTab,
     closeOutputTab,
-    reorderAllOutputTabs,
     clearExecutionResultsByLanguage,
     outputVisible,
     setOutputVisible,
@@ -697,8 +696,8 @@ export function FilesPage() {
                             className={cn(
                               'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                               isActive && outputVisible
-                                ? 'bg-background text-foreground'
-                                : 'text-muted-foreground hover:bg-accent/50',
+                                ? 'bg-primary/10 text-foreground'
+                                : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
                             )}
                           >
                             <span>{EXEC_TAB_LABELS[execLang]}</span>
@@ -731,8 +730,8 @@ export function FilesPage() {
                           className={cn(
                             'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                             tab.id === activeOutputTab && outputVisible
-                              ? 'bg-background text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/50',
+                              ? 'bg-primary/10 text-foreground'
+                              : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
                           )}
                         >
                           {getTabIcon(tab.type)}
@@ -798,6 +797,7 @@ export function FilesPage() {
                         <div className="h-full border-l">
                           <OutputPanel
                             onClose={() => setOutputVisible(false)}
+                            hideTabBar
                           />
                         </div>
                       </Allotment.Pane>
