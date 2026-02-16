@@ -1,12 +1,5 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type VisibilityState,
-} from '@tanstack/react-table'
 import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -24,35 +17,73 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
+import { cn } from '@/lib/utils'
 
 interface OutputTableProps {
   headers: string[]
   rows: string[][]
 }
 
+type InferredType = 'number' | 'boolean' | 'date' | 'string' | 'unknown'
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/
+
+function inferColumnType(rows: string[][], colIdx: number): InferredType {
+  let hasValue = false
+  let allNumber = true
+  let allBool = true
+  let allDate = true
+
+  for (let i = 0; i < Math.min(rows.length, 200); i++) {
+    const val = rows[i][colIdx]
+    if (val == null || val === '' || val.toLowerCase() === 'null' || val.toLowerCase() === 'na' || val.toLowerCase() === 'none') continue
+    hasValue = true
+    if (allNumber && isNaN(Number(val))) allNumber = false
+    if (allBool && val !== 'true' && val !== 'false' && val !== 'TRUE' && val !== 'FALSE' && val !== '0' && val !== '1') allBool = false
+    if (allDate && !DATE_RE.test(val)) allDate = false
+    if (!allNumber && !allBool && !allDate) return 'string'
+  }
+
+  if (!hasValue) return 'unknown'
+  if (allBool) return 'boolean'
+  if (allNumber) return 'number'
+  if (allDate) return 'date'
+  return 'string'
+}
+
+function isNullish(val: string | undefined): boolean {
+  if (val == null || val === '') return true
+  const lower = val.toLowerCase()
+  return lower === 'null' || lower === 'na' || lower === 'none' || lower === 'nan'
+}
+
 export function OutputTable({ headers, rows }: OutputTableProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
-  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
+  const [hiddenColumns, setHiddenColumns] = useState<Set<number>>(new Set())
+
+  // Infer column types from data
+  const columnTypes = useMemo<InferredType[]>(
+    () => headers.map((_, idx) => inferColumnType(rows, idx)),
+    [headers, rows],
+  )
+
+  // Visible column indices
+  const visibleIndices = useMemo(
+    () => headers.map((_, i) => i).filter((i) => !hiddenColumns.has(i)),
+    [headers, hiddenColumns],
+  )
 
   // Filter rows client-side based on column search inputs
   const filteredRows = useMemo(() => {
     const activeFilters = Object.entries(columnFilters).filter(([, v]) => v.length > 0)
     if (activeFilters.length === 0) return rows
     return rows.filter((row) =>
-      activeFilters.every(([colId, term]) => {
-        const idx = parseInt(colId.replace('col_', ''), 10)
+      activeFilters.every(([colKey, term]) => {
+        const idx = parseInt(colKey, 10)
         const val = row[idx] ?? ''
         return val.toLowerCase().includes(term.toLowerCase())
       }),
@@ -67,35 +98,22 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
     [filteredRows, page, pageSize],
   )
 
-  const columns = useMemo<ColumnDef<string[]>[]>(
-    () =>
-      headers.map((h, idx) => ({
-        id: `col_${idx}`,
-        header: () => h,
-        accessorFn: (row: string[]) => row[idx],
-        size: 150,
-        minSize: 60,
-      })),
-    [headers],
-  )
-
-  const table = useReactTable({
-    data: pageRows,
-    columns,
-    state: { columnSizing, columnVisibility },
-    onColumnSizingChange: setColumnSizing,
-    onColumnVisibilityChange: setColumnVisibility,
-    columnResizeMode: 'onChange',
-    getCoreRowModel: getCoreRowModel(),
-  })
-
   const handleFilterChange = useCallback(
-    (colId: string, value: string) => {
-      setColumnFilters((prev) => ({ ...prev, [colId]: value }))
+    (colIdx: number, value: string) => {
+      setColumnFilters((prev) => ({ ...prev, [colIdx]: value }))
       setPage(0)
     },
     [],
   )
+
+  const toggleColumn = useCallback((idx: number) => {
+    setHiddenColumns((prev) => {
+      const next = new Set(prev)
+      if (next.has(idx)) next.delete(idx)
+      else next.add(idx)
+      return next
+    })
+  }, [])
 
   const hasActiveFilters = Object.values(columnFilters).some((v) => v.length > 0)
 
@@ -121,15 +139,18 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
               {t('files.columns', 'Columns')}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {table.getAllColumns().map((col) => (
+            {headers.map((h, idx) => (
               <DropdownMenuCheckboxItem
-                key={col.id}
-                checked={col.getIsVisible()}
-                onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                key={idx}
+                checked={!hiddenColumns.has(idx)}
+                onCheckedChange={() => toggleColumn(idx)}
                 onSelect={(e) => e.preventDefault()}
                 className="text-xs"
               >
-                {headers[parseInt(col.id.replace('col_', ''), 10)]}
+                <div className="flex items-center gap-1.5">
+                  <TypeBadge type={columnTypes[idx]} size="sm" />
+                  <span className="truncate">{h}</span>
+                </div>
               </DropdownMenuCheckboxItem>
             ))}
           </DropdownMenuContent>
@@ -137,98 +158,80 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
       </div>
 
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-hidden [&_[data-slot=table-container]]:h-full [&_[data-slot=table-container]]:overflow-auto">
-        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-          <TableHeader>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="text-xs border-collapse">
+          <thead className="sticky top-0 z-10 bg-muted">
             {/* Column headers */}
-            <TableRow>
-              {table.getHeaderGroups().map((headerGroup) =>
-                headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={header.id}
-                    className="relative select-none text-xs"
-                    style={{ width: header.getSize() }}
-                  >
-                    <span className="truncate">
-                      {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
-                    </span>
-                    {/* Resize handle */}
-                    <div
-                      onMouseDown={header.getResizeHandler()}
-                      onTouchStart={header.getResizeHandler()}
-                      onDoubleClick={() => header.column.resetSize()}
-                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                    >
-                      <div
-                        className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                          header.column.getIsResizing()
-                            ? 'bg-primary'
-                            : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                        }`}
-                      />
-                    </div>
-                  </TableHead>
-                )),
-              )}
-            </TableRow>
+            <tr>
+              <th className="sticky left-0 z-20 bg-muted w-10 min-w-[40px] border-b border-r px-2 py-1.5 text-center text-muted-foreground font-normal">
+                #
+              </th>
+              {visibleIndices.map((idx) => (
+                <th
+                  key={idx}
+                  className="border-b border-r px-3 py-1.5 text-left font-medium whitespace-nowrap"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <TypeBadge type={columnTypes[idx]} size="sm" />
+                    <span className="truncate">{headers[idx]}</span>
+                  </div>
+                </th>
+              ))}
+            </tr>
             {/* Column filter row */}
-            <TableRow className="hover:bg-transparent">
-              {table.getHeaderGroups().map((headerGroup) =>
-                headerGroup.headers.map((header) => (
-                  <TableHead
-                    key={`filter-${header.id}`}
-                    className="px-1 py-1"
-                    style={{ width: header.getSize() }}
-                  >
-                    <input
-                      className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-                      placeholder={`${headers[parseInt(header.id.replace('col_', ''), 10)]}...`}
-                      value={columnFilters[header.id] ?? ''}
-                      onChange={(e) => handleFilterChange(header.id, e.target.value)}
-                    />
-                  </TableHead>
-                )),
-              )}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+            <tr>
+              <th className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1" />
+              {visibleIndices.map((idx) => (
+                <th key={`filter-${idx}`} className="border-b border-r px-1 py-1 bg-muted">
+                  <input
+                    className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
+                    placeholder={`${headers[idx]}...`}
+                    value={columnFilters[idx] ?? ''}
+                    onChange={(e) => handleFilterChange(idx, e.target.value)}
+                  />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
             {pageRows.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={headers.length}
+              <tr>
+                <td
+                  colSpan={visibleIndices.length + 1}
                   className="h-24 text-center text-sm text-muted-foreground"
                 >
                   {t('files.no_output')}
-                </TableCell>
-              </TableRow>
+                </td>
+              </tr>
             ) : (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.index}>
-                  {row.getVisibleCells().map((cell) => {
-                    const raw = cell.getValue()
-                    const title = raw != null ? String(raw) : undefined
+              pageRows.map((row, rowIdx) => (
+                <tr key={rowIdx} className="hover:bg-accent/30">
+                  <td className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums">
+                    {page * pageSize + rowIdx + 1}
+                  </td>
+                  {visibleIndices.map((colIdx) => {
+                    const val = row[colIdx]
+                    const nullish = isNullish(val)
                     return (
-                      <TableCell
-                        key={cell.id}
-                        className="overflow-hidden truncate text-xs"
-                        style={{ maxWidth: cell.column.getSize() }}
-                        title={title}
-                      >
-                        {flexRender(
-                          cell.column.columnDef.cell,
-                          cell.getContext(),
+                      <td
+                        key={colIdx}
+                        className={cn(
+                          'border-b border-r px-3 py-1 whitespace-nowrap max-w-[300px] truncate',
+                          columnTypes[colIdx] === 'number' && !nullish && 'tabular-nums',
                         )}
-                      </TableCell>
+                        title={!nullish ? val : undefined}
+                      >
+                        {nullish
+                          ? <span className="italic text-muted-foreground/50">null</span>
+                          : val}
+                      </td>
                     )
                   })}
-                </TableRow>
+                </tr>
               ))
             )}
-          </TableBody>
-        </Table>
+          </tbody>
+        </table>
       </div>
 
       {/* Pagination bar */}

@@ -136,6 +136,8 @@ export function FileTreeItem({
 
   const handleDragOver = (e: React.DragEvent) => {
     if (!isFolder || (isVirtual && !isBridge)) return
+    // Only accept file-tree drags, not tab reorder drags
+    if (e.dataTransfer.types.includes('file-tab-id') || e.dataTransfer.types.includes('output-tab-id')) return
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
     setDragOver(true)

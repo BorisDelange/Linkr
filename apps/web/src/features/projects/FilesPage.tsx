@@ -802,18 +802,20 @@ export function FilesPage() {
               {(openFileIds.length > 0 || outputTabOrder.length > 0) && (
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
-                  <button
-                    onClick={() => scrollTabs(fileTabScrollRef, 'left')}
-                    disabled={!fileTabCanScrollLeft}
-                    className={cn(
-                      'shrink-0 px-0.5 py-1.5 transition-colors',
-                      fileTabCanScrollLeft
-                        ? 'text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/25 cursor-default'
-                    )}
-                  >
-                    <ChevronLeft size={12} />
-                  </button>
+                  {openFileIds.length > 0 && (
+                    <button
+                      onClick={() => scrollTabs(fileTabScrollRef, 'left')}
+                      disabled={!fileTabCanScrollLeft}
+                      className={cn(
+                        'shrink-0 px-0.5 py-1.5 transition-colors',
+                        fileTabCanScrollLeft
+                          ? 'text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/25 cursor-default'
+                      )}
+                    >
+                      <ChevronLeft size={12} />
+                    </button>
+                  )}
                   <div
                     ref={fileTabScrollRef}
                     className="flex items-center overflow-x-auto scrollbar-none"
@@ -852,7 +854,7 @@ export function FilesPage() {
                                 if (!draggedId || draggedId === fid) return
                                 const fromIdx = openFileIds.indexOf(draggedId)
                                 let toIdx = openFileIds.indexOf(fid)
-                                if (side === 'right') toIdx = Math.min(toIdx + 1, openFileIds.length - 1)
+                                if (side === 'right') toIdx++
                                 if (fromIdx < toIdx) toIdx--
                                 if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderOpenFiles(fromIdx, toIdx)
                               }}
@@ -906,18 +908,20 @@ export function FilesPage() {
                       )
                     })}
                   </div>
-                  <button
-                    onClick={() => scrollTabs(fileTabScrollRef, 'right')}
-                    disabled={!fileTabCanScrollRight}
-                    className={cn(
-                      'shrink-0 px-0.5 py-1.5 transition-colors',
-                      fileTabCanScrollRight
-                        ? 'text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/25 cursor-default'
-                    )}
-                  >
-                    <ChevronRight size={12} />
-                  </button>
+                  {openFileIds.length > 0 && (
+                    <button
+                      onClick={() => scrollTabs(fileTabScrollRef, 'right')}
+                      disabled={!fileTabCanScrollRight}
+                      className={cn(
+                        'shrink-0 px-0.5 py-1.5 transition-colors',
+                        fileTabCanScrollRight
+                          ? 'text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/25 cursor-default'
+                      )}
+                    >
+                      <ChevronRight size={12} />
+                    </button>
+                  )}
 
                   {/* Vertical separator between file tabs and output tabs */}
                   {openFileIds.length > 0 && outputTabOrder.length > 0 && (
@@ -925,18 +929,20 @@ export function FilesPage() {
                   )}
 
                   {/* Output tabs */}
-                  <button
-                    onClick={() => scrollTabs(outputTabScrollRef, 'left')}
-                    disabled={!outputTabCanScrollLeft}
-                    className={cn(
-                      'shrink-0 px-0.5 py-1.5 transition-colors',
-                      outputTabCanScrollLeft
-                        ? 'text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/25 cursor-default'
-                    )}
-                  >
-                    <ChevronLeft size={12} />
-                  </button>
+                  {outputTabOrder.length > 0 && (
+                    <button
+                      onClick={() => scrollTabs(outputTabScrollRef, 'left')}
+                      disabled={!outputTabCanScrollLeft}
+                      className={cn(
+                        'shrink-0 px-0.5 py-1.5 transition-colors',
+                        outputTabCanScrollLeft
+                          ? 'text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/25 cursor-default'
+                      )}
+                    >
+                      <ChevronLeft size={12} />
+                    </button>
+                  )}
                   <div
                     ref={outputTabScrollRef}
                     className="flex items-center overflow-x-auto scrollbar-none"
@@ -974,7 +980,7 @@ export function FilesPage() {
                                   if (!draggedId || draggedId === tabId) return
                                   const fromIdx = outputTabOrder.indexOf(draggedId)
                                   let toIdx = outputTabOrder.indexOf(tabId)
-                                  if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                                  if (side === 'right') toIdx++
                                   if (fromIdx < toIdx) toIdx--
                                   if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
                                 }}
@@ -1058,7 +1064,7 @@ export function FilesPage() {
                                 if (!draggedId || draggedId === tab.id) return
                                 const fromIdx = outputTabOrder.indexOf(draggedId)
                                 let toIdx = outputTabOrder.indexOf(tab.id)
-                                if (side === 'right') toIdx = Math.min(toIdx + 1, outputTabOrder.length - 1)
+                                if (side === 'right') toIdx++
                                 if (fromIdx < toIdx) toIdx--
                                 if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) reorderAllOutputTabs(fromIdx, toIdx)
                               }}
@@ -1109,18 +1115,20 @@ export function FilesPage() {
                       )
                     })}
                   </div>
-                  <button
-                    onClick={() => scrollTabs(outputTabScrollRef, 'right')}
-                    disabled={!outputTabCanScrollRight}
-                    className={cn(
-                      'shrink-0 px-0.5 py-1.5 transition-colors',
-                      outputTabCanScrollRight
-                        ? 'text-muted-foreground hover:text-foreground'
-                        : 'text-muted-foreground/25 cursor-default'
-                    )}
-                  >
-                    <ChevronRight size={12} />
-                  </button>
+                  {outputTabOrder.length > 0 && (
+                    <button
+                      onClick={() => scrollTabs(outputTabScrollRef, 'right')}
+                      disabled={!outputTabCanScrollRight}
+                      className={cn(
+                        'shrink-0 px-0.5 py-1.5 transition-colors',
+                        outputTabCanScrollRight
+                          ? 'text-muted-foreground hover:text-foreground'
+                          : 'text-muted-foreground/25 cursor-default'
+                      )}
+                    >
+                      <ChevronRight size={12} />
+                    </button>
+                  )}
                 </div>
               )}
 
