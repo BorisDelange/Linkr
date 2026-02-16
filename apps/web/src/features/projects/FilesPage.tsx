@@ -72,7 +72,7 @@ import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
 
-const LazyMarimoTest = lazy(() => import('./files/MarimoTest').then(m => ({ default: m.MarimoTest })))
+const LazyMarimoNotebook = lazy(() => import('./files/MarimoNotebook').then(m => ({ default: m.MarimoNotebook })))
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -1146,9 +1146,14 @@ export function FilesPage() {
                               Loading Marimo...
                             </div>
                           }>
-                            <LazyMarimoTest
+                            <LazyMarimoNotebook
                               key={selectedFileId}
-                              code={selectedNode.content ?? ''}
+                              content={selectedNode.content ?? ''}
+                              onChange={isVirtualFile ? undefined : (v) =>
+                                updateFileContent(selectedNode.id, v)
+                              }
+                              readOnly={isVirtualFile}
+                              onSave={handleSaveFile}
                             />
                           </Suspense>
                         ) : selectedNode ? (
