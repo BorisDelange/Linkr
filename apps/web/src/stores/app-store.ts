@@ -79,10 +79,10 @@ const DEMO_UID = '00000000-0000-0000-0000-000000000001'
 function createDemoProject(): Project {
   return {
     uid: DEMO_UID,
-    name: { en: 'MIMIC-IV Demo', fr: 'Démo MIMIC-IV' },
+    name: { en: 'ICU Mortality Prediction', fr: 'Prédiction de mortalité en réanimation' },
     description: {
-      en: 'Demonstration project with MIMIC-IV data',
-      fr: 'Projet de démonstration avec les données MIMIC-IV',
+      en: 'Predict in-hospital mortality from the first 24 hours of ICU stay using MIMIC-IV demo data (100 patients, OMOP CDM).',
+      fr: 'Prédire la mortalité hospitalière à partir des 24 premières heures de séjour en réanimation avec les données MIMIC-IV demo (100 patients, OMOP CDM).',
     },
     shortDescription: {},
     config: {},
@@ -90,11 +90,10 @@ function createDemoProject(): Project {
     status: 'active',
     badges: [
       { id: 'b1', label: 'ICU', color: 'red' },
-      { id: 'b2', label: 'Research', color: 'blue' },
     ],
     todos: [],
     notes: '',
-    readme: '## Overview\n\nThis project uses the **MIMIC-IV** clinical database to explore ICU patient outcomes.\n\n### Objectives\n\n- Analyze patient demographics and admission patterns\n- Build patient-level dashboards for clinical review\n- Run cohort analyses on sepsis patients\n\n### Data\n\nThe primary data source is a DuckDB instance loaded with MIMIC-IV OMOP CDM tables (3,421 patients, 12,847 visits).\n',
+    readme: '## Overview\n\nThis project predicts **in-hospital mortality** from the first 24 hours of ICU stay, using the MIMIC-IV demo database (100 patients, OMOP CDM format).\n\n## Pipeline\n\nThe analysis is split into three sequential scripts:\n\n1. **`01_cohort_extraction.sql`** — Selects hospital stays $\\geq$ 24 h with at least one measurement in the first 24 hours. Computes age, sex, length of stay, and in-hospital mortality flag.\n2. **`02_feature_engineering.py`** — Extracts H0–H24 vital signs (heart rate, blood pressure, SpO$_2$, temperature…), laboratory values (hemoglobin, creatinine, electrolytes…), and neurological scores (GCS). Aggregates and pivots from OMOP long format to a one-row-per-patient wide dataset.\n3. **`03_analysis.R`** — Descriptive statistics (Table 1 with Wilcoxon tests), logistic regression with median imputation, ROC curve and AUC.\n\n## Data\n\nThe data source is a DuckDB instance loaded with the **MIMIC-IV demo** OMOP CDM tables — 100 patients with ICU stays, measurements, and outcomes.\n',
     createdAt: '2026-02-10T00:00:00.000Z',
     updatedAt: '2026-02-10T00:00:00.000Z',
   }
