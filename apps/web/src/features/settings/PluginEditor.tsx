@@ -200,9 +200,9 @@ export function PluginEditor() {
                   <Tag size={12} />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-72 space-y-3">
+              <PopoverContent align="end" className="w-[340px] space-y-4">
                 {/* Icon */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-xs">{t('plugins.icon')}</Label>
                   <IconPicker
                     value={pluginIcon}
@@ -211,15 +211,15 @@ export function PluginEditor() {
                   />
                 </div>
                 {/* Icon color */}
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   <Label className="text-xs">{t('plugins.icon_color')}</Label>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {/* None / default */}
                     <button
                       type="button"
                       onClick={() => updateManifestField('iconColor', undefined)}
                       className={cn(
-                        'flex h-6 w-6 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
+                        'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
                         !pluginIconColor
                           ? 'border-foreground/40 ring-2 ring-ring ring-offset-2'
                           : 'border-muted-foreground/30 hover:ring-1 hover:ring-ring hover:ring-offset-1',
@@ -233,7 +233,7 @@ export function PluginEditor() {
                         type="button"
                         onClick={() => updateManifestField('iconColor', c.value)}
                         className={cn(
-                          'h-6 w-6 rounded-full ring-offset-background transition-all',
+                          'h-6 w-6 shrink-0 rounded-full ring-offset-background transition-all',
                           c.swatch,
                           pluginIconColor === c.value
                             ? 'ring-2 ring-ring ring-offset-2'
@@ -241,7 +241,7 @@ export function PluginEditor() {
                         )}
                       />
                     ))}
-                    <div className="relative">
+                    <div className="relative shrink-0">
                       <input
                         type="color"
                         value={pluginIconColor && isCustomColor(pluginIconColor) ? pluginIconColor : '#6366f1'}
@@ -263,7 +263,7 @@ export function PluginEditor() {
                   </div>
                 </div>
                 {/* Version */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <Label className="text-xs">{t('plugins.version')}</Label>
                   <Input
                     value={pluginVersion}
@@ -273,7 +273,7 @@ export function PluginEditor() {
                   />
                 </div>
                 {/* Badges */}
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   <Label className="text-xs">{t('plugins.badges')}</Label>
                   {pluginBadges.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
@@ -342,7 +342,7 @@ export function PluginEditor() {
                     variant="outline"
                     onClick={handleAddBadge}
                     disabled={!newBadgeLabel.trim()}
-                    className="h-7 gap-1 text-xs w-full"
+                    className="mt-0.5 h-7 gap-1 text-xs w-full"
                   >
                     <Plus size={12} />
                     {t('plugins.add_badge')}
