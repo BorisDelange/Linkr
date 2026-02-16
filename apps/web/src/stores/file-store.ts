@@ -503,6 +503,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set((s) => ({
       files: [...s.files, node],
       selectedFileId: id,
+      openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
     // Persist
     getStorage().ideFiles.create(node).catch(() => {})

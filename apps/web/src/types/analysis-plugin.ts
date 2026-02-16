@@ -1,4 +1,11 @@
-import type { DatasetAnalysis } from '@/types'
+import type { DatasetAnalysis, BadgeColor } from '@/types'
+
+/** A colored label badge on a plugin (same pattern as project badges). */
+export interface PluginBadge {
+  id: string
+  label: string
+  color: BadgeColor
+}
 
 /** Schema definition for a single config field in a plugin's configSchema. */
 export interface PluginConfigField {
@@ -36,6 +43,8 @@ export interface AnalysisPluginManifest {
   }
   templates?: Record<string, string>
   component?: string
+  /** Custom colored badges for categorizing the plugin. */
+  badges?: PluginBadge[]
 }
 
 /** Resolved plugin with loaded templates and component reference. */

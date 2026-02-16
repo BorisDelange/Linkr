@@ -1,13 +1,35 @@
-import { useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Tag, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { cn } from '@/lib/utils'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
+import type { PresetBadgeColor, BadgeColor } from '@/types'
+import type { PluginBadge } from '@/types/analysis-plugin'
+
+const PRESET_COLORS: { value: PresetBadgeColor; swatch: string }[] = [
+  { value: 'red', swatch: 'bg-red-400' },
+  { value: 'blue', swatch: 'bg-blue-400' },
+  { value: 'green', swatch: 'bg-green-400' },
+  { value: 'violet', swatch: 'bg-violet-400' },
+  { value: 'amber', swatch: 'bg-amber-400' },
+  { value: 'rose', swatch: 'bg-rose-400' },
+  { value: 'cyan', swatch: 'bg-cyan-400' },
+  { value: 'slate', swatch: 'bg-slate-400' },
+]
+
+function isCustomColor(color: BadgeColor): boolean {
+  return !PRESET_COLORS.some((pc) => pc.value === color)
+}
 
 const languageFromFilename = (filename: string): string => {
   if (filename.endsWith('.json')) return 'json'
@@ -28,6 +50,7 @@ export function PluginEditor() {
     openFiles,
     activeFile,
     isDirty,
+    originalFiles,
     closeEditor,
     savePlugin,
     duplicatePlugin,
@@ -35,7 +58,45 @@ export function PluginEditor() {
     openFile,
     closeFile,
     updateFileContent,
+    reorderOpenFiles,
   } = usePluginEditorStore()
+
+  const [explorerVisible, setExplorerVisible] = useState(true)
+
+  // --- Drag reorder state ---
+  const [dragFile, setDragFile] = useState<string | null>(null)
+  const [dropInsert, setDropInsert] = useState<{ name: string; side: 'left' | 'right' } | null>(null)
+
+  // --- Tab scroll with arrows ---
+  const tabScrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const updateTabScroll = useCallback(() => {
+    const el = tabScrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 0)
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  useEffect(() => {
+    updateTabScroll()
+    const el = tabScrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateTabScroll)
+    const ro = new ResizeObserver(updateTabScroll)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateTabScroll)
+      ro.disconnect()
+    }
+  }, [updateTabScroll, openFiles.length])
+
+  const scrollTabs = useCallback((dir: 'left' | 'right') => {
+    const el = tabScrollRef.current
+    if (!el) return
+    el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
+  }, [])
 
   const handleSave = useCallback(() => {
     savePlugin()
@@ -49,18 +110,52 @@ export function PluginEditor() {
     if (editingPluginId) deletePlugin(editingPluginId)
   }, [editingPluginId, deletePlugin])
 
-  // Resolve plugin name for toolbar
-  let pluginName = editingPluginId ?? ''
-  try {
-    const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-    pluginName = manifest.name?.en ?? manifest.id ?? editingPluginId ?? ''
-  } catch { /* use fallback */ }
+  // Parse manifest
+  const manifest = useMemo(() => {
+    try {
+      return JSON.parse(files['plugin.json'] ?? '{}')
+    } catch { return {} }
+  }, [files])
+
+  const pluginName = manifest.name?.en ?? manifest.id ?? editingPluginId ?? ''
+  const pluginVersion = manifest.version ?? '1.0.0'
+  const pluginBadges: PluginBadge[] = manifest.badges ?? []
+
+  // Helper to update a field in plugin.json
+  const updateManifestField = useCallback((key: string, value: unknown) => {
+    try {
+      const m = JSON.parse(files['plugin.json'] ?? '{}')
+      m[key] = value
+      updateFileContent('plugin.json', JSON.stringify(m, null, 2))
+    } catch { /* invalid json, skip */ }
+  }, [files, updateFileContent])
+
+  // Badge management
+  const [newBadgeLabel, setNewBadgeLabel] = useState('')
+  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+
+  const handleAddBadge = useCallback(() => {
+    const label = newBadgeLabel.trim()
+    if (!label) return
+    const badge: PluginBadge = { id: `b-${Date.now()}`, label, color: newBadgeColor }
+    updateManifestField('badges', [...pluginBadges, badge])
+    setNewBadgeLabel('')
+  }, [newBadgeLabel, newBadgeColor, pluginBadges, updateManifestField])
+
+  const handleRemoveBadge = useCallback((id: string) => {
+    updateManifestField('badges', pluginBadges.filter(b => b.id !== id))
+  }, [pluginBadges, updateManifestField])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
 
+  // Check if a specific file is dirty (content differs from original)
+  const isFileDirtyFn = (filename: string) => {
+    return files[filename] !== originalFiles[filename]
+  }
+
   return (
-    <div className="flex h-[calc(100vh-12rem)] flex-col">
+    <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <Button variant="ghost" size="sm" onClick={closeEditor} className="gap-1 text-xs">
@@ -68,11 +163,21 @@ export function PluginEditor() {
           {t('plugins.back_to_list')}
         </Button>
         <span className="text-sm font-medium truncate">{pluginName}</span>
+        <span className="text-[10px] text-muted-foreground">v{pluginVersion}</span>
         {isBuiltIn && (
           <Badge variant="outline" className="text-[10px]">
             {t('plugins.built_in')}
           </Badge>
         )}
+        {pluginBadges.map((badge) => (
+          <span
+            key={badge.id}
+            className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
+            style={getBadgeStyle(badge.color)}
+          >
+            {badge.label}
+          </span>
+        ))}
         {isDirty && (
           <Badge variant="secondary" className="text-[10px]">
             {t('plugins.unsaved_changes')}
@@ -84,6 +189,103 @@ export function PluginEditor() {
               <Save size={12} />
               {t('plugins.save')}
             </Button>
+          )}
+          {!isBuiltIn && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                  <Tag size={12} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 space-y-3">
+                {/* Version */}
+                <div className="space-y-1">
+                  <Label className="text-xs">{t('plugins.version')}</Label>
+                  <Input
+                    value={pluginVersion}
+                    onChange={(e) => updateManifestField('version', e.target.value)}
+                    className="h-7 text-xs"
+                    placeholder="1.0.0"
+                  />
+                </div>
+                {/* Badges */}
+                <div className="space-y-2">
+                  <Label className="text-xs">{t('plugins.badges')}</Label>
+                  {pluginBadges.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {pluginBadges.map((badge) => (
+                        <span
+                          key={badge.id}
+                          className={cn('group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium', getBadgeClasses(badge.color))}
+                          style={getBadgeStyle(badge.color)}
+                        >
+                          {badge.label}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveBadge(badge.id)}
+                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <Input
+                    value={newBadgeLabel}
+                    onChange={(e) => setNewBadgeLabel(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddBadge() }}
+                    placeholder={t('plugins.badge_label_placeholder')}
+                    className="h-7 text-xs"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    {PRESET_COLORS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => setNewBadgeColor(c.value)}
+                        className={cn(
+                          'h-6 w-6 rounded-full ring-offset-background transition-all',
+                          c.swatch,
+                          newBadgeColor === c.value
+                            ? 'ring-2 ring-ring ring-offset-2'
+                            : 'hover:ring-1 hover:ring-ring hover:ring-offset-1',
+                        )}
+                      />
+                    ))}
+                    <div className="relative">
+                      <input
+                        type="color"
+                        value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
+                        onChange={(e) => setNewBadgeColor(e.target.value)}
+                        className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
+                      />
+                      <div
+                        className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
+                          isCustomColor(newBadgeColor)
+                            ? 'ring-2 ring-ring ring-offset-2'
+                            : 'hover:border-muted-foreground/60',
+                        )}
+                        style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
+                      >
+                        {!isCustomColor(newBadgeColor) && <Plus size={10} />}
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleAddBadge}
+                    disabled={!newBadgeLabel.trim()}
+                    className="h-7 gap-1 text-xs w-full"
+                  >
+                    <Plus size={12} />
+                    {t('plugins.add_badge')}
+                  </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
           )}
           <Button variant="ghost" size="sm" onClick={handleDuplicate} className="gap-1 text-xs">
             <Copy size={12} />
@@ -101,41 +303,118 @@ export function PluginEditor() {
       <div className="min-h-0 flex-1">
         <Allotment>
           {/* File list */}
-          <Allotment.Pane preferredSize={180} minSize={120} maxSize={300}>
-            <PluginFileList />
+          <Allotment.Pane preferredSize={180} minSize={120} maxSize={300} visible={explorerVisible}>
+            <PluginFileList onCollapse={() => setExplorerVisible(false)} />
           </Allotment.Pane>
 
           {/* Editor area */}
-          <Allotment.Pane>
+          <Allotment.Pane minSize={200}>
             <div className="flex h-full flex-col">
-              {/* Tab bar */}
+              {/* Tab bar with scroll arrows */}
               {openFiles.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
-                  {openFiles.map((filename) => (
-                    <button
-                      key={filename}
-                      type="button"
-                      onClick={() => openFile(filename)}
-                      className={`group flex items-center gap-1 border-r px-3 py-1.5 text-xs transition-colors ${
-                        activeFile === filename
-                          ? 'bg-background text-foreground'
-                          : 'text-muted-foreground hover:bg-background/50'
-                      }`}
-                    >
-                      <span className="truncate max-w-[120px]">{filename}</span>
-                      {!isBuiltIn && (
-                        <span
-                          role="button"
-                          tabIndex={0}
-                          onClick={(e) => { e.stopPropagation(); closeFile(filename) }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); closeFile(filename) } }}
-                          className="ml-1 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted group-hover:opacity-100"
+                  <button
+                    type="button"
+                    onClick={() => scrollTabs('left')}
+                    disabled={!canScrollLeft}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      canScrollLeft
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default',
+                    )}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <div
+                    ref={tabScrollRef}
+                    className="flex items-center overflow-x-auto scrollbar-none"
+                  >
+                    {openFiles.map((filename) => {
+                      const isActive = activeFile === filename
+                      const fileDirty = !isBuiltIn && isFileDirtyFn(filename)
+                      return (
+                        <button
+                          key={filename}
+                          type="button"
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('plugin-tab', filename)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragFile(filename)
+                          }}
+                          onDragOver={(e) => {
+                            if (!e.dataTransfer.types.includes('plugin-tab')) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            const side = e.clientX < rect.left + rect.width / 2 ? 'left' : 'right'
+                            setDropInsert({ name: filename, side })
+                          }}
+                          onDragLeave={() => setDropInsert(null)}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            const side = dropInsert?.side ?? 'right'
+                            setDropInsert(null)
+                            setDragFile(null)
+                            const draggedName = e.dataTransfer.getData('plugin-tab')
+                            if (!draggedName || draggedName === filename) return
+                            const fromIdx = openFiles.indexOf(draggedName)
+                            let toIdx = openFiles.indexOf(filename)
+                            if (side === 'right') toIdx++
+                            if (fromIdx < toIdx) toIdx--
+                            if (fromIdx !== -1 && toIdx >= 0 && fromIdx !== toIdx) {
+                              reorderOpenFiles(fromIdx, toIdx)
+                            }
+                          }}
+                          onDragEnd={() => { setDragFile(null); setDropInsert(null) }}
+                          onClick={() => openFile(filename)}
+                          className={cn(
+                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            isActive
+                              ? 'bg-background text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/50',
+                            dragFile === filename && 'opacity-40',
+                          )}
                         >
-                          <X size={10} />
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                          {dropInsert?.name === filename && dropInsert.side === 'left' && dragFile !== filename && (
+                            <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
+                          {dropInsert?.name === filename && dropInsert.side === 'right' && dragFile !== filename && (
+                            <div className="absolute right-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
+                          )}
+                          <span className="max-w-[140px] truncate" title={filename}>{filename}</span>
+                          {fileDirty && (
+                            <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
+                          )}
+                          {!isBuiltIn && (
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              onClick={(e) => { e.stopPropagation(); closeFile(filename) }}
+                              onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); closeFile(filename) } }}
+                              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                            >
+                              <X size={10} />
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => scrollTabs('right')}
+                    disabled={!canScrollRight}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      canScrollRight
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default',
+                    )}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
                 </div>
               )}
 
@@ -163,7 +442,7 @@ export function PluginEditor() {
           </Allotment.Pane>
 
           {/* Preview / Test panel */}
-          <Allotment.Pane preferredSize={320} minSize={200} maxSize={500}>
+          <Allotment.Pane preferredSize={320} minSize={200}>
             <PluginTestPanel />
           </Allotment.Pane>
         </Allotment>

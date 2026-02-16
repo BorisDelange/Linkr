@@ -55,7 +55,7 @@ interface PluginEditorState {
   // Plugin actions
   openPlugin: (id: string) => Promise<void>
   closeEditor: () => void
-  createPlugin: () => Promise<string>
+  createPlugin: (name?: string) => Promise<string>
   duplicatePlugin: (sourceId: string) => Promise<string>
   deletePlugin: (id: string) => Promise<void>
   savePlugin: () => Promise<void>
@@ -67,6 +67,7 @@ interface PluginEditorState {
   createFile: (filename: string) => void
   deleteFile: (filename: string) => void
   renameFile: (oldName: string, newName: string) => void
+  reorderOpenFiles: (fromIndex: number, toIndex: number) => void
 
   // Test state
   testLanguage: 'python' | 'r'
@@ -188,9 +189,10 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     })
   },
 
-  async createPlugin() {
+  async createPlugin(name?: string) {
     const id = `user-plugin-${Date.now()}`
-    const manifest = { ...SCAFFOLD_MANIFEST, id }
+    const pluginName = name?.trim() || 'New Plugin'
+    const manifest = { ...SCAFFOLD_MANIFEST, id, name: { en: pluginName, fr: pluginName } }
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(manifest, null, 2),
       'analysis.py.template': SCAFFOLD_TEMPLATE,
@@ -354,6 +356,14 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     const newOpen = openFiles.map(f => f === oldName ? newName : f)
     const newActive = activeFile === oldName ? newName : activeFile
     set({ files: newFiles, openFiles: newOpen, activeFile: newActive, isDirty: true })
+  },
+
+  reorderOpenFiles(fromIndex: number, toIndex: number) {
+    const { openFiles } = get()
+    const next = [...openFiles]
+    const [moved] = next.splice(fromIndex, 1)
+    next.splice(toIndex, 0, moved)
+    set({ openFiles: next })
   },
 
   // Test state

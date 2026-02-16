@@ -1,8 +1,23 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { File, Plus, Trash2, Pencil } from 'lucide-react'
+import {
+  File,
+  FileCode,
+  FileJson,
+  FileText,
+  FilePlus,
+  PanelLeft,
+  Trash2,
+  Pencil,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -12,7 +27,28 @@ import {
 import { cn } from '@/lib/utils'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 
-export function PluginFileList() {
+function getFileIcon(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase()
+  if (filename.endsWith('.py.template') || ext === 'py')
+    return <FileCode size={14} className="shrink-0 text-yellow-500" />
+  if (filename.endsWith('.R.template') || ext === 'r' || ext === 'rmd')
+    return <FileCode size={14} className="shrink-0 text-blue-500" />
+  if (ext === 'json')
+    return <FileJson size={14} className="shrink-0 text-green-400" />
+  if (ext === 'md')
+    return <FileText size={14} className="shrink-0 text-muted-foreground" />
+  if (ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx')
+    return <FileCode size={14} className="shrink-0 text-amber-500" />
+  if (ext === 'sql')
+    return <FileCode size={14} className="shrink-0 text-orange-400" />
+  return <File size={14} className="shrink-0 text-muted-foreground" />
+}
+
+interface PluginFileListProps {
+  onCollapse?: () => void
+}
+
+export function PluginFileList({ onCollapse }: PluginFileListProps) {
   const { t } = useTranslation()
   const {
     files,
@@ -54,17 +90,34 @@ export function PluginFileList() {
   }
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-xs font-medium text-muted-foreground">{t('plugins.files')}</span>
-        {!isBuiltIn && (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => { setCreating(true); setNewFileName('') }}
-          >
-            <Plus size={12} />
-          </Button>
+    <TooltipProvider delayDuration={300}>
+    <div className="flex h-full flex-col border-r">
+      <div className="flex items-center justify-between border-b px-2 py-1.5">
+        <div className="flex items-center gap-0.5">
+          {!isBuiltIn && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => { setCreating(true); setNewFileName('') }}
+                >
+                  <FilePlus size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+        {onCollapse && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="ghost" size="icon-xs" onClick={onCollapse}>
+                <PanelLeft size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('plugins.collapse_files')}</TooltipContent>
+          </Tooltip>
         )}
       </div>
       <div className="flex-1 overflow-auto py-1">
@@ -96,7 +149,7 @@ export function PluginFileList() {
                       : 'text-foreground/80 hover:bg-accent/50',
                   )}
                 >
-                  <File size={12} className="shrink-0 text-muted-foreground" />
+                  {getFileIcon(filename)}
                   <span className="truncate">{filename}</span>
                 </button>
               )}
@@ -134,5 +187,6 @@ export function PluginFileList() {
         )}
       </div>
     </div>
+    </TooltipProvider>
   )
 }

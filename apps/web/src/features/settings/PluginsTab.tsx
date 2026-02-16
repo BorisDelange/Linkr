@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2 } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
+import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,8 +18,33 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { getStorage } from '@/lib/storage'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { PluginEditor } from './PluginEditor'
+
+const LANG_BADGE: Record<string, { label: string; color: string }> = {
+  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
+  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
+  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
+}
+
+function LanguageBadge({ language }: { language: string }) {
+  const badge = LANG_BADGE[language]
+  if (!badge) return null
+  return (
+    <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', badge.color)}>
+      {badge.label}
+    </span>
+  )
+}
 
 function getIcon(iconName: string): LucideIcons.LucideIcon {
   const icon = (LucideIcons as Record<string, unknown>)[iconName]
@@ -36,9 +65,84 @@ export function PluginsTab() {
   } = usePluginEditorStore()
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [newPluginName, setNewPluginName] = useState('')
+  const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     refreshPluginList()
+  }, [refreshPluginList])
+
+  // Export a plugin as ZIP
+  const handleExport = useCallback(async (pluginId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    const storage = getStorage()
+    const userPlugin = await storage.userPlugins.getById(pluginId)
+    if (!userPlugin) return
+
+    const zip = new JSZip()
+    for (const [filename, content] of Object.entries(userPlugin.files)) {
+      zip.file(filename, content)
+    }
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    // Use plugin name from manifest if available
+    let name = pluginId
+    try {
+      const m = JSON.parse(userPlugin.files['plugin.json'] ?? '{}')
+      name = m.id ?? pluginId
+    } catch { /* use pluginId */ }
+    a.download = `${name}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [])
+
+  // Import plugin from ZIP
+  const handleImport = useCallback(async (file: File) => {
+    const zip = await JSZip.loadAsync(file)
+    const files: Record<string, string> = {}
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (!entry.dir) {
+        files[path] = await entry.async('string')
+      }
+    }
+
+    // Determine plugin ID from manifest
+    let id: string
+    try {
+      const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+      id = manifest.id ?? `user-plugin-${Date.now()}`
+    } catch {
+      id = `user-plugin-${Date.now()}`
+    }
+
+    const now = new Date().toISOString()
+    const storage = getStorage()
+
+    // If a plugin with this id already exists, update it; otherwise create
+    const existing = await storage.userPlugins.getById(id)
+    if (existing) {
+      await storage.userPlugins.update(id, { files, updatedAt: now })
+    } else {
+      await storage.userPlugins.create({ id, files, createdAt: now, updatedAt: now })
+    }
+
+    // Hot-register
+    try {
+      const { buildPlugin } = await import('@/lib/analysis-plugins/default-plugins')
+      const { registerAnalysisPlugin } = await import('@/lib/analysis-plugins/registry')
+      const manifest = JSON.parse(files['plugin.json'] ?? '{}') as Record<string, unknown>
+      const templates: Record<string, string> = {}
+      for (const [filename, content] of Object.entries(files)) {
+        if (filename.endsWith('.py.template')) templates.python = content
+        else if (filename.endsWith('.R.template')) templates.r = content
+      }
+      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null, null))
+    } catch { /* skip */ }
+
+    await refreshPluginList()
   }, [refreshPluginList])
 
   // If editing a plugin, show the editor instead of the list
@@ -47,16 +151,38 @@ export function PluginsTab() {
   }
 
   return (
-    <div className="mt-4 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">{t('plugins.title')}</h2>
           <p className="text-sm text-muted-foreground">{t('plugins.description')}</p>
         </div>
-        <Button size="sm" onClick={() => createPlugin()} className="gap-1">
-          <Plus size={14} />
-          {t('plugins.new_plugin')}
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => importRef.current?.click()}
+            className="gap-1 text-xs"
+          >
+            <Upload size={14} />
+            {t('plugins.import')}
+          </Button>
+          <input
+            ref={importRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleImport(file)
+              e.target.value = ''
+            }}
+          />
+          <Button size="sm" onClick={() => { setNewPluginName(''); setShowCreateDialog(true) }} className="gap-1 text-xs">
+            <Plus size={14} />
+            {t('plugins.new_plugin')}
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -67,44 +193,65 @@ export function PluginsTab() {
               key={plugin.id}
               type="button"
               onClick={() => openPlugin(plugin.id)}
-              className="group relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
+              className="group flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
             >
               <div className="flex items-center gap-2">
                 <Icon size={18} className="shrink-0 text-muted-foreground" />
                 <span className="text-sm font-medium truncate">
                   {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
                 </span>
-                <Badge variant="outline" className="ml-auto text-[10px] shrink-0">
-                  {plugin.isBuiltIn ? t('plugins.built_in') : t('plugins.custom')}
-                </Badge>
               </div>
               <p className="text-xs text-muted-foreground line-clamp-2">
                 {plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
               </p>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 {plugin.manifest.languages?.map((l) => (
-                  <Badge key={l} variant="secondary" className="text-[10px] px-1.5 py-0">
-                    {l === 'python' ? 'Python' : 'R'}
-                  </Badge>
+                  <LanguageBadge key={l} language={l} />
                 ))}
                 {plugin.manifest.runtime?.includes('js-widget') && (
-                  <Badge variant="secondary" className="text-[10px] px-1.5 py-0">JS</Badge>
+                  <LanguageBadge language="js-widget" />
                 )}
-                <span className="ml-auto text-[10px] text-muted-foreground">
-                  v{plugin.manifest.version ?? '1.0.0'}
-                </span>
+                {plugin.manifest.badges?.map((badge) => (
+                  <span
+                    key={badge.id}
+                    className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
+                    style={getBadgeStyle(badge.color)}
+                  >
+                    {badge.label}
+                  </span>
+                ))}
+                <div className="ml-auto flex items-center gap-1.5">
+                  <Badge variant="outline" className="text-[10px] shrink-0">
+                    {plugin.isBuiltIn ? t('plugins.built_in') : t('plugins.custom')}
+                  </Badge>
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    v{plugin.manifest.version ?? '1.0.0'}
+                  </span>
+                  {!plugin.isBuiltIn && (
+                    <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => handleExport(plugin.id, e)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title={t('plugins.export')}
+                      >
+                        <Download size={12} />
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
+                        onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
+                        className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 size={12} />
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
-
-              {/* Delete button for custom plugins */}
-              {!plugin.isBuiltIn && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
-                  className="absolute right-2 top-2 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
-                >
-                  <Trash2 size={12} />
-                </button>
-              )}
             </button>
           )
         })}
@@ -117,6 +264,41 @@ export function PluginsTab() {
         </div>
       )}
 
+      {/* Create plugin dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('plugins.create_title')}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label>{t('plugins.create_name_label')}</Label>
+            <Input
+              value={newPluginName}
+              onChange={(e) => setNewPluginName(e.target.value)}
+              placeholder={t('plugins.create_name_placeholder')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newPluginName.trim()) {
+                  createPlugin(newPluginName)
+                  setShowCreateDialog(false)
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              onClick={() => { createPlugin(newPluginName); setShowCreateDialog(false) }}
+              disabled={!newPluginName.trim()}
+            >
+              {t('common.create')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete confirmation */}
       <AlertDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) setDeleteId(null) }}>
         <AlertDialogContent>
@@ -127,6 +309,7 @@ export function PluginsTab() {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
               onClick={() => { if (deleteId) { deletePlugin(deleteId); setDeleteId(null) } }}
             >
               {t('common.delete')}

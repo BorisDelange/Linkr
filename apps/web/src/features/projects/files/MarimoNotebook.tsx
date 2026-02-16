@@ -240,6 +240,54 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
     })
   }, [syncToFile])
 
+  // Drag-and-drop reordering
+  const [dragCellId, setDragCellId] = useState<string | null>(null)
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null)
+
+  const handleDragStart = useCallback((cellId: string, e: React.DragEvent) => {
+    setDragCellId(cellId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('marimo-cell-id', cellId)
+  }, [])
+
+  const handleDragOver = useCallback((cellId: string, e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('marimo-cell-id')) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDropTargetId(cellId)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setDropTargetId(null)
+  }, [])
+
+  const handleDrop = useCallback((targetCellId: string, e: React.DragEvent) => {
+    e.preventDefault()
+    const sourceCellId = e.dataTransfer.getData('marimo-cell-id')
+    if (!sourceCellId || sourceCellId === targetCellId) {
+      setDragCellId(null)
+      setDropTargetId(null)
+      return
+    }
+    setCells((prev) => {
+      const fromIdx = prev.findIndex((c) => c.id === sourceCellId)
+      const toIdx = prev.findIndex((c) => c.id === targetCellId)
+      if (fromIdx === -1 || toIdx === -1) return prev
+      const next = [...prev]
+      const [moved] = next.splice(fromIdx, 1)
+      next.splice(toIdx, 0, moved)
+      syncToFile(next)
+      return next
+    })
+    setDragCellId(null)
+    setDropTargetId(null)
+  }, [syncToFile])
+
+  const handleDragEnd = useCallback(() => {
+    setDragCellId(null)
+    setDropTargetId(null)
+  }, [])
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
@@ -269,7 +317,10 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
             variant="ghost"
             size="sm"
             className="h-7 gap-1 text-xs"
-            onClick={() => executorRef.current.reset()}
+            onClick={async () => {
+              await executorRef.current.reset()
+              setCellStates(new Map())
+            }}
             title={t('files.marimo_reset')}
           >
             {t('files.marimo_reset')}
@@ -316,6 +367,8 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
               isLast={idx === cells.length - 1}
               readOnly={readOnly}
               cellState={cellStates.get(cell.id)}
+              isDragging={dragCellId === cell.id}
+              isDropTarget={dropTargetId === cell.id}
               onFocus={() => setActiveCell(cell.id)}
               onCodeChange={(code) => updateCellCode(cell.id, code)}
               onRun={() => runCell(cell.id)}
@@ -324,6 +377,11 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
               onRemove={() => removeCell(cell.id)}
               onMoveUp={() => moveCell(cell.id, 'up')}
               onMoveDown={() => moveCell(cell.id, 'down')}
+              onDragStart={(e) => handleDragStart(cell.id, e)}
+              onDragOver={(e) => handleDragOver(cell.id, e)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(cell.id, e)}
+              onDragEnd={handleDragEnd}
             />
           ))
         )}
@@ -344,6 +402,8 @@ interface CellBlockProps {
   isLast: boolean
   readOnly?: boolean
   cellState?: CellState
+  isDragging: boolean
+  isDropTarget: boolean
   onFocus: () => void
   onCodeChange: (code: string) => void
   onRun: () => void
@@ -352,6 +412,11 @@ interface CellBlockProps {
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
+  onDragStart: (e: React.DragEvent) => void
+  onDragOver: (e: React.DragEvent) => void
+  onDragLeave: () => void
+  onDrop: (e: React.DragEvent) => void
+  onDragEnd: () => void
 }
 
 function CellBlock({
@@ -362,6 +427,8 @@ function CellBlock({
   isLast,
   readOnly,
   cellState,
+  isDragging,
+  isDropTarget,
   onFocus,
   onCodeChange,
   onRun,
@@ -370,7 +437,13 @@ function CellBlock({
   onRemove,
   onMoveUp,
   onMoveDown,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  onDragEnd,
 }: CellBlockProps) {
+  const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const status = cellState?.status ?? 'idle'
   const result = cellState?.result ?? null
@@ -410,16 +483,37 @@ function CellBlock({
     }
   }, [onCodeChange, onRun, onRunAll])
 
+  const gripRef = useRef<HTMLDivElement>(null)
+
+  // Only allow drag when initiated from the grip handle
+  const handleCellDragStart = useCallback((e: React.DragEvent) => {
+    if (!gripRef.current?.contains(e.target as Node)) {
+      e.preventDefault()
+      return
+    }
+    onDragStart(e)
+  }, [onDragStart])
+
   return (
     <div
+      draggable={!readOnly}
+      onDragStart={handleCellDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onDragEnd={onDragEnd}
       className={cn(
         'group rounded-md border transition-colors',
         isActive ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/30',
+        isDragging && 'opacity-40',
+        isDropTarget && 'border-primary border-2 bg-primary/10',
       )}
     >
       {/* Cell header */}
       <div className="flex items-center gap-1 px-2 py-1 text-[10px] text-muted-foreground">
-        <GripVertical size={10} className="opacity-0 group-hover:opacity-50 cursor-grab" />
+        <div ref={gripRef} className="opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing">
+          <GripVertical size={10} />
+        </div>
         <span className="tabular-nums">
           [{index + 1}]
         </span>

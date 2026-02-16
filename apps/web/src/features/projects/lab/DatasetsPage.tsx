@@ -57,9 +57,9 @@ import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
 import type { AnalysisLanguage } from '@/types'
 
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
-  python: { label: 'PY', color: 'text-blue-500 bg-blue-500/10' },
-  r: { label: 'R', color: 'text-orange-500 bg-orange-500/10' },
-  'js-widget': { label: 'JS', color: 'text-emerald-500 bg-emerald-500/10' },
+  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
+  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
+  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
 }
 
 function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: string }) {

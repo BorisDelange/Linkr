@@ -96,14 +96,31 @@ export function parseMarimoFile(source: string): MarimoCell[] {
       return line.startsWith('    ') ? line.slice(4) : line
     }).join('\n')
 
-    // Extract exports from return tuple before stripping it
-    const returnMatch = dedented.match(/\nreturn\s+\(([^)]*)\)\s*$/)
-    const exports = returnMatch
-      ? returnMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
-      : []
+    // Extract exports from the trailing return statement.
+    // Handles: return (x, y,)  |  return x, y  |  return  |  bare return
+    // The return may span multiple lines when using parens: return (\n  x,\n)
+    let exports: string[] = []
+    let code: string
 
-    // Strip trailing `return (...)` statement from code
-    const code = dedented.replace(/\nreturn\s+\(.*\)\s*$/, '').trimEnd()
+    // Try multi-line return with parens: return (\n ...\n)
+    const multiLineReturn = dedented.match(/(?:^|\n)return\s*\(([^)]*)\)\s*$/)
+    // Try single-line return without parens: return x, y
+    const singleLineReturn = !multiLineReturn && dedented.match(/(?:^|\n)return\s+([^(\s][^\n]*?)\s*$/)
+    // Try bare return (no value)
+    const bareReturn = !multiLineReturn && !singleLineReturn && dedented.match(/(?:^|\n)return\s*$/)
+
+    if (multiLineReturn) {
+      exports = multiLineReturn[1].split(',').map((s) => s.trim()).filter(Boolean)
+      code = dedented.slice(0, multiLineReturn.index === 0 ? 0 : multiLineReturn.index).trimEnd()
+    } else if (singleLineReturn) {
+      exports = singleLineReturn[1].split(',').map((s) => s.trim()).filter(Boolean)
+      code = dedented.slice(0, singleLineReturn.index === 0 ? 0 : singleLineReturn.index).trimEnd()
+    } else if (bareReturn) {
+      exports = []
+      code = dedented.slice(0, bareReturn.index === 0 ? 0 : bareReturn.index).trimEnd()
+    } else {
+      code = dedented.trimEnd()
+    }
 
     cells.push({
       id: `marimo-cell-${cellCounter++}`,

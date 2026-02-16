@@ -982,6 +982,8 @@
     "no_plugins": "Aucun plugin.",
     "files": "Fichiers",
     "new_file": "nouveau-fichier.txt",
+    "new_file_tooltip": "Nouveau fichier",
+    "collapse_files": "Replier la liste",
     "rename_file": "Renommer",
     "delete_file": "Supprimer",
     "select_file": "Sélectionnez un fichier à modifier.",
@@ -992,7 +994,16 @@
     "test_run": "Exécuter",
     "test_no_dataset": "Aucun jeu de données avec des colonnes trouvé dans ce projet.",
     "invalid_json": "plugin.json invalide",
-    "no_config_schema": "Aucun configSchema défini dans plugin.json."
+    "no_config_schema": "Aucun configSchema défini dans plugin.json.",
+    "import": "Importer",
+    "export": "Exporter",
+    "version": "Version",
+    "badges": "Badges",
+    "badge_label_placeholder": "Libellé",
+    "add_badge": "Ajouter un badge",
+    "create_title": "Créer un plugin",
+    "create_name_label": "Nom du plugin",
+    "create_name_placeholder": "Mon plugin"
   },
   "profile": {
     "title": "Profil",
