@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+
+# Database (local dev)
+*.db
+*.sqlite
+
+# Turbo
+.turbo/
+
+# R (v1 legacy)
+.Rbuildignore
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata

@@ -1,0 +1,82 @@
+# LICENSE-data
+
+This package includes the full 100-patient version of the MIMIC-IV Demo OMOP dataset, which was downloaded on 2025-06-09 from:
+
+https://physionet.org/content/mimic-iv-demo-omop/0.9/
+
+The original dataset was created through the work of the MIT Laboratory for Computational Physiology and members of the OHDSI community, who converted MIMIC-IV into the OMOP Common Data Model.
+
+The dataset is distributed under the **Open Database License (ODbL) v1.0**:  
+https://opendatacommons.org/licenses/odbl/1-0/
+
+You are free to share, modify, and use this dataset, provided you attribute the original source and distribute any derivative works under the same license (ODbL 1.0).
+
+---
+
+## Modifications applied to the original dataset in this package
+
+- The dataset contains all 100 patients from the original MIMIC-IV OMOP demo dataset.
+- Renumbered the following identifiers to improve clarity and usability:
+  - `person_id`
+  - `visit_occurrence_id`
+  - `visit_detail_id`
+
+These changes were made solely to facilitate data exploration and are not intended to alter the content or structure of the original dataset.
+
+---
+
+## Additional reference
+
+The same dataset is also available via the OHDSI EunomiaDatasets repository:  
+https://github.com/OHDSI/EunomiaDatasets/tree/main/datasets/MIMIC
+
+---
+
+## Citations
+
+- Kallfelz, M., Tsvetkova, A., Pollard, T., Kwong, M., Lipori, G., Huser, V., Osborn, J., Hao, S., & Williams, A. (2021). *MIMIC-IV demo data in the OMOP Common Data Model (version 0.9)*. PhysioNet. https://doi.org/10.13026/p1f5-7x35
+
+- Goldberger, A., Amaral, L., Glass, L., Hausdorff, J., Ivanov, P. C., Mark, R., ... & Stanley, H. E. (2000). *PhysioBank, PhysioToolkit, and PhysioNet: Components of a new research resource for complex physiologic signals*. Circulation [Online]. 101 (23), pp. e215–e220.
+
+---
+
+## Licenses for Included Terminologies
+
+This package includes standard OMOP terminology concepts used for data analysis and visualization. Below is a summary of the license status for each terminology source included in the dataset:
+
+- **CMS Place of Service**  
+  These codes are published by the U.S. Centers for Medicare & Medicaid Services (CMS), a federal government agency. As such, the codes are in the **public domain**. They may be freely used, modified, and redistributed.  
+  Source: https://www.cms.gov/Medicare/Coding/place-of-service-codes
+
+- **RxNorm**  
+  RxNorm concepts included in this dataset are from the U.S. National Library of Medicine (NLM) and are in the **public domain**.  
+  Statement required by NLM:  
+  > "This product uses publicly available data courtesy of the U.S. National Library of Medicine (NLM), National Institutes of Health, Department of Health and Human Services; NLM is not responsible for the product and does not endorse or recommend this or any other product."  
+  Citation: Nelson SJ, et al. J Am Med Inform Assoc. 2011 Jul-Aug;18(4):441-8. https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3128404/
+
+- **UCUM (Unified Code for Units of Measure)**  
+  UCUM is maintained by the Regenstrief Institute and is available under the **UCUM License v1.1**. While it may be freely used and redistributed in its unmodified form, the license prohibits creating derivative works or modifying the content. Use is permitted for developing applications that communicate with and interoperate with UCUM.  
+  Source: https://ucum.org/license  
+  Required attribution:  
+  > "Copyright 1999-2024 Regenstrief Institute, Inc. All rights reserved. Licensed under the UCUM License, Version 1.1"
+
+- **LOINC**  
+  LOINC is also maintained by the Regenstrief Institute. It may be used and redistributed **for free**, even in commercial applications, provided that appropriate attribution is given.  
+  Required citation:  
+  > "This material contains content from LOINC (http://loinc.org). LOINC is copyright © [2025], Regenstrief Institute, Inc. and the LOINC Committee and is available at no cost under the license at http://loinc.org/license. LOINC® is a registered United States trademark of Regenstrief Institute, Inc."
+
+- **SNOMED GPS (Global Patient Set)**  
+  SNOMED GPS concepts included in this dataset are from SNOMED International and are distributed under the **Creative Commons Attribution 4.0 International License (CC BY 4.0)**. The GPS supports sharing of patient health information coded with SNOMED CT without requiring a SNOMED International license.  
+  Source: https://www.snomed.org/gps  
+  License: https://creativecommons.org/licenses/by/4.0/  
+  Required attribution:  
+  > "SNOMED CT is © and ® SNOMED International. The GPS is produced by SNOMED International under the terms of the Creative Commons Attribution 4.0 International Public License."
+
+- **OMOP/OHDSI internal concepts (e.g., Gender, Type Concept, Visit)**  
+  Concepts developed and maintained by OHDSI as part of the OMOP Standardized Vocabularies are distributed under the **Apache License 2.0**.  
+  Source: https://github.com/OHDSI/Vocabulary-v5.0  
+  License: https://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+This package redistributes a derived version of the original dataset and is not affiliated with PhysioNet, MIT, or OHDSI.

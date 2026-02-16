@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: ../../docker/Dockerfile.web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: ../../docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:///./linkr.db
+      - LINKR_DEBUG=true
+    volumes:
+      - linkr-data:/root/.linkr
+
+  # Uncomment for PostgreSQL in production
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_DB: linkr
+  #     POSTGRES_USER: linkr
+  #     POSTGRES_PASSWORD: linkr
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+volumes:
+  linkr-data:
+  # pgdata:

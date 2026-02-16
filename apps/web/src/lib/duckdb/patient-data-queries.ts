@@ -1,0 +1,561 @@
+import type { Cohort } from '@/types'
+import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
+import { buildCohortQueryParts } from './cohort-query'
+import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
+
+// ---------------------------------------------------------------------------
+// Patient filters
+// ---------------------------------------------------------------------------
+
+export interface PatientFilters {
+  gender?: string | null       // gender value to match (e.g. '8507', 'M')
+  ageMin?: number | null       // minimum age (inclusive)
+  ageMax?: number | null       // maximum age (inclusive)
+  admissionAfter?: string | null  // admission date >= (ISO date string)
+  admissionBefore?: string | null // admission date <= (ISO date string)
+}
+
+// ---------------------------------------------------------------------------
+// Patient list
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query to list patients — optionally filtered by a cohort and patient filters.
+ * Returns: patient_id, gender, age (relative to first visit), visit_count.
+ */
+export function buildPatientListQuery(
+  mapping: SchemaMapping,
+  cohort: Cohort | null,
+  limit: number,
+  offset: number,
+  filters?: PatientFilters,
+): string | null {
+  const inner = buildPatientBaseQuery(mapping, cohort)
+  if (!inner) return null
+
+  const filterWhere = buildPatientFilterWhere(filters)
+  return `WITH _patients AS (${inner})
+SELECT * FROM _patients${filterWhere}
+ORDER BY patient_id
+LIMIT ${limit} OFFSET ${offset}`
+}
+
+/**
+ * Count patients — optionally filtered by a cohort and patient filters.
+ */
+export function buildPatientCountQuery(
+  mapping: SchemaMapping,
+  cohort: Cohort | null,
+  filters?: PatientFilters,
+): string | null {
+  const inner = buildPatientBaseQuery(mapping, cohort)
+  if (!inner) return null
+
+  const filterWhere = buildPatientFilterWhere(filters)
+  return `WITH _patients AS (${inner})
+SELECT COUNT(*) AS cnt FROM _patients${filterWhere}`
+}
+
+// ---------------------------------------------------------------------------
+// Visit list for a patient
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query to list visits for a given patient.
+ * Returns: visit_id, start_date, end_date.
+ */
+export function buildVisitListQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+): string | null {
+  const vt = mapping.visitTable
+  if (!vt) return null
+
+  const endCol = vt.endDateColumn
+    ? `, "${vt.endDateColumn}" AS end_date`
+    : ''
+
+  return `SELECT "${vt.idColumn}" AS visit_id,
+  "${vt.startDateColumn}" AS start_date${endCol}
+FROM "${vt.table}"
+WHERE "${vt.patientIdColumn}" = '${patientId}'
+ORDER BY "${vt.startDateColumn}" DESC`
+}
+
+// ---------------------------------------------------------------------------
+// Visit details (stays within a hospitalization)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query to list visit details (sub-stays) for a given visit.
+ * Returns: visit_detail_id, start_date, end_date, unit.
+ */
+export function buildVisitDetailListQuery(
+  mapping: SchemaMapping,
+  visitId: string,
+): string | null {
+  const vdt = mapping.visitDetailTable
+  if (!vdt) return null
+
+  const endCol = vdt.endDateColumn
+    ? `, "${vdt.endDateColumn}" AS end_date`
+    : ''
+  const unitCol = vdt.unitColumn
+    ? `, "${vdt.unitColumn}" AS unit`
+    : ''
+
+  return `SELECT "${vdt.idColumn}" AS visit_detail_id,
+  "${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
+FROM "${vdt.table}"
+WHERE "${vdt.visitIdColumn}" = '${visitId}'
+ORDER BY "${vdt.startDateColumn}"`
+}
+
+/**
+ * Build query to get distinct units for a given visit (from visit_detail).
+ * Returns: unit.
+ */
+export function buildVisitUnitsQuery(
+  mapping: SchemaMapping,
+  visitId: string,
+): string | null {
+  const vdt = mapping.visitDetailTable
+  if (!vdt || !vdt.unitColumn) return null
+
+  return `SELECT DISTINCT "${vdt.unitColumn}" AS unit
+FROM "${vdt.table}"
+WHERE "${vdt.visitIdColumn}" = '${visitId}'
+ORDER BY "${vdt.unitColumn}"`
+}
+
+// ---------------------------------------------------------------------------
+// Patient demographics
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for a single patient's demographics.
+ * Age is computed relative to the selected visit start date (or first visit if no visitId).
+ */
+export function buildPatientDemographicsQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+  visitId: string | null = null,
+): string | null {
+  const pt = mapping.patientTable
+  if (!pt) return null
+  const vt = mapping.visitTable
+
+  if (vt) {
+    const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+    // Age relative to selected visit start date, or first visit if none selected
+    const refDate = visitId
+      ? `(SELECT "${vt.startDateColumn}" FROM "${vt.table}" WHERE "${vt.idColumn}" = '${visitId}')`
+      : `MIN(v."${vt.startDateColumn}")`
+    const ageExpr = buildAgeExprAlias('p', pt, refDate)
+    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+
+    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(v."${vt.idColumn}") AS visit_count
+FROM "${pt.table}" p
+LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+WHERE p."${pt.idColumn}" = '${patientId}'
+GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${buildBirthGroupBy('p', pt)}`
+  }
+
+  const genderCol = pt.genderColumn ? `, "${pt.genderColumn}" AS gender` : ''
+  const ageExpr = buildAgeExpr(pt, 'CURRENT_DATE')
+  const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+
+  return `SELECT "${pt.idColumn}" AS patient_id${genderCol}${ageCol}
+FROM "${pt.table}"
+WHERE "${pt.idColumn}" = '${patientId}'`
+}
+
+// ---------------------------------------------------------------------------
+// Timeline data (numeric measurements over time)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for timeline data — numeric values for selected concepts over time.
+ * Returns: concept_id, concept_name, value, event_date.
+ */
+export function buildTimelineQuery(
+  mapping: SchemaMapping,
+  eventTableLabel: string,
+  conceptIds: number[],
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  const et = mapping.eventTables?.[eventTableLabel]
+  if (!et || !et.valueColumn || !et.dateColumn) return null
+
+  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+  if (!patientIdCol) return null
+
+  const dict = getDictionaryForEvent(mapping, et)
+  const idList = conceptIds.join(', ')
+
+  // Build concept match (standard + source)
+  const conceptMatch = buildConceptInCondition('e', et, idList)
+
+  // Visit filter
+  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+
+  if (dict) {
+    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
+    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  c."${dict.nameColumn}" AS concept_name,
+  e."${et.valueColumn}" AS value,
+  e."${et.dateColumn}" AS event_date
+FROM "${et.table}" e
+INNER JOIN "${dict.table}" c ON ${joinCond}
+WHERE e."${patientIdCol}" = '${patientId}'
+  AND (${conceptMatch})
+  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}
+ORDER BY e."${et.dateColumn}"`
+  }
+
+  // No dictionary — use concept ID as name
+  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
+  e."${et.valueColumn}" AS value,
+  e."${et.dateColumn}" AS event_date
+FROM "${et.table}" e
+WHERE e."${patientIdCol}" = '${patientId}'
+  AND (${conceptMatch})
+  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}
+ORDER BY e."${et.dateColumn}"`
+}
+
+// ---------------------------------------------------------------------------
+// Clinical table data
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for clinical table — all values for selected concepts.
+ * Returns: concept_id, concept_name, value_numeric, value_string, event_date.
+ * Pivot (concepts-as-rows vs concepts-as-columns) is done client-side.
+ */
+export function buildClinicalTableQuery(
+  mapping: SchemaMapping,
+  eventTableLabel: string,
+  conceptIds: number[],
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  const et = mapping.eventTables?.[eventTableLabel]
+  if (!et || !et.dateColumn) return null
+
+  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+  if (!patientIdCol) return null
+
+  const dict = getDictionaryForEvent(mapping, et)
+  const idList = conceptIds.join(', ')
+  const conceptMatch = buildConceptInCondition('e', et, idList)
+  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+
+  const valueCols = [
+    et.valueColumn ? `e."${et.valueColumn}" AS value_numeric` : 'NULL AS value_numeric',
+    et.valueStringColumn ? `e."${et.valueStringColumn}" AS value_string` : 'NULL AS value_string',
+  ].join(',\n  ')
+
+  if (dict) {
+    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
+    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  c."${dict.nameColumn}" AS concept_name,
+  ${valueCols},
+  e."${et.dateColumn}" AS event_date
+FROM "${et.table}" e
+INNER JOIN "${dict.table}" c ON ${joinCond}
+WHERE e."${patientIdCol}" = '${patientId}'
+  AND (${conceptMatch})${visitFilter}
+ORDER BY e."${et.dateColumn}" DESC`
+  }
+
+  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
+  ${valueCols},
+  e."${et.dateColumn}" AS event_date
+FROM "${et.table}" e
+WHERE e."${patientIdCol}" = '${patientId}'
+  AND (${conceptMatch})${visitFilter}
+ORDER BY e."${et.dateColumn}" DESC`
+}
+
+// ---------------------------------------------------------------------------
+// Medications
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for medications — finds the Drug event table automatically.
+ * Returns: concept_id, concept_name, start_date.
+ */
+export function buildMedicationsQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  const et = findEventTableByHint(mapping, ['Drug', 'Prescriptions', 'prescriptions', 'drug'])
+  if (!et) return null
+
+  return buildDomainListQuery(mapping, et, patientId, visitId)
+}
+
+/**
+ * Get the label of the Drug event table (for display).
+ */
+export function getMedicationEventLabel(mapping: SchemaMapping): string | null {
+  return findEventTableLabelByHint(mapping, ['Drug', 'Prescriptions', 'prescriptions', 'drug'])
+}
+
+// ---------------------------------------------------------------------------
+// Diagnoses
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for diagnoses — finds the Condition event table automatically.
+ * Returns: concept_id, concept_name, start_date.
+ */
+export function buildDiagnosesQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  const et = findEventTableByHint(mapping, ['Condition', 'Diagnosis', 'diagnoses', 'condition'])
+  if (!et) return null
+
+  return buildDomainListQuery(mapping, et, patientId, visitId)
+}
+
+/**
+ * Get the label of the Condition event table (for display).
+ */
+export function getDiagnosisEventLabel(mapping: SchemaMapping): string | null {
+  return findEventTableLabelByHint(mapping, ['Condition', 'Diagnosis', 'diagnoses', 'condition'])
+}
+
+// ---------------------------------------------------------------------------
+// Helpers (private)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build base patient query (without LIMIT/OFFSET/ORDER or filter WHERE).
+ * Returns columns: patient_id, gender?, age?, visit_count?, first_admission?.
+ * Used by both buildPatientListQuery and buildPatientCountQuery.
+ */
+function buildPatientBaseQuery(
+  mapping: SchemaMapping,
+  cohort: Cohort | null,
+): string | null {
+  const pt = mapping.patientTable
+  if (!pt) return null
+  const vt = mapping.visitTable
+
+  if (cohort && cohort.criteria.length > 0) {
+    const parts = buildCohortQueryParts(cohort, mapping)
+    if (!parts) return null
+
+    if (cohort.level === 'patient') {
+      const genderCol = pt.genderColumn ? `, "${pt.table}"."${pt.genderColumn}" AS gender` : ''
+      if (vt) {
+        const ageExpr = buildAgeExpr(pt, `MIN(v_age."${vt.startDateColumn}")`)
+        const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+        return `SELECT "${pt.table}"."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count,
+  MIN(v_age."${vt.startDateColumn}") AS first_admission
+FROM ${parts.from}
+LEFT JOIN "${vt.table}" v_age ON "${pt.table}"."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
+${parts.whereClause}
+GROUP BY "${pt.table}"."${pt.idColumn}"${pt.genderColumn ? `, "${pt.table}"."${pt.genderColumn}"` : ''}${buildBirthGroupBy(`"${pt.table}"`, pt)}`
+      }
+      const ageExpr = buildAgeExpr(pt, 'CURRENT_DATE')
+      const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+      return `SELECT DISTINCT "${pt.table}"."${pt.idColumn}" AS patient_id${genderCol}${ageCol}
+FROM ${parts.from}
+${parts.whereClause}`
+    }
+
+    // Visit-level cohort
+    if (!vt) return null
+    const genderCol = pt.genderColumn ? `, p2."${pt.genderColumn}" AS gender` : ''
+    const ageExpr = buildAgeExprAlias('p2', pt, `MIN(v_age."${vt.startDateColumn}")`)
+    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+
+    return `SELECT "${vt.table}"."${vt.patientIdColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(DISTINCT v_age."${vt.idColumn}") AS visit_count,
+  MIN(v_age."${vt.startDateColumn}") AS first_admission
+FROM ${parts.from}
+INNER JOIN "${pt.table}" p2 ON "${vt.table}"."${vt.patientIdColumn}" = p2."${pt.idColumn}"
+LEFT JOIN "${vt.table}" v_age ON p2."${pt.idColumn}" = v_age."${vt.patientIdColumn}"
+${parts.whereClause}
+GROUP BY "${vt.table}"."${vt.patientIdColumn}", p2."${pt.idColumn}"${pt.genderColumn ? `, p2."${pt.genderColumn}"` : ''}${buildBirthGroupBy('p2', pt)}`
+  }
+
+  // No cohort
+  const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+
+  if (vt) {
+    const ageExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
+    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count,
+  MIN(v."${vt.startDateColumn}") AS first_admission
+FROM "${pt.table}" p
+LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${buildBirthGroupBy('p', pt)}`
+  }
+
+  const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
+  const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+  return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}
+FROM "${pt.table}" p`
+}
+
+/** Build WHERE clause for patient filters applied to the CTE. */
+function buildPatientFilterWhere(filters?: PatientFilters): string {
+  if (!filters) return ''
+  const clauses: string[] = []
+
+  if (filters.gender) {
+    clauses.push(`gender = '${filters.gender.replace(/'/g, "''")}'`)
+  }
+  if (filters.ageMin != null) {
+    clauses.push(`age >= ${filters.ageMin}`)
+  }
+  if (filters.ageMax != null) {
+    clauses.push(`age <= ${filters.ageMax}`)
+  }
+  if (filters.admissionAfter) {
+    clauses.push(`first_admission >= '${filters.admissionAfter}'`)
+  }
+  if (filters.admissionBefore) {
+    clauses.push(`first_admission <= '${filters.admissionBefore}'`)
+  }
+
+  return clauses.length > 0
+    ? `\nWHERE ${clauses.join(' AND ')}`
+    : ''
+}
+
+/**
+ * Build age expression relative to a reference date expression.
+ * @param refDateExpr SQL expression for the reference date (e.g. a column or CURRENT_DATE)
+ */
+function buildAgeExpr(
+  pt: NonNullable<SchemaMapping['patientTable']>,
+  refDateExpr: string,
+): string | null {
+  if (pt.birthDateColumn) {
+    return `DATE_PART('year', ${refDateExpr}) - DATE_PART('year', "${pt.birthDateColumn}")`
+  }
+  if (pt.birthYearColumn) {
+    return `DATE_PART('year', (${refDateExpr})::TIMESTAMP) - "${pt.birthYearColumn}"`
+  }
+  return null
+}
+
+function buildAgeExprAlias(
+  alias: string,
+  pt: NonNullable<SchemaMapping['patientTable']>,
+  refDateExpr: string,
+): string | null {
+  if (pt.birthDateColumn) {
+    return `DATE_PART('year', ${refDateExpr}) - DATE_PART('year', ${alias}."${pt.birthDateColumn}")`
+  }
+  if (pt.birthYearColumn) {
+    return `DATE_PART('year', (${refDateExpr})::TIMESTAMP) - ${alias}."${pt.birthYearColumn}"`
+  }
+  return null
+}
+
+function buildBirthGroupBy(
+  alias: string,
+  pt: NonNullable<SchemaMapping['patientTable']>,
+): string {
+  if (pt.birthDateColumn) return `, ${alias}."${pt.birthDateColumn}"`
+  if (pt.birthYearColumn) return `, ${alias}."${pt.birthYearColumn}"`
+  return ''
+}
+
+/** Build IN condition for concept matching (standard + source columns). */
+function buildConceptInCondition(
+  alias: string,
+  et: EventTable,
+  idList: string,
+): string {
+  const parts = [`${alias}."${et.conceptIdColumn}" IN (${idList})`]
+  if (et.sourceConceptIdColumn) {
+    parts.push(`${alias}."${et.sourceConceptIdColumn}" IN (${idList})`)
+  }
+  return parts.join(' OR ')
+}
+
+/** Build visit filter clause for event table queries. */
+function buildVisitFilter(
+  mapping: SchemaMapping,
+  visitId: string | null,
+  alias: string,
+  et: EventTable,
+): string {
+  if (!visitId || !mapping.visitTable) return ''
+  // Try to find a visit FK column in the event table
+  // Convention: same name as visit table's idColumn (e.g., visit_occurrence_id, hadm_id)
+  const visitIdCol = mapping.visitTable.idColumn
+  return `\n  AND ${alias}."${visitIdCol}" = '${visitId}'`
+}
+
+/** Find an event table by hint keywords (case-insensitive label match). */
+function findEventTableByHint(mapping: SchemaMapping, hints: string[]): EventTable | null {
+  if (!mapping.eventTables) return null
+  for (const hint of hints) {
+    const lower = hint.toLowerCase()
+    for (const [label, et] of Object.entries(mapping.eventTables)) {
+      if (label.toLowerCase().includes(lower)) return et
+    }
+  }
+  return null
+}
+
+function findEventTableLabelByHint(mapping: SchemaMapping, hints: string[]): string | null {
+  if (!mapping.eventTables) return null
+  for (const hint of hints) {
+    const lower = hint.toLowerCase()
+    for (const label of Object.keys(mapping.eventTables)) {
+      if (label.toLowerCase().includes(lower)) return label
+    }
+  }
+  return null
+}
+
+/** Build a generic domain list query (used for medications, diagnoses, procedures). */
+function buildDomainListQuery(
+  mapping: SchemaMapping,
+  et: EventTable,
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  if (!et.dateColumn) return null
+  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+  if (!patientIdCol) return null
+
+  const dict = getDictionaryForEvent(mapping, et)
+  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+
+  if (dict) {
+    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
+    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  c."${dict.nameColumn}" AS concept_name,
+  e."${et.dateColumn}" AS start_date
+FROM "${et.table}" e
+INNER JOIN "${dict.table}" c ON ${joinCond}
+WHERE e."${patientIdCol}" = '${patientId}'${visitFilter}
+ORDER BY e."${et.dateColumn}" DESC`
+  }
+
+  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
+  e."${et.dateColumn}" AS start_date
+FROM "${et.table}" e
+WHERE e."${patientIdCol}" = '${patientId}'${visitFilter}
+ORDER BY e."${et.dateColumn}" DESC`
+}
