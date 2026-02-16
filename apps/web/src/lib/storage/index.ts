@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis } from '@/types'
 
 /** Storage interface for project persistence. */
 export interface ProjectStorage {
@@ -99,6 +99,33 @@ export interface IdeFileStorage {
   deleteByProject(projectUid: string): Promise<void>
 }
 
+/** Storage interface for dataset file tree entries. */
+export interface DatasetFileStorage {
+  getByProject(projectUid: string): Promise<DatasetFile[]>
+  getById(id: string): Promise<DatasetFile | undefined>
+  create(file: DatasetFile): Promise<void>
+  update(id: string, changes: Partial<DatasetFile>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByProject(projectUid: string): Promise<void>
+}
+
+/** Storage interface for dataset row data (heavy, gitignored). */
+export interface DatasetDataStorage {
+  get(datasetFileId: string): Promise<DatasetData | undefined>
+  save(data: DatasetData): Promise<void>
+  delete(datasetFileId: string): Promise<void>
+}
+
+/** Storage interface for dataset analysis configs (lightweight, versioned). */
+export interface DatasetAnalysisStorage {
+  getByDataset(datasetFileId: string): Promise<DatasetAnalysis[]>
+  getById(id: string): Promise<DatasetAnalysis | undefined>
+  create(analysis: DatasetAnalysis): Promise<void>
+  update(id: string, changes: Partial<DatasetAnalysis>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByDataset(datasetFileId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   projects: ProjectStorage
@@ -112,6 +139,9 @@ export interface Storage {
   readmeAttachments: ReadmeAttachmentStorage
   connections: ConnectionStorage
   ideFiles: IdeFileStorage
+  datasetFiles: DatasetFileStorage
+  datasetData: DatasetDataStorage
+  datasetAnalyses: DatasetAnalysisStorage
 }
 
 let _storage: Storage | null = null

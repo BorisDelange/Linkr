@@ -6,6 +6,7 @@ export type ShortcutActionId =
   | 'save_file'
   | 'run_selection_or_line'
   | 'run_file'
+  | 'toggle_comment'
   | 'find'
   | 'replace'
   | 'undo'
@@ -90,6 +91,12 @@ export const DEFAULT_SHORTCUTS: Record<
     scope: 'editor',
     defaultBinding: kb('Enter', { shift: true }),
   },
+  toggle_comment: {
+    id: 'toggle_comment',
+    labelKey: 'shortcuts.toggle_comment',
+    scope: 'editor',
+    defaultBinding: kb('c', { shift: true }),
+  },
   find: {
     id: 'find',
     labelKey: 'shortcuts.find',
@@ -131,6 +138,7 @@ export const SHORTCUT_GROUPS: {
       'save_file',
       'run_selection_or_line',
       'run_file',
+      'toggle_comment',
       'undo',
       'redo',
       'find',

@@ -266,7 +266,7 @@ export function OutputPanel({ onClose }: OutputPanelProps) {
                 )}
               >
                 {getTabIcon(tab.type)}
-                <span className="max-w-[120px] truncate">{tab.label}</span>
+                <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
                 <span
                   onClick={(e) => {
                     e.stopPropagation()

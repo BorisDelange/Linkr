@@ -398,3 +398,55 @@ export interface Pipeline {
   createdAt: string
   updatedAt: string
 }
+
+// --- Dataset Types ---
+
+export interface DatasetColumn {
+  id: string
+  name: string
+  type: 'string' | 'number' | 'boolean' | 'date' | 'unknown'
+  order: number
+}
+
+export interface DatasetFile {
+  id: string
+  projectUid: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  columns?: DatasetColumn[]
+  rowCount?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DatasetData {
+  datasetFileId: string
+  rows: Record<string, unknown>[]
+}
+
+export type DatasetAnalysisType = 'table1' | 'distribution' | 'summary' | 'custom'
+
+export interface DatasetAnalysis {
+  id: string
+  datasetFileId: string
+  name: string
+  type: DatasetAnalysisType
+  config: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ColumnStats {
+  columnName: string
+  columnType: string
+  count: number
+  nullCount: number
+  uniqueCount?: number
+  min?: number | string
+  max?: number | string
+  mean?: number
+  median?: number
+  std?: number
+  distribution?: { bucket: string; count: number }[]
+}

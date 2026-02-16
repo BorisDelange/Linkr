@@ -103,6 +103,206 @@ function getLanguageForFile(name: string): string {
   return map[ext ?? ''] ?? 'plaintext'
 }
 
+// Bump this version whenever default demo file content changes.
+// On load, if the user's stored files still have a previous version,
+// the default file contents are silently updated in IndexedDB.
+const DEMO_FILES_VERSION = 2
+const DEMO_FILES_VERSION_KEY = 'linkr-demo-files-version'
+
+// Default demo scripts are loaded from public/data/demo-scripts/ at seed time.
+// These inline versions serve as fallback when fetching fails.
+const DEMO_SQL = `-- 01_cohort_extraction.sql
+-- Mortality prediction — Step 1: Cohort extraction
+-- Selects hospital stays >= 24h with measurements. Creates VIEW cohort.
+
+CREATE OR REPLACE VIEW eligible_visits AS
+SELECT
+    v.visit_occurrence_id, v.person_id, v.visit_concept_id,
+    v.visit_start_date, v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
+    v.visit_end_date, v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
+    v.discharge_to_concept_id,
+    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+FROM visit_occurrence v
+WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24;
+
+CREATE OR REPLACE VIEW visit_mortality AS
+SELECT ev.*,
+    CASE WHEN d.death_date IS NOT NULL
+         AND d.death_date BETWEEN ev.visit_start_date AND ev.visit_end_date + INTERVAL '1 day'
+         THEN 1 ELSE 0 END AS in_hospital_death
+FROM eligible_visits ev
+LEFT JOIN death d ON ev.person_id = d.person_id;
+
+CREATE OR REPLACE VIEW cohort AS
+SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
+    EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
+    p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+FROM visit_mortality vm
+JOIN person p ON vm.person_id = p.person_id
+WHERE EXISTS (
+    SELECT 1 FROM measurement m
+    WHERE m.visit_occurrence_id = vm.visit_occurrence_id
+      AND m.value_as_number IS NOT NULL
+      AND m.measurement_datetime::TIMESTAMP >= vm.visit_start_datetime
+      AND m.measurement_datetime::TIMESTAMP <= vm.visit_start_datetime + INTERVAL '24 hours'
+);
+
+SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
+    SUM(in_hospital_death) AS n_deaths,
+    ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct,
+    ROUND(AVG(age), 1) AS mean_age, ROUND(AVG(los_hours), 1) AS mean_los_hours
+FROM cohort;
+`
+
+const DEMO_PY = [
+  '# 02_feature_engineering.py',
+  '# Mortality prediction — Step 2: Feature engineering',
+  '# Extracts H0-H24 measurements, pivots OMOP long -> wide, exports CSV.',
+  '',
+  'import duckdb',
+  'import pandas as pd',
+  '',
+  'con = duckdb.connect()  # Shared DuckDB connection in LinkR',
+  '',
+  '# Measurements to extract (concept_id -> column prefix)',
+  'VITALS = {',
+  '    3027018: "hr", 3004249: "sbp", 3012888: "dbp", 3027598: "mbp",',
+  '    3024171: "resp_rate", 40762499: "spo2", 3020891: "temp",',
+  '}',
+  'LABS = {',
+  '    3000963: "hemoglobin", 3023314: "hematocrit", 3024929: "platelets",',
+  '    3003282: "wbc", 3019550: "sodium", 3023103: "potassium",',
+  '    3014576: "chloride", 3016293: "bicarbonate", 3016723: "creatinine",',
+  '    3013682: "bun", 3004501: "glucose", 3037278: "anion_gap",',
+  '    3015377: "calcium", 3012095: "magnesium", 3011904: "phosphate",',
+  '}',
+  'NEURO = {3016335: "gcs_eye", 3009094: "gcs_verbal", 3008223: "gcs_motor"}',
+  'ALL_MEASUREMENTS = {**VITALS, **LABS, **NEURO}',
+  '',
+  '# Step 1: Extract measurements in H0-H24',
+  'concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())',
+  'measurements_h24 = con.execute(f"""',
+  '    SELECT m.visit_occurrence_id, m.measurement_concept_id,',
+  '           m.value_as_number, m.measurement_datetime::TIMESTAMP AS measurement_datetime,',
+  '           c.visit_start_datetime',
+  '    FROM measurement m',
+  '    JOIN cohort c ON m.visit_occurrence_id = c.visit_occurrence_id',
+  '    WHERE m.measurement_concept_id IN ({concept_ids})',
+  '      AND m.value_as_number IS NOT NULL',
+  '      AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime',
+  "      AND m.measurement_datetime::TIMESTAMP <= c.visit_start_datetime + INTERVAL '24 hours'",
+  '""").fetchdf()',
+  'print(f"Measurements in H0-H24: {len(measurements_h24)} rows")',
+  '',
+  '# Step 2: Aggregate (vitals: mean/min/max, labs: first, neuro: min)',
+  'measurements_h24["feature"] = measurements_h24["measurement_concept_id"].map(ALL_MEASUREMENTS)',
+  'vitals_ids, labs_ids, neuro_ids = set(VITALS), set(LABS), set(NEURO)',
+  'aggregated_rows = []',
+  'for (visit_id, feature), group in measurements_h24.groupby(["visit_occurrence_id", "feature"]):',
+  '    cid = group["measurement_concept_id"].iloc[0]',
+  '    values = group.sort_values("measurement_datetime")["value_as_number"]',
+  '    if cid in vitals_ids:',
+  '        for agg, fn in [("mean", values.mean), ("min", values.min), ("max", values.max)]:',
+  '            aggregated_rows.append({"visit_occurrence_id": visit_id, "col": f"{feature}_{agg}", "val": fn()})',
+  '    elif cid in neuro_ids:',
+  '        aggregated_rows.append({"visit_occurrence_id": visit_id, "col": f"{feature}_min", "val": values.min()})',
+  '    elif cid in labs_ids:',
+  '        aggregated_rows.append({"visit_occurrence_id": visit_id, "col": f"{feature}_first", "val": values.iloc[0]})',
+  '',
+  'agg_df = pd.DataFrame(aggregated_rows)',
+  '',
+  '# Step 3: Pivot to wide format',
+  'wide = agg_df.pivot_table(index="visit_occurrence_id", columns="col", values="val", aggfunc="first").reset_index()',
+  '',
+  '# Step 4: Merge with cohort demographics',
+  'cohort_df = con.execute("SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death FROM cohort").fetchdf()',
+  'dataset = cohort_df.merge(wide, on="visit_occurrence_id", how="left")',
+  'id_cols = ["visit_occurrence_id", "person_id"]',
+  'demo_cols = ["age", "sex", "los_hours"]',
+  'outcome_cols = ["in_hospital_death"]',
+  'feature_cols = sorted([c for c in dataset.columns if c not in id_cols + demo_cols + outcome_cols])',
+  'dataset = dataset[id_cols + demo_cols + outcome_cols + feature_cols]',
+  '',
+  'print(f"\\nFinal dataset: {dataset.shape[0]} rows x {dataset.shape[1]} columns")',
+  'print(f"Deaths: {int(dataset[\'in_hospital_death\'].sum())} / {len(dataset)}")',
+  '',
+  '# Step 5: Export CSV',
+  'dataset.to_csv("data/datasets/mortality_dataset.csv", index=False)',
+  'print("\\nDataset saved to data/datasets/mortality_dataset.csv")',
+].join('\n')
+
+const DEMO_R = [
+  '# 03_analysis.R',
+  '# Mortality prediction — Step 3: Statistical analysis & logistic regression',
+  '',
+  '# 1. Load data',
+  'df <- read.csv("data/datasets/mortality_dataset.csv", stringsAsFactors = FALSE)',
+  'cat(sprintf("Dataset: %d rows x %d columns\\n", nrow(df), ncol(df)))',
+  'cat(sprintf("Mortality: %d / %d (%.1f%%)\\n\\n", sum(df$in_hospital_death), nrow(df), 100 * mean(df$in_hospital_death)))',
+  '',
+  '# 2. Descriptive statistics (Table 1)',
+  'alive <- df[df$in_hospital_death == 0, ]',
+  'dead  <- df[df$in_hospital_death == 1, ]',
+  '',
+  'describe <- function(var, label = var) {',
+  '  a <- alive[[var]]; d <- dead[[var]]',
+  '  a <- a[!is.na(a)]; d <- d[!is.na(d)]',
+  '  p <- tryCatch(wilcox.test(a, d)$p.value, error = function(e) NA)',
+  '  cat(sprintf("%-25s  Alive: %.1f (%.1f)  |  Dead: %.1f (%.1f)  |  p=%.3f\\n",',
+  '      label, mean(a), sd(a), mean(d), sd(d), p))',
+  '}',
+  '',
+  'cat("Demographics:\\n")',
+  'describe("age", "Age (years)")',
+  'describe("los_hours", "Length of stay (h)")',
+  '',
+  'cat("\\nLaboratory (first value):\\n")',
+  'for (v in c("hemoglobin", "creatinine", "potassium", "sodium", "glucose", "bun")) {',
+  '  col <- paste0(v, "_first")',
+  '  if (col %in% names(df)) describe(col, v)',
+  '}',
+  '',
+  '# 3. Logistic regression',
+  'feature_cols <- setdiff(names(df), c("visit_occurrence_id", "person_id", "sex", "los_hours", "in_hospital_death"))',
+  'missing_pct <- sapply(df[feature_cols], function(x) mean(is.na(x)))',
+  'selected <- names(missing_pct[missing_pct < 0.30])',
+  'cat(sprintf("\\nFeatures with <30%% missing: %d / %d\\n", length(selected), length(feature_cols)))',
+  '',
+  'model_df <- df[, c("in_hospital_death", "sex", selected)]',
+  'model_df$sex_male <- as.integer(model_df$sex == "M")',
+  'model_df$sex <- NULL',
+  'for (col in selected) {',
+  '  nas <- is.na(model_df[[col]])',
+  '  if (any(nas)) model_df[[col]][nas] <- median(model_df[[col]], na.rm = TRUE)',
+  '}',
+  '',
+  'formula <- as.formula(paste("in_hospital_death ~", paste(c("sex_male", selected), collapse = " + ")))',
+  'model <- glm(formula, data = model_df, family = binomial)',
+  'print(summary(model))',
+  '',
+  '# 4. Model evaluation',
+  'pred_prob <- predict(model, type = "response")',
+  'thresholds <- seq(0, 1, by = 0.01)',
+  'roc <- data.frame(',
+  '  tpr = sapply(thresholds, function(t) sum(pred_prob >= t & model_df$in_hospital_death == 1) / max(sum(model_df$in_hospital_death == 1), 1)),',
+  '  fpr = sapply(thresholds, function(t) sum(pred_prob >= t & model_df$in_hospital_death == 0) / max(sum(model_df$in_hospital_death == 0), 1))',
+  ')',
+  'roc <- roc[order(roc$fpr, roc$tpr), ]',
+  'auc <- abs(sum(diff(roc$fpr) * (head(roc$tpr, -1) + tail(roc$tpr, -1)) / 2))',
+  'cat(sprintf("\\nAUC-ROC: %.3f\\n", auc))',
+  '',
+  'cm <- table(Predicted = as.integer(pred_prob >= 0.5), Actual = model_df$in_hospital_death)',
+  'cat("\\nConfusion matrix (threshold = 0.5):\\n")',
+  'print(cm)',
+  '',
+  '# 5. ROC curve plot',
+  'plot(roc$fpr, roc$tpr, type = "l", col = "steelblue", lwd = 2,',
+  '     xlab = "False Positive Rate", ylab = "True Positive Rate",',
+  '     main = sprintf("ROC Curve (AUC = %.3f)", auc))',
+  'abline(0, 1, lty = 2, col = "gray50")',
+  'cat("\\nDone.\\n")',
+].join('\n')
+
 const defaultFiles: FileNode[] = [
   {
     id: 'folder-1',
@@ -115,72 +315,31 @@ const defaultFiles: FileNode[] = [
   {
     id: 'file-1',
     projectUid: '',
-    name: 'analysis.py',
+    name: '01_cohort_extraction.sql',
     type: 'file',
     parentId: 'folder-1',
-    language: 'python',
-    content: `import pandas as pd
-import numpy as np
-
-# Load OMOP data
-df = pd.read_parquet("data/person.parquet")
-
-# Basic statistics
-print(f"Total patients: {len(df)}")
-print(f"Mean age: {df['year_of_birth'].mean():.1f}")
-print(df.describe())
-`,
+    language: 'sql',
+    content: DEMO_SQL,
     createdAt: '2026-02-10',
   },
   {
     id: 'file-2',
     projectUid: '',
-    name: 'queries.sql',
+    name: '02_feature_engineering.py',
     type: 'file',
     parentId: 'folder-1',
-    language: 'sql',
-    content: `-- Count patients by gender
-SELECT
-  c.concept_name AS gender,
-  COUNT(*) AS patient_count
-FROM person p
-JOIN concept c ON p.gender_concept_id = c.concept_id
-GROUP BY c.concept_name
-ORDER BY patient_count DESC;
-`,
+    language: 'python',
+    content: DEMO_PY,
     createdAt: '2026-02-10',
   },
   {
     id: 'file-3',
     projectUid: '',
-    name: 'plot_demographics.R',
+    name: '03_analysis.R',
     type: 'file',
     parentId: 'folder-1',
     language: 'r',
-    content: `library(ggplot2)
-library(dplyr)
-
-# Load OMOP person data
-person <- read_parquet("data/person.parquet")
-
-# Age distribution by gender
-person %>%
-  mutate(age = 2026 - year_of_birth) %>%
-  ggplot(aes(x = age, fill = gender)) +
-  geom_histogram(binwidth = 5, alpha = 0.7, position = "dodge") +
-  scale_fill_manual(values = c("M" = "#3b82f6", "F" = "#ec4899")) +
-  labs(
-    title = "Age Distribution by Gender",
-    x = "Age (years)",
-    y = "Count",
-    fill = "Gender"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 14, face = "bold"),
-    legend.position = "top"
-  )
-`,
+    content: DEMO_R,
     createdAt: '2026-02-10',
   },
 ]
@@ -254,6 +413,20 @@ export const useFileStore = create<FileState>((set, get) => ({
       _contentSaveTimers.clear()
 
       if (stored.length > 0) {
+        // Migrate stale default demo files when DEMO_FILES_VERSION changes
+        const storedVersion = parseInt(localStorage.getItem(DEMO_FILES_VERSION_KEY) ?? '0', 10)
+        if (storedVersion < DEMO_FILES_VERSION) {
+          const defaultById = new Map(defaultFiles.filter((f) => f.type === 'file').map((f) => [f.id, f]))
+          for (const f of stored) {
+            const defaultFile = defaultById.get(f.id)
+            if (defaultFile && f.type === 'file' && defaultFile.content !== f.content) {
+              f.content = defaultFile.content
+              storage.ideFiles.update(f.id, { content: f.content }).catch(() => {})
+            }
+          }
+          localStorage.setItem(DEMO_FILES_VERSION_KEY, String(DEMO_FILES_VERSION))
+        }
+
         initFileCounter(stored)
         // Populate saved content snapshots
         for (const f of stored) {
@@ -295,6 +468,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         for (const f of seeded) {
           await storage.ideFiles.create(f)
         }
+        localStorage.setItem(DEMO_FILES_VERSION_KEY, String(DEMO_FILES_VERSION))
       }
     } catch {
       // Storage not ready — use defaults
@@ -630,11 +804,20 @@ export const useFileStore = create<FileState>((set, get) => ({
   outputTabOrder: [],
 
   addOutputTab: (tab) =>
-    set((s) => ({
-      outputTabs: [...s.outputTabs, tab],
-      activeOutputTab: tab.id,
-      outputTabOrder: [...s.outputTabOrder, tab.id],
-    })),
+    set((s) => {
+      const exists = s.outputTabs.some((t) => t.id === tab.id)
+      if (exists) {
+        return {
+          outputTabs: s.outputTabs.map((t) => (t.id === tab.id ? tab : t)),
+          activeOutputTab: tab.id,
+        }
+      }
+      return {
+        outputTabs: [...s.outputTabs, tab],
+        activeOutputTab: tab.id,
+        outputTabOrder: [...s.outputTabOrder, tab.id],
+      }
+    }),
 
   closeOutputTab: (id) =>
     set((s) => {

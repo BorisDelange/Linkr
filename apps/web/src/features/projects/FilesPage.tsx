@@ -102,6 +102,7 @@ export function FilesPage() {
   const [environmentsOpen, setEnvironmentsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
+  const [editorVisible, setEditorVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
@@ -152,7 +153,7 @@ export function FilesPage() {
             headers.map((h) => String(row[h] ?? ''))
           )
           addOutputTab({
-            id: `table-${Date.now()}`,
+            id: `sql-result-${label}`,
             label: `Result — ${label}`,
             type: 'table',
             content: { headers, rows: tableRows },
@@ -367,7 +368,7 @@ export function FilesPage() {
         <Allotment>
           {/* Explorer sidebar — full height */}
           <Allotment.Pane
-            preferredSize={200}
+            preferredSize={240}
             minSize={140}
             maxSize={400}
             visible={explorerVisible}
@@ -499,6 +500,19 @@ export function FilesPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        variant={editorVisible ? 'secondary' : 'ghost'}
+                        size="icon-xs"
+                        onClick={() => setEditorVisible(!editorVisible)}
+                      >
+                        <PanelLeft size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
                         variant={connectionsOpen ? 'secondary' : 'ghost'}
                         size="icon-xs"
                         onClick={() => setConnectionsOpen(true)}
@@ -553,6 +567,19 @@ export function FilesPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
+                        variant={bottomPanelOpen ? 'secondary' : 'ghost'}
+                        size="icon-xs"
+                        onClick={toggleBottomPanel}
+                      >
+                        <Terminal size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.terminal')}</TooltipContent>
+                  </Tooltip>
+
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
                         variant={outputVisible ? 'secondary' : 'ghost'}
                         size="icon-xs"
                         onClick={() => setOutputVisible(!outputVisible)}
@@ -562,19 +589,6 @@ export function FilesPage() {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('files.toggle_output')}</TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={bottomPanelOpen ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={toggleBottomPanel}
-                      >
-                        <Terminal size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.terminal')}</TooltipContent>
                   </Tooltip>
                 </div>
               </div>
@@ -627,7 +641,7 @@ export function FilesPage() {
                         )}
                       >
                         {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
-                        <span className="max-w-[140px] truncate">{node.name}</span>
+                        <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
                         {isDirty && (
                           <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
                         )}
@@ -653,7 +667,7 @@ export function FilesPage() {
                   <Allotment.Pane>
                     <Allotment>
                       {/* Editor panel */}
-                      <Allotment.Pane minSize={150}>
+                      <Allotment.Pane minSize={150} visible={editorVisible}>
                         {selectedNode ? (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}

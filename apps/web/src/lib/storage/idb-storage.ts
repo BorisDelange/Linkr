@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile } from '@/types'
-import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis } from '@/types'
+import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -75,10 +75,28 @@ interface LinkrDB extends DBSchema {
       'by-project': string
     }
   }
+  dataset_files: {
+    key: string
+    value: DatasetFile
+    indexes: {
+      'by-project': string
+    }
+  }
+  dataset_data: {
+    key: string
+    value: DatasetData
+  }
+  dataset_analyses: {
+    key: string
+    value: DatasetAnalysis
+    indexes: {
+      'by-dataset': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 12
+const DB_VERSION = 13
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
   return openDB<LinkrDB>(DB_NAME, DB_VERSION, {
@@ -211,6 +229,14 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
             }
           })
         })
+      }
+      // Version 13: Dataset files, data, and analyses
+      if (oldVersion < 13) {
+        const dsFileStore = db.createObjectStore('dataset_files', { keyPath: 'id' })
+        dsFileStore.createIndex('by-project', 'projectUid')
+        db.createObjectStore('dataset_data', { keyPath: 'datasetFileId' })
+        const dsAnalysisStore = db.createObjectStore('dataset_analyses', { keyPath: 'id' })
+        dsAnalysisStore.createIndex('by-dataset', 'datasetFileId')
       }
     },
   })
@@ -550,6 +576,101 @@ class IDBIdeFileStorage implements IdeFileStorage {
   }
 }
 
+class IDBDatasetFileStorage implements DatasetFileStorage {
+  async getByProject(projectUid: string): Promise<DatasetFile[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dataset_files', 'by-project', projectUid)
+  }
+
+  async getById(id: string): Promise<DatasetFile | undefined> {
+    const db = await getDB()
+    return db.get('dataset_files', id)
+  }
+
+  async create(file: DatasetFile): Promise<void> {
+    const db = await getDB()
+    await db.add('dataset_files', file)
+  }
+
+  async update(id: string, changes: Partial<DatasetFile>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dataset_files', id)
+    if (!existing) return
+    await db.put('dataset_files', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dataset_files', id)
+  }
+
+  async deleteByProject(projectUid: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('dataset_files', 'by-project', projectUid)
+    const tx = db.transaction('dataset_files', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBDatasetDataStorage implements DatasetDataStorage {
+  async get(datasetFileId: string): Promise<DatasetData | undefined> {
+    const db = await getDB()
+    return db.get('dataset_data', datasetFileId)
+  }
+
+  async save(data: DatasetData): Promise<void> {
+    const db = await getDB()
+    await db.put('dataset_data', data)
+  }
+
+  async delete(datasetFileId: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dataset_data', datasetFileId)
+  }
+}
+
+class IDBDatasetAnalysisStorage implements DatasetAnalysisStorage {
+  async getByDataset(datasetFileId: string): Promise<DatasetAnalysis[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dataset_analyses', 'by-dataset', datasetFileId)
+  }
+
+  async getById(id: string): Promise<DatasetAnalysis | undefined> {
+    const db = await getDB()
+    return db.get('dataset_analyses', id)
+  }
+
+  async create(analysis: DatasetAnalysis): Promise<void> {
+    const db = await getDB()
+    await db.add('dataset_analyses', analysis)
+  }
+
+  async update(id: string, changes: Partial<DatasetAnalysis>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dataset_analyses', id)
+    if (!existing) return
+    await db.put('dataset_analyses', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dataset_analyses', id)
+  }
+
+  async deleteByDataset(datasetFileId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('dataset_analyses', 'by-dataset', datasetFileId)
+    const tx = db.transaction('dataset_analyses', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     projects: new IDBProjectStorage(),
@@ -563,5 +684,8 @@ export function createIDBStorage(): Storage {
     readmeAttachments: new IDBReadmeAttachmentStorage(),
     connections: new IDBConnectionStorage(),
     ideFiles: new IDBIdeFileStorage(),
+    datasetFiles: new IDBDatasetFileStorage(),
+    datasetData: new IDBDatasetDataStorage(),
+    datasetAnalyses: new IDBDatasetAnalysisStorage(),
   }
 }

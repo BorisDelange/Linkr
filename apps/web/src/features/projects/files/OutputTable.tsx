@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type VisibilityState,
 } from '@tanstack/react-table'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -15,6 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Table,
   TableBody,
@@ -34,13 +43,28 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
 
-  const totalCount = rows.length
+  // Filter rows client-side based on column search inputs
+  const filteredRows = useMemo(() => {
+    const activeFilters = Object.entries(columnFilters).filter(([, v]) => v.length > 0)
+    if (activeFilters.length === 0) return rows
+    return rows.filter((row) =>
+      activeFilters.every(([colId, term]) => {
+        const idx = parseInt(colId.replace('col_', ''), 10)
+        const val = row[idx] ?? ''
+        return val.toLowerCase().includes(term.toLowerCase())
+      }),
+    )
+  }, [rows, columnFilters])
+
+  const totalCount = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   const pageRows = useMemo(
-    () => rows.slice(page * pageSize, (page + 1) * pageSize),
-    [rows, page, pageSize],
+    () => filteredRows.slice(page * pageSize, (page + 1) * pageSize),
+    [filteredRows, page, pageSize],
   )
 
   const columns = useMemo<ColumnDef<string[]>[]>(
@@ -58,18 +82,65 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
   const table = useReactTable({
     data: pageRows,
     columns,
-    state: { columnSizing },
+    state: { columnSizing, columnVisibility },
     onColumnSizingChange: setColumnSizing,
+    onColumnVisibilityChange: setColumnVisibility,
     columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
   })
 
+  const handleFilterChange = useCallback(
+    (colId: string, value: string) => {
+      setColumnFilters((prev) => ({ ...prev, [colId]: value }))
+      setPage(0)
+    },
+    [],
+  )
+
+  const hasActiveFilters = Object.values(columnFilters).some((v) => v.length > 0)
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {/* Toolbar: column visibility */}
+      <div className="flex items-center justify-between border-b px-2 py-1">
+        <span className="text-xs text-muted-foreground">
+          {hasActiveFilters
+            ? t('files.table_total', { count: totalCount }) +
+              ` / ${rows.length}`
+            : ''}
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+              <Settings2 size={12} />
+              {t('files.columns', 'Columns')}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-h-[300px] w-[180px] overflow-y-auto">
+            <DropdownMenuLabel className="text-xs">
+              {t('files.columns', 'Columns')}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {table.getAllColumns().map((col) => (
+              <DropdownMenuCheckboxItem
+                key={col.id}
+                checked={col.getIsVisible()}
+                onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                onSelect={(e) => e.preventDefault()}
+                className="text-xs"
+              >
+                {headers[parseInt(col.id.replace('col_', ''), 10)]}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto pb-3">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
+            {/* Column headers */}
             <TableRow>
               {table.getHeaderGroups().map((headerGroup) =>
                 headerGroup.headers.map((header) => (
@@ -99,6 +170,25 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
                         }`}
                       />
                     </div>
+                  </TableHead>
+                )),
+              )}
+            </TableRow>
+            {/* Column filter row */}
+            <TableRow className="hover:bg-transparent">
+              {table.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={`filter-${header.id}`}
+                    className="px-1 py-1"
+                    style={{ width: header.getSize() }}
+                  >
+                    <input
+                      className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
+                      placeholder={`${headers[parseInt(header.id.replace('col_', ''), 10)]}...`}
+                      value={columnFilters[header.id] ?? ''}
+                      onChange={(e) => handleFilterChange(header.id, e.target.value)}
+                    />
                   </TableHead>
                 )),
               )}

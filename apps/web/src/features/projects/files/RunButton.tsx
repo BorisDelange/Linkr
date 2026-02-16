@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Play, Square, ChevronDown, Database, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,13 +42,24 @@ export function RunButton({
   const { pythonStatus, rStatus } = useRuntimeStore()
 
   const connections = projectUid ? getProjectConnections(projectUid) : []
-  const activeConn = connections.find((c) => c.id === activeConnectionId)
   const warehouseConns = connections.filter((c) => c.source === 'warehouse')
   const customConns = connections.filter((c) => c.source === 'custom')
 
+  // Auto-select first connection if none is active or current one is gone
+  const hasValidSelection = activeConnectionId && connections.some((c) => c.id === activeConnectionId)
+  useEffect(() => {
+    if (isSql && connections.length > 0 && !hasValidSelection) {
+      setActiveConnection(connections[0].id)
+    }
+  }, [isSql, connections, hasValidSelection, setActiveConnection])
+
+  const activeConn = hasValidSelection
+    ? connections.find((c) => c.id === activeConnectionId)
+    : connections[0]
+
   const runtimeStatus = language === 'python' ? pythonStatus : language === 'r' ? rStatus : 'idle'
   const isLoading = runtimeStatus === 'loading'
-  const canRun = isSql ? !!activeConnectionId : true
+  const canRun = isSql ? !!activeConn : true
   const isDisabled = !canRun || isExecuting || isLoading
 
   const getButtonLabel = () => {
@@ -182,7 +194,7 @@ function ConnectionMenuItem({
       : 'bg-gray-400'
 
   return (
-    <DropdownMenuItem onClick={onSelect} className="gap-2">
+    <DropdownMenuItem onClick={onSelect} className="gap-2" title={entry.name}>
       <span className={`size-1.5 shrink-0 rounded-full ${statusColor}`} />
       <span className="truncate">{entry.name}</span>
       {isActive && <span className="ml-auto text-xs text-primary">✓</span>}

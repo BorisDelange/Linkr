@@ -101,7 +101,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
 
     // --- .gitignore ---
     virtual.push(
-      vFile('virtual:.gitignore', '.gitignore', null, 'data/\n.cache/\n', 'plaintext'),
+      vFile('virtual:.gitignore', '.gitignore', null, 'data/\n.cache/\ndatasets/\n', 'plaintext'),
     )
 
     // --- databases/ ---

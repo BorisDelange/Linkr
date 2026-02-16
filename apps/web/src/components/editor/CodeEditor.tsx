@@ -129,6 +129,12 @@ export function CodeEditor({
         toMonacoKeybinding(monaco, shortcuts.run_file.binding),
         () => onRunFileRef.current?.()
       )
+
+      // Toggle comment (Cmd+Shift+C by default) — triggers Monaco's built-in comment action
+      editor.addCommand(
+        toMonacoKeybinding(monaco, shortcuts.toggle_comment.binding),
+        () => editor.getAction('editor.action.commentLine')?.run()
+      )
     },
     [externalRef]
   )
