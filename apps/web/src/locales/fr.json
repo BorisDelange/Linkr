@@ -310,6 +310,7 @@
     "new_folder_description": "Créer un dossier pour organiser vos jeux de données.",
     "new_analysis": "Nouvelle analyse",
     "new_analysis_description": "Créer une analyse pour ce jeu de données.",
+    "select_runtime": "Mode d'exécution",
     "upload": "Importer",
     "upload_dataset": "Importer un jeu de données",
     "upload_description": "Importez un fichier CSV, Excel ou Parquet pour créer un nouveau jeu de données.",
@@ -921,6 +922,7 @@
     "schema_preset_tab_detail": "Détail",
     "schema_preset_new": "Nouveau preset",
     "schema_preset_new_name": "Nouveau modèle de schéma",
+    "schema_preset_new_description": "Entrez un nom pour le nouveau preset de schéma.",
     "schema_preset_export": "Exporter JSON",
     "schema_preset_import": "Importer"
   },
@@ -1094,7 +1096,8 @@
     "select": "Sélectionner",
     "confirm": "Confirmer",
     "select_all": "Tout",
-    "select_none": "Aucun"
+    "select_none": "Aucun",
+    "none": "Aucun"
   },
   "user_menu": {
     "profile": "Profil",

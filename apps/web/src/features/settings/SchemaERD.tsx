@@ -253,11 +253,12 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
           target: `concept-${dictKey}`,
           targetHandle: 'pk',
           type: 'smoothstep',
+          animated: true,
           style: { stroke: '#f59e0b', strokeWidth: 1.5 },
         })
       }
 
-      // Edge: event.patientIdColumn → patient.pk (dashed)
+      // Edge: event.patientIdColumn → patient.pk
       if (et.patientIdColumn && mapping.patientTable) {
         edges.push({
           id: `e-${label}-patient`,
@@ -266,7 +267,8 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
           target: `patient-${mapping.patientTable.table}`,
           targetHandle: 'pk',
           type: 'smoothstep',
-          style: { stroke: '#3b82f6', strokeWidth: 1, strokeDasharray: '6 4' },
+          animated: true,
+          style: { stroke: '#3b82f6', strokeWidth: 1.5 },
         })
       }
     })

@@ -310,6 +310,7 @@
     "new_folder_description": "Create a folder to organize your datasets.",
     "new_analysis": "New analysis",
     "new_analysis_description": "Create an analysis for this dataset.",
+    "select_runtime": "Runtime",
     "upload": "Upload",
     "upload_dataset": "Upload dataset",
     "upload_description": "Upload a CSV, Excel, or Parquet file to create a new dataset.",
@@ -920,6 +921,7 @@
     "schema_preset_tab_detail": "Detail",
     "schema_preset_new": "New preset",
     "schema_preset_new_name": "New schema preset",
+    "schema_preset_new_description": "Enter a name for the new schema preset.",
     "schema_preset_export": "Export JSON",
     "schema_preset_import": "Import"
   },
@@ -1093,7 +1095,8 @@
     "select": "Select",
     "confirm": "Confirm",
     "select_all": "All",
-    "select_none": "None"
+    "select_none": "None",
+    "none": "None"
   },
   "user_menu": {
     "profile": "Profile",

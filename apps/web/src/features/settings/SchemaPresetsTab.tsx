@@ -21,7 +21,21 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
@@ -551,6 +565,7 @@ function PresetFullscreenDialog({
   onEdit,
   onSave,
   onCancel,
+  defaultTab,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -562,6 +577,7 @@ function PresetFullscreenDialog({
   onEdit?: () => void
   onSave?: () => void
   onCancel?: () => void
+  defaultTab?: 'erd' | 'detail'
 }) {
   const { t } = useTranslation()
   const displayMapping = isEditing && editMapping ? editMapping : mapping
@@ -623,7 +639,7 @@ function PresetFullscreenDialog({
         </div>
 
         {/* Tabbed content */}
-        <Tabs defaultValue="erd" className="flex-1 flex flex-col min-h-0">
+        <Tabs defaultValue={defaultTab ?? 'erd'} className="flex-1 flex flex-col min-h-0">
           <div className="px-5 pt-2 shrink-0">
             <TabsList>
               <TabsTrigger value="erd">{t('settings.schema_preset_tab_erd')}</TabsTrigger>
@@ -743,6 +759,9 @@ export function SchemaPresetsTab() {
   const [openPresetId, setOpenPresetId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [newPresetName, setNewPresetName] = useState('')
 
   const loadCustomPresets = useCallback(async () => {
     try {
@@ -786,9 +805,6 @@ export function SchemaPresetsTab() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
-    setOpenPresetId(presetId)
-    setEditingId(presetId)
-    setEditMapping(newMapping)
   }
 
   const deletePreset = async (presetId: string) => {
@@ -867,12 +883,19 @@ export function SchemaPresetsTab() {
     }
   }
 
-  const createNewPreset = async () => {
+  const openCreateDialog = () => {
+    setNewPresetName(t('settings.schema_preset_new_name'))
+    setShowCreateDialog(true)
+  }
+
+  const confirmCreatePreset = async () => {
+    const name = newPresetName.trim()
+    if (!name) return
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
     const now = new Date().toISOString()
     const newMapping: SchemaMapping = {
       presetId,
-      presetLabel: t('settings.schema_preset_new_name'),
+      presetLabel: name,
     }
     const preset: CustomSchemaPreset = {
       presetId,
@@ -882,6 +905,7 @@ export function SchemaPresetsTab() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    setShowCreateDialog(false)
     setOpenPresetId(presetId)
     setEditingId(presetId)
     setEditMapping(newMapping)
@@ -919,7 +943,7 @@ export function SchemaPresetsTab() {
             <Upload size={14} />
             {t('settings.schema_preset_import')}
           </Button>
-          <Button size="sm" onClick={createNewPreset}>
+          <Button size="sm" onClick={openCreateDialog}>
             <Plus size={14} />
             {t('settings.schema_preset_new')}
           </Button>
@@ -958,11 +982,49 @@ export function SchemaPresetsTab() {
               onOpen={() => setOpenPresetId(cp.presetId)}
               onDuplicate={() => duplicatePreset(cp.mapping)}
               onExport={() => exportPreset(cp.mapping)}
-              onDelete={() => deletePreset(cp.presetId)}
+              onDelete={() => setDeleteConfirmId(cp.presetId)}
             />
           ))}
         </div>
       )}
+
+      {/* Create preset dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('settings.schema_preset_new')}</DialogTitle>
+            <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
+          </DialogHeader>
+          <Input
+            value={newPresetName}
+            onChange={(e) => setNewPresetName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') confirmCreatePreset() }}
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
+            <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim()}>{t('common.create')}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.schema_preset_delete_confirm')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => { if (deleteConfirmId) deletePreset(deleteConfirmId); setDeleteConfirmId(null) }}>
+              {t('settings.schema_preset_delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Fullscreen dialog */}
       {openMapping && openPresetId && (
@@ -977,6 +1039,7 @@ export function SchemaPresetsTab() {
           onEdit={!isOpenBuiltin ? startEdit : undefined}
           onSave={saveEdit}
           onCancel={cancelEdit}
+          defaultTab={editingId === openPresetId ? 'detail' : 'erd'}
         />
       )}
     </div>
