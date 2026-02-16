@@ -60,10 +60,31 @@ export async function getWebR(): Promise<WebR> {
 
 /**
  * Install an R package via webR.
+ * The optional `onLog` callback receives progress messages.
  */
-export async function installRPackage(name: string): Promise<void> {
+export async function installRPackage(
+  name: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
   const webR = await getWebR()
-  await webR.installPackages([name])
+  onLog?.(`Installing ${name}...`)
+  try {
+    await webR.installPackages([name])
+    onLog?.(`Successfully installed ${name}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    onLog?.(`Error: ${msg}`)
+    throw err
+  }
+}
+
+/**
+ * Uninstall an R package via remove.packages().
+ */
+export async function uninstallRPackage(name: string): Promise<void> {
+  const webR = await getWebR()
+  const safeName = name.replace(/'/g, "\\'")
+  await webR.evalRVoid(`remove.packages('${safeName}')`)
 }
 
 /**

@@ -900,7 +900,14 @@
     "package_filtered": "{{count}} sur {{total}} packages",
     "search_placeholder": "Rechercher des packages...",
     "runtime_not_loaded": "Runtime pas encore chargé",
-    "runtime_hint": "Exécutez du code pour initialiser le runtime."
+    "runtime_hint": "Exécutez du code pour initialiser le runtime.",
+    "uninstall": "Désinstaller",
+    "uninstalling": "Désinstallation...",
+    "uninstall_confirm": "Supprimer {{name}} ?",
+    "install_log_title": "Log",
+    "version_hint_python": "Supporte le choix de version (ex. pandas==2.0.0)",
+    "version_hint_r": "Le choix de version n'est pas disponible pour les packages R",
+    "open_package_page": "Ouvrir la page du package"
   },
   "server": {
     "title": "Moniteur système",

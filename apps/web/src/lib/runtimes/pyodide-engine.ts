@@ -90,10 +90,33 @@ def _linkr_capture_table(obj):
 
 /**
  * Install a Python package via micropip.
+ * Accepts version specifiers like "pandas==2.0.0".
+ * The optional `onLog` callback receives progress messages.
  */
-export async function installPythonPackage(name: string): Promise<void> {
+export async function installPythonPackage(
+  name: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
   const pyodide = await getPyodide()
-  await pyodide.runPythonAsync(`import micropip; await micropip.install('${name.replace(/'/g, "\\'")}')`)
+  const safeName = name.replace(/'/g, "\\'")
+  onLog?.(`Installing ${name}...`)
+  try {
+    await pyodide.runPythonAsync(`import micropip; await micropip.install('${safeName}')`)
+    onLog?.(`Successfully installed ${name}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    onLog?.(`Error: ${msg}`)
+    throw err
+  }
+}
+
+/**
+ * Uninstall a Python package via micropip.
+ */
+export async function uninstallPythonPackage(name: string): Promise<void> {
+  const pyodide = await getPyodide()
+  const safeName = name.replace(/'/g, "\\'")
+  await pyodide.runPythonAsync(`import micropip; micropip.uninstall('${safeName}')`)
 }
 
 /**

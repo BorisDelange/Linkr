@@ -183,23 +183,6 @@ person %>%
 `,
     createdAt: '2026-02-10',
   },
-  {
-    id: 'file-4',
-    projectUid: '',
-    name: 'README.md',
-    type: 'file',
-    parentId: null,
-    language: 'markdown',
-    content: `# MIMIC-IV Demo Project
-
-This project demonstrates linkr's capabilities with MIMIC-IV data.
-
-## Files
-- \`scripts/analysis.py\` — Python analysis script
-- \`scripts/queries.sql\` — SQL queries for OMOP data
-`,
-    createdAt: '2026-02-10',
-  },
 ]
 
 export function buildFolderTree(

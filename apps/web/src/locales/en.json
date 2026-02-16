@@ -899,7 +899,14 @@
     "package_filtered": "{{count}} of {{total}} packages",
     "search_placeholder": "Search packages...",
     "runtime_not_loaded": "Runtime not loaded yet",
-    "runtime_hint": "Run some code first to initialize the runtime."
+    "runtime_hint": "Run some code first to initialize the runtime.",
+    "uninstall": "Uninstall",
+    "uninstalling": "Uninstalling...",
+    "uninstall_confirm": "Remove {{name}}?",
+    "install_log_title": "Log",
+    "version_hint_python": "Supports version pinning (e.g. pandas==2.0.0)",
+    "version_hint_r": "Version pinning is not available for R packages",
+    "open_package_page": "Open package page"
   },
   "server": {
     "title": "System Monitor",

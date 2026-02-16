@@ -83,6 +83,13 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       )
     }
 
+    // --- README.md ---
+    if (project) {
+      virtual.push(
+        vFile('virtual:README.md', 'README.md', null, project.readme ?? '', 'markdown'),
+      )
+    }
+
     // --- tasks.json ---
     if (project) {
       const { todos, notes } = project
