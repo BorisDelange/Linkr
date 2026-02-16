@@ -124,7 +124,7 @@ _keep = set(dir(__builtins__)) | {
     '_linkr_get_figures', '_linkr_capture_table',
     'plt', 'matplotlib', 'io', 'os', 'sys', 'np', 'pd',
     'numpy', 'pandas', 'micropip', 'sql_query',
-    'mo', '_MoMd', '_MoStub',
+    'mo', '_MoMd', '_MoNoOp', '_MoStub',
     '_sys', '_keep',
 }
 for _name in list(globals()):
@@ -166,11 +166,31 @@ class _MoMd:
     def __repr__(self):
         return self.text
 
+class _MoNoOp:
+    """Catch-all no-op: any attribute access, call, or context manager returns another _MoNoOp."""
+    def __getattr__(self, name):
+        return _MoNoOp()
+    def __call__(self, *args, **kwargs):
+        return _MoNoOp()
+    def __enter__(self):
+        return self
+    def __exit__(self, *exc):
+        return False
+    def __repr__(self):
+        return ''
+    def __bool__(self):
+        return False
+    def __iter__(self):
+        return iter([])
+
 class _MoStub:
-    """Minimal marimo stub for notebook cells."""
-    @staticmethod
-    def md(text):
+    """Marimo stub — mo.md() produces renderable markdown, everything else is a silent no-op."""
+    def __init__(self):
+        self.ui = _MoNoOp()
+    def md(self, text):
         return _MoMd(text)
+    def __getattr__(self, name):
+        return _MoNoOp()
 
 # Make 'mo' available as a module-like object
 mo = _MoStub()
