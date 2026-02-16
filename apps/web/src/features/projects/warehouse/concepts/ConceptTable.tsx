@@ -59,7 +59,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import type { ConceptRow, ConceptCounts } from './use-concepts'
+import type { ConceptRow } from './use-concepts'
 import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
 
 // ---------------------------------------------------------------------------
@@ -68,7 +68,6 @@ import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept
 
 interface ConceptTableProps {
   concepts: ConceptRow[]
-  conceptCounts: Map<number, ConceptCounts>
   totalCount: number
   page: number
   pageSize: number
@@ -214,7 +213,6 @@ function SortableColumnHeader({
 
 export function ConceptTable({
   concepts,
-  conceptCounts,
   totalCount,
   page,
   pageSize,
@@ -283,11 +281,12 @@ export function ConceptTable({
           return {
             ...base,
             header: () => t('concepts.column_records'),
-            cell: ({ row }) => {
-              const counts = conceptCounts.get(row.original.concept_id)
-              if (!counts) return <Skeleton className="ml-auto h-3.5 w-10" />
-              return <span className="tabular-nums">{counts.records.toLocaleString()}</span>
-            },
+            accessorFn: (row) => row.record_count,
+            cell: ({ row }) => (
+              <span className="tabular-nums">
+                {Number(row.original.record_count ?? 0).toLocaleString()}
+              </span>
+            ),
             size: 90,
             minSize: 60,
           } as ColumnDef<ConceptRow>
@@ -296,11 +295,12 @@ export function ConceptTable({
           return {
             ...base,
             header: () => t('concepts.column_patients'),
-            cell: ({ row }) => {
-              const counts = conceptCounts.get(row.original.concept_id)
-              if (!counts) return <Skeleton className="ml-auto h-3.5 w-10" />
-              return <span className="tabular-nums">{counts.patients.toLocaleString()}</span>
-            },
+            accessorFn: (row) => row.patient_count,
+            cell: ({ row }) => (
+              <span className="tabular-nums">
+                {Number(row.original.patient_count ?? 0).toLocaleString()}
+              </span>
+            ),
             size: 90,
             minSize: 60,
           } as ColumnDef<ConceptRow>
@@ -316,7 +316,7 @@ export function ConceptTable({
           } as ColumnDef<ConceptRow>
       }
     })
-  }, [availableColumns, t, conceptCounts])
+  }, [availableColumns, t])
 
   const table = useReactTable({
     data: concepts,

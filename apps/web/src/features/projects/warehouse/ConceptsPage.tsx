@@ -37,7 +37,6 @@ export function ConceptsPage() {
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept,
-    conceptCounts,
     conceptStats,
     conceptStatsLoading,
     resetCache,
@@ -118,7 +117,6 @@ export function ConceptsPage() {
           <Allotment.Pane minSize={400}>
             <ConceptTable
               concepts={concepts}
-              conceptCounts={conceptCounts}
               totalCount={totalCount}
               page={page}
               pageSize={pageSize}

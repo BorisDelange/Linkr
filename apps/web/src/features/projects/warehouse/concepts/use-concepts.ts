@@ -8,7 +8,6 @@ import {
   buildConceptsCountQuery,
   buildConceptFullQuery,
   buildDomainCountQuery,
-  buildBatchCountQuery,
   buildValueDistributionQuery,
   buildValueHistogramQuery,
   hasValueColumnForDict,
@@ -24,6 +23,8 @@ import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept
 export interface ConceptRow {
   concept_id: number
   concept_name: string
+  record_count: number
+  patient_count: number
   _dict_key?: string
   [key: string]: unknown
 }
@@ -49,11 +50,6 @@ export interface ConceptStats {
   histogram?: HistogramBin[]
 }
 
-export interface ConceptCounts {
-  records: number
-  patients: number
-}
-
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -76,8 +72,6 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
 
   const statsCache = useRef<Map<number, ConceptStats>>(new Map())
-  const countsCache = useRef<Map<number, ConceptCounts>>(new Map())
-  const [conceptCounts, setConceptCounts] = useState<Map<number, ConceptCounts>>(new Map())
 
   // ---------------------------------------------------------------------------
   // Available columns (derived from schema mapping)
@@ -182,8 +176,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     const load = async () => {
       setIsLoading(true)
       try {
-        const sqlSorting = (sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count') ? null : sorting
-        const conceptsSql = buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sqlSorting)
+        const conceptsSql = buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
         const countSql = buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
         if (!conceptsSql || !countSql) {
           setConcepts([])
@@ -207,98 +200,6 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dataSourceId, schemaMapping, hasConceptTable, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
-
-  // ---------------------------------------------------------------------------
-  // Load record & patient counts (batch)
-  // ---------------------------------------------------------------------------
-
-  useEffect(() => {
-    if (!dataSourceId || !schemaMapping || concepts.length === 0) return
-
-    const loadBatchCounts = async () => {
-      const uncached = concepts.filter((c) => !countsCache.current.has(c.concept_id))
-      if (uncached.length === 0) {
-        const map = new Map<number, ConceptCounts>()
-        for (const c of concepts) {
-          map.set(c.concept_id, countsCache.current.get(c.concept_id) ?? { records: 0, patients: 0 })
-        }
-        setConceptCounts(map)
-        return
-      }
-
-      // Group concepts by _dict_key (or use default dict key)
-      const defaultDictKey = dicts[0]?.key
-      const byDict = new Map<string, number[]>()
-      for (const c of uncached) {
-        const dk = (c._dict_key as string) ?? defaultDictKey
-        if (!dk) continue
-        const ids = byDict.get(dk) ?? []
-        ids.push(c.concept_id)
-        byDict.set(dk, ids)
-      }
-
-      const queries: Promise<void>[] = []
-      for (const [dictKey, conceptIds] of byDict) {
-        const sql = buildBatchCountQuery(schemaMapping, dictKey, conceptIds)
-        if (!sql) {
-          // No event tables for this dict — set counts to 0
-          for (const id of conceptIds) {
-            countsCache.current.set(id, { records: 0, patients: 0 })
-          }
-          continue
-        }
-
-        queries.push(
-          queryDataSource(dataSourceId, sql)
-            .then((rows) => {
-              const resultMap = new Map<number, ConceptCounts>()
-              for (const r of rows) {
-                resultMap.set(Number(r.concept_id), {
-                  records: Number(r.record_count),
-                  patients: Number(r.patient_count),
-                })
-              }
-              for (const id of conceptIds) {
-                countsCache.current.set(id, resultMap.get(id) ?? { records: 0, patients: 0 })
-              }
-            })
-            .catch(() => {
-              for (const id of conceptIds) {
-                countsCache.current.set(id, { records: 0, patients: 0 })
-              }
-            }),
-        )
-      }
-
-      await Promise.all(queries)
-
-      const map = new Map<number, ConceptCounts>()
-      for (const c of concepts) {
-        map.set(c.concept_id, countsCache.current.get(c.concept_id) ?? { records: 0, patients: 0 })
-      }
-      setConceptCounts(map)
-    }
-
-    loadBatchCounts()
-  }, [dataSourceId, schemaMapping, concepts, dicts])
-
-  // ---------------------------------------------------------------------------
-  // Client-side sort for computed columns
-  // ---------------------------------------------------------------------------
-
-  const sortedConcepts = useMemo(() => {
-    if (!sorting) return concepts
-    if (sorting.columnId !== 'record_count' && sorting.columnId !== 'patient_count') return concepts
-    if (conceptCounts.size === 0) return concepts
-
-    return [...concepts].sort((a, b) => {
-      const ca = conceptCounts.get(a.concept_id) ?? { records: 0, patients: 0 }
-      const cb = conceptCounts.get(b.concept_id) ?? { records: 0, patients: 0 }
-      const va = sorting.columnId === 'record_count' ? ca.records : ca.patients
-      const vb = sorting.columnId === 'record_count' ? cb.records : cb.patients
-      return sorting.desc ? vb - va : va - vb
-    })
-  }, [concepts, conceptCounts, sorting])
 
   // ---------------------------------------------------------------------------
   // Load selected concept details
@@ -404,8 +305,6 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   const resetCache = useCallback(() => {
     statsCache.current.clear()
-    countsCache.current.clear()
-    setConceptCounts(new Map())
   }, [])
 
   const updateFilter = useCallback((key: string, value: string | null) => {
@@ -438,7 +337,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     setPage,
     pageSize,
     setPageSize,
-    concepts: sortedConcepts,
+    concepts,
     totalCount,
     totalPages,
     isLoading,
@@ -446,7 +345,6 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept,
-    conceptCounts,
     conceptStats,
     conceptStatsLoading,
     resetCache,

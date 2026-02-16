@@ -1,4 +1,4 @@
-import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
+import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import {
   getEventTablesForDictionary,
   buildConceptMatchCondition,
@@ -78,13 +78,14 @@ export type ConceptFilters = Record<string, string | null>
 
 export const EMPTY_FILTERS: ConceptFilters = {}
 
-function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allColumns: ColumnDescriptor[]): string {
+function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allColumns: ColumnDescriptor[], alias?: string): string {
+  const p = alias ? `${alias}.` : ''
   const conditions: string[] = []
 
   // Search by ID prefix
   const searchId = filters._searchId
   if (searchId?.trim()) {
-    conditions.push(`CAST("${dict.idColumn}" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
+    conditions.push(`CAST(${p}"${dict.idColumn}" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
   // Search by name (multi-word fuzzy)
@@ -92,9 +93,9 @@ function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allC
   if (searchText?.trim() && dict.nameColumn) {
     const words = searchText.trim().split(/\s+/).filter(Boolean)
     if (words.length === 1) {
-      conditions.push(`"${dict.nameColumn}" ILIKE '%${esc(words[0])}%'`)
+      conditions.push(`${p}"${dict.nameColumn}" ILIKE '%${esc(words[0])}%'`)
     } else {
-      const wordConditions = words.map((w) => `"${dict.nameColumn}" ILIKE '%${esc(w)}%'`)
+      const wordConditions = words.map((w) => `${p}"${dict.nameColumn}" ILIKE '%${esc(w)}%'`)
       conditions.push(`(${wordConditions.join(' AND ')})`)
     }
   }
@@ -102,7 +103,7 @@ function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allC
   // Search by code
   const searchCode = filters._searchCode
   if (searchCode?.trim() && dict.codeColumn) {
-    conditions.push(`"${dict.codeColumn}" ILIKE '%${esc(searchCode.trim())}%'`)
+    conditions.push(`${p}"${dict.codeColumn}" ILIKE '%${esc(searchCode.trim())}%'`)
   }
 
   // Dropdown / exact-match filters on vocabulary, extra columns
@@ -114,7 +115,7 @@ function buildWhereClause(dict: ConceptDictionary, filters: ConceptFilters, allC
     const actualCol = resolveActualColumn(dict, col.id)
     if (!actualCol) continue // column doesn't exist in this dict — skip
 
-    conditions.push(`"${actualCol}" = '${esc(filterVal)}'`)
+    conditions.push(`${p}"${actualCol}" = '${esc(filterVal)}'`)
   }
 
   return conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : ''
@@ -143,6 +144,46 @@ function resolveActualColumn(dict: ConceptDictionary, columnId: string): string 
 }
 
 // ---------------------------------------------------------------------------
+// Counts subquery (aggregated record + patient counts from event tables)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a counts subquery for a dictionary, aggregating record_count and patient_count
+ * across all event tables linked to that dictionary.
+ * Returns null if no event tables exist for the dictionary.
+ */
+function buildCountsSubquery(
+  mapping: SchemaMapping,
+  dictKey: string,
+): string | null {
+  const eventEntries = getEventTablesForDictionary(mapping, dictKey)
+  if (eventEntries.length === 0) return null
+
+  const parts: string[] = []
+  for (const { eventTable: et } of eventEntries) {
+    const patientCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+    const patientSelect = patientCol ? `"${patientCol}"` : 'NULL'
+
+    parts.push(
+      `SELECT "${et.conceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}"`,
+    )
+    if (et.sourceConceptIdColumn) {
+      parts.push(
+        `SELECT "${et.sourceConceptIdColumn}" AS cid, ${patientSelect} AS pid FROM "${et.table}"`,
+      )
+    }
+  }
+
+  if (parts.length === 0) return null
+
+  return `(SELECT cid AS concept_id, COUNT(*)::INTEGER AS record_count, COUNT(DISTINCT pid)::INTEGER AS patient_count
+  FROM (
+    ${parts.join('\n    UNION ALL\n    ')}
+  ) _evts
+  GROUP BY cid)`
+}
+
+// ---------------------------------------------------------------------------
 // Main queries: concepts list (supports multi-dict UNION ALL)
 // ---------------------------------------------------------------------------
 
@@ -151,31 +192,45 @@ function buildSelectForDict(
   allColumns: ColumnDescriptor[],
   filters: ConceptFilters,
   multiDict: boolean,
+  mapping: SchemaMapping,
 ): string | null {
-  const where = buildWhereClause(dict, filters, allColumns)
+  const countsSubquery = buildCountsSubquery(mapping, dict.key)
+  const hasCounts = countsSubquery !== null
+  const where = buildWhereClause(dict, filters, allColumns, 'c')
 
   const cols: string[] = [
-    `"${dict.idColumn}" AS concept_id`,
-    `"${dict.nameColumn}" AS concept_name`,
+    `c."${dict.idColumn}" AS concept_id`,
+    `c."${dict.nameColumn}" AS concept_name`,
   ]
 
   for (const col of allColumns) {
     if (col.id === 'concept_id' || col.id === 'concept_name') continue
-    if (col.source === 'computed') continue
     if (col.source === 'dict') {
       cols.push(`'${esc(dict.key)}' AS _dict_key`)
+      continue
+    }
+    if (col.id === 'record_count') {
+      cols.push(hasCounts ? 'COALESCE(_counts.record_count, 0) AS record_count' : '0 AS record_count')
+      continue
+    }
+    if (col.id === 'patient_count') {
+      cols.push(hasCounts ? 'COALESCE(_counts.patient_count, 0) AS patient_count' : '0 AS patient_count')
       continue
     }
 
     const actual = resolveActualColumn(dict, col.id)
     if (actual) {
-      cols.push(`"${actual}" AS "${col.id}"`)
+      cols.push(`c."${actual}" AS "${col.id}"`)
     } else {
       cols.push(`NULL AS "${col.id}"`)
     }
   }
 
-  return `SELECT ${cols.join(', ')} FROM "${dict.table}" ${where}`
+  const joinClause = hasCounts
+    ? `LEFT JOIN ${countsSubquery} _counts ON c."${dict.idColumn}" = _counts.concept_id`
+    : ''
+
+  return `SELECT ${cols.join(', ')} FROM "${dict.table}" c ${joinClause} ${where}`
 }
 
 export function buildConceptsQuery(
@@ -201,15 +256,14 @@ export function buildConceptsQuery(
   if (activeDicts.length === 0) return null
 
   const subQueries = activeDicts
-    .map((d) => buildSelectForDict(d, allColumns, filters, multiDict))
+    .map((d) => buildSelectForDict(d, allColumns, filters, multiDict, mapping))
     .filter(Boolean)
 
   if (subQueries.length === 0) return null
 
-  // ORDER BY
+  // ORDER BY — all columns including record_count and patient_count
   let orderBy = 'concept_id'
-  if (sorting && sorting.columnId !== 'record_count' && sorting.columnId !== 'patient_count') {
-    // For multi-dict union, sort on the alias directly
+  if (sorting) {
     orderBy = `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
   }
 
