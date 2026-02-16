@@ -1,22 +1,102 @@
+import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Play } from 'lucide-react'
+import { AlertCircle, AlertTriangle, Info, Play, Download, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { installPythonPackage } from '@/lib/runtimes/pyodide-engine'
+import { installRPackage } from '@/lib/runtimes/webr-engine'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+
+/** Extract missing package names from error messages. */
+function detectMissingPackages(stderr: string): { name: string; lang: 'python' | 'r' }[] {
+  const packages: { name: string; lang: 'python' | 'r' }[] = []
+  const seen = new Set<string>()
+
+  // R: "there is no package called 'dplyr'"
+  for (const match of stderr.matchAll(/there is no package called ['\u2018](\w+)['\u2019]/g)) {
+    const key = `r:${match[1]}`
+    if (!seen.has(key)) { seen.add(key); packages.push({ name: match[1], lang: 'r' }) }
+  }
+
+  // Python: "ModuleNotFoundError: No module named 'xxx'"
+  for (const match of stderr.matchAll(/No module named ['\u2018](\w+)['\u2019]/g)) {
+    const key = `py:${match[1]}`
+    if (!seen.has(key)) { seen.add(key); packages.push({ name: match[1], lang: 'python' }) }
+  }
+
+  return packages
+}
+
+/**
+ * Patterns that indicate R informational warnings (not real errors).
+ * Each line matching any of these is classified as a warning, not an error.
+ */
+const R_WARNING_PATTERNS = [
+  /^Attaching package/,
+  /^The following object/,
+  /^Loading required package/,
+  /^\s+filter, lag$/,
+  /^\s+intersect, setdiff, setequal, union$/,
+  /are masked from/,
+  /is masked from/,
+  /^Warning message/,
+  /^In .+ :\s*$/,
+  /^── /,
+]
+
+/** Split stderr into real errors and informational warnings. */
+function splitStderr(stderr: string): { errors: string; warnings: string } {
+  if (!stderr) return { errors: '', warnings: '' }
+
+  const lines = stderr.split('\n')
+  const errorLines: string[] = []
+  const warningLines: string[] = []
+
+  // Track contiguous warning blocks (e.g. "Attaching package..." followed by "The following objects...")
+  let inWarningBlock = false
+
+  for (const line of lines) {
+    const isWarningLine = R_WARNING_PATTERNS.some(p => p.test(line))
+
+    if (isWarningLine) {
+      inWarningBlock = true
+      warningLines.push(line)
+    } else if (inWarningBlock && line.trim() === '') {
+      // Blank line after warning block — keep it with warnings
+      warningLines.push(line)
+      inWarningBlock = false
+    } else {
+      inWarningBlock = false
+      errorLines.push(line)
+    }
+  }
+
+  return {
+    errors: errorLines.join('\n').trim(),
+    warnings: warningLines.join('\n').trim(),
+  }
+}
 
 interface AnalysisOutputRendererProps {
   result: RuntimeOutput | null
   isExecuting: boolean
+  statusMessage?: string | null
+  installedDeps?: string[]
+  onRerun?: () => void
 }
 
-export function AnalysisOutputRenderer({ result, isExecuting }: AnalysisOutputRendererProps) {
+export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun }: AnalysisOutputRendererProps) {
   const { t } = useTranslation()
+  const [expandedPanel, setExpandedPanel] = useState<'info' | 'warnings' | null>(null)
 
   if (isExecuting) {
     return (
       <div className="flex h-full flex-col items-center justify-center text-center p-6">
         <div className="size-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <p className="mt-3 text-xs text-muted-foreground">{t('datasets.analysis_running')}</p>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {statusMessage ?? t('datasets.analysis_running')}
+        </p>
       </div>
     )
   }
@@ -30,23 +110,70 @@ export function AnalysisOutputRenderer({ result, isExecuting }: AnalysisOutputRe
     )
   }
 
-  const hasError = result.stderr.length > 0
+  const { errors, warnings } = splitStderr(result.stderr)
+  const hasError = errors.length > 0
+  const hasWarnings = warnings.length > 0
+  const hasInfo = (installedDeps?.length ?? 0) > 0
   const hasFigures = result.figures.length > 0
   const hasTable = result.table !== null
   const hasStdout = result.stdout.length > 0
+  const missingPackages = hasError ? detectMissingPackages(errors) : []
 
   return (
     <ScrollArea className="h-full">
       <div className="p-3 space-y-3">
-        {/* Errors */}
+        {/* Errors (real) */}
         {hasError && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3">
+          <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 space-y-2">
             <div className="flex items-start gap-2">
               <AlertCircle size={14} className="shrink-0 text-destructive mt-0.5" />
               <pre className="text-xs text-destructive whitespace-pre-wrap break-words font-mono flex-1">
-                {result.stderr}
+                {errors}
               </pre>
             </div>
+            {missingPackages.length > 0 && (
+              <MissingPackageInstaller packages={missingPackages} onInstalled={onRerun} />
+            )}
+          </div>
+        )}
+
+        {/* Info & Warnings pills row */}
+        {(hasInfo || hasWarnings) && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              {hasInfo && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedPanel(expandedPanel === 'info' ? null : 'info')}
+                  className="inline-flex items-center gap-1 rounded-full border border-blue-200/50 bg-blue-50/50 dark:border-blue-900/30 dark:bg-blue-950/20 px-2 py-0.5 text-[11px] text-blue-600 dark:text-blue-400 hover:bg-blue-100/50 dark:hover:bg-blue-950/40 transition-colors"
+                >
+                  <Info size={10} className="shrink-0" />
+                  {t('datasets.analysis_info')}
+                </button>
+              )}
+              {hasWarnings && (
+                <button
+                  type="button"
+                  onClick={() => setExpandedPanel(expandedPanel === 'warnings' ? null : 'warnings')}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-200/50 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/20 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-950/40 transition-colors"
+                >
+                  <AlertTriangle size={10} className="shrink-0" />
+                  {t('datasets.analysis_warnings')}
+                </button>
+              )}
+            </div>
+            {expandedPanel === 'info' && hasInfo && (
+              <div className="rounded-md border border-blue-200/50 bg-blue-50/50 dark:border-blue-900/30 dark:bg-blue-950/20 px-3 py-2">
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  {t('datasets.analysis_deps_installed', { packages: installedDeps!.join(', ') })}
+                </p>
+              </div>
+            )}
+            {expandedPanel === 'warnings' && hasWarnings && (
+              <pre className="rounded-md border border-amber-200/50 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/20 p-2 text-xs font-mono whitespace-pre-wrap break-words text-amber-800 dark:text-amber-300">
+                {warnings}
+              </pre>
+            )}
           </div>
         )}
 
@@ -94,5 +221,86 @@ export function AnalysisOutputRenderer({ result, isExecuting }: AnalysisOutputRe
         )}
       </div>
     </ScrollArea>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Inline installer for missing packages
+// ---------------------------------------------------------------------------
+
+function MissingPackageInstaller({
+  packages,
+  onInstalled,
+}: {
+  packages: { name: string; lang: 'python' | 'r' }[]
+  onInstalled?: () => void
+}) {
+  const { t } = useTranslation()
+  const [installing, setInstalling] = useState<string | null>(null)
+  const [installed, setInstalled] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
+
+  const handleInstall = useCallback(async (pkg: { name: string; lang: 'python' | 'r' }) => {
+    const key = `${pkg.lang}:${pkg.name}`
+    setInstalling(key)
+    setError(null)
+    try {
+      if (pkg.lang === 'python') {
+        await installPythonPackage(pkg.name)
+      } else {
+        await installRPackage(pkg.name)
+      }
+      setInstalled(prev => new Set(prev).add(key))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setInstalling(null)
+    }
+  }, [])
+
+  const allInstalled = packages.every(p => installed.has(`${p.lang}:${p.name}`))
+
+  return (
+    <div className="space-y-2 pt-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {packages.map(pkg => {
+          const key = `${pkg.lang}:${pkg.name}`
+          const isDone = installed.has(key)
+          const isLoading = installing === key
+          return (
+            <Button
+              key={key}
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1 text-[11px]"
+              disabled={isDone || isLoading || installing !== null}
+              onClick={() => handleInstall(pkg)}
+            >
+              {isLoading ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : (
+                <Download size={10} />
+              )}
+              {isDone
+                ? t('environments.installed_pkg', { name: pkg.name })
+                : t('environments.install_pkg', { name: pkg.name })}
+            </Button>
+          )
+        })}
+      </div>
+      {error && (
+        <p className="text-[10px] text-destructive">{error}</p>
+      )}
+      {allInstalled && onInstalled && (
+        <Button
+          size="sm"
+          className="h-6 gap-1 text-[11px]"
+          onClick={onInstalled}
+        >
+          <Play size={10} />
+          {t('datasets.analysis_rerun')}
+        </Button>
+      )}
+    </div>
   )
 }

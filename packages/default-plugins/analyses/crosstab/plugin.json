@@ -40,6 +40,10 @@
       "default": true
     }
   },
+  "dependencies": {
+    "python": [],
+    "r": []
+  },
   "templates": {
     "python": "crosstab.py.template",
     "r": "crosstab.R.template"

@@ -33,6 +33,10 @@
       ]
     }
   },
+  "dependencies": {
+    "python": [],
+    "r": []
+  },
   "templates": {
     "python": "correlation.py.template",
     "r": "correlation.R.template"

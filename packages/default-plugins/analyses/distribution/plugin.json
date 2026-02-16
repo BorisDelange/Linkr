@@ -36,6 +36,10 @@
       "max": 100
     }
   },
+  "dependencies": {
+    "python": [],
+    "r": []
+  },
   "templates": {
     "python": "distribution.py.template",
     "r": "distribution.R.template"

@@ -29,6 +29,10 @@
       "label": { "en": "Group by", "fr": "Grouper par" }
     }
   },
+  "dependencies": {
+    "python": [],
+    "r": ["dplyr", "tidyr"]
+  },
   "templates": {
     "python": "table1.py.template",
     "r": "table1.R.template"

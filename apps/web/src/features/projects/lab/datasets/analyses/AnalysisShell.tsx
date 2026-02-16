@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
+import { ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
 import { AnalysisOutputRenderer } from './AnalysisOutputRenderer'
 import type { DatasetAnalysis } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -44,6 +45,8 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   // null = left pane hidden; 'config' | 'code' = left pane visible with that tab
   const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(autoRun ? null : 'config')
   const [isExecuting, setIsExecuting] = useState(false)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [installedDeps, setInstalledDeps] = useState<string[]>([])
   const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [overwriteConfirmOpen, setOverwriteConfirmOpen] = useState(false)
   const [rightVisible, setRightVisible] = useState(true)
@@ -97,8 +100,14 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
     isExecutingRef.current = true
     setIsExecuting(true)
     setResult(null)
+    setStatusMessage(null)
     setRightVisible(true)
     try {
+      // Auto-install declared plugin dependencies (only checks once per session)
+      const newlyInstalled = await ensurePluginDependencies(analysis.type, language, (msg) => setStatusMessage(msg))
+      setInstalledDeps(newlyInstalled)
+      setStatusMessage(null)
+
       const rows = getFileRows(analysis.datasetFileId)
       const exec = language === 'r' ? executeAnalysisCodeR : executeAnalysisCode
       const output = await exec(currentCode, rows, columns)
@@ -114,8 +123,9 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
     } finally {
       isExecutingRef.current = false
       setIsExecuting(false)
+      setStatusMessage(null)
     }
-  }, [currentCode, analysis.datasetFileId, columns, getFileRows, language])
+  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language])
 
   // Auto-run on mount (once)
   useEffect(() => {
@@ -306,7 +316,13 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
 
             {/* Right: Output */}
             <Allotment.Pane minSize={rightVisible ? 200 : 0} visible={rightVisible}>
-              <AnalysisOutputRenderer result={result} isExecuting={isExecuting} />
+              <AnalysisOutputRenderer
+                result={result}
+                isExecuting={isExecuting}
+                statusMessage={statusMessage}
+                installedDeps={installedDeps}
+                onRerun={handleRun}
+              />
             </Allotment.Pane>
           </Allotment>
         </div>

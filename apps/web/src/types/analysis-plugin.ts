@@ -29,6 +29,11 @@ export interface AnalysisPluginManifest {
   languages: ('python' | 'r')[]
   icon: string
   configSchema: Record<string, PluginConfigField>
+  /** Package dependencies per language, auto-installed on first run. */
+  dependencies?: {
+    python?: string[]
+    r?: string[]
+  }
   templates?: Record<string, string>
   component?: string
 }

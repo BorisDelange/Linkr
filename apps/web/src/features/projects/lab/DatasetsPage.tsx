@@ -16,6 +16,7 @@ import {
   Pencil,
   Trash2,
   Box,
+  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -430,6 +431,14 @@ export function DatasetsPage() {
                                   <>
                                     <span className="truncate">{analysis.name}</span>
                                     <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
+                                    {analysis.config.autoRun && (
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />
+                                        </TooltipTrigger>
+                                        <TooltipContent side="right">{t('datasets.analysis_auto_run')}</TooltipContent>
+                                      </Tooltip>
+                                    )}
                                   </>
                                 )}
                               </button>
@@ -620,6 +629,9 @@ export function DatasetsPage() {
                                   <BarChart3 size={12} className="shrink-0 text-violet-500" />
                                   <span className="max-w-[140px] truncate">{analysis.name}</span>
                                   <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
+                                  {analysis.config.autoRun && (
+                                    <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />
+                                  )}
                                   <span
                                     onClick={(e) => {
                                       e.stopPropagation()
@@ -674,12 +686,12 @@ export function DatasetsPage() {
                       )}
                     </Allotment.Pane>
 
-                    {/* Right: column stats */}
+                    {/* Right: column stats (hidden when an analysis is open) */}
                     <Allotment.Pane
                       preferredSize={280}
                       minSize={200}
                       maxSize={400}
-                      visible={statsVisible}
+                      visible={statsVisible && !selectedAnalysisId}
                     >
                       <div className="flex h-full flex-col border-l">
                         <ColumnStatsPanel
