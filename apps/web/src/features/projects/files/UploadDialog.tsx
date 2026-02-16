@@ -24,7 +24,7 @@ export function UploadDialog({
   parentId,
 }: UploadDialogProps) {
   const { t } = useTranslation()
-  const { createFile, updateFileContent } = useFileStore()
+  const { createFile, updateFileContent, saveFile } = useFileStore()
   const inputRef = useRef<HTMLInputElement>(null)
 
   const handleFiles = (fileList: FileList | null) => {
@@ -46,11 +46,12 @@ export function UploadDialog({
         }
         const lang = langMap[ext] ?? 'plaintext'
         createFile(file.name, parentId, lang)
-        // Update the content of the just-created file
+        // Update the content of the just-created file and save immediately
         const state = useFileStore.getState()
         const created = state.files[state.files.length - 1]
         if (created) {
           updateFileContent(created.id, reader.result as string)
+          saveFile(created.id)
         }
       }
       reader.readAsText(file)

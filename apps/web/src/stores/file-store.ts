@@ -883,17 +883,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       ),
     })),
   clearExecutionResults: () =>
-    set((s) => {
-      const tabId = '__exec_console__'
-      const activeTab = s.activeOutputTab === tabId
-        ? (s.outputTabs[s.outputTabs.length - 1]?.id ?? null)
-        : s.activeOutputTab
-      return {
-        executionResults: [],
-        activeOutputTab: activeTab,
-        outputTabOrder: s.outputTabOrder.filter((tid) => tid !== tabId),
-      }
-    }),
+    set(() => ({
+      executionResults: [],
+    })),
   clearExecutionResultsByLanguage: (lang) =>
     set((s) => {
       const remaining = s.executionResults.filter((r) => r.language !== lang)

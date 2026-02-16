@@ -60,20 +60,12 @@ export function buildDependencyGraph(cells: MarimoCell[]): {
  * Throws if a cycle is detected.
  */
 export function getExecutionOrder(cells: MarimoCell[]): string[] {
-  const { upstream } = buildDependencyGraph(cells)
-  const exportMap = buildExportMap(cells)
+  const { downstream, upstream } = buildDependencyGraph(cells)
 
-  // Compute in-degree for each cell
+  // Compute in-degree for each cell (count unique upstream cells, not params)
   const inDegree = new Map<string, number>()
   for (const cell of cells) {
-    let deg = 0
-    for (const param of cell.params) {
-      const producerId = exportMap.get(param)
-      if (producerId && producerId !== cell.id) {
-        deg++
-      }
-    }
-    inDegree.set(cell.id, deg)
+    inDegree.set(cell.id, upstream.get(cell.id)?.size ?? 0)
   }
 
   // Start with cells that have no dependencies
@@ -85,27 +77,12 @@ export function getExecutionOrder(cells: MarimoCell[]): string[] {
   }
 
   const order: string[] = []
-  const cellMap = new Map(cells.map((c) => [c.id, c]))
-
-  // Build downstream for iteration
-  const downstreamMap = new Map<string, Set<string>>()
-  for (const cell of cells) {
-    downstreamMap.set(cell.id, new Set())
-  }
-  for (const cell of cells) {
-    for (const param of cell.params) {
-      const producerId = exportMap.get(param)
-      if (producerId && producerId !== cell.id) {
-        downstreamMap.get(producerId)!.add(cell.id)
-      }
-    }
-  }
 
   while (queue.length > 0) {
     const cellId = queue.shift()!
     order.push(cellId)
 
-    for (const depId of downstreamMap.get(cellId) ?? []) {
+    for (const depId of downstream.get(cellId) ?? []) {
       const deg = inDegree.get(depId)! - 1
       inDegree.set(depId, deg)
       if (deg === 0) {

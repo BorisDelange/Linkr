@@ -17,6 +17,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { parseMarimoFile, serializeMarimoFile, extractReturnVars, recomputeAllParams, type MarimoCell } from '@/lib/marimo-parser'
 import { PyodideCellExecutor, type CellResult } from '@/lib/cell-executor'
@@ -85,6 +87,16 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onSave])
+
+  // Listen for Cmd+K (clear terminal / output) to reset cell states
+  useEffect(() => {
+    const handler = () => {
+      executorRef.current.reset()
+      setCellStates(new Map())
+    }
+    window.addEventListener('linkr:clear-terminal', handler)
+    return () => window.removeEventListener('linkr:clear-terminal', handler)
+  }, [])
 
   // Check for cycles when cells change
   useEffect(() => {
@@ -312,6 +324,7 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
           >
             <RotateCcw size={12} />
             {t('files.marimo_run_all')}
+            <span className="text-muted-foreground/50 text-[10px] ml-0.5">⌘⇧↵</span>
           </Button>
           <Button
             variant="ghost"
@@ -324,6 +337,7 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConn
             title={t('files.marimo_reset')}
           >
             {t('files.marimo_reset')}
+            <span className="text-muted-foreground/50 text-[10px] ml-0.5">⌘K</span>
           </Button>
           {!readOnly && (
             <Button
@@ -662,12 +676,19 @@ function StatusDot({ status }: { status: CellStatus }) {
 function CellOutput({ result }: { result: CellResult }) {
   const hasOutput = result.stdout || result.error || result.stderr ||
     (result.figures && result.figures.length > 0) ||
-    result.table
+    result.table || result.html
 
   if (!hasOutput) return null
 
   return (
     <div className="border-t border-dashed mx-2 mb-2 pt-1 space-y-1">
+      {/* mo.md() markdown output */}
+      {result.html && (
+        <div className="px-2 py-1 prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+          <Markdown remarkPlugins={[remarkGfm]}>{result.html}</Markdown>
+        </div>
+      )}
+
       {/* stdout */}
       {result.stdout && (
         <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground px-2 py-1 bg-muted/30 rounded max-h-48 overflow-y-auto">

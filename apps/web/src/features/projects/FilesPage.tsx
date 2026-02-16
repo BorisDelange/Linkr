@@ -698,7 +698,7 @@ export function FilesPage() {
                   <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
                 </Tooltip>
 
-                {selectedNode && !isVirtualFile && (
+                {editorVisible && selectedNode && !isVirtualFile && (
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <RunButton
@@ -715,18 +715,20 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={connectionsOpen ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => setConnectionsOpen(true)}
-                      >
-                        <Plug size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('connections.title')}</TooltipContent>
-                  </Tooltip>
+                  {editorVisible && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={connectionsOpen ? 'secondary' : 'ghost'}
+                          size="icon-xs"
+                          onClick={() => setConnectionsOpen(true)}
+                        >
+                          <Plug size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('connections.title')}</TooltipContent>
+                    </Tooltip>
+                  )}
 
                   <Tooltip>
                     <TooltipTrigger asChild>

@@ -1,9 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  TableIcon, BarChart3, FileText, GitCompareArrows, Grid3X3,
-  type LucideIcon, Puzzle,
-} from 'lucide-react'
+import * as LucideIcons from 'lucide-react'
+import { Puzzle, Search } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -23,10 +21,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
-import type { AnalysisPlugin } from '@/types/analysis-plugin'
-import type { AnalysisLanguage } from '@/types'
+import type { AnalysisPlugin, PluginBadge } from '@/types/analysis-plugin'
+import type { AnalysisLanguage, BadgeColor } from '@/types'
 
 interface CreateAnalysisDialogProps {
   open: boolean
@@ -35,134 +34,37 @@ interface CreateAnalysisDialogProps {
 }
 
 // ---------------------------------------------------------------------------
-// Icon mapping: plugin manifest icon string → Lucide component
+// Icon helpers
 // ---------------------------------------------------------------------------
 
-const ICON_MAP: Record<string, LucideIcon> = {
-  TableIcon,
-  BarChart3,
-  FileText,
-  GitCompareArrows,
-  Grid3X3,
+function getPluginIcon(iconName: string): LucideIcons.LucideIcon {
+  const icon = (LucideIcons as Record<string, unknown>)[iconName]
+  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
+  return Puzzle
 }
 
-function getPluginIcon(iconName: string): LucideIcon {
-  return ICON_MAP[iconName] ?? Puzzle
+const ICON_COLOR_CLASS: Record<string, string> = {
+  red: 'text-red-500', blue: 'text-blue-500', green: 'text-green-500',
+  violet: 'text-violet-500', amber: 'text-amber-500', rose: 'text-rose-500',
+  cyan: 'text-cyan-500', slate: 'text-slate-500',
 }
 
-// ---------------------------------------------------------------------------
-// Mini preview illustrations (keyed by plugin ID for the default plugins)
-// ---------------------------------------------------------------------------
-
-function Table1Preview() {
-  return (
-    <div className="w-full text-[8px] leading-tight">
-      <div className="grid grid-cols-3 gap-px">
-        <div className="bg-muted px-1 py-0.5 font-medium">Variable</div>
-        <div className="bg-muted px-1 py-0.5 font-medium text-center">n (%)</div>
-        <div className="bg-muted px-1 py-0.5 font-medium text-center">Mean ± SD</div>
-        <div className="px-1 py-0.5 text-muted-foreground">Age</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">—</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">63.2 ± 15.1</div>
-        <div className="px-1 py-0.5 text-muted-foreground">Sex (M)</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">54 (62%)</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">—</div>
-      </div>
-    </div>
-  )
-}
-
-function DistributionPreview() {
-  const bars = [3, 5, 8, 12, 15, 11, 7, 4, 2]
-  const max = Math.max(...bars)
-  return (
-    <div className="flex h-10 w-full items-end gap-px">
-      {bars.map((h, i) => (
-        <div
-          key={i}
-          className="flex-1 rounded-t-sm bg-primary/40"
-          style={{ height: `${(h / max) * 100}%` }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function SummaryPreview() {
-  return (
-    <div className="w-full space-y-0.5 text-[8px] leading-tight">
-      <div className="flex justify-between text-muted-foreground"><span>Rows</span><span>100</span></div>
-      <div className="flex justify-between text-muted-foreground"><span>Columns</span><span>14</span></div>
-      <div className="flex justify-between text-muted-foreground"><span>Numeric</span><span>9</span></div>
-      <div className="flex justify-between text-muted-foreground"><span>Missing</span><span>0.2%</span></div>
-    </div>
-  )
-}
-
-function CorrelationPreview() {
-  const cells = [
-    [1.00, 0.85, -0.12],
-    [0.85, 1.00, -0.34],
-    [-0.12, -0.34, 1.00],
-  ]
-  return (
-    <div className="w-full text-[8px] leading-tight">
-      <div className="grid grid-cols-4 gap-px">
-        <div />
-        <div className="text-center text-muted-foreground">x</div>
-        <div className="text-center text-muted-foreground">y</div>
-        <div className="text-center text-muted-foreground">z</div>
-        {['x', 'y', 'z'].map((label, i) => (
-          <div key={label} className="contents">
-            <div className="text-muted-foreground">{label}</div>
-            {cells[i].map((v, j) => (
-              <div
-                key={j}
-                className="text-center"
-                style={{ color: v > 0.5 ? 'rgb(59,130,246)' : v < -0.2 ? 'rgb(239,68,68)' : undefined }}
-              >
-                {v.toFixed(2)}
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function CrossTabPreview() {
-  return (
-    <div className="w-full text-[8px] leading-tight">
-      <div className="grid grid-cols-4 gap-px">
-        <div />
-        <div className="bg-muted px-1 py-0.5 text-center font-medium">M</div>
-        <div className="bg-muted px-1 py-0.5 text-center font-medium">F</div>
-        <div className="bg-muted px-1 py-0.5 text-center font-medium">Total</div>
-        <div className="px-1 py-0.5 text-muted-foreground">ICU</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">24</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">18</div>
-        <div className="px-1 py-0.5 text-center font-medium">42</div>
-        <div className="px-1 py-0.5 text-muted-foreground">Ward</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">30</div>
-        <div className="px-1 py-0.5 text-center text-muted-foreground">28</div>
-        <div className="px-1 py-0.5 text-center font-medium">58</div>
-      </div>
-    </div>
-  )
-}
-
-const PREVIEW_MAP: Record<string, React.ReactNode> = {
-  'linkr-analysis-table1': <Table1Preview />,
-  'linkr-analysis-distribution': <DistributionPreview />,
-  'linkr-analysis-summary': <SummaryPreview />,
-  'linkr-analysis-correlation': <CorrelationPreview />,
-  'linkr-analysis-crosstab': <CrossTabPreview />,
+function getIconColorProps(iconColor?: BadgeColor): { className?: string; style?: React.CSSProperties } {
+  if (!iconColor) return {}
+  const tw = ICON_COLOR_CLASS[iconColor]
+  if (tw) return { className: tw }
+  return { style: { color: iconColor } }
 }
 
 // ---------------------------------------------------------------------------
-// Language options for the selector
+// Language options
 // ---------------------------------------------------------------------------
+
+const LANG_BADGE: Record<string, { label: string; color: string }> = {
+  python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
+  r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
+  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
+}
 
 const LANGUAGE_LABELS: Record<AnalysisLanguage, { en: string; fr: string }> = {
   python: { en: 'Python', fr: 'Python' },
@@ -173,14 +75,20 @@ const LANGUAGE_LABELS: Record<AnalysisLanguage, { en: string; fr: string }> = {
 function getAvailableLanguages(plugin: AnalysisPlugin): AnalysisLanguage[] {
   const langs: AnalysisLanguage[] = []
   if (plugin.manifest.runtime.includes('script')) {
-    for (const l of plugin.manifest.languages) {
-      langs.push(l)
-    }
+    for (const l of plugin.manifest.languages) langs.push(l)
   }
-  if (plugin.manifest.runtime.includes('js-widget')) {
-    langs.push('js-widget')
-  }
+  if (plugin.manifest.runtime.includes('js-widget')) langs.push('js-widget')
   return langs
+}
+
+// ---------------------------------------------------------------------------
+// Fuzzy match helper
+// ---------------------------------------------------------------------------
+
+function fuzzyMatch(text: string, query: string): boolean {
+  const lower = text.toLowerCase()
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  return words.every((w) => lower.includes(w))
 }
 
 // ---------------------------------------------------------------------------
@@ -196,9 +104,42 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const [selectedPluginId, setSelectedPluginId] = useState<string>('')
   const [selectedLanguage, setSelectedLanguage] = useState<AnalysisLanguage>('python')
   const [name, setName] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeBadgeFilters, setActiveBadgeFilters] = useState<Set<string>>(new Set())
 
   const selectedPlugin = plugins.find(p => p.manifest.id === selectedPluginId)
   const availableLanguages = selectedPlugin ? getAvailableLanguages(selectedPlugin) : []
+
+  // Collect all unique badges across plugins
+  const allBadges = useMemo(() => {
+    const map = new Map<string, PluginBadge>()
+    for (const p of plugins) {
+      for (const b of p.manifest.badges ?? []) {
+        if (!map.has(b.label)) map.set(b.label, b)
+      }
+    }
+    return Array.from(map.values())
+  }, [plugins])
+
+  // Filter plugins by search query and badge filters
+  const filteredPlugins = useMemo(() => {
+    return plugins.filter((p) => {
+      const m = p.manifest
+      // Badge filter
+      if (activeBadgeFilters.size > 0) {
+        const pluginBadgeLabels = new Set((m.badges ?? []).map(b => b.label))
+        const hasMatchingBadge = Array.from(activeBadgeFilters).some(f => pluginBadgeLabels.has(f))
+        if (!hasMatchingBadge) return false
+      }
+      // Text filter (fuzzy on name and description)
+      if (searchQuery.trim()) {
+        const nameStr = m.name[lang] ?? m.name.en ?? ''
+        const descStr = m.description[lang] ?? m.description.en ?? ''
+        if (!fuzzyMatch(nameStr, searchQuery) && !fuzzyMatch(descStr, searchQuery)) return false
+      }
+      return true
+    })
+  }, [plugins, searchQuery, activeBadgeFilters, lang])
 
   // Set defaults when dialog opens
   useEffect(() => {
@@ -208,6 +149,8 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
       const langs = getAvailableLanguages(first)
       setSelectedLanguage(langs[0] ?? 'python')
       setName(first.manifest.name[lang] ?? first.manifest.name.en)
+      setSearchQuery('')
+      setActiveBadgeFilters(new Set())
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -227,6 +170,15 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
     if (isDefaultName) {
       setName(plugin.manifest.name[lang] ?? plugin.manifest.name.en)
     }
+  }
+
+  const toggleBadgeFilter = (label: string) => {
+    setActiveBadgeFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(label)) next.delete(label)
+      else next.add(label)
+      return next
+    })
   }
 
   const nameExists = analyses.some(
@@ -249,38 +201,105 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
           <DialogDescription>{t('datasets.new_analysis_description')}</DialogDescription>
         </DialogHeader>
 
-        {/* Type selection cards */}
-        <div className="grid grid-cols-3 gap-2 py-2 sm:grid-cols-5">
-          {plugins.map((plugin) => {
-            const m = plugin.manifest
-            const Icon = getPluginIcon(m.icon)
-            const preview = PREVIEW_MAP[m.id]
-            return (
-              <button
-                key={m.id}
-                onClick={() => handleSelectPlugin(plugin)}
-                className={cn(
-                  'flex flex-col rounded-lg border p-3 text-left transition-all hover:bg-accent/50',
-                  selectedPluginId === m.id && 'border-primary ring-1 ring-primary bg-primary/5',
-                )}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted">
-                    <Icon size={20} />
+        {/* Search + Badge filters */}
+        <div className="space-y-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('datasets.search_plugins')}
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+          {allBadges.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {allBadges.map((badge) => (
+                <button
+                  key={badge.label}
+                  type="button"
+                  onClick={() => toggleBadgeFilter(badge.label)}
+                  className={cn(
+                    'shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-all',
+                    activeBadgeFilters.has(badge.label)
+                      ? 'ring-1 ring-ring ring-offset-1 ring-offset-background'
+                      : 'opacity-70 hover:opacity-100',
+                    getBadgeClasses(badge.color),
+                  )}
+                  style={getBadgeStyle(badge.color)}
+                >
+                  {badge.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Plugin cards — same layout as PluginsTab */}
+        <div className="max-h-72 overflow-auto">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {filteredPlugins.map((plugin) => {
+              const m = plugin.manifest
+              const Icon = getPluginIcon(m.icon)
+              const iconColorProps = getIconColorProps(m.iconColor)
+              const isSelected = selectedPluginId === m.id
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => handleSelectPlugin(plugin)}
+                  className={cn(
+                    'flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-all hover:bg-accent/50',
+                    isSelected && 'border-primary ring-1 ring-primary bg-primary/5',
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon size={18} className={cn('shrink-0', iconColorProps.className ?? 'text-muted-foreground')} style={iconColorProps.style} />
+                    <span className="text-sm font-medium truncate">
+                      {m.name[lang] ?? m.name.en}
+                    </span>
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium">{m.name[lang] ?? m.name.en}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {m.description[lang] ?? m.description.en}
+                  </p>
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {m.languages?.map((l) => {
+                      const lb = LANG_BADGE[l]
+                      if (!lb) return null
+                      return (
+                        <span key={l} className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', lb.color)}>
+                          {lb.label}
+                        </span>
+                      )
+                    })}
+                    {m.runtime?.includes('js-widget') && (
+                      <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', LANG_BADGE['js-widget'].color)}>
+                        {LANG_BADGE['js-widget'].label}
+                      </span>
+                    )}
+                    {m.badges?.map((badge) => (
+                      <span
+                        key={badge.id}
+                        className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
+                        style={getBadgeStyle(badge.color)}
+                      >
+                        {badge.label}
+                      </span>
+                    ))}
+                    <span className="ml-auto text-[10px] text-muted-foreground shrink-0">
+                      v{m.version ?? '1.0.0'}
+                    </span>
                   </div>
-                </div>
-                <p className="mb-2 text-[10px] text-muted-foreground">
-                  {m.description[lang] ?? m.description.en}
-                </p>
-                {preview && (
-                  <div className="rounded border bg-muted/30 p-1.5">{preview}</div>
-                )}
-              </button>
-            )
-          })}
+                </button>
+              )
+            })}
+          </div>
+          {filteredPlugins.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Puzzle size={28} className="text-muted-foreground/30" />
+              <p className="mt-2 text-sm text-muted-foreground">{t('datasets.no_plugins_match')}</p>
+            </div>
+          )}
         </div>
 
         {/* Language selector (only shown if plugin supports multiple modes) */}

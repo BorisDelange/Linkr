@@ -15,6 +15,7 @@ export interface CellResult {
   stderr: string
   figures: { type: 'svg' | 'png'; data: string }[]
   table: { headers: string[]; rows: string[][] } | null
+  html?: string
   error?: string
 }
 
@@ -64,6 +65,23 @@ export class PyodideCellExecutor implements CellExecutor {
       // Execute the cell code
       const result = await pyodide.runPythonAsync(code)
 
+      // Capture mo.md() markdown output
+      let html: string | undefined
+      if (result !== undefined && result !== null) {
+        try {
+          pyodide.globals.set('_linkr_cell_result', result)
+          const mdText = pyodide.runPython(
+            `getattr(_linkr_cell_result, 'text', None) if type(_linkr_cell_result).__name__ == '_MoMd' else None`
+          )
+          if (mdText && typeof mdText === 'string') {
+            html = mdText
+          }
+          pyodide.runPython('del _linkr_cell_result')
+        } catch {
+          try { pyodide.runPython('del _linkr_cell_result') } catch { /* ignore */ }
+        }
+      }
+
       // Try to capture return value as a table
       table = this._captureTable(pyodide, result)
 
@@ -81,6 +99,7 @@ export class PyodideCellExecutor implements CellExecutor {
         stderr: stderr.trimEnd(),
         figures,
         table,
+        html,
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -105,6 +124,7 @@ _keep = set(dir(__builtins__)) | {
     '_linkr_get_figures', '_linkr_capture_table',
     'plt', 'matplotlib', 'io', 'os', 'sys', 'np', 'pd',
     'numpy', 'pandas', 'micropip', 'sql_query',
+    'mo', '_MoMd', '_MoStub',
     '_sys', '_keep',
 }
 for _name in list(globals()):
@@ -132,6 +152,35 @@ import os
 for _d in ['data', 'data/databases', 'data/datasets']:
     os.makedirs(_d, exist_ok=True)
 del _d
+`)
+
+    // Register marimo stub so mo.md(...) works in notebook cells
+    await pyodide.runPythonAsync(`
+import types as _types
+
+class _MoMd:
+    """Stub for mo.md() — stores markdown text for capture."""
+    def __init__(self, text):
+        import textwrap
+        self.text = textwrap.dedent(text).strip()
+    def __repr__(self):
+        return self.text
+
+class _MoStub:
+    """Minimal marimo stub for notebook cells."""
+    @staticmethod
+    def md(text):
+        return _MoMd(text)
+
+# Make 'mo' available as a module-like object
+mo = _MoStub()
+
+# Also register as an importable module so 'import marimo as mo' works
+_marimo_mod = _types.ModuleType('marimo')
+_marimo_mod.App = type('App', (), {'__init__': lambda self, **kw: None})
+import sys
+sys.modules['marimo'] = _marimo_mod
+del _types, _marimo_mod
 `)
 
     return pyodide

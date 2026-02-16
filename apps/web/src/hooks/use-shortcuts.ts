@@ -25,21 +25,20 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Skip if typing in an input/textarea (but not Monaco)
       const target = event.target as HTMLElement
-      if (
+      const inInput =
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
         target.isContentEditable
-      ) {
-        return
-      }
 
       for (const [id, handler] of Object.entries(handlers)) {
         const actionId = id as ShortcutActionId
         const def = shortcuts[actionId]
         if (!def || def.scope !== 'global') continue
         if (matchesCombo(event, def.binding)) {
+          // Skip most shortcuts when typing in input/textarea,
+          // but allow clear_terminal (Cmd+K) to always fire
+          if (inInput && actionId !== 'clear_terminal') return
           event.preventDefault()
           handler()
           return

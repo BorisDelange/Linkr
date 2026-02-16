@@ -35,6 +35,8 @@ export interface AnalysisPluginManifest {
   runtime: PluginRuntime[]
   languages: ('python' | 'r')[]
   icon: string
+  /** Color for the plugin icon (preset name or hex string). Defaults to muted-foreground. */
+  iconColor?: BadgeColor
   configSchema: Record<string, PluginConfigField>
   /** Package dependencies per language, auto-installed on first run. */
   dependencies?: {

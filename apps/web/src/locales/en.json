@@ -433,6 +433,8 @@
     "analysis_toggle_config": "Toggle config/code panel",
     "analysis_toggle_output": "Toggle output panel",
     "analysis_name_exists": "An analysis with this name already exists.",
+    "search_plugins": "Search plugins...",
+    "no_plugins_match": "No plugins match your filters.",
     "analysis_save": "Save",
     "analysis_save_tooltip": "Save analysis configuration",
     "analysis_auto_run": "Auto",
@@ -719,7 +721,9 @@
     "import_description": "Restore a project from a ZIP archive.",
     "import_warning": "This will overwrite the current project files.",
     "import_drop": "Drop a ZIP file here or click to browse",
-    "import_button": "Import"
+    "import_button": "Import",
+    "coming_soon": "Coming soon",
+    "coming_soon_description": "Version control will let you track changes, create snapshots, and synchronize your project with a remote Git repository."
   },
   "summary": {
     "tab_overview": "Overview",
@@ -1002,7 +1006,13 @@
     "add_badge": "Add badge",
     "create_title": "Create Plugin",
     "create_name_label": "Plugin name",
-    "create_name_placeholder": "My plugin"
+    "create_name_placeholder": "My plugin",
+    "icon": "Icon",
+    "icon_color": "Icon color",
+    "icon_search_placeholder": "Search icons...",
+    "icon_total": "{{count}} icons",
+    "icon_filtered": "{{shown}} of {{total}} icons",
+    "icon_no_results": "No icons found."
   },
   "profile": {
     "title": "Profile",
@@ -1062,7 +1072,7 @@
     "redo": "Redo",
     "find": "Find",
     "replace": "Find and replace",
-    "clear_terminal": "Clear terminal",
+    "clear_terminal": "Clear terminal / output",
     "reset_all": "Reset all to defaults",
     "reset_one": "Reset to default",
     "press_keys": "Press keys…",

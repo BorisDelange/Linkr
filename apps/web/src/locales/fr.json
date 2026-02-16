@@ -433,6 +433,8 @@
     "analysis_toggle_config": "Afficher/masquer le panneau config/code",
     "analysis_toggle_output": "Afficher/masquer le panneau résultat",
     "analysis_name_exists": "Une analyse avec ce nom existe déjà.",
+    "search_plugins": "Rechercher un plugin...",
+    "no_plugins_match": "Aucun plugin ne correspond à vos filtres.",
     "analysis_save": "Sauvegarder",
     "analysis_save_tooltip": "Sauvegarder la configuration de l'analyse",
     "analysis_auto_run": "Auto",
@@ -719,7 +721,9 @@
     "import_description": "Restaurer un projet à partir d'une archive ZIP.",
     "import_warning": "Cela écrasera les fichiers actuels du projet.",
     "import_drop": "Déposez un fichier ZIP ici ou cliquez pour parcourir",
-    "import_button": "Importer"
+    "import_button": "Importer",
+    "coming_soon": "Bientôt disponible",
+    "coming_soon_description": "Le versioning vous permettra de suivre les modifications, créer des instantanés et synchroniser votre projet avec un dépôt Git distant."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -1003,7 +1007,13 @@
     "add_badge": "Ajouter un badge",
     "create_title": "Créer un plugin",
     "create_name_label": "Nom du plugin",
-    "create_name_placeholder": "Mon plugin"
+    "create_name_placeholder": "Mon plugin",
+    "icon": "Icône",
+    "icon_color": "Couleur de l'icône",
+    "icon_search_placeholder": "Rechercher une icône...",
+    "icon_total": "{{count}} icônes",
+    "icon_filtered": "{{shown}} sur {{total}} icônes",
+    "icon_no_results": "Aucune icône trouvée."
   },
   "profile": {
     "title": "Profil",
@@ -1063,7 +1073,7 @@
     "redo": "Rétablir",
     "find": "Rechercher",
     "replace": "Rechercher et remplacer",
-    "clear_terminal": "Effacer le terminal",
+    "clear_terminal": "Effacer le terminal / output",
     "reset_all": "Réinitialiser tous les raccourcis",
     "reset_one": "Réinitialiser",
     "press_keys": "Appuyez sur les touches…",

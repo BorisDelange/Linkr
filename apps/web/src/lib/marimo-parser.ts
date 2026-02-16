@@ -216,6 +216,8 @@ const PYTHON_BUILTINS = new Set([
   'pathlib', 'csv', 'time', 'random', 'copy', 'typing',
   // Our bridge function
   'sql_query',
+  // Marimo module (always available in marimo notebooks via app.setup)
+  'mo', 'marimo',
 ])
 
 /**
@@ -237,9 +239,9 @@ function extractLocalDefs(code: string): Set<string> {
     // class ClassName
     const classMatch = trimmed.match(/^class\s+(\w+)/)
     if (classMatch) defs.add(classMatch[1])
-    // import name / from ... import name
-    const importMatch = trimmed.match(/^import\s+(\w+)/)
-    if (importMatch) defs.add(importMatch[1])
+    // import name / import name as alias
+    const importMatch = trimmed.match(/^import\s+(\w+)(?:\s+as\s+(\w+))?/)
+    if (importMatch) defs.add(importMatch[2] || importMatch[1])
     const fromImportMatch = trimmed.match(/^from\s+\S+\s+import\s+(.+)/)
     if (fromImportMatch) {
       for (const part of fromImportMatch[1].split(',')) {

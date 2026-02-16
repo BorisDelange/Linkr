@@ -52,6 +52,25 @@ function getIcon(iconName: string): LucideIcons.LucideIcon {
   return Puzzle
 }
 
+/** Map preset color names to Tailwind text classes for icon coloring. */
+const ICON_COLOR_CLASS: Record<string, string> = {
+  red: 'text-red-500',
+  blue: 'text-blue-500',
+  green: 'text-green-500',
+  violet: 'text-violet-500',
+  amber: 'text-amber-500',
+  rose: 'text-rose-500',
+  cyan: 'text-cyan-500',
+  slate: 'text-slate-500',
+}
+
+function getIconColorProps(iconColor?: string): { className?: string; style?: React.CSSProperties } {
+  if (!iconColor) return { className: 'text-muted-foreground' }
+  const tw = ICON_COLOR_CLASS[iconColor]
+  if (tw) return { className: tw }
+  return { style: { color: iconColor } }
+}
+
 export function PluginsTab() {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -221,7 +240,7 @@ export function PluginsTab() {
               )}
 
               <div className="flex items-center gap-2">
-                <Icon size={18} className="shrink-0 text-muted-foreground" />
+                <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
                 <span className="text-sm font-medium truncate">
                   {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
                 </span>

@@ -135,6 +135,19 @@ export function CodeEditor({
         toMonacoKeybinding(monaco, shortcuts.toggle_comment.binding),
         () => editor.getAction('editor.action.commentLine')?.run()
       )
+
+      // Clear terminal / output (Cmd+K) — dispatch global event so FilesPage handler fires
+      editor.addCommand(
+        toMonacoKeybinding(monaco, shortcuts.clear_terminal.binding),
+        () => window.dispatchEvent(new KeyboardEvent('keydown', {
+          key: shortcuts.clear_terminal.binding.key,
+          metaKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
+          ctrlKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
+          shiftKey: shortcuts.clear_terminal.binding.shift,
+          altKey: shortcuts.clear_terminal.binding.alt,
+          bubbles: true,
+        }))
+      )
     },
     [externalRef]
   )

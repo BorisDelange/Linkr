@@ -96,6 +96,17 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
     terminal.open(containerRef.current)
     fitAddon.fit()
 
+    // Intercept Cmd/Ctrl+K: clear terminal and let the event bubble to window
+    terminal.attachCustomKeyEventHandler((e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        terminal.clear()
+        terminal.write(config.prompt)
+        // Let the event propagate so useGlobalShortcuts also fires (clears console output)
+        return false
+      }
+      return true
+    })
+
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 

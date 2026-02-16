@@ -11,6 +11,7 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
 import type { PresetBadgeColor, BadgeColor } from '@/types'
@@ -119,6 +120,8 @@ export function PluginEditor() {
 
   const pluginName = manifest.name?.en ?? manifest.id ?? editingPluginId ?? ''
   const pluginVersion = manifest.version ?? '1.0.0'
+  const pluginIcon: string = manifest.icon ?? 'Puzzle'
+  const pluginIconColor: BadgeColor | undefined = manifest.iconColor
   const pluginBadges: PluginBadge[] = manifest.badges ?? []
 
   // Helper to update a field in plugin.json
@@ -198,6 +201,67 @@ export function PluginEditor() {
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-72 space-y-3">
+                {/* Icon */}
+                <div className="space-y-1">
+                  <Label className="text-xs">{t('plugins.icon')}</Label>
+                  <IconPicker
+                    value={pluginIcon}
+                    onChange={(name) => updateManifestField('icon', name)}
+                    iconColor={pluginIconColor && !PRESET_COLORS.some(c => c.value === pluginIconColor) ? pluginIconColor : undefined}
+                  />
+                </div>
+                {/* Icon color */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('plugins.icon_color')}</Label>
+                  <div className="flex items-center gap-1.5">
+                    {/* None / default */}
+                    <button
+                      type="button"
+                      onClick={() => updateManifestField('iconColor', undefined)}
+                      className={cn(
+                        'flex h-6 w-6 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
+                        !pluginIconColor
+                          ? 'border-foreground/40 ring-2 ring-ring ring-offset-2'
+                          : 'border-muted-foreground/30 hover:ring-1 hover:ring-ring hover:ring-offset-1',
+                      )}
+                    >
+                      <X size={10} className="text-muted-foreground" />
+                    </button>
+                    {PRESET_COLORS.map((c) => (
+                      <button
+                        key={c.value}
+                        type="button"
+                        onClick={() => updateManifestField('iconColor', c.value)}
+                        className={cn(
+                          'h-6 w-6 rounded-full ring-offset-background transition-all',
+                          c.swatch,
+                          pluginIconColor === c.value
+                            ? 'ring-2 ring-ring ring-offset-2'
+                            : 'hover:ring-1 hover:ring-ring hover:ring-offset-1',
+                        )}
+                      />
+                    ))}
+                    <div className="relative">
+                      <input
+                        type="color"
+                        value={pluginIconColor && isCustomColor(pluginIconColor) ? pluginIconColor : '#6366f1'}
+                        onChange={(e) => updateManifestField('iconColor', e.target.value)}
+                        className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
+                      />
+                      <div
+                        className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
+                          pluginIconColor && isCustomColor(pluginIconColor)
+                            ? 'ring-2 ring-ring ring-offset-2'
+                            : 'hover:border-muted-foreground/60',
+                        )}
+                        style={pluginIconColor && isCustomColor(pluginIconColor) ? { backgroundColor: pluginIconColor, borderStyle: 'solid', borderColor: pluginIconColor } : undefined}
+                      >
+                        {!(pluginIconColor && isCustomColor(pluginIconColor)) && <Plus size={10} />}
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 {/* Version */}
                 <div className="space-y-1">
                   <Label className="text-xs">{t('plugins.version')}</Label>
