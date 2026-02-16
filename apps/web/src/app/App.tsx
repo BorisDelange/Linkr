@@ -5,8 +5,6 @@ import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
-import { initStorage } from '@/lib/storage'
-import { createIDBStorage } from '@/lib/storage/idb-storage'
 import { seedDemoDatabase } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
@@ -29,6 +27,7 @@ import { VersioningPage } from '@/features/projects/VersioningPage'
 import { ProjectSettingsPage } from '@/features/projects/ProjectSettingsPage'
 
 import { SettingsPage } from '@/features/settings/SettingsPage'
+import { PluginsPage } from '@/features/settings/PluginsPage'
 import { ProfilePage } from '@/features/settings/ProfilePage'
 import { CatalogPage } from '@/features/catalog/CatalogPage'
 import { WikiPage } from '@/features/wiki/WikiPage'
@@ -37,9 +36,6 @@ import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
-
-// Initialize storage (static mode: IndexedDB)
-initStorage(createIDBStorage())
 
 export function App() {
   const { darkMode, language, projectsLoaded, loadProjects, activeProjectUid } = useAppStore()
@@ -104,6 +100,7 @@ export function App() {
             <Route path="/warehouse/etl" element={<EtlPage />} />
             <Route path="/versioning" element={<AppVersioningPage />} />
 
+            <Route path="/plugins" element={<PluginsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
 

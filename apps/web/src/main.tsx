@@ -8,15 +8,23 @@ import '@fontsource/inter/700.css'
 import '@/lib/i18n'
 import '@/index.css'
 import { App } from '@/app/App'
-import { registerDefaultPlugins } from '@/lib/analysis-plugins/default-plugins'
+import { registerDefaultPlugins, registerUserPlugins } from '@/lib/analysis-plugins/default-plugins'
+import { initStorage } from '@/lib/storage'
+import { createIDBStorage } from '@/lib/storage/idb-storage'
 
-// Register built-in analysis plugins before rendering
+// Initialize storage and register plugins before rendering
+initStorage(createIDBStorage())
 registerDefaultPlugins()
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>,
-)
+async function boot() {
+  await registerUserPlugins()
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </StrictMode>,
+  )
+}
+
+boot()

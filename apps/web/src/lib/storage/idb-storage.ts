@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis } from '@/types'
-import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin } from '@/types'
+import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -93,10 +93,14 @@ interface LinkrDB extends DBSchema {
       'by-dataset': string
     }
   }
+  user_plugins: {
+    key: string
+    value: UserPlugin
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 13
+const DB_VERSION = 14
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
   return openDB<LinkrDB>(DB_NAME, DB_VERSION, {
@@ -237,6 +241,10 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         db.createObjectStore('dataset_data', { keyPath: 'datasetFileId' })
         const dsAnalysisStore = db.createObjectStore('dataset_analyses', { keyPath: 'id' })
         dsAnalysisStore.createIndex('by-dataset', 'datasetFileId')
+      }
+      // Version 14: User-created plugins
+      if (oldVersion < 14) {
+        db.createObjectStore('user_plugins', { keyPath: 'id' })
       }
     },
   })
@@ -671,6 +679,35 @@ class IDBDatasetAnalysisStorage implements DatasetAnalysisStorage {
   }
 }
 
+class IDBUserPluginStorage implements UserPluginStorage {
+  async getAll(): Promise<UserPlugin[]> {
+    const db = await getDB()
+    return db.getAll('user_plugins')
+  }
+
+  async getById(id: string): Promise<UserPlugin | undefined> {
+    const db = await getDB()
+    return db.get('user_plugins', id)
+  }
+
+  async create(plugin: UserPlugin): Promise<void> {
+    const db = await getDB()
+    await db.add('user_plugins', plugin)
+  }
+
+  async update(id: string, changes: Partial<UserPlugin>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('user_plugins', id)
+    if (!existing) return
+    await db.put('user_plugins', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('user_plugins', id)
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     projects: new IDBProjectStorage(),
@@ -687,5 +724,6 @@ export function createIDBStorage(): Storage {
     datasetFiles: new IDBDatasetFileStorage(),
     datasetData: new IDBDatasetDataStorage(),
     datasetAnalyses: new IDBDatasetAnalysisStorage(),
+    userPlugins: new IDBUserPluginStorage(),
   }
 }

@@ -27,6 +27,10 @@ export function registerAnalysisPlugin(plugin: AnalysisPlugin) {
   plugins.set(plugin.manifest.id, plugin)
 }
 
+export function unregisterAnalysisPlugin(id: string) {
+  plugins.delete(id)
+}
+
 export function getAnalysisPlugin(id: string): AnalysisPlugin | undefined {
   return plugins.get(id) ?? plugins.get(resolvePluginId(id))
 }

@@ -24,6 +24,7 @@ import {
   FileSpreadsheet,
   FileText,
   Store,
+  Puzzle,
   ChevronRight,
 } from 'lucide-react'
 import {
@@ -103,6 +104,7 @@ const appNavItems: NavEntry[] = [
   { path: '/projects', icon: FolderOpen, labelKey: 'nav.projects', iconColor: 'text-amber-500' },
   { path: '/catalog', icon: Store, labelKey: 'nav.catalog', iconColor: 'text-violet-500' },
   { path: '/wiki', icon: BookOpen, labelKey: 'nav.wiki', iconColor: 'text-emerald-500' },
+  { path: '/plugins', icon: Puzzle, labelKey: 'nav.plugins', iconColor: 'text-pink-500' },
   {
     type: 'group',
     labelKey: 'nav.warehouse',

@@ -460,3 +460,12 @@ export interface ColumnStats {
   std?: number
   distribution?: { bucket: string; count: number }[]
 }
+
+// --- User Plugin Types ---
+
+export interface UserPlugin {
+  id: string
+  files: Record<string, string>
+  createdAt: string
+  updatedAt: string
+}

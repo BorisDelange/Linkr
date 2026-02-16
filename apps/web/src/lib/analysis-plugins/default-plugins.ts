@@ -1,6 +1,7 @@
 import { lazy } from 'react'
 import type { AnalysisPlugin, AnalysisPluginManifest } from '@/types/analysis-plugin'
 import { registerAnalysisPlugin } from './registry'
+import { getStorage } from '@/lib/storage'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
@@ -37,15 +38,16 @@ function normaliseManifest(raw: Record<string, unknown>): AnalysisPluginManifest
   return m
 }
 
-function buildPlugin(
+export function buildPlugin(
   rawManifest: Record<string, unknown>,
   templates: Record<string, string> | null,
+  jsComponent?: React.ComponentType<{ analysis: import('@/types').DatasetAnalysis }> | null,
 ): AnalysisPlugin {
   const manifest = normaliseManifest(rawManifest)
   const componentName = manifest.component
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const jsComponent = componentName ? (JS_COMPONENTS[componentName] as any) ?? null : null
-  return { manifest, templates, jsComponent }
+  const resolvedComponent = jsComponent ?? (componentName ? (JS_COMPONENTS[componentName] as any) ?? null : null)
+  return { manifest, templates, jsComponent: resolvedComponent }
 }
 
 export function registerDefaultPlugins() {
@@ -64,4 +66,31 @@ export function registerDefaultPlugins() {
   registerAnalysisPlugin(
     buildPlugin(crosstabManifest as unknown as Record<string, unknown>, { python: crosstabPy, r: crosstabR }),
   )
+}
+
+/** Load user-created plugins from IndexedDB and register them. */
+export async function registerUserPlugins() {
+  try {
+    const storage = getStorage()
+    const userPlugins = await storage.userPlugins.getAll()
+    for (const up of userPlugins) {
+      const manifestJson = up.files['plugin.json']
+      if (!manifestJson) continue
+      try {
+        const rawManifest = JSON.parse(manifestJson) as Record<string, unknown>
+        const templates: Record<string, string> = {}
+        for (const [filename, content] of Object.entries(up.files)) {
+          if (filename.endsWith('.py.template')) templates.python = content
+          else if (filename.endsWith('.R.template')) templates.r = content
+        }
+        registerAnalysisPlugin(
+          buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null, null),
+        )
+      } catch {
+        // Skip plugins with invalid plugin.json
+      }
+    }
+  } catch {
+    // Storage may not be initialized yet — silently skip
+  }
 }

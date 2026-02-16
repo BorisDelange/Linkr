@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin } from '@/types'
 
 /** Storage interface for project persistence. */
 export interface ProjectStorage {
@@ -126,6 +126,15 @@ export interface DatasetAnalysisStorage {
   deleteByDataset(datasetFileId: string): Promise<void>
 }
 
+/** Storage interface for user-created plugins. */
+export interface UserPluginStorage {
+  getAll(): Promise<UserPlugin[]>
+  getById(id: string): Promise<UserPlugin | undefined>
+  create(plugin: UserPlugin): Promise<void>
+  update(id: string, changes: Partial<UserPlugin>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   projects: ProjectStorage
@@ -142,6 +151,7 @@ export interface Storage {
   datasetFiles: DatasetFileStorage
   datasetData: DatasetDataStorage
   datasetAnalyses: DatasetAnalysisStorage
+  userPlugins: UserPluginStorage
 }
 
 let _storage: Storage | null = null

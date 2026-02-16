@@ -14,9 +14,7 @@ export function SettingsPage() {
           {t('settings.description')}
         </p>
 
-        <div className="mt-6">
-          <UsersTab />
-        </div>
+        <UsersTab />
       </div>
     </div>
   )
