@@ -54,12 +54,14 @@ interface NavItem {
   path: string
   icon: React.ComponentType<{ size?: number; className?: string }>
   labelKey: string
+  iconColor?: string
 }
 
 interface NavGroup {
   type: 'group'
   labelKey: string
   icon: React.ComponentType<{ size?: number; className?: string }>
+  iconColor?: string
   children: NavItem[]
   defaultOpen?: boolean
 }
@@ -89,27 +91,28 @@ function isNavGroup(entry: NavEntry): entry is NavGroup {
 }
 
 const appNavItems: NavEntry[] = [
-  { path: '/', icon: Home, labelKey: 'nav.home' },
-  { path: '/projects', icon: FolderOpen, labelKey: 'nav.projects' },
-  { path: '/catalog', icon: Store, labelKey: 'nav.catalog' },
-  { path: '/wiki', icon: BookOpen, labelKey: 'nav.wiki' },
+  { path: '/', icon: Home, labelKey: 'nav.home', iconColor: 'text-blue-500' },
+  { path: '/projects', icon: FolderOpen, labelKey: 'nav.projects', iconColor: 'text-amber-500' },
+  { path: '/catalog', icon: Store, labelKey: 'nav.catalog', iconColor: 'text-violet-500' },
+  { path: '/wiki', icon: BookOpen, labelKey: 'nav.wiki', iconColor: 'text-emerald-500' },
   {
     type: 'group',
     labelKey: 'nav.warehouse',
     icon: Warehouse,
+    iconColor: 'text-teal-500',
     defaultOpen: false,
     children: [
-      { path: '/warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases' },
-      { path: '/warehouse/schema-presets', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schema_presets' },
-      { path: '/warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping' },
-      { path: '/warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl' },
+      { path: '/warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
+      { path: '/warehouse/schema-presets', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schema_presets', iconColor: 'text-teal-500' },
+      { path: '/warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
+      { path: '/warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
     ],
   },
-  { path: '/versioning', icon: GitBranch, labelKey: 'nav.versioning' },
+  { path: '/versioning', icon: GitBranch, labelKey: 'nav.versioning', iconColor: 'text-orange-400' },
 ]
 
 const appBottomItems: NavItem[] = [
-  { path: '/settings', icon: Settings, labelKey: 'nav.settings' },
+  { path: '/settings', icon: Settings, labelKey: 'nav.settings', iconColor: 'text-slate-400' },
 ]
 
 const projectNavItems: ProjectNavEntry[] = [
@@ -222,7 +225,7 @@ export function AppSidebar() {
         <SidebarMenuItem>
           <CollapsibleTrigger asChild>
             <SidebarMenuButton tooltip={t(entry.labelKey)}>
-              <entry.icon />
+              <entry.icon className={entry.iconColor} />
               <span>{t(entry.labelKey)}</span>
               <ChevronRight size={14} className="ml-auto transition-transform group-data-[state=open]/collapsible:rotate-90" />
             </SidebarMenuButton>
@@ -238,7 +241,7 @@ export function AppSidebar() {
                       isActive={isActive}
                     >
                       <Link to={child.path}>
-                        <child.icon />
+                        <child.icon className={isActive ? '' : child.iconColor} />
                         <span>{t(child.labelKey)}</span>
                       </Link>
                     </SidebarMenuSubButton>
@@ -315,19 +318,18 @@ export function AppSidebar() {
                     if (isNavGroup(entry)) {
                       return renderAppGroup(entry)
                     }
+                    const isActive = entry.path === '/'
+                      ? location.pathname === '/'
+                      : location.pathname.startsWith(entry.path)
                     return (
                       <SidebarMenuItem key={entry.path}>
                         <SidebarMenuButton
                           asChild
-                          isActive={
-                            entry.path === '/'
-                              ? location.pathname === '/'
-                              : location.pathname.startsWith(entry.path)
-                          }
+                          isActive={isActive}
                           tooltip={t(entry.labelKey)}
                         >
                           <Link to={entry.path}>
-                            <entry.icon />
+                            <entry.icon className={isActive ? '' : entry.iconColor} />
                             <span>{t(entry.labelKey)}</span>
                           </Link>
                         </SidebarMenuButton>
@@ -343,20 +345,23 @@ export function AppSidebar() {
         <SidebarFooter>
           <SidebarSeparator />
           <SidebarMenu>
-            {appBottomItems.map((item) => (
-              <SidebarMenuItem key={item.path}>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location.pathname.startsWith(item.path)}
-                  tooltip={t(item.labelKey)}
-                >
-                  <Link to={item.path}>
-                    <item.icon />
-                    <span>{t(item.labelKey)}</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            ))}
+            {appBottomItems.map((item) => {
+              const isActive = location.pathname.startsWith(item.path)
+              return (
+                <SidebarMenuItem key={item.path}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={isActive}
+                    tooltip={t(item.labelKey)}
+                  >
+                    <Link to={item.path}>
+                      <item.icon className={isActive ? '' : item.iconColor} />
+                      <span>{t(item.labelKey)}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )
+            })}
           </SidebarMenu>
         </SidebarFooter>
       )}
