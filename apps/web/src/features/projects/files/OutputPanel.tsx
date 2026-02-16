@@ -6,22 +6,22 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { OutputTable } from './OutputTable'
 import { useEffect, useRef, useMemo, useState, useCallback } from 'react'
 
-const EXEC_LANGUAGES: ExecLanguage[] = ['python', 'r', 'sql']
+export const EXEC_LANGUAGES: ExecLanguage[] = ['python', 'r', 'sql']
 
-const EXEC_TAB_LABELS: Record<ExecLanguage, string> = {
+export const EXEC_TAB_LABELS: Record<ExecLanguage, string> = {
   python: 'Python',
   r: 'R',
   sql: 'SQL',
 }
 
-function getExecLang(tabId: string): ExecLanguage | null {
+export function getExecLang(tabId: string): ExecLanguage | null {
   for (const l of EXEC_LANGUAGES) {
     if (tabId === `__exec_${l}__`) return l
   }
   return null
 }
 
-function getTabIcon(type: string) {
+export function getTabIcon(type: string) {
   switch (type) {
     case 'figure':
       return <ImageIcon size={12} />
@@ -36,9 +36,11 @@ function getTabIcon(type: string) {
 
 interface OutputPanelProps {
   onClose?: () => void
+  /** When true, hides the internal tab bar (tabs rendered externally). */
+  hideTabBar?: boolean
 }
 
-export function OutputPanel({ onClose }: OutputPanelProps) {
+export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
   const { t } = useTranslation()
   const {
     outputTabs,
@@ -180,59 +182,98 @@ export function OutputPanel({ onClose }: OutputPanelProps) {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Tab bar */}
-      <div className="flex items-center border-b bg-muted/30">
-        {canScrollLeft && (
-          <button
-            onClick={() => scrollTabs('left')}
-            className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+      {/* Tab bar — hidden when tabs are rendered externally */}
+      {!hideTabBar && (
+        <div className="flex items-center border-b bg-muted/30">
+          {canScrollLeft && (
+            <button
+              onClick={() => scrollTabs('left')}
+              className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronLeft size={12} />
+            </button>
+          )}
+          <div
+            ref={tabScrollRef}
+            className="flex flex-1 items-center overflow-x-hidden"
+            onWheel={(e) => {
+              const el = tabScrollRef.current
+              if (!el) return
+              el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX
+            }}
           >
-            <ChevronLeft size={12} />
-          </button>
-        )}
-        <div
-          ref={tabScrollRef}
-          className="flex flex-1 items-center overflow-x-hidden"
-          onWheel={(e) => {
-            const el = tabScrollRef.current
-            if (!el) return
-            el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX
-          }}
-        >
-          {outputTabOrder.map((tabId) => {
-            const execLang = getExecLang(tabId)
-            const isActive = activeOutputTab === tabId
+            {outputTabOrder.map((tabId) => {
+              const execLang = getExecLang(tabId)
+              const isActive = activeOutputTab === tabId
 
-            // Exec tab (Python/R/SQL)
-            if (execLang) {
-              const count = resultsByLang.get(execLang) ?? 0
+              // Exec tab (Python/R/SQL)
+              if (execLang) {
+                const count = resultsByLang.get(execLang) ?? 0
+                return (
+                  <button
+                    key={tabId}
+                    draggable
+                    onDragStart={(e) => handleTabDragStart(e, tabId)}
+                    onDragOver={(e) => handleTabDragOver(e, tabId)}
+                    onDragLeave={handleTabDragLeave}
+                    onDrop={(e) => handleTabDrop(e, tabId)}
+                    onDragEnd={handleTabDragEnd}
+                    onClick={() => setActiveOutputTab(tabId)}
+                    className={cn(
+                      'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                      isActive
+                        ? 'bg-background text-foreground'
+                        : 'text-muted-foreground hover:bg-accent/50',
+                      dragTabId === tabId && 'opacity-40',
+                      dropTargetId === tabId && dragTabId !== tabId && 'ring-1 ring-inset ring-primary/50'
+                    )}
+                  >
+                    <span>{EXEC_TAB_LABELS[execLang]}</span>
+                    <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                      {count}
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        clearExecutionResultsByLanguage(execLang)
+                      }}
+                      className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                    >
+                      <X size={10} />
+                    </span>
+                  </button>
+                )
+              }
+
+              // Output tab (figure/table/html/text)
+              const tab = outputTabs.find((t) => t.id === tabId)
+              if (!tab) return null
+
               return (
                 <button
-                  key={tabId}
+                  key={tab.id}
                   draggable
-                  onDragStart={(e) => handleTabDragStart(e, tabId)}
-                  onDragOver={(e) => handleTabDragOver(e, tabId)}
+                  onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                  onDragOver={(e) => handleTabDragOver(e, tab.id)}
                   onDragLeave={handleTabDragLeave}
-                  onDrop={(e) => handleTabDrop(e, tabId)}
+                  onDrop={(e) => handleTabDrop(e, tab.id)}
                   onDragEnd={handleTabDragEnd}
-                  onClick={() => setActiveOutputTab(tabId)}
+                  onClick={() => setActiveOutputTab(tab.id)}
                   className={cn(
                     'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                    isActive
+                    tab.id === activeOutputTab
                       ? 'bg-background text-foreground'
                       : 'text-muted-foreground hover:bg-accent/50',
-                    dragTabId === tabId && 'opacity-40',
-                    dropTargetId === tabId && dragTabId !== tabId && 'ring-1 ring-inset ring-primary/50'
+                    dragTabId === tab.id && 'opacity-40',
+                    dropTargetId === tab.id && dragTabId !== tab.id && 'ring-1 ring-inset ring-primary/50'
                   )}
                 >
-                  <span>{EXEC_TAB_LABELS[execLang]}</span>
-                  <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                    {count}
-                  </span>
+                  {getTabIcon(tab.type)}
+                  <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
                   <span
                     onClick={(e) => {
                       e.stopPropagation()
-                      clearExecutionResultsByLanguage(execLang)
+                      closeOutputTab(tab.id)
                     }}
                     className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
                   >
@@ -240,74 +281,37 @@ export function OutputPanel({ onClose }: OutputPanelProps) {
                   </span>
                 </button>
               )
-            }
-
-            // Output tab (figure/table/html/text)
-            const tab = outputTabs.find((t) => t.id === tabId)
-            if (!tab) return null
-
-            return (
+            })}
+          </div>
+          {canScrollRight && (
+            <button
+              onClick={() => scrollTabs('right')}
+              className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <ChevronRight size={12} />
+            </button>
+          )}
+          <div className="flex items-center shrink-0 border-l">
+            {activeExecLang && (
               <button
-                key={tab.id}
-                draggable
-                onDragStart={(e) => handleTabDragStart(e, tab.id)}
-                onDragOver={(e) => handleTabDragOver(e, tab.id)}
-                onDragLeave={handleTabDragLeave}
-                onDrop={(e) => handleTabDrop(e, tab.id)}
-                onDragEnd={handleTabDragEnd}
-                onClick={() => setActiveOutputTab(tab.id)}
-                className={cn(
-                  'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                  tab.id === activeOutputTab
-                    ? 'bg-background text-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50',
-                  dragTabId === tab.id && 'opacity-40',
-                  dropTargetId === tab.id && dragTabId !== tab.id && 'ring-1 ring-inset ring-primary/50'
-                )}
+                onClick={() => clearExecutionResultsByLanguage(activeExecLang)}
+                className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                title={t('files.clear_output')}
               >
-                {getTabIcon(tab.type)}
-                <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
-                <span
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    closeOutputTab(tab.id)
-                  }}
-                  className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                >
-                  <X size={10} />
-                </span>
+                <Trash2 size={13} />
               </button>
-            )
-          })}
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
-        {canScrollRight && (
-          <button
-            onClick={() => scrollTabs('right')}
-            className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight size={12} />
-          </button>
-        )}
-        <div className="flex items-center shrink-0 border-l">
-          {activeExecLang && (
-            <button
-              onClick={() => clearExecutionResultsByLanguage(activeExecLang)}
-              className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              title={t('files.clear_output')}
-            >
-              <Trash2 size={13} />
-            </button>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="px-2 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      </div>
+      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-auto">

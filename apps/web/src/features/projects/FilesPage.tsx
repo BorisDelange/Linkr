@@ -36,7 +36,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { useFileStore } from '@/stores/file-store'
+import { useFileStore, type ExecLanguage } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
@@ -48,7 +48,7 @@ import * as duckdbEngine from '@/lib/duckdb/engine'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { FileTree } from './files/FileTree'
-import { OutputPanel } from './files/OutputPanel'
+import { OutputPanel, getExecLang, EXEC_TAB_LABELS, getTabIcon } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
@@ -71,11 +71,16 @@ export function FilesPage() {
     closeFile,
     reorderOpenFiles,
     outputTabs,
+    outputTabOrder,
+    activeOutputTab,
     executionResults,
     addExecutionResult,
     updateExecutionResult,
     addOutputTab,
     setActiveOutputTab,
+    closeOutputTab,
+    reorderAllOutputTabs,
+    clearExecutionResultsByLanguage,
     outputVisible,
     setOutputVisible,
     loadProjectFiles,
@@ -126,6 +131,15 @@ export function FilesPage() {
   const undoAction = peekUndo()
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
+
+  // Group execution results by language (for output tab badges)
+  const resultsByLang = useMemo(() => {
+    const map = new Map<ExecLanguage, number>()
+    for (const r of executionResults) {
+      map.set(r.language, (map.get(r.language) ?? 0) + 1)
+    }
+    return map
+  }, [executionResults])
 
   /** Execute SQL against the active DuckDB connection. */
   const executeSql = useCallback(
@@ -480,6 +494,19 @@ export function FilesPage() {
                   </Tooltip>
                 )}
 
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={editorVisible ? 'secondary' : 'ghost'}
+                      size="icon-xs"
+                      onClick={() => setEditorVisible(!editorVisible)}
+                    >
+                      <PanelLeft size={14} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
+                </Tooltip>
+
                 {selectedNode && !isVirtualFile && (
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
@@ -497,19 +524,6 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={editorVisible ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => setEditorVisible(!editorVisible)}
-                      >
-                        <PanelLeft size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
-                  </Tooltip>
-
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -593,70 +607,149 @@ export function FilesPage() {
                 </div>
               </div>
 
-              {/* File tabs */}
-              {openFileIds.length > 0 && (
-                <div className="flex items-center border-b bg-muted/30 overflow-x-auto">
-                  {openFileIds.map((fid) => {
-                    const node = nodes.find((n) => n.id === fid)
-                    if (!node) return null
-                    const isActive = fid === selectedFileId
-                    const isVirtual = node.virtual === true
-                    // _dirtyVersion subscription ensures re-render on dirty state change
-                    const isDirty = !isVirtual && _dirtyVersion >= 0 && isFileDirty(fid)
-                    return (
-                      <button
-                        key={fid}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData('file-tab-id', fid)
-                          e.dataTransfer.effectAllowed = 'move'
-                          setDragFileId(fid)
-                        }}
-                        onDragOver={(e) => {
-                          if (!e.dataTransfer.types.includes('file-tab-id')) return
-                          e.preventDefault()
-                          e.dataTransfer.dropEffect = 'move'
-                          setDropFileTarget(fid)
-                        }}
-                        onDragLeave={() => setDropFileTarget(null)}
-                        onDrop={(e) => {
-                          e.preventDefault()
-                          setDropFileTarget(null)
-                          setDragFileId(null)
-                          const draggedId = e.dataTransfer.getData('file-tab-id')
-                          if (!draggedId || draggedId === fid) return
-                          const fromIdx = openFileIds.indexOf(draggedId)
-                          const toIdx = openFileIds.indexOf(fid)
-                          if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
-                        }}
-                        onDragEnd={() => { setDragFileId(null); setDropFileTarget(null) }}
-                        onClick={() => selectFile(fid)}
-                        className={cn(
-                          'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                          isActive
-                            ? 'bg-background text-foreground'
-                            : 'text-muted-foreground hover:bg-accent/50',
-                          dragFileId === fid && 'opacity-40',
-                          dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50',
-                        )}
-                      >
-                        {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
-                        <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
-                        {isDirty && (
-                          <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-                        )}
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleCloseFile(fid)
+              {/* Unified tab bar: file tabs (left) | separator | output tabs (right) */}
+              {(openFileIds.length > 0 || outputTabOrder.length > 0) && (
+                <div className="flex items-center border-b bg-muted/30">
+                  {/* File tabs */}
+                  <div className="flex items-center overflow-x-auto">
+                    {openFileIds.map((fid) => {
+                      const node = nodes.find((n) => n.id === fid)
+                      if (!node) return null
+                      const isActive = fid === selectedFileId
+                      const isVirtual = node.virtual === true
+                      const isDirty = !isVirtual && _dirtyVersion >= 0 && isFileDirty(fid)
+                      return (
+                        <button
+                          key={fid}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('file-tab-id', fid)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragFileId(fid)
                           }}
-                          className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          onDragOver={(e) => {
+                            if (!e.dataTransfer.types.includes('file-tab-id')) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            setDropFileTarget(fid)
+                          }}
+                          onDragLeave={() => setDropFileTarget(null)}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            setDropFileTarget(null)
+                            setDragFileId(null)
+                            const draggedId = e.dataTransfer.getData('file-tab-id')
+                            if (!draggedId || draggedId === fid) return
+                            const fromIdx = openFileIds.indexOf(draggedId)
+                            const toIdx = openFileIds.indexOf(fid)
+                            if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
+                          }}
+                          onDragEnd={() => { setDragFileId(null); setDropFileTarget(null) }}
+                          onClick={() => selectFile(fid)}
+                          className={cn(
+                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            isActive
+                              ? 'bg-background text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/50',
+                            dragFileId === fid && 'opacity-40',
+                            dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50',
+                          )}
                         >
-                          <X size={10} />
-                        </span>
-                      </button>
-                    )
-                  })}
+                          {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
+                          <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
+                          {isDirty && (
+                            <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
+                          )}
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleCloseFile(fid)
+                            }}
+                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {/* Vertical separator between file tabs and output tabs */}
+                  {openFileIds.length > 0 && outputTabOrder.length > 0 && (
+                    <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
+                  )}
+
+                  {/* Output tabs */}
+                  <div className="flex items-center overflow-x-auto">
+                    {outputTabOrder.map((tabId) => {
+                      const execLang = getExecLang(tabId)
+                      const isActive = activeOutputTab === tabId
+
+                      if (execLang) {
+                        const count = resultsByLang.get(execLang) ?? 0
+                        return (
+                          <button
+                            key={tabId}
+                            onClick={() => {
+                              setActiveOutputTab(tabId)
+                              if (!outputVisible) setOutputVisible(true)
+                            }}
+                            className={cn(
+                              'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                              isActive && outputVisible
+                                ? 'bg-background text-foreground'
+                                : 'text-muted-foreground hover:bg-accent/50',
+                            )}
+                          >
+                            <span>{EXEC_TAB_LABELS[execLang]}</span>
+                            <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                              {count}
+                            </span>
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                clearExecutionResultsByLanguage(execLang)
+                              }}
+                              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                            >
+                              <X size={10} />
+                            </span>
+                          </button>
+                        )
+                      }
+
+                      const tab = outputTabs.find((t) => t.id === tabId)
+                      if (!tab) return null
+
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => {
+                            setActiveOutputTab(tab.id)
+                            if (!outputVisible) setOutputVisible(true)
+                          }}
+                          className={cn(
+                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            tab.id === activeOutputTab && outputVisible
+                              ? 'bg-background text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/50',
+                          )}
+                        >
+                          {getTabIcon(tab.type)}
+                          <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              closeOutputTab(tab.id)
+                            }}
+                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
 
