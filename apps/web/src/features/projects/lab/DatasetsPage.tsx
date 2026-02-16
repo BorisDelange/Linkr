@@ -71,8 +71,10 @@ export function DatasetsPage() {
     saveFile,
     revertFile,
     analyses,
+    openAnalysisIds,
     selectedAnalysisId,
     selectAnalysis,
+    closeAnalysis,
     deleteAnalysis,
     renameAnalysis,
     _dirtyVersion,
@@ -160,6 +162,41 @@ export function DatasetsPage() {
     closeFile(closeConfirmFileId)
     setCloseConfirmFileId(null)
   }, [closeConfirmFileId, revertFile, closeFile])
+
+  // Close file tab helpers
+  const handleCloseOtherFiles = useCallback((keepId: string) => {
+    for (const fid of openFileIds) {
+      if (fid !== keepId) closeFile(fid)
+    }
+  }, [openFileIds, closeFile])
+
+  const handleCloseAllFiles = useCallback(() => {
+    for (const fid of openFileIds) closeFile(fid)
+  }, [openFileIds, closeFile])
+
+  // Close analysis tab helpers
+  const handleCloseAnalysis = useCallback((id: string) => {
+    const wasSelected = selectedAnalysisId === id
+    closeAnalysis(id)
+    if (wasSelected) {
+      setDataTableVisible(true)
+    }
+  }, [selectedAnalysisId, closeAnalysis])
+
+  const handleCloseOtherAnalyses = useCallback((keepId: string) => {
+    const state = useDatasetStore.getState()
+    for (const aid of state.openAnalysisIds) {
+      if (aid !== keepId) closeAnalysis(aid)
+    }
+  }, [closeAnalysis])
+
+  const handleCloseAllAnalyses = useCallback(() => {
+    const state = useDatasetStore.getState()
+    for (const aid of state.openAnalysisIds) {
+      closeAnalysis(aid)
+    }
+    setDataTableVisible(true)
+  }, [closeAnalysis])
 
   // Analysis rename helpers
   const handleStartAnalysisRename = useCallback((id: string, name: string) => {
@@ -474,95 +511,134 @@ export function DatasetsPage() {
                       const isActive = fid === selectedFileId && !selectedAnalysisId
                       const isDirty = _dirtyVersion >= 0 && isFileDirty(fid)
                       return (
-                        <button
-                          key={fid}
-                          draggable
-                          onDragStart={(e) => {
-                            e.dataTransfer.setData('dataset-tab-id', fid)
-                            e.dataTransfer.effectAllowed = 'move'
-                            setDragFileId(fid)
-                          }}
-                          onDragOver={(e) => {
-                            if (!e.dataTransfer.types.includes('dataset-tab-id')) return
-                            e.preventDefault()
-                            e.dataTransfer.dropEffect = 'move'
-                            setDropFileTarget(fid)
-                          }}
-                          onDragLeave={() => setDropFileTarget(null)}
-                          onDrop={(e) => {
-                            e.preventDefault()
-                            setDropFileTarget(null)
-                            setDragFileId(null)
-                            const draggedId = e.dataTransfer.getData('dataset-tab-id')
-                            if (!draggedId || draggedId === fid) return
-                            const fromIdx = openFileIds.indexOf(draggedId)
-                            const toIdx = openFileIds.indexOf(fid)
-                            if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
-                          }}
-                          onDragEnd={() => {
-                            setDragFileId(null)
-                            setDropFileTarget(null)
-                          }}
-                          onClick={() => {
-                            selectFile(fid)
-                            selectAnalysis(null)
-                            setDataTableVisible(true)
-                          }}
-                          className={cn(
-                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                            isActive
-                              ? 'bg-background text-foreground'
-                              : 'text-muted-foreground hover:bg-accent/50',
-                            dragFileId === fid && 'opacity-40',
-                            dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50'
-                          )}
-                        >
-                          <span className="max-w-[140px] truncate">{node.name}</span>
-                          {isDirty && (
-                            <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-                          )}
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleCloseFile(fid)
-                            }}
-                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                          >
-                            <X size={10} />
-                          </span>
-                        </button>
-                      )
-                    })}
-
-                    {/* Analysis tabs for the selected file */}
-                    {selectedFileId && analyses.length > 0 && (
-                      <>
-                        <div className="mx-1 h-4 w-px shrink-0 bg-border" />
-                        {analyses.map((analysis) => {
-                          const isActive = analysis.id === selectedAnalysisId
-                          return (
+                        <ContextMenu key={fid}>
+                          <ContextMenuTrigger asChild>
                             <button
-                              key={analysis.id}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('dataset-tab-id', fid)
+                                e.dataTransfer.effectAllowed = 'move'
+                                setDragFileId(fid)
+                              }}
+                              onDragOver={(e) => {
+                                if (!e.dataTransfer.types.includes('dataset-tab-id')) return
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'move'
+                                setDropFileTarget(fid)
+                              }}
+                              onDragLeave={() => setDropFileTarget(null)}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                setDropFileTarget(null)
+                                setDragFileId(null)
+                                const draggedId = e.dataTransfer.getData('dataset-tab-id')
+                                if (!draggedId || draggedId === fid) return
+                                const fromIdx = openFileIds.indexOf(draggedId)
+                                const toIdx = openFileIds.indexOf(fid)
+                                if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
+                              }}
+                              onDragEnd={() => {
+                                setDragFileId(null)
+                                setDropFileTarget(null)
+                              }}
                               onClick={() => {
-                                if (isActive) {
-                                  selectAnalysis(null)
-                                  setDataTableVisible(true)
-                                } else {
-                                  selectAnalysis(analysis.id)
-                                  setDataTableVisible(false)
-                                  setStatsVisible(false)
-                                }
+                                selectFile(fid)
+                                selectAnalysis(null)
+                                setDataTableVisible(true)
                               }}
                               className={cn(
                                 'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
                                 isActive
                                   ? 'bg-background text-foreground'
                                   : 'text-muted-foreground hover:bg-accent/50',
+                                dragFileId === fid && 'opacity-40',
+                                dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50'
                               )}
                             >
-                              <BarChart3 size={12} className="shrink-0 text-violet-500" />
-                              <span className="max-w-[140px] truncate">{analysis.name}</span>
+                              <span className="max-w-[140px] truncate">{node.name}</span>
+                              {isDirty && (
+                                <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
+                              )}
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  handleCloseFile(fid)
+                                }}
+                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                              >
+                                <X size={10} />
+                              </span>
                             </button>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem onClick={() => handleCloseFile(fid)}>
+                              {t('files.close')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={() => handleCloseOtherFiles(fid)}>
+                              {t('files.close_others')}
+                            </ContextMenuItem>
+                            <ContextMenuItem onClick={handleCloseAllFiles}>
+                              {t('files.close_all')}
+                            </ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
+                      )
+                    })}
+
+                    {/* Analysis tabs for the selected file */}
+                    {selectedFileId && openAnalysisIds.length > 0 && (
+                      <>
+                        <div className="mx-1 h-4 w-px shrink-0 bg-border" />
+                        {openAnalysisIds.map((aid) => {
+                          const analysis = analyses.find((a) => a.id === aid)
+                          if (!analysis) return null
+                          const isActive = analysis.id === selectedAnalysisId
+                          return (
+                            <ContextMenu key={analysis.id}>
+                              <ContextMenuTrigger asChild>
+                                <button
+                                  onClick={() => {
+                                    if (isActive) {
+                                      selectAnalysis(null)
+                                      setDataTableVisible(true)
+                                    } else {
+                                      selectAnalysis(analysis.id)
+                                      setDataTableVisible(false)
+                                      setStatsVisible(false)
+                                    }
+                                  }}
+                                  className={cn(
+                                    'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                    isActive
+                                      ? 'bg-background text-foreground'
+                                      : 'text-muted-foreground hover:bg-accent/50',
+                                  )}
+                                >
+                                  <BarChart3 size={12} className="shrink-0 text-violet-500" />
+                                  <span className="max-w-[140px] truncate">{analysis.name}</span>
+                                  <span
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleCloseAnalysis(analysis.id)
+                                    }}
+                                    className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                                  >
+                                    <X size={10} />
+                                  </span>
+                                </button>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem onClick={() => handleCloseAnalysis(analysis.id)}>
+                                  {t('files.close')}
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={() => handleCloseOtherAnalyses(analysis.id)}>
+                                  {t('files.close_others')}
+                                </ContextMenuItem>
+                                <ContextMenuItem onClick={handleCloseAllAnalyses}>
+                                  {t('files.close_all')}
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
                           )
                         })}
                       </>

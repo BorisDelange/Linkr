@@ -425,7 +425,8 @@
     "analysis_group_by_none": "Aucun (global)",
     "data_table_hidden": "Le tableau de données est masqué. Utilisez le bouton ci-dessus pour l'afficher.",
     "analysis_toggle_config": "Afficher/masquer le panneau config/code",
-    "analysis_toggle_output": "Afficher/masquer le panneau résultat"
+    "analysis_toggle_output": "Afficher/masquer le panneau résultat",
+    "analysis_name_exists": "Une analyse avec ce nom existe déjà."
   },
   "subsets": {
     "title": "Sous-ensembles",

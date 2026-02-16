@@ -175,11 +175,15 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const { t } = useTranslation()
   const [name, setName] = useState('')
   const [selectedType, setSelectedType] = useState<DatasetAnalysisType>('table1')
-  const { createAnalysis } = useDatasetStore()
+  const { analyses, createAnalysis } = useDatasetStore()
+
+  const nameExists = analyses.some(
+    (a) => a.datasetFileId === datasetFileId && a.name.toLowerCase() === name.trim().toLowerCase()
+  )
 
   const handleCreate = () => {
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed || nameExists) return
     createAnalysis(datasetFileId, trimmed, selectedType)
     setName('')
     setSelectedType('table1')
@@ -200,8 +204,11 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
             <button
               key={at.value}
               onClick={() => {
+                const isDefault = !name.trim() || ANALYSIS_TYPES.some(
+                  (a) => t(a.nameKey) === name.trim()
+                )
                 setSelectedType(at.value)
-                if (!name.trim()) {
+                if (isDefault) {
                   setName(t(at.nameKey))
                 }
               }}
@@ -241,13 +248,16 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
               if (e.key === 'Enter') handleCreate()
             }}
           />
+          {nameExists && (
+            <p className="text-xs text-destructive">{t('datasets.analysis_name_exists')}</p>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim()}>
+          <Button onClick={handleCreate} disabled={!name.trim() || nameExists}>
             {t('common.create')}
           </Button>
         </DialogFooter>

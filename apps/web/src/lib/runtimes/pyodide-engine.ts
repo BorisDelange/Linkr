@@ -178,9 +178,22 @@ del _d
     const result = await pyodide.runPythonAsync(code)
 
     // Try to capture the result as a table (if it's a DataFrame)
-    if (result !== undefined && result !== null) {
+    // Use the return value from runPythonAsync, or fall back to a `result` variable in globals
+    let pythonResult = result
+    if (pythonResult === undefined || pythonResult === null) {
       try {
-        const tableResult = pyodide.runPython(`_linkr_capture_table(_)`) as {
+        const globalResult = pyodide.globals.get('result')
+        if (globalResult !== undefined && globalResult !== null) {
+          pythonResult = globalResult
+        }
+      } catch {
+        // No 'result' variable in globals
+      }
+    }
+    if (pythonResult !== undefined && pythonResult !== null) {
+      try {
+        pyodide.globals.set('_linkr_last_result', pythonResult)
+        const tableResult = pyodide.runPython(`_linkr_capture_table(_linkr_last_result)`) as {
           headers: string[]
           rows: string[][]
         } | null
@@ -198,6 +211,7 @@ del _d
           )
           table = { headers, rows }
         }
+        pyodide.runPython(`del _linkr_last_result`)
       } catch {
         // Not a DataFrame — ignore
       }

@@ -425,7 +425,8 @@
     "analysis_group_by_none": "None (overall)",
     "data_table_hidden": "Data table is hidden. Use the toggle button above to show it.",
     "analysis_toggle_config": "Toggle config/code panel",
-    "analysis_toggle_output": "Toggle output panel"
+    "analysis_toggle_output": "Toggle output panel",
+    "analysis_name_exists": "An analysis with this name already exists."
   },
   "subsets": {
     "title": "Subsets",
