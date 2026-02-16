@@ -8,6 +8,7 @@
 import type { WebR } from 'webr'
 import type { RuntimeOutput, RuntimeFigure, RuntimeStatus } from './types'
 import { registerDuckDBBridgeR } from './bridge'
+import { syncToWebR, syncFromWebR } from './shared-fs'
 
 let _webR: WebR | null = null
 let _initPromise: Promise<WebR> | null = null
@@ -121,6 +122,16 @@ export async function executeR(
   // Register/update DuckDB bridge
   await registerDuckDBBridgeR(webR, activeConnectionId)
 
+  // Ensure common directories exist in webR's virtual filesystem
+  await webR.evalRVoid(`
+    for (d in c("data", "data/databases", "data/datasets")) {
+      dir.create(d, recursive = TRUE, showWarnings = FALSE)
+    }
+  `)
+
+  // Sync shared files into webR FS (e.g. CSV files created by Python)
+  await syncToWebR(webR)
+
   let stdout = ''
   let stderr = ''
   const figures: RuntimeFigure[] = []
@@ -204,6 +215,9 @@ export async function executeR(
 
     // Clean up shelter
     shelter.purge()
+
+    // Sync files written by R into the shared store (for Python, IDE explorer)
+    await syncFromWebR(webR)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     stderr += message + '\n'

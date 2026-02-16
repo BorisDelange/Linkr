@@ -6,6 +6,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useSharedFsStore } from '@/stores/shared-fs-store'
 import type { DatabaseConnectionConfig } from '@/types'
 
 // --- Types ---
@@ -70,6 +71,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
   const dashboardWidgets = useDashboardStore((s) => s.widgets)
   const datasetFiles = useDatasetStore((s) => s.files)
   const datasetAnalyses = useDatasetStore((s) => s.analyses)
+  const sharedFsFileNames = useSharedFsStore((s) => s.fileNames)
 
   const nodes = useMemo<TreeNode[]>(() => {
     if (!projectUid) return files
@@ -202,6 +204,18 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
+    // --- data/datasets/ — files from script execution (shared-fs) ---
+    for (const fullPath of sharedFsFileNames) {
+      const fileName = fullPath.substring(fullPath.lastIndexOf('/') + 1)
+      // Avoid duplicates with dataset store files
+      const alreadyExists = datasetFiles.some((df) => df.name === fileName)
+      if (!alreadyExists) {
+        virtual.push(
+          vFile(`virtual:shared-fs/${fullPath}`, fileName, datasetsFolderId, '', 'plaintext'),
+        )
+      }
+    }
+
     // --- datasets_analyses/ (virtual read-only mirror of analysis configs) ---
     if (datasetAnalyses.length > 0) {
       const analysesFolderId = 'virtual:datasets_analyses'
@@ -234,7 +248,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
     }
 
     return [...virtual, ...files]
-  }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets, datasetFiles, datasetAnalyses])
+  }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets, datasetFiles, datasetAnalyses, sharedFsFileNames])
 
   return { nodes }
 }

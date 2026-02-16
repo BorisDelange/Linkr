@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
-import { useFileStore, type ExecLanguage } from '@/stores/file-store'
-import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useFileStore, type ExecLanguage, type ExecutionResult } from '@/stores/file-store'
+import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { OutputTable } from './OutputTable'
@@ -319,30 +319,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
           <ScrollArea className="h-full" ref={scrollAreaRef}>
             <div className="p-2 space-y-1">
               {currentResults.map((result) => (
-                <div
-                  key={result.id}
-                  className={cn(
-                    'rounded-md border p-3',
-                    result.success
-                      ? 'border-green-500/30 bg-green-500/5'
-                      : 'border-red-500/30 bg-red-500/5'
-                  )}
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs font-medium">
-                      {result.fileName}
-                    </span>
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                      <span>
-                        {new Date(result.timestamp).toLocaleTimeString()}
-                      </span>
-                      {result.duration > 0 && <span>{result.duration}ms</span>}
-                    </div>
-                  </div>
-                  <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
-                    {result.output}
-                  </pre>
-                </div>
+                <ResultCard key={result.id} result={result} />
               ))}
               <div ref={scrollSentinelRef} />
             </div>
@@ -395,6 +372,75 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
           </ScrollArea>
         )}
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// ResultCard — single execution result with copy + show-code toggle
+// ---------------------------------------------------------------------------
+
+function ResultCard({ result }: { result: ExecutionResult }) {
+  const { t } = useTranslation()
+  const [showCode, setShowCode] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const displayText = showCode ? (result.code ?? '') : result.output
+  const hasCode = !!result.code
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(displayText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [displayText])
+
+  return (
+    <div
+      className={cn(
+        'rounded-md border p-3',
+        result.success
+          ? 'border-green-500/30 bg-green-500/5'
+          : 'border-red-500/30 bg-red-500/5'
+      )}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-xs font-medium">
+          {result.fileName}
+        </span>
+        <div className="flex items-center gap-1">
+          {hasCode && (
+            <button
+              onClick={() => setShowCode((v) => !v)}
+              className={cn(
+                'rounded p-1 transition-colors',
+                showCode
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+              )}
+              title={showCode ? t('files.show_output') : t('files.show_code')}
+            >
+              <Code size={12} />
+            </button>
+          )}
+          <button
+            onClick={handleCopy}
+            className="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+            title={t('files.copy')}
+          >
+            {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+          </button>
+          <span className="ml-1 text-[10px] text-muted-foreground">
+            {new Date(result.timestamp).toLocaleTimeString()}
+          </span>
+          {result.duration > 0 && (
+            <span className="text-[10px] text-muted-foreground">{result.duration}ms</span>
+          )}
+        </div>
+      </div>
+      <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
+        {displayText}
+      </pre>
     </div>
   )
 }

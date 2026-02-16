@@ -164,6 +164,7 @@ export function FilesPage() {
           duration,
           success: true,
           output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${duration}ms`,
+          code: sql,
         })
 
         if (rows.length > 0) {
@@ -189,6 +190,7 @@ export function FilesPage() {
           duration,
           success: false,
           output: message,
+          code: sql,
         })
       }
     },
@@ -210,6 +212,7 @@ export function FilesPage() {
         duration: 0,
         success: true,
         output: language === 'python' ? t('runtime.loading_python') : t('runtime.loading_r'),
+        code,
       })
 
       const controller = startExecution()

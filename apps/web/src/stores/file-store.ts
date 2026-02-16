@@ -22,6 +22,8 @@ export interface ExecutionResult {
   duration: number
   success: boolean
   output: string
+  /** The source code that was executed. */
+  code?: string
 }
 
 export interface UndoAction {

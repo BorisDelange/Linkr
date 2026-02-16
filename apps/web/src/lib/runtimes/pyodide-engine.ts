@@ -8,6 +8,7 @@
 import type { PyodideInterface } from 'pyodide'
 import type { RuntimeOutput, RuntimeFigure, RuntimeStatus } from './types'
 import { registerDuckDBBridgePython } from './bridge'
+import { syncToPyodide, syncFromPyodide } from './shared-fs'
 
 let _pyodide: PyodideInterface | null = null
 let _initPromise: Promise<PyodideInterface> | null = null
@@ -164,6 +165,9 @@ for _d in ['data', 'data/databases', 'data/datasets']:
 del _d
 `)
 
+    // Sync shared files into Pyodide FS (e.g. files created by R)
+    await syncToPyodide(pyodide)
+
     // Auto-detect imports and load packages
     await pyodide.loadPackagesFromImports(code, {
       messageCallback: () => {},
@@ -226,6 +230,9 @@ del _d
     if (result && typeof result === 'object' && 'destroy' in result) {
       (result as { destroy: () => void }).destroy()
     }
+
+    // Sync files written by Python into the shared store (for R, IDE explorer)
+    await syncFromPyodide(pyodide)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     stderr += message + '\n'
