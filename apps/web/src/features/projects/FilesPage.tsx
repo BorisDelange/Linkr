@@ -20,6 +20,8 @@ import {
   LockOpen,
   Eye,
   EyeOff,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -126,6 +128,62 @@ export function FilesPage() {
   const [dragOutputTabId, setDragOutputTabId] = useState<string | null>(null)
   const [dropOutputInsert, setDropOutputInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
+
+  // --- Tab scroll with arrows (file tabs) ---
+  const fileTabScrollRef = useRef<HTMLDivElement>(null)
+  const [fileTabCanScrollLeft, setFileTabCanScrollLeft] = useState(false)
+  const [fileTabCanScrollRight, setFileTabCanScrollRight] = useState(false)
+
+  const updateFileTabScroll = useCallback(() => {
+    const el = fileTabScrollRef.current
+    if (!el) return
+    setFileTabCanScrollLeft(el.scrollLeft > 0)
+    setFileTabCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  useEffect(() => {
+    updateFileTabScroll()
+    const el = fileTabScrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateFileTabScroll)
+    const ro = new ResizeObserver(updateFileTabScroll)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateFileTabScroll)
+      ro.disconnect()
+    }
+  }, [updateFileTabScroll, openFileIds.length])
+
+  // --- Tab scroll with arrows (output tabs) ---
+  const outputTabScrollRef = useRef<HTMLDivElement>(null)
+  const [outputTabCanScrollLeft, setOutputTabCanScrollLeft] = useState(false)
+  const [outputTabCanScrollRight, setOutputTabCanScrollRight] = useState(false)
+
+  const updateOutputTabScroll = useCallback(() => {
+    const el = outputTabScrollRef.current
+    if (!el) return
+    setOutputTabCanScrollLeft(el.scrollLeft > 0)
+    setOutputTabCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1)
+  }, [])
+
+  useEffect(() => {
+    updateOutputTabScroll()
+    const el = outputTabScrollRef.current
+    if (!el) return
+    el.addEventListener('scroll', updateOutputTabScroll)
+    const ro = new ResizeObserver(updateOutputTabScroll)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', updateOutputTabScroll)
+      ro.disconnect()
+    }
+  }, [updateOutputTabScroll, outputTabOrder.length])
+
+  const scrollTabs = useCallback((ref: React.RefObject<HTMLDivElement | null>, dir: 'left' | 'right') => {
+    const el = ref.current
+    if (!el) return
+    el.scrollBy({ left: dir === 'left' ? -120 : 120, behavior: 'smooth' })
+  }, [])
 
   // Load connections, files, and other stores when the project changes
   useEffect(() => {
@@ -744,7 +802,22 @@ export function FilesPage() {
               {(openFileIds.length > 0 || outputTabOrder.length > 0) && (
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
-                  <div className="flex items-center overflow-x-auto">
+                  <button
+                    onClick={() => scrollTabs(fileTabScrollRef, 'left')}
+                    disabled={!fileTabCanScrollLeft}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      fileTabCanScrollLeft
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default'
+                    )}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <div
+                    ref={fileTabScrollRef}
+                    className="flex items-center overflow-x-auto scrollbar-none"
+                  >
                     {openFileIds.map((fid) => {
                       const node = nodes.find((n) => n.id === fid)
                       if (!node) return null
@@ -833,6 +906,18 @@ export function FilesPage() {
                       )
                     })}
                   </div>
+                  <button
+                    onClick={() => scrollTabs(fileTabScrollRef, 'right')}
+                    disabled={!fileTabCanScrollRight}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      fileTabCanScrollRight
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default'
+                    )}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
 
                   {/* Vertical separator between file tabs and output tabs */}
                   {openFileIds.length > 0 && outputTabOrder.length > 0 && (
@@ -840,7 +925,22 @@ export function FilesPage() {
                   )}
 
                   {/* Output tabs */}
-                  <div className="flex items-center overflow-x-auto">
+                  <button
+                    onClick={() => scrollTabs(outputTabScrollRef, 'left')}
+                    disabled={!outputTabCanScrollLeft}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      outputTabCanScrollLeft
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default'
+                    )}
+                  >
+                    <ChevronLeft size={12} />
+                  </button>
+                  <div
+                    ref={outputTabScrollRef}
+                    className="flex items-center overflow-x-auto scrollbar-none"
+                  >
                     {outputTabOrder.map((tabId) => {
                       const isConsole = tabId === '__exec_console__'
                       const isActive = activeOutputTab === tabId
@@ -1009,6 +1109,18 @@ export function FilesPage() {
                       )
                     })}
                   </div>
+                  <button
+                    onClick={() => scrollTabs(outputTabScrollRef, 'right')}
+                    disabled={!outputTabCanScrollRight}
+                    className={cn(
+                      'shrink-0 px-0.5 py-1.5 transition-colors',
+                      outputTabCanScrollRight
+                        ? 'text-muted-foreground hover:text-foreground'
+                        : 'text-muted-foreground/25 cursor-default'
+                    )}
+                  >
+                    <ChevronRight size={12} />
+                  </button>
                 </div>
               )}
 

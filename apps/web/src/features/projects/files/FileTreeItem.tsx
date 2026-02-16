@@ -27,6 +27,15 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { RenameDialog } from './RenameDialog'
 
@@ -100,6 +109,7 @@ export function FileTreeItem({
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode } = useFileStore()
   const datasetStore = useDatasetStore()
   const [renameOpen, setRenameOpen] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
 
   const isBridge = 'datasetBridge' in node && (node as DatasetBridgeNode).datasetBridge === true
@@ -170,6 +180,15 @@ export function FileTreeItem({
     URL.revokeObjectURL(url)
   }
 
+  const handleDelete = () => {
+    if (isBridge && bridgeDatasetFileId) {
+      datasetStore.deleteNode(bridgeDatasetFileId)
+    } else {
+      deleteNode(node.id)
+    }
+    setDeleteConfirmOpen(false)
+  }
+
   return (
     <>
       <ContextMenu>
@@ -230,8 +249,14 @@ export function FileTreeItem({
                 <Pencil size={14} />
                 {t('files.rename')}
               </ContextMenuItem>
-              {!isFolder && !isBridge && (
-                <ContextMenuItem onClick={() => duplicateFile(node.id)}>
+              {!isFolder && (
+                <ContextMenuItem onClick={() => {
+                  if (isBridge && bridgeDatasetFileId) {
+                    datasetStore.duplicateFile(bridgeDatasetFileId)
+                  } else {
+                    duplicateFile(node.id)
+                  }
+                }}>
                   <Copy size={14} />
                   {t('files.duplicate')}
                 </ContextMenuItem>
@@ -270,13 +295,7 @@ export function FileTreeItem({
               <ContextMenuSeparator />
               <ContextMenuItem
                 variant="destructive"
-                onClick={() => {
-                  if (isBridge && bridgeDatasetFileId) {
-                    datasetStore.deleteNode(bridgeDatasetFileId)
-                  } else {
-                    deleteNode(node.id)
-                  }
-                }}
+                onClick={() => setDeleteConfirmOpen(true)}
               >
                 <Trash2 size={14} />
                 {t('files.delete')}
@@ -311,6 +330,28 @@ export function FileTreeItem({
           }
         />
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('files.delete_confirm_title')}</DialogTitle>
+            <DialogDescription>
+              {isFolder
+                ? t('files.delete_confirm_folder', { name: node.name })
+                : t('files.delete_confirm_file', { name: node.name })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              {t('files.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

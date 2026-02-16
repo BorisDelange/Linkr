@@ -143,6 +143,15 @@ body {
   }
 }
 
+/* Hide scrollbar while keeping native scroll behavior (inertia, smooth) */
+@utility scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Prose / Markdown overrides — compact, modern feel */
 .prose {
   --tw-prose-body: var(--foreground);

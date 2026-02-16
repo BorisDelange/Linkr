@@ -157,22 +157,21 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
       {/* Tab bar — hidden when tabs are rendered externally */}
       {!hideTabBar && (
         <div className="flex items-center border-b bg-muted/30">
-          {canScrollLeft && (
-            <button
-              onClick={() => scrollTabs('left')}
-              className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronLeft size={12} />
-            </button>
-          )}
+          <button
+            onClick={() => scrollTabs('left')}
+            disabled={!canScrollLeft}
+            className={cn(
+              'shrink-0 px-0.5 py-1.5 transition-colors',
+              canScrollLeft
+                ? 'text-muted-foreground hover:text-foreground'
+                : 'text-muted-foreground/25 cursor-default'
+            )}
+          >
+            <ChevronLeft size={12} />
+          </button>
           <div
             ref={tabScrollRef}
-            className="flex flex-1 items-center overflow-x-hidden"
-            onWheel={(e) => {
-              const el = tabScrollRef.current
-              if (!el) return
-              el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX
-            }}
+            className="flex flex-1 items-center overflow-x-auto scrollbar-none"
           >
             {outputTabOrder.map((tabId) => {
               const isConsole = tabId === '__exec_console__'
@@ -254,14 +253,18 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
               )
             })}
           </div>
-          {canScrollRight && (
-            <button
-              onClick={() => scrollTabs('right')}
-              className="shrink-0 px-0.5 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ChevronRight size={12} />
-            </button>
-          )}
+          <button
+            onClick={() => scrollTabs('right')}
+            disabled={!canScrollRight}
+            className={cn(
+              'shrink-0 px-0.5 py-1.5 transition-colors',
+              canScrollRight
+                ? 'text-muted-foreground hover:text-foreground'
+                : 'text-muted-foreground/25 cursor-default'
+            )}
+          >
+            <ChevronRight size={12} />
+          </button>
           <div className="flex items-center shrink-0 border-l">
             {isConsoleTab && (
               <button

@@ -31,6 +31,7 @@ interface DatasetState {
   deleteNode: (id: string) => void
   renameNode: (id: string, newName: string) => void
   moveNode: (id: string, newParentId: string | null) => void
+  duplicateFile: (id: string) => void
 
   selectFile: (id: string | null) => void
   openFile: (id: string) => void
@@ -89,13 +90,22 @@ function getAllDescendants(files: DatasetFile[], parentId: string): string[] {
   return ids
 }
 
-function initFileCounter(files: DatasetFile[]) {
+function initFileCounter(files: DatasetFile[], analyses?: DatasetAnalysis[]) {
   let max = 10
   for (const f of files) {
     const match = f.id.match(/^(?:file|folder)-(\d+)$/)
     if (match) {
       const n = parseInt(match[1], 10)
       if (n >= max) max = n + 1
+    }
+  }
+  if (analyses) {
+    for (const a of analyses) {
+      const match = a.id.match(/^analysis-(\d+)$/)
+      if (match) {
+        const n = parseInt(match[1], 10)
+        if (n >= max) max = n + 1
+      }
     }
   }
   fileCounter = max
@@ -404,6 +414,61 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     })
   },
 
+  duplicateFile: (id) => {
+    const state = get()
+    const original = state.files.find((f) => f.id === id)
+    if (!original || original.type !== 'file') return
+    const newId = `file-${fileCounter++}`
+    const nameParts = original.name.split('.')
+    const ext = nameParts.length > 1 ? `.${nameParts.pop()}` : ''
+    const baseName = nameParts.join('.')
+    const siblings = state.files.filter((f) => f.parentId === original.parentId)
+    const siblingNames = new Set(siblings.map((f) => f.name))
+    let newName = `${baseName} (copy)${ext}`
+    let counter = 2
+    while (siblingNames.has(newName)) {
+      newName = `${baseName} (copy ${counter})${ext}`
+      counter++
+    }
+    const node: DatasetFile = {
+      ...original,
+      id: newId,
+      name: newName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    // Copy loaded data if available
+    const originalRows = _loadedData.get(id)
+    if (originalRows) {
+      const copiedRows = originalRows.map((r) => ({ ...r }))
+      _loadedData.set(newId, copiedRows)
+      _savedDataSnapshot.set(newId, JSON.stringify(copiedRows))
+    }
+    set((s) => ({ files: [...s.files, node] }))
+    const storage = getStorage()
+    storage.datasetFiles.create(node).catch(() => {})
+    // Also copy the data rows in IndexedDB
+    if (originalRows) {
+      storage.datasetData.save(newId, originalRows).catch(() => {})
+    }
+
+    get().pushUndo({
+      id: `undo-${undoCounter++}`,
+      descriptionKey: 'datasets.duplicate',
+      descriptionParams: { name: newName },
+      timestamp: Date.now(),
+      undo: () => {
+        set((s) => ({
+          files: s.files.filter((f) => f.id !== newId),
+        }))
+        _loadedData.delete(newId)
+        _savedDataSnapshot.delete(newId)
+        storage.datasetFiles.delete(newId).catch(() => {})
+        storage.datasetData.delete(newId).catch(() => {})
+      },
+    })
+  },
+
   selectFile: (id) => {
     if (id === null) {
       set({ selectedFileId: null })
@@ -628,6 +693,14 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     try {
       const storage = getStorage()
       const analyses = await storage.datasetAnalyses.getByDataset(datasetFileId)
+      // Ensure fileCounter accounts for existing analysis IDs
+      for (const a of analyses) {
+        const match = a.id.match(/^analysis-(\d+)$/)
+        if (match) {
+          const n = parseInt(match[1], 10)
+          if (n >= fileCounter) fileCounter = n + 1
+        }
+      }
       set({ analyses })
       for (const analysis of analyses) {
         _savedAnalysisSnapshot.set(analysis.id, JSON.stringify(analysis.config))

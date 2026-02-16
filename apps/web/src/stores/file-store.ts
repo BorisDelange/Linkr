@@ -673,7 +673,14 @@ export const useFileStore = create<FileState>((set, get) => ({
     const nameParts = original.name.split('.')
     const ext = nameParts.length > 1 ? `.${nameParts.pop()}` : ''
     const baseName = nameParts.join('.')
-    const newName = `${baseName} (copy)${ext}`
+    const siblings = state.files.filter((f) => f.parentId === original.parentId)
+    const siblingNames = new Set(siblings.map((f) => f.name))
+    let newName = `${baseName} (copy)${ext}`
+    let counter = 2
+    while (siblingNames.has(newName)) {
+      newName = `${baseName} (copy ${counter})${ext}`
+      counter++
+    }
     const node: FileNode = {
       ...original,
       id: newId,

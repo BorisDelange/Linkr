@@ -416,6 +416,7 @@
     "analysis_reset_code": "Reset to generated",
     "analysis_code_modified_badge": "Modified",
     "analysis_no_result": "Run the analysis to see results.",
+    "analysis_rerun": "Re-run analysis",
     "analysis_console_output": "Console output",
     "analysis_overwrite_title": "Overwrite custom code?",
     "analysis_overwrite_description": "You have manually edited the code. Changing the config will regenerate and overwrite your edits.",
@@ -571,6 +572,9 @@
     "folder_name_placeholder": "e.g. data",
     "rename": "Rename",
     "delete": "Delete",
+    "delete_confirm_title": "Confirm deletion",
+    "delete_confirm_file": "Are you sure you want to delete \"{{name}}\"? This action can be undone.",
+    "delete_confirm_folder": "Are you sure you want to delete the folder \"{{name}}\" and all its contents? This action can be undone.",
     "download": "Download",
     "copy": "Copy",
     "copy_content": "Copy",
@@ -1046,7 +1050,9 @@
     "install_log_title": "Log",
     "version_hint_python": "Supports version pinning (e.g. pandas==2.0.0)",
     "version_hint_r": "Version pinning is not available for R packages",
-    "open_package_page": "Open package page"
+    "open_package_page": "Open package page",
+    "install_pkg": "Install {{name}}",
+    "installed_pkg": "{{name}} installed"
   },
   "server": {
     "title": "System Monitor",

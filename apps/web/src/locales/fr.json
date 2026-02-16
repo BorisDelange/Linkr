@@ -416,6 +416,7 @@
     "analysis_reset_code": "Réinitialiser le code",
     "analysis_code_modified_badge": "Modifié",
     "analysis_no_result": "Exécutez l'analyse pour voir les résultats.",
+    "analysis_rerun": "Relancer l'analyse",
     "analysis_console_output": "Sortie console",
     "analysis_overwrite_title": "Écraser le code personnalisé ?",
     "analysis_overwrite_description": "Vous avez modifié le code manuellement. Changer la configuration va regénérer et écraser vos modifications.",
@@ -571,6 +572,9 @@
     "folder_name_placeholder": "ex. données",
     "rename": "Renommer",
     "delete": "Supprimer",
+    "delete_confirm_title": "Confirmer la suppression",
+    "delete_confirm_file": "Voulez-vous vraiment supprimer « {{name}} » ? Cette action peut être annulée.",
+    "delete_confirm_folder": "Voulez-vous vraiment supprimer le dossier « {{name}} » et tout son contenu ? Cette action peut être annulée.",
     "download": "Télécharger",
     "copy": "Copier",
     "copy_content": "Copier",
@@ -1047,7 +1051,9 @@
     "install_log_title": "Log",
     "version_hint_python": "Supporte le choix de version (ex. pandas==2.0.0)",
     "version_hint_r": "Le choix de version n'est pas disponible pour les packages R",
-    "open_package_page": "Ouvrir la page du package"
+    "open_package_page": "Ouvrir la page du package",
+    "install_pkg": "Installer {{name}}",
+    "installed_pkg": "{{name}} installé"
   },
   "server": {
     "title": "Moniteur système",
