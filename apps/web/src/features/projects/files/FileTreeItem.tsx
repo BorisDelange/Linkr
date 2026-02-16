@@ -19,6 +19,7 @@ import {
   FolderInput,
   Clipboard,
   Lock,
+  Notebook,
 } from 'lucide-react'
 import {
   ContextMenu,
@@ -47,7 +48,7 @@ interface FileTreeItemProps {
   selectedFileId: string | null
 }
 
-function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean) {
+function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, content?: string) {
   if (type === 'folder') {
     return isOpen ? (
       <FolderOpen size={14} className="shrink-0 text-blue-400" />
@@ -56,6 +57,10 @@ function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean) {
     )
   }
   const ext = name.split('.').pop()?.toLowerCase()
+  // Detect marimo notebooks before the generic .py case
+  if (ext === 'py' && content && (content.includes('import marimo') || content.includes('marimo.App'))) {
+    return <Notebook size={14} className="shrink-0 text-teal-500" />
+  }
   switch (ext) {
     case 'py':
       return <FileCode size={14} className="shrink-0 text-yellow-500" />
@@ -219,7 +224,7 @@ export function FileTreeItem({
               </span>
             )}
             {!isFolder && <span className="w-3 shrink-0" />}
-            {getFileIcon(node.name, node.type, isExpanded)}
+            {getFileIcon(node.name, node.type, isExpanded, 'content' in node ? (node as { content?: string }).content : undefined)}
             <span className="truncate">{node.name}</span>
             {isVirtual && !isBridge && !isFolder && (
               <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />

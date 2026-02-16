@@ -16,9 +16,11 @@
 
 export interface MarimoCell {
   id: string
-  name: string       // function name ("_" for anonymous)
-  code: string       // body of the function (dedented)
-  hideCode?: boolean  // @app.cell(hide_code=True)
+  name: string          // function name ("_" for anonymous)
+  code: string          // body of the function (dedented, return stripped)
+  hideCode?: boolean    // @app.cell(hide_code=True)
+  params: string[]      // function parameters = what this cell reads from other cells
+  exports: string[]     // return tuple variables = what this cell produces
 }
 
 let cellCounter = 0
@@ -30,10 +32,18 @@ export function parseMarimoFile(source: string): MarimoCell[] {
   const cells: MarimoCell[] = []
 
   // Match @app.cell or @app.cell(...) followed by def name(args):
-  const cellPattern = /@app\.cell(?:\([^)]*\))?\s*\ndef\s+(\w+)\s*\([^)]*\):\s*\n/g
+  // Capture group 1 = function name, group 2 = args string
+  const cellPattern = /@app\.cell(?:\([^)]*\))?\s*\ndef\s+(\w+)\s*\(([^)]*)\):\s*\n/g
 
   let match: RegExpExecArray | null
-  const cellStarts: { index: number; name: string; decoratorStart: number; bodyStart: number; hideCode: boolean }[] = []
+  const cellStarts: {
+    index: number
+    name: string
+    params: string[]
+    decoratorStart: number
+    bodyStart: number
+    hideCode: boolean
+  }[] = []
 
   while ((match = cellPattern.exec(source)) !== null) {
     // Find the start of the decorator
@@ -41,9 +51,16 @@ export function parseMarimoFile(source: string): MarimoCell[] {
     const decoratorText = source.slice(decoratorIdx, match.index + match[0].length)
     const hideCode = decoratorText.includes('hide_code=True') || decoratorText.includes('hide_code = True')
 
+    // Parse function parameters
+    const params = match[2]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+
     cellStarts.push({
       index: decoratorIdx,
       name: match[1],
+      params,
       decoratorStart: decoratorIdx,
       bodyStart: match.index + match[0].length,
       hideCode,
@@ -79,7 +96,13 @@ export function parseMarimoFile(source: string): MarimoCell[] {
       return line.startsWith('    ') ? line.slice(4) : line
     }).join('\n')
 
-    // Strip trailing `return (...)` statement
+    // Extract exports from return tuple before stripping it
+    const returnMatch = dedented.match(/\nreturn\s+\(([^)]*)\)\s*$/)
+    const exports = returnMatch
+      ? returnMatch[1].split(',').map((s) => s.trim()).filter(Boolean)
+      : []
+
+    // Strip trailing `return (...)` statement from code
     const code = dedented.replace(/\nreturn\s+\(.*\)\s*$/, '').trimEnd()
 
     cells.push({
@@ -87,6 +110,8 @@ export function parseMarimoFile(source: string): MarimoCell[] {
       name: start.name,
       code,
       hideCode: start.hideCode,
+      params: start.params,
+      exports,
     })
   }
 
@@ -105,15 +130,14 @@ export function serializeMarimoFile(cells: MarimoCell[]): string {
   ]
 
   for (const cell of cells) {
-    // Determine return variables from assignments at top indent level
-    const returns = extractReturnVars(cell.code)
-    // Determine references (params) — we leave this to marimo's own analysis
-    // Just use _ for function name and no params for simplicity
+    // Use explicit exports if available, otherwise infer from code
+    const returns = cell.exports.length > 0 ? cell.exports : extractReturnVars(cell.code)
     const decorator = cell.hideCode ? '@app.cell(hide_code=True)' : '@app.cell'
     const funcName = cell.name || '_'
+    const params = cell.params.join(', ')
 
     lines.push(decorator)
-    lines.push(`def ${funcName}():`)
+    lines.push(`def ${funcName}(${params}):`)
 
     // Indent the code by 4 spaces
     const codeLines = cell.code.split('\n')
@@ -140,8 +164,9 @@ export function serializeMarimoFile(cells: MarimoCell[]): string {
 /**
  * Extract variable names that are assigned at the top level of a cell.
  * Simple heuristic: look for `name = ...` patterns.
+ * Used as fallback when cell.exports is empty (new cells).
  */
-function extractReturnVars(code: string): string[] {
+export function extractReturnVars(code: string): string[] {
   const vars = new Set<string>()
   for (const line of code.split('\n')) {
     // Skip indented lines (inside if/for/etc)

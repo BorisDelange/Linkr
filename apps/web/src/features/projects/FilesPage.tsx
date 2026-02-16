@@ -1154,6 +1154,7 @@ export function FilesPage() {
                               }
                               readOnly={isVirtualFile}
                               onSave={handleSaveFile}
+                              activeConnectionId={activeConnectionId}
                             />
                           </Suspense>
                         ) : selectedNode ? (

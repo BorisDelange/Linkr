@@ -1,20 +1,20 @@
 /**
- * MarimoNotebook — renders a marimo .py notebook using @marimo-team/islands.
+ * MarimoNotebook — renders a marimo .py notebook with Pyodide execution.
  *
- * The marimo islands runtime is loaded via CDN into an iframe for isolation.
- * Each @app.cell function becomes a <marimo-island> custom element.
- * Cells are editable and reactive — changes sync back to the file store.
+ * Each @app.cell becomes an editable cell with inline output.
+ * Cells form a reactive DAG: running cell A auto-re-executes downstream cells.
  */
 import { useMemo, useRef, useEffect, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Play, Plus, Trash2, GripVertical, ChevronUp, ChevronDown, RotateCcw } from 'lucide-react'
+import {
+  Play, Plus, Trash2, GripVertical, ChevronUp, ChevronDown,
+  RotateCcw, Loader2, CheckCircle2, XCircle, AlertTriangle, Circle,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { parseMarimoFile, serializeMarimoFile, type MarimoCell } from '@/lib/marimo-parser'
-
-const ISLANDS_VERSION = '0.19.11'
-const ISLANDS_JS = `https://cdn.jsdelivr.net/npm/@marimo-team/islands@${ISLANDS_VERSION}/dist/main.js`
-const ISLANDS_CSS = `https://cdn.jsdelivr.net/npm/@marimo-team/islands@${ISLANDS_VERSION}/dist/style.css`
+import { parseMarimoFile, serializeMarimoFile, extractReturnVars, type MarimoCell } from '@/lib/marimo-parser'
+import { PyodideCellExecutor, type CellResult } from '@/lib/cell-executor'
+import { type CellStatus, getExecutionOrder, getDownstreamCells, detectCycle } from '@/lib/marimo-dag'
 
 interface MarimoNotebookProps {
   /** Raw .py file content */
@@ -25,17 +25,31 @@ interface MarimoNotebookProps {
   readOnly?: boolean
   /** Called on Cmd+S */
   onSave?: () => void
+  /** Active database connection ID (for DuckDB bridge) */
+  activeConnectionId?: string | null
 }
 
-export function MarimoNotebook({ content, onChange, readOnly, onSave }: MarimoNotebookProps) {
+interface CellState {
+  status: CellStatus
+  result: CellResult | null
+}
+
+export function MarimoNotebook({ content, onChange, readOnly, onSave, activeConnectionId }: MarimoNotebookProps) {
   const { t } = useTranslation()
   const [cells, setCells] = useState<MarimoCell[]>(() => parseMarimoFile(content))
   const [activeCell, setActiveCell] = useState<string | null>(null)
-  const [islandReady, setIslandReady] = useState(false)
-  const [islandKey, setIslandKey] = useState(0)
-  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const [cellStates, setCellStates] = useState<Map<string, CellState>>(new Map())
+  const [cycleError, setCycleError] = useState<string | null>(null)
+  const executorRef = useRef(new PyodideCellExecutor())
   // Track whether changes come from internal edits (skip re-parse)
   const internalEdit = useRef(false)
+  // Guard against concurrent execution cascades
+  const executingRef = useRef(false)
+
+  // Update executor connection ID
+  useEffect(() => {
+    executorRef.current.setActiveConnectionId(activeConnectionId ?? null)
+  }, [activeConnectionId])
 
   // Re-parse only when content changes externally (not from our own edits)
   useEffect(() => {
@@ -53,66 +67,6 @@ export function MarimoNotebook({ content, onChange, readOnly, onSave }: MarimoNo
     onChange(serializeMarimoFile(updatedCells))
   }, [onChange])
 
-  // Build the islands HTML for the iframe
-  const islandsHtml = useMemo(() => {
-    const cellsHtml = cells.map((cell, idx) => {
-      const encodedCode = encodeURIComponent(cell.code)
-      return `
-        <marimo-island data-app-id="notebook" data-cell-id="cell-${idx}" data-reactive="true">
-          <marimo-cell-output></marimo-cell-output>
-          <marimo-cell-code hidden>${encodedCode}</marimo-cell-code>
-        </marimo-island>`
-    }).join('\n')
-
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <script type="module" src="${ISLANDS_JS}"></script>
-  <link href="${ISLANDS_CSS}" rel="stylesheet" crossorigin="anonymous" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fira+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <style>
-    body {
-      margin: 0;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-size: 13px;
-      background: transparent;
-    }
-    marimo-island {
-      display: block;
-      margin-bottom: 8px;
-    }
-  </style>
-  <script>
-    window.addEventListener('marimo:ready', () => {
-      window.parent.postMessage({ type: 'marimo:ready' }, '*')
-    })
-    setTimeout(() => {
-      window.parent.postMessage({ type: 'marimo:ready' }, '*')
-    }, 5000)
-  </script>
-</head>
-<body>
-${cellsHtml}
-</body>
-</html>`
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- only rebuild iframe on explicit run
-  }, [islandKey])
-
-  // Listen for messages from the iframe
-  useEffect(() => {
-    const handler = (e: MessageEvent) => {
-      if (e.data?.type === 'marimo:ready') {
-        setIslandReady(true)
-      }
-    }
-    window.addEventListener('message', handler)
-    return () => window.removeEventListener('message', handler)
-  }, [])
-
   // Cmd+S to save
   useEffect(() => {
     if (!onSave) return
@@ -126,16 +80,102 @@ ${cellsHtml}
     return () => window.removeEventListener('keydown', handler)
   }, [onSave])
 
-  // Run all cells: rebuild the iframe with current cell code
-  const runAll = useCallback(() => {
-    setIslandReady(false)
-    setIslandKey((k) => k + 1)
+  // Check for cycles when cells change
+  useEffect(() => {
+    const cycle = detectCycle(cells)
+    setCycleError(cycle ? t('files.marimo_cycle_error') + ': ' + cycle.join(' → ') : null)
+  }, [cells, t])
+
+  // --- Execution ---
+
+  const updateCellState = useCallback((cellId: string, update: Partial<CellState>) => {
+    setCellStates((prev) => {
+      const next = new Map(prev)
+      const current = next.get(cellId) ?? { status: 'idle' as CellStatus, result: null }
+      next.set(cellId, { ...current, ...update })
+      return next
+    })
   }, [])
 
-  // Cell operations
+  const executeCell = useCallback(async (cellId: string, currentCells: MarimoCell[]) => {
+    const cell = currentCells.find((c) => c.id === cellId)
+    if (!cell) return
+
+    updateCellState(cellId, { status: 'running' })
+
+    const result = await executorRef.current.execute(cell.code, cellId)
+    updateCellState(cellId, {
+      status: result.success ? 'success' : 'error',
+      result,
+    })
+
+    return result
+  }, [updateCellState])
+
+  const runCell = useCallback(async (cellId: string) => {
+    if (executingRef.current) return
+    executingRef.current = true
+
+    try {
+      // Use latest cells from state
+      const currentCells = cells
+      const result = await executeCell(cellId, currentCells)
+
+      if (result?.success) {
+        // Find and execute downstream cells
+        const downstream = getDownstreamCells(cellId, currentCells)
+
+        // Mark downstream as stale first
+        for (const depId of downstream) {
+          updateCellState(depId, { status: 'stale' })
+        }
+
+        // Execute downstream in order
+        for (const depId of downstream) {
+          await executeCell(depId, currentCells)
+        }
+      }
+    } finally {
+      executingRef.current = false
+    }
+  }, [cells, executeCell, updateCellState])
+
+  const runAll = useCallback(async () => {
+    if (executingRef.current) return
+    executingRef.current = true
+
+    try {
+      await executorRef.current.reset()
+
+      // Clear all states
+      setCellStates(new Map())
+
+      let order: string[]
+      try {
+        order = getExecutionOrder(cells)
+      } catch (err) {
+        setCycleError(err instanceof Error ? err.message : String(err))
+        return
+      }
+
+      for (const cellId of order) {
+        await executeCell(cellId, cells)
+      }
+    } finally {
+      executingRef.current = false
+    }
+  }, [cells, executeCell])
+
+  // --- Cell operations ---
+
   const updateCellCode = useCallback((cellId: string, newCode: string) => {
     setCells((prev) => {
-      const next = prev.map((c) => c.id === cellId ? { ...c, code: newCode } : c)
+      const next = prev.map((c) => {
+        if (c.id !== cellId) return c
+        // Auto-update exports from the code
+        const exports = extractReturnVars(newCode)
+        return { ...c, code: newCode, exports }
+      })
       syncToFile(next)
       return next
     })
@@ -147,6 +187,8 @@ ${cellsHtml}
         id: `marimo-cell-${Date.now()}`,
         name: '_',
         code: '',
+        params: [],
+        exports: [],
       }
       if (!afterId) {
         const next = [...prev, newCell]
@@ -165,6 +207,11 @@ ${cellsHtml}
     setCells((prev) => {
       const next = prev.filter((c) => c.id !== cellId)
       syncToFile(next)
+      return next
+    })
+    setCellStates((prev) => {
+      const next = new Map(prev)
+      next.delete(cellId)
       return next
     })
   }, [syncToFile])
@@ -191,9 +238,10 @@ ${cellsHtml}
         <span className="text-[10px] text-muted-foreground">
           {cells.length} {cells.length === 1 ? 'cell' : 'cells'}
         </span>
-        {!islandReady && (
-          <span className="text-[10px] text-orange-500 animate-pulse">
-            {t('files.marimo_loading')}
+        {cycleError && (
+          <span className="text-[10px] text-destructive flex items-center gap-1">
+            <AlertTriangle size={10} />
+            {cycleError}
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">
@@ -202,9 +250,19 @@ ${cellsHtml}
             size="sm"
             className="h-7 gap-1 text-xs"
             onClick={runAll}
+            disabled={executingRef.current}
           >
             <RotateCcw size={12} />
-            {t('files.marimo_run_all', 'Run all')}
+            {t('files.marimo_run_all')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={() => executorRef.current.reset()}
+            title={t('files.marimo_reset')}
+          >
+            {t('files.marimo_reset')}
           </Button>
           {!readOnly && (
             <Button
@@ -220,65 +278,51 @@ ${cellsHtml}
         </div>
       </div>
 
-      {/* Split view: cells editor (left) + islands output (right) */}
-      <div className="flex flex-1 min-h-0">
-        {/* Cell editor panel */}
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {cells.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <p className="text-sm text-muted-foreground">{t('files.marimo_empty')}</p>
-              {!readOnly && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="mt-2"
-                  onClick={() => addCell()}
-                >
-                  <Plus size={14} />
-                  {t('files.marimo_add_cell')}
-                </Button>
-              )}
-            </div>
-          ) : (
-            cells.map((cell, idx) => (
-              <CellBlock
-                key={cell.id}
-                cell={cell}
-                index={idx}
-                isActive={activeCell === cell.id}
-                isFirst={idx === 0}
-                isLast={idx === cells.length - 1}
-                readOnly={readOnly}
-                onFocus={() => setActiveCell(cell.id)}
-                onCodeChange={(code) => updateCellCode(cell.id, code)}
-                onRun={runAll}
-                onAddBelow={() => addCell(cell.id)}
-                onRemove={() => removeCell(cell.id)}
-                onMoveUp={() => moveCell(cell.id, 'up')}
-                onMoveDown={() => moveCell(cell.id, 'down')}
-              />
-            ))
-          )}
-        </div>
-
-        {/* Islands output panel (iframe) */}
-        <div className="w-1/2 border-l overflow-hidden">
-          <iframe
-            ref={iframeRef}
-            key={islandKey}
-            srcDoc={islandsHtml}
-            className="h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-downloads allow-popups"
-            title="Marimo output"
-          />
-        </div>
+      {/* Cells */}
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+        {cells.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <p className="text-sm text-muted-foreground">{t('files.marimo_empty')}</p>
+            {!readOnly && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2"
+                onClick={() => addCell()}
+              >
+                <Plus size={14} />
+                {t('files.marimo_add_cell')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          cells.map((cell, idx) => (
+            <CellBlock
+              key={cell.id}
+              cell={cell}
+              index={idx}
+              isActive={activeCell === cell.id}
+              isFirst={idx === 0}
+              isLast={idx === cells.length - 1}
+              readOnly={readOnly}
+              cellState={cellStates.get(cell.id)}
+              onFocus={() => setActiveCell(cell.id)}
+              onCodeChange={(code) => updateCellCode(cell.id, code)}
+              onRun={() => runCell(cell.id)}
+              onAddBelow={() => addCell(cell.id)}
+              onRemove={() => removeCell(cell.id)}
+              onMoveUp={() => moveCell(cell.id, 'up')}
+              onMoveDown={() => moveCell(cell.id, 'down')}
+            />
+          ))
+        )}
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// CellBlock — individual cell in the editor panel
+// CellBlock — individual cell with code editor and inline output
 // ---------------------------------------------------------------------------
 
 interface CellBlockProps {
@@ -288,6 +332,7 @@ interface CellBlockProps {
   isFirst: boolean
   isLast: boolean
   readOnly?: boolean
+  cellState?: CellState
   onFocus: () => void
   onCodeChange: (code: string) => void
   onRun: () => void
@@ -304,6 +349,7 @@ function CellBlock({
   isFirst,
   isLast,
   readOnly,
+  cellState,
   onFocus,
   onCodeChange,
   onRun,
@@ -313,6 +359,8 @@ function CellBlock({
   onMoveDown,
 }: CellBlockProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const status = cellState?.status ?? 'idle'
+  const result = cellState?.result ?? null
 
   // Auto-resize textarea
   useEffect(() => {
@@ -336,7 +384,7 @@ function CellBlock({
         el.selectionStart = el.selectionEnd = start + 4
       })
     }
-    // Shift+Enter runs all cells
+    // Shift+Enter runs this cell
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault()
       onRun()
@@ -359,12 +407,23 @@ function CellBlock({
         {cell.name !== '_' && (
           <span className="font-medium text-foreground/70">{cell.name}</span>
         )}
+        <StatusDot status={status} />
+        {cell.params.length > 0 && (
+          <span className="text-muted-foreground/60">
+            ({cell.params.join(', ')})
+          </span>
+        )}
+        {cell.exports.length > 0 && (
+          <span className="text-muted-foreground/60">
+            → {cell.exports.join(', ')}
+          </span>
+        )}
         {!readOnly && (
           <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={onRun}
               className="rounded p-0.5 hover:bg-accent text-green-600"
-              title="Run all (Shift+Enter)"
+              title="Run cell (Shift+Enter)"
             >
               <Play size={12} />
             </button>
@@ -401,7 +460,7 @@ function CellBlock({
       </div>
 
       {/* Code textarea */}
-      <div className="px-2 pb-2">
+      <div className="px-2 pb-1">
         <textarea
           ref={textareaRef}
           value={cell.code}
@@ -419,6 +478,102 @@ function CellBlock({
           placeholder="# Python code..."
         />
       </div>
+
+      {/* Inline output */}
+      {result && <CellOutput result={result} />}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// StatusDot — colored status indicator
+// ---------------------------------------------------------------------------
+
+function StatusDot({ status }: { status: CellStatus }) {
+  switch (status) {
+    case 'idle':
+      return <Circle size={8} className="text-muted-foreground/30" />
+    case 'queued':
+      return <Circle size={8} className="text-blue-400 animate-pulse" />
+    case 'running':
+      return <Loader2 size={10} className="text-blue-500 animate-spin" />
+    case 'success':
+      return <CheckCircle2 size={10} className="text-green-500" />
+    case 'error':
+      return <XCircle size={10} className="text-red-500" />
+    case 'stale':
+      return <AlertTriangle size={10} className="text-orange-400" />
+    default:
+      return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CellOutput — inline output below a cell (stdout, error, figures, tables)
+// ---------------------------------------------------------------------------
+
+function CellOutput({ result }: { result: CellResult }) {
+  const hasOutput = result.stdout || result.error || result.stderr ||
+    (result.figures && result.figures.length > 0) ||
+    result.table
+
+  if (!hasOutput) return null
+
+  return (
+    <div className="border-t border-dashed mx-2 mb-2 pt-1 space-y-1">
+      {/* stdout */}
+      {result.stdout && (
+        <pre className="text-xs font-mono whitespace-pre-wrap text-muted-foreground px-2 py-1 bg-muted/30 rounded max-h-48 overflow-y-auto">
+          {result.stdout}
+        </pre>
+      )}
+
+      {/* error / stderr */}
+      {(result.error || result.stderr) && (
+        <pre className="text-xs font-mono whitespace-pre-wrap text-red-600 dark:text-red-400 px-2 py-1 bg-red-500/5 rounded max-h-48 overflow-y-auto">
+          {result.error || result.stderr}
+        </pre>
+      )}
+
+      {/* Matplotlib figures (SVG) */}
+      {result.figures?.map((fig, i) => (
+        <div
+          key={i}
+          className="bg-white dark:bg-zinc-900 rounded p-2 flex justify-center max-h-80 overflow-auto"
+          dangerouslySetInnerHTML={{ __html: fig.data }}
+        />
+      ))}
+
+      {/* DataFrame table preview */}
+      {result.table && (
+        <div className="max-h-64 overflow-auto rounded border">
+          <table className="w-full text-xs font-mono">
+            <thead className="sticky top-0 bg-muted">
+              <tr>
+                <th className="px-2 py-1 text-left text-muted-foreground font-medium border-b">#</th>
+                {result.table.headers.map((h, i) => (
+                  <th key={i} className="px-2 py-1 text-left font-medium border-b">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {result.table.rows.slice(0, 20).map((row, ri) => (
+                <tr key={ri} className="border-b border-border/50 hover:bg-accent/30">
+                  <td className="px-2 py-0.5 text-muted-foreground/50">{ri + 1}</td>
+                  {row.map((val, ci) => (
+                    <td key={ci} className="px-2 py-0.5">{val}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {result.table.rows.length > 20 && (
+            <div className="px-2 py-1 text-[10px] text-muted-foreground bg-muted/30 border-t">
+              {result.table.rows.length} rows total (showing first 20)
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
