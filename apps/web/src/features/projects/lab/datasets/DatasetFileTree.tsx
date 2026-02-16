@@ -4,20 +4,32 @@ import {
   Folder,
   FolderOpen,
   FileSpreadsheet,
-  MoreHorizontal,
   Pencil,
   Trash2,
   Copy,
+  Download,
+  Clipboard,
   ChevronRight,
   ChevronDown,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatasetFile } from '@/types'
@@ -36,6 +48,18 @@ function getAllDescendantIds(files: DatasetFile[], parentId: string): string[] {
   return ids
 }
 
+function getNodePath(files: DatasetFile[], nodeId: string): string {
+  const parts: string[] = []
+  let current = files.find((f) => f.id === nodeId)
+  while (current) {
+    parts.unshift(current.name)
+    current = current.parentId
+      ? files.find((f) => f.id === current!.parentId)
+      : undefined
+  }
+  return parts.join('/')
+}
+
 // ---------------------------------------------------------------------------
 // DatasetTreeItem
 // ---------------------------------------------------------------------------
@@ -44,9 +68,10 @@ interface DatasetTreeItemProps {
   node: DatasetFile
   depth: number
   getChildren: (parentId: string) => DatasetFile[]
+  onRequestDelete: (node: DatasetFile) => void
 }
 
-function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
+function DatasetTreeItem({ node, depth, getChildren, onRequestDelete }: DatasetTreeItemProps) {
   const { t } = useTranslation()
   const {
     files,
@@ -55,7 +80,6 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
     toggleFolder,
     selectFile,
     openFile,
-    deleteNode,
     renameNode,
     moveNode,
   } = useDatasetStore()
@@ -100,12 +124,48 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
   }
 
   const handleDuplicate = () => {
-    // Create a copy of the file with "(copy)" suffix
     const baseName = node.name.replace(/\.[^.]+$/, '')
     const ext = node.name.includes('.') ? node.name.slice(node.name.lastIndexOf('.')) : ''
     const copyName = `${baseName} (copy)${ext}`
-    const { createFile } = useDatasetStore.getState()
-    createFile(copyName, node.parentId)
+    const store = useDatasetStore.getState()
+    store.createFile(copyName, node.parentId)
+    // Copy columns + data from the original file
+    const newState = useDatasetStore.getState()
+    const newFile = newState.files[newState.files.length - 1]
+    if (newFile && node.type === 'file') {
+      const rows = store.getFileRows(node.id)
+      const columns = node.columns ?? []
+      if (columns.length > 0) {
+        store.importData(newFile.id, columns, rows.map((r) => ({ ...r })))
+      }
+    }
+  }
+
+  const handleDownload = () => {
+    if (node.type !== 'file') return
+    const rows = useDatasetStore.getState().getFileRows(node.id)
+    const columns = node.columns ?? []
+    if (columns.length === 0) return
+    // Build CSV
+    const header = columns.map((c) => c.name).join(',')
+    const lines = rows.map((row) =>
+      columns.map((c) => {
+        const v = row[c.id]
+        if (v == null) return ''
+        const s = String(v)
+        return s.includes(',') || s.includes('"') || s.includes('\n')
+          ? `"${s.replace(/"/g, '""')}"`
+          : s
+      }).join(',')
+    )
+    const csv = [header, ...lines].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = node.name
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   // --- Drag & drop ---
@@ -133,7 +193,6 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
     if (!isFolder) return
     const draggedId = e.dataTransfer.getData('text/plain')
     if (!draggedId || draggedId === node.id) return
-    // Prevent dropping a folder into itself or its descendants
     const descendants = getAllDescendantIds(files, draggedId)
     if (descendants.includes(node.id)) return
     moveNode(draggedId, node.id)
@@ -144,93 +203,100 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
 
   return (
     <>
-      <div
-        className={cn(
-          'group flex items-center gap-0.5 px-1 py-0.5 cursor-pointer text-xs hover:bg-accent/50 transition-colors',
-          isSelected && !isFolder && 'bg-accent text-accent-foreground',
-          dragOver && 'bg-accent/70 ring-1 ring-primary/50',
-        )}
-        style={{ paddingLeft: `${depth * 12 + 4}px` }}
-        onClick={handleClick}
-        draggable={!editing}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
-        {/* Chevron for folders */}
-        {isFolder ? (
-          isExpanded ? (
-            <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
-          )
-        ) : (
-          <span className="w-3.5 shrink-0" />
-        )}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              'group flex items-center gap-0.5 px-1 py-0.5 cursor-pointer text-xs hover:bg-accent/50 transition-colors',
+              isSelected && !isFolder && 'bg-accent text-accent-foreground',
+              dragOver && 'bg-accent/70 ring-1 ring-primary/50',
+            )}
+            style={{ paddingLeft: `${depth * 12 + 4}px` }}
+            onClick={handleClick}
+            draggable={!editing}
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            {/* Chevron for folders */}
+            {isFolder ? (
+              isExpanded ? (
+                <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+              ) : (
+                <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+              )
+            ) : (
+              <span className="w-3.5 shrink-0" />
+            )}
 
-        {/* Icon */}
-        {isFolder ? (
-          isExpanded ? (
-            <FolderOpen size={14} className="shrink-0 text-blue-400" />
-          ) : (
-            <Folder size={14} className="shrink-0 text-blue-400" />
-          )
-        ) : (
-          <FileSpreadsheet size={14} className="shrink-0 text-emerald-500" />
-        )}
+            {/* Icon */}
+            {isFolder ? (
+              isExpanded ? (
+                <FolderOpen size={14} className="shrink-0 text-blue-400" />
+              ) : (
+                <Folder size={14} className="shrink-0 text-blue-400" />
+              )
+            ) : (
+              <FileSpreadsheet size={14} className="shrink-0 text-emerald-500" />
+            )}
 
-        {/* Name or inline rename input */}
-        {editing ? (
-          <input
-            ref={inputRef}
-            value={editName}
-            onChange={(e) => setEditName(e.target.value)}
-            onBlur={handleRenameSubmit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleRenameSubmit()
-              if (e.key === 'Escape') setEditing(false)
-            }}
-            className="ml-1 flex-1 bg-transparent text-xs outline-none border-b border-primary"
-            onClick={(e) => e.stopPropagation()}
-          />
-        ) : (
-          <span className="ml-1 truncate">{node.name}</span>
-        )}
-
-        {/* Context menu trigger (three-dot button) */}
-        {!editing && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="ml-auto shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 hover:bg-muted"
+            {/* Name or inline rename input */}
+            {editing ? (
+              <input
+                ref={inputRef}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={handleRenameSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameSubmit()
+                  if (e.key === 'Escape') setEditing(false)
+                }}
+                className="ml-1 flex-1 bg-transparent text-xs outline-none border-b border-primary"
                 onClick={(e) => e.stopPropagation()}
-              >
-                <MoreHorizontal size={12} />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="right">
-              <DropdownMenuItem onClick={handleStartRename}>
-                <Pencil size={14} className="mr-2" />
-                {t('datasets.rename')}
-              </DropdownMenuItem>
-              {!isFolder && (
-                <DropdownMenuItem onClick={handleDuplicate}>
-                  <Copy size={14} className="mr-2" />
-                  {t('datasets.duplicate')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                className="text-destructive"
-                onClick={() => deleteNode(node.id)}
-              >
-                <Trash2 size={14} className="mr-2" />
-                {t('datasets.delete')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
+              />
+            ) : (
+              <span className="ml-1 truncate">{node.name}</span>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleStartRename}>
+            <Pencil size={14} />
+            {t('datasets.rename')}
+          </ContextMenuItem>
+          {!isFolder && (
+            <ContextMenuItem onClick={handleDuplicate}>
+              <Copy size={14} />
+              {t('datasets.duplicate')}
+            </ContextMenuItem>
+          )}
+          {!isFolder && (
+            <ContextMenuItem onClick={handleDownload}>
+              <Download size={14} />
+              {t('files.download')}
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            onClick={() => {
+              const path = getNodePath(files, node.id)
+              navigator.clipboard.writeText(path)
+            }}
+          >
+            <Clipboard size={14} />
+            {t('files.copy_relative_path')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => onRequestDelete(node)}
+          >
+            <Trash2 size={14} />
+            {t('datasets.delete')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       {/* Children */}
       {isFolder &&
@@ -241,6 +307,7 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
             node={child}
             depth={depth + 1}
             getChildren={getChildren}
+            onRequestDelete={onRequestDelete}
           />
         ))}
     </>
@@ -253,13 +320,21 @@ function DatasetTreeItem({ node, depth, getChildren }: DatasetTreeItemProps) {
 
 export function DatasetFileTree() {
   const { t } = useTranslation()
-  const { files, moveNode } = useDatasetStore()
+  const { files, moveNode, deleteNode } = useDatasetStore()
   const [rootDragOver, setRootDragOver] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<DatasetFile | null>(null)
 
   const rootNodes = files.filter((f) => f.parentId === null).sort(sortNodes)
 
   function getChildren(parentId: string): DatasetFile[] {
     return files.filter((f) => f.parentId === parentId).sort(sortNodes)
+  }
+
+  const handleConfirmDelete = () => {
+    if (deleteTarget) {
+      deleteNode(deleteTarget.id)
+      setDeleteTarget(null)
+    }
   }
 
   if (rootNodes.length === 0) {
@@ -291,22 +366,44 @@ export function DatasetFileTree() {
   }
 
   return (
-    <ScrollArea className="flex-1">
-      <div
-        className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
-        onDragOver={handleRootDragOver}
-        onDragLeave={handleRootDragLeave}
-        onDrop={handleRootDrop}
-      >
-        {rootNodes.map((node) => (
-          <DatasetTreeItem
-            key={node.id}
-            node={node}
-            depth={0}
-            getChildren={getChildren}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <>
+      <ScrollArea className="flex-1">
+        <div
+          className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={handleRootDrop}
+        >
+          {rootNodes.map((node) => (
+            <DatasetTreeItem
+              key={node.id}
+              node={node}
+              depth={0}
+              getChildren={getChildren}
+              onRequestDelete={setDeleteTarget}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('datasets.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget?.type === 'folder'
+                ? t('datasets.delete_confirm_folder', { name: deleteTarget?.name ?? '' })
+                : t('datasets.delete_confirm_file', { name: deleteTarget?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmDelete}>
+              {t('datasets.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

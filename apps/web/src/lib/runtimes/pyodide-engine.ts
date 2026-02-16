@@ -155,6 +155,15 @@ export async function executePython(
   let table: RuntimeOutput['table'] = null
 
   try {
+    // Ensure common directories exist in Pyodide's virtual filesystem
+    // so user scripts can write files (e.g. dataset.to_csv("data/datasets/foo.csv"))
+    await pyodide.runPythonAsync(`
+import os
+for _d in ['data', 'data/datasets', 'datasets']:
+    os.makedirs(_d, exist_ok=True)
+del _d
+`)
+
     // Auto-detect imports and load packages
     await pyodide.loadPackagesFromImports(code, {
       messageCallback: () => {},

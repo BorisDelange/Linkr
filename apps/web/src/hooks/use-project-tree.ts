@@ -5,6 +5,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
 import type { DatabaseConnectionConfig } from '@/types'
 
 // --- Types ---
@@ -67,6 +68,8 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
   const pipelines = usePipelineStore((s) => s.pipelines)
   const dashboardTabs = useDashboardStore((s) => s.tabs)
   const dashboardWidgets = useDashboardStore((s) => s.widgets)
+  const datasetFiles = useDatasetStore((s) => s.files)
+  const datasetAnalyses = useDatasetStore((s) => s.analyses)
 
   const nodes = useMemo<TreeNode[]>(() => {
     if (!projectUid) return files
@@ -164,8 +167,67 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
+    // --- datasets/ (virtual read-only mirror of dataset file tree) ---
+    if (datasetFiles.length > 0) {
+      const datasetsFolderId = 'virtual:datasets'
+      virtual.push(vFolder(datasetsFolderId, 'datasets', null))
+
+      // Build virtual nodes preserving the tree structure
+      for (const df of datasetFiles) {
+        const parentId = df.parentId
+          ? `virtual:datasets/${df.parentId}`
+          : datasetsFolderId
+        if (df.type === 'folder') {
+          virtual.push(vFolder(`virtual:datasets/${df.id}`, df.name, parentId))
+        } else {
+          // Show column metadata as content
+          const meta = {
+            columns: df.columns ?? [],
+            rowCount: df.rowCount ?? 0,
+            createdAt: df.createdAt,
+            updatedAt: df.updatedAt,
+          }
+          virtual.push(
+            vFile(`virtual:datasets/${df.id}`, df.name, parentId,
+              JSON.stringify(meta, null, 2)),
+          )
+        }
+      }
+    }
+
+    // --- datasets_analyses/ (virtual read-only mirror of analysis configs) ---
+    if (datasetAnalyses.length > 0) {
+      const analysesFolderId = 'virtual:datasets_analyses'
+      virtual.push(vFolder(analysesFolderId, 'datasets_analyses', null))
+
+      // Group analyses by dataset, create one subfolder per dataset
+      const byDataset = new Map<string, typeof datasetAnalyses>()
+      for (const a of datasetAnalyses) {
+        const list = byDataset.get(a.datasetFileId) ?? []
+        list.push(a)
+        byDataset.set(a.datasetFileId, list)
+      }
+
+      for (const [datasetFileId, fileAnalyses] of byDataset) {
+        const dataset = datasetFiles.find((f) => f.id === datasetFileId)
+        const folderName = dataset
+          ? dataset.name.replace(/\.[^.]+$/, '')
+          : datasetFileId
+        const subFolderId = `virtual:datasets_analyses/${datasetFileId}`
+        virtual.push(vFolder(subFolderId, folderName, analysesFolderId))
+
+        for (const a of fileAnalyses) {
+          const { id, name, type, config, createdAt, updatedAt } = a
+          virtual.push(
+            vFile(`virtual:datasets_analyses/${a.id}`, `${slugify(name)}.json`, subFolderId,
+              JSON.stringify({ id, name, type, config, createdAt, updatedAt }, null, 2)),
+          )
+        }
+      }
+    }
+
     return [...virtual, ...files]
-  }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets])
+  }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets, datasetFiles, datasetAnalyses])
 
   return { nodes }
 }

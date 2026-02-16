@@ -106,7 +106,7 @@ function getLanguageForFile(name: string): string {
 // Bump this version whenever default demo file content changes.
 // On load, if the user's stored files still have a previous version,
 // the default file contents are silently updated in IndexedDB.
-const DEMO_FILES_VERSION = 2
+const DEMO_FILES_VERSION = 3
 const DEMO_FILES_VERSION_KEY = 'linkr-demo-files-version'
 
 // Default demo scripts are loaded from public/data/demo-scripts/ at seed time.
@@ -158,11 +158,12 @@ const DEMO_PY = [
   '# 02_feature_engineering.py',
   '# Mortality prediction — Step 2: Feature engineering',
   '# Extracts H0-H24 measurements, pivots OMOP long -> wide, exports CSV.',
+  '#',
+  '# Uses sql_query(sql) which is automatically available in LinkR.',
+  '# It queries the active DuckDB connection and returns a pandas DataFrame.',
+  '# Usage: df = await sql_query("SELECT * FROM person LIMIT 10")',
   '',
-  'import duckdb',
   'import pandas as pd',
-  '',
-  'con = duckdb.connect()  # Shared DuckDB connection in LinkR',
   '',
   '# Measurements to extract (concept_id -> column prefix)',
   'VITALS = {',
@@ -181,7 +182,7 @@ const DEMO_PY = [
   '',
   '# Step 1: Extract measurements in H0-H24',
   'concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())',
-  'measurements_h24 = con.execute(f"""',
+  'measurements_h24 = await sql_query(f"""',
   '    SELECT m.visit_occurrence_id, m.measurement_concept_id,',
   '           m.value_as_number, m.measurement_datetime::TIMESTAMP AS measurement_datetime,',
   '           c.visit_start_datetime',
@@ -191,7 +192,7 @@ const DEMO_PY = [
   '      AND m.value_as_number IS NOT NULL',
   '      AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime',
   "      AND m.measurement_datetime::TIMESTAMP <= c.visit_start_datetime + INTERVAL '24 hours'",
-  '""").fetchdf()',
+  '""")',
   'print(f"Measurements in H0-H24: {len(measurements_h24)} rows")',
   '',
   '# Step 2: Aggregate (vitals: mean/min/max, labs: first, neuro: min)',
@@ -215,7 +216,7 @@ const DEMO_PY = [
   'wide = agg_df.pivot_table(index="visit_occurrence_id", columns="col", values="val", aggfunc="first").reset_index()',
   '',
   '# Step 4: Merge with cohort demographics',
-  'cohort_df = con.execute("SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death FROM cohort").fetchdf()',
+  'cohort_df = await sql_query("SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death FROM cohort")',
   'dataset = cohort_df.merge(wide, on="visit_occurrence_id", how="left")',
   'id_cols = ["visit_occurrence_id", "person_id"]',
   'demo_cols = ["age", "sex", "los_hours"]',

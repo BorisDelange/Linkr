@@ -6,24 +6,15 @@
 # measurements from the first 24 hours, pivots from OMOP long format
 # to one-row-per-visit wide format, and exports a CSV.
 #
-# Input:  DuckDB views (cohort, measurement, drug_exposure, concept)
+# Uses sql_query(sql) which is automatically available in LinkR.
+# It queries the active DuckDB connection and returns a pandas DataFrame.
+# Usage: df = await sql_query("SELECT * FROM person LIMIT 10")
+#
+# Input:  DuckDB views (cohort, measurement, concept)
 # Output: data/datasets/mortality_dataset.csv
 # =============================================================================
 
-import duckdb
-
-# ---------------------------------------------------------------------------
-# In LinkR, scripts share the same DuckDB connection. For standalone use,
-# uncomment the lines below and load parquet files manually.
-# ---------------------------------------------------------------------------
-# con = duckdb.connect()
-# import glob, os
-# for f in glob.glob("data/mimic-iv-demo-omop/*.parquet"):
-#     table = os.path.splitext(os.path.basename(f))[0]
-#     con.execute(f"CREATE VIEW {table} AS SELECT * FROM read_parquet('{f}')")
-# # Then run 01_cohort_extraction.sql to create the cohort view
-
-con = duckdb.connect()  # Uses the shared connection in LinkR
+import pandas as pd
 
 # ---------------------------------------------------------------------------
 # Configuration: measurements to extract (concept_id → column prefix)
@@ -69,7 +60,7 @@ ALL_MEASUREMENTS = {**VITALS, **LABS, **NEURO}
 # ---------------------------------------------------------------------------
 concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())
 
-measurements_h24 = con.execute(f"""
+measurements_h24 = await sql_query(f"""
     SELECT
         m.visit_occurrence_id,
         m.measurement_concept_id,
@@ -82,14 +73,13 @@ measurements_h24 = con.execute(f"""
       AND m.value_as_number IS NOT NULL
       AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime
       AND m.measurement_datetime::TIMESTAMP <= c.visit_start_datetime + INTERVAL '24 hours'
-""").fetchdf()
+""")
 
 print(f"Measurements in H0-H24: {len(measurements_h24)} rows")
 
 # ---------------------------------------------------------------------------
 # Step 2: Aggregate — for each visit × measurement, compute summary stats
 # ---------------------------------------------------------------------------
-import pandas as pd
 
 # Map concept_id to column name
 measurements_h24["feature"] = measurements_h24["measurement_concept_id"].map(ALL_MEASUREMENTS)
@@ -134,10 +124,10 @@ wide_features = agg_df.pivot_table(
 # ---------------------------------------------------------------------------
 # Step 4: Merge with cohort demographics
 # ---------------------------------------------------------------------------
-cohort_df = con.execute("""
+cohort_df = await sql_query("""
     SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
     FROM cohort
-""").fetchdf()
+""")
 
 dataset = cohort_df.merge(wide_features, on="visit_occurrence_id", how="left")
 

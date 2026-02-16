@@ -1,6 +1,6 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Upload, FileSpreadsheet, AlertCircle, X } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, TriangleAlert } from 'lucide-react'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
 import {
@@ -22,7 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
   open: boolean
@@ -80,6 +80,17 @@ function remapRows(rows: Record<string, unknown>[], columns: DatasetColumn[]): R
     })
     return newRow
   })
+}
+
+function getUniqueName(name: string, parentId: string | null, files: DatasetFile[]): string {
+  const siblings = files.filter((f) => f.parentId === parentId && f.type === 'file')
+  const existingNames = new Set(siblings.map((f) => f.name))
+  if (!existingNames.has(name)) return name
+  const base = name.replace(/\.[^.]+$/, '')
+  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : ''
+  let i = 2
+  while (existingNames.has(`${base} (${i})${ext}`)) i++
+  return `${base} (${i})${ext}`
 }
 
 export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadDatasetDialogProps) {
@@ -313,17 +324,61 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     [handleFile],
   )
 
-  const handleImport = useCallback(() => {
+  // Check for duplicate filename when file is parsed
+  const { files: storeFiles } = useDatasetStore()
+  const existingFile = useMemo(() => {
+    if (!parsed) return null
+    return storeFiles.find(
+      (f) => f.name === parsed.fileName && f.parentId === parentId && f.type === 'file'
+    ) ?? null
+  }, [parsed, parentId, storeFiles])
+
+  const doImport = useCallback((mode: 'new' | 'overwrite' | 'copy') => {
     if (!parsed) return
-    const { createFile: cf, importData: imp } = useDatasetStore.getState()
-    cf(parsed.fileName, parentId)
-    const state = useDatasetStore.getState()
-    const newFile = state.files[state.files.length - 1]
-    if (newFile) {
-      imp(newFile.id, parsed.columns, parsed.rows)
+    const store = useDatasetStore.getState()
+
+    // Build parse options to persist
+    const opts: DatasetParseOptions = {}
+    if (delimiter !== 'auto') opts.delimiter = delimiter
+    if (encoding !== 'UTF-8') opts.encoding = encoding
+    if (skipRows > 0) opts.skipRows = skipRows
+    if (!hasHeader) opts.hasHeader = false
+
+    const saveOpts = (fileId: string) => {
+      if (Object.keys(opts).length > 0) {
+        import('@/lib/storage').then(({ getStorage }) => {
+          getStorage().datasetFiles.update(fileId, { parseOptions: opts }).catch(() => {})
+        })
+      }
+    }
+
+    if (mode === 'overwrite' && existingFile) {
+      store.importData(existingFile.id, parsed.columns, parsed.rows)
+      store.openFile(existingFile.id)
+      store.selectFile(existingFile.id)
+      saveOpts(existingFile.id)
+    } else {
+      const fileName = mode === 'copy'
+        ? getUniqueName(parsed.fileName, parentId, store.files)
+        : parsed.fileName
+      store.createFile(fileName, parentId)
+      const newState = useDatasetStore.getState()
+      const newFile = newState.files[newState.files.length - 1]
+      if (newFile) {
+        store.importData(newFile.id, parsed.columns, parsed.rows)
+        store.openFile(newFile.id)
+        store.selectFile(newFile.id)
+        saveOpts(newFile.id)
+      }
     }
     onOpenChange(false)
-  }, [parsed, parentId, onOpenChange])
+  }, [parsed, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader])
+
+  const handleImport = useCallback(() => {
+    if (!parsed) return
+    if (existingFile) return // conflict — buttons handle it
+    doImport('new')
+  }, [parsed, existingFile, doImport])
 
   const handleClose = useCallback(() => {
     onOpenChange(false)
@@ -509,14 +564,37 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           )}
         </div>
 
+        {/* Duplicate file conflict banner */}
+        {parsed && existingFile && !loading && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2.5 text-sm">
+            <TriangleAlert size={16} className="shrink-0 text-amber-500 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium">{t('datasets.upload_conflict_title')}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {t('datasets.upload_conflict_description', { name: parsed.fileName })}
+              </p>
+            </div>
+          </div>
+        )}
+
         <DialogFooter className="mt-2">
           <Button variant="outline" onClick={handleClose}>
             {t('common.cancel')}
           </Button>
-          {parsed && (
+          {parsed && !existingFile && (
             <Button onClick={handleImport} size="default">
               {t('datasets.import')} ({parsed.totalRows.toLocaleString()} {t('datasets.rows')})
             </Button>
+          )}
+          {parsed && existingFile && (
+            <>
+              <Button variant="outline" onClick={() => doImport('copy')} size="default">
+                {t('datasets.upload_import_copy')}
+              </Button>
+              <Button onClick={() => doImport('overwrite')} size="default">
+                {t('datasets.upload_overwrite')}
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

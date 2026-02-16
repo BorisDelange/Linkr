@@ -408,6 +408,13 @@ export interface DatasetColumn {
   order: number
 }
 
+export interface DatasetParseOptions {
+  delimiter?: string
+  encoding?: string
+  skipRows?: number
+  hasHeader?: boolean
+}
+
 export interface DatasetFile {
   id: string
   projectUid: string
@@ -416,6 +423,7 @@ export interface DatasetFile {
   parentId: string | null
   columns?: DatasetColumn[]
   rowCount?: number
+  parseOptions?: DatasetParseOptions
   createdAt: string
   updatedAt: string
 }
@@ -425,7 +433,7 @@ export interface DatasetData {
   rows: Record<string, unknown>[]
 }
 
-export type DatasetAnalysisType = 'table1' | 'distribution' | 'summary' | 'custom'
+export type DatasetAnalysisType = 'table1' | 'distribution' | 'summary' | 'correlation' | 'crosstab' | 'custom'
 
 export interface DatasetAnalysis {
   id: string

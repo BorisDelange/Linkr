@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { TableIcon, BarChart3, FileText } from 'lucide-react'
+import { TableIcon, BarChart3, FileText, GitCompareArrows, Grid3X3 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -80,6 +80,59 @@ function SummaryPreview() {
   )
 }
 
+function CorrelationPreview() {
+  const cells = [
+    [1.00, 0.85, -0.12],
+    [0.85, 1.00, -0.34],
+    [-0.12, -0.34, 1.00],
+  ]
+  return (
+    <div className="w-full text-[8px] leading-tight">
+      <div className="grid grid-cols-4 gap-px">
+        <div />
+        <div className="text-center text-muted-foreground">x</div>
+        <div className="text-center text-muted-foreground">y</div>
+        <div className="text-center text-muted-foreground">z</div>
+        {['x', 'y', 'z'].map((label, i) => (
+          <div key={label} className="contents">
+            <div className="text-muted-foreground">{label}</div>
+            {cells[i].map((v, j) => (
+              <div
+                key={j}
+                className="text-center"
+                style={{ color: v > 0.5 ? 'rgb(59,130,246)' : v < -0.2 ? 'rgb(239,68,68)' : undefined }}
+              >
+                {v.toFixed(2)}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function CrossTabPreview() {
+  return (
+    <div className="w-full text-[8px] leading-tight">
+      <div className="grid grid-cols-4 gap-px">
+        <div />
+        <div className="bg-muted px-1 py-0.5 font-medium text-center">M</div>
+        <div className="bg-muted px-1 py-0.5 font-medium text-center">F</div>
+        <div className="bg-muted px-1 py-0.5 font-medium text-center">Total</div>
+        <div className="px-1 py-0.5 text-muted-foreground">ICU</div>
+        <div className="px-1 py-0.5 text-center text-muted-foreground">24</div>
+        <div className="px-1 py-0.5 text-center text-muted-foreground">18</div>
+        <div className="px-1 py-0.5 text-center font-medium">42</div>
+        <div className="px-1 py-0.5 text-muted-foreground">Ward</div>
+        <div className="px-1 py-0.5 text-center text-muted-foreground">30</div>
+        <div className="px-1 py-0.5 text-center text-muted-foreground">28</div>
+        <div className="px-1 py-0.5 text-center font-medium">58</div>
+      </div>
+    </div>
+  )
+}
+
 const ANALYSIS_TYPES: AnalysisTypeCard[] = [
   {
     value: 'table1',
@@ -102,6 +155,20 @@ const ANALYSIS_TYPES: AnalysisTypeCard[] = [
     icon: <FileText size={20} className="text-emerald-500" />,
     preview: <SummaryPreview />,
   },
+  {
+    value: 'correlation',
+    nameKey: 'datasets.analysis_type_correlation',
+    descriptionKey: 'datasets.analysis_type_correlation_desc',
+    icon: <GitCompareArrows size={20} className="text-amber-500" />,
+    preview: <CorrelationPreview />,
+  },
+  {
+    value: 'crosstab',
+    nameKey: 'datasets.analysis_type_crosstab',
+    descriptionKey: 'datasets.analysis_type_crosstab_desc',
+    icon: <Grid3X3 size={20} className="text-rose-500" />,
+    preview: <CrossTabPreview />,
+  },
 ]
 
 export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: CreateAnalysisDialogProps) {
@@ -121,14 +188,14 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{t('datasets.new_analysis')}</DialogTitle>
           <DialogDescription>{t('datasets.new_analysis_description')}</DialogDescription>
         </DialogHeader>
 
         {/* Type selection cards */}
-        <div className="grid grid-cols-3 gap-2 py-2">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 py-2">
           {ANALYSIS_TYPES.map((at) => (
             <button
               key={at.value}

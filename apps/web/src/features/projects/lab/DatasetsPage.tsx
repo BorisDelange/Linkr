@@ -10,8 +10,13 @@ import {
   PanelRight,
   Undo2,
   X,
-  BarChart3,
   Table2,
+  Plus,
+  Eye,
+  EyeOff,
+  BarChart3,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,6 +33,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
@@ -38,6 +51,7 @@ import { AnalysesPanel } from './datasets/AnalysesPanel'
 import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
+import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
 
 export function DatasetsPage() {
   const { t } = useTranslation()
@@ -56,6 +70,11 @@ export function DatasetsPage() {
     isFileDirty,
     saveFile,
     revertFile,
+    analyses,
+    selectedAnalysisId,
+    selectAnalysis,
+    deleteAnalysis,
+    renameAnalysis,
     _dirtyVersion,
   } = useDatasetStore()
   const { activeProjectUid } = useAppStore()
@@ -63,13 +82,17 @@ export function DatasetsPage() {
   const [createDatasetOpen, setCreateDatasetOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [createAnalysisOpen, setCreateAnalysisOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
-  const [statsVisible, setStatsVisible] = useState(true)
+  const [dataTableVisible, setDataTableVisible] = useState(true)
   const [analysesVisible, setAnalysesVisible] = useState(true)
+  const [statsVisible, setStatsVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
+  const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
 
   // Load datasets when the project changes
   useEffect(() => {
@@ -130,6 +153,19 @@ export function DatasetsPage() {
     setCloseConfirmFileId(null)
   }, [closeConfirmFileId, revertFile, closeFile])
 
+  // Analysis rename helpers
+  const handleStartAnalysisRename = useCallback((id: string, name: string) => {
+    setRenamingAnalysisId(id)
+    setRenameDraft(name)
+  }, [])
+
+  const handleFinishAnalysisRename = useCallback(() => {
+    if (renamingAnalysisId && renameDraft.trim()) {
+      renameAnalysis(renamingAnalysisId, renameDraft.trim())
+    }
+    setRenamingAnalysisId(null)
+  }, [renamingAnalysisId, renameDraft, renameAnalysis])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -144,7 +180,6 @@ export function DatasetsPage() {
 
       // Cmd+Z: undo last tree action
       if (isMod && e.key === 'z' && !e.shiftKey) {
-        // Only intercept if we have an undo action and focus is not inside an input
         const tag = (e.target as HTMLElement)?.tagName
         if (tag === 'INPUT' || tag === 'TEXTAREA') return
         if (undoAction) {
@@ -166,10 +201,13 @@ export function DatasetsPage() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [handleSaveFile, undoAction, performUndo])
 
+  // Whether to show the analyses split pane
+  const showAnalyses = analysesVisible && !!selectedFileId && !!selectedAnalysisId
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full overflow-hidden">
-        <Allotment proportionalLayout={false}>
+        <Allotment>
           {/* Explorer sidebar */}
           <Allotment.Pane
             preferredSize={240}
@@ -178,7 +216,7 @@ export function DatasetsPage() {
             visible={explorerVisible}
           >
             <div className="flex h-full flex-col border-r">
-              {/* Explorer header */}
+              {/* Datasets header */}
               <div className="flex items-center justify-between border-b px-2 py-1.5">
                 <div className="flex items-center gap-0.5">
                   <Tooltip>
@@ -257,11 +295,107 @@ export function DatasetsPage() {
                   </Tooltip>
                 </div>
               </div>
-              <DatasetFileTree />
+
+              {/* Top half: dataset file tree */}
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <DatasetFileTree />
+              </div>
+
+              {/* Bottom half: analyses for selected dataset */}
+              <div className="flex min-h-[120px] flex-col border-t" style={{ flexBasis: '40%', flexShrink: 0 }}>
+                {/* Analyses header bar */}
+                <div className="flex items-center justify-between border-b px-2 py-1.5">
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t('datasets.analyses')}
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setCreateAnalysisOpen(true)}
+                        disabled={!selectedFileId}
+                      >
+                        <Plus size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('datasets.new_analysis')}</TooltipContent>
+                  </Tooltip>
+                </div>
+
+                {/* Analyses list */}
+                <ScrollArea className="flex-1">
+                  {!selectedFileId ? (
+                    <div className="flex items-center justify-center p-4 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        {t('datasets.no_analyses_select_dataset')}
+                      </p>
+                    </div>
+                  ) : analyses.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center p-4 text-center">
+                      <p className="text-xs text-muted-foreground">
+                        {t('datasets.no_analyses')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="py-1">
+                      {analyses.map((analysis) => {
+                        const isActive = analysis.id === selectedAnalysisId
+                        return (
+                          <ContextMenu key={analysis.id}>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                onClick={() => selectAnalysis(isActive ? null : analysis.id)}
+                                onDoubleClick={() => handleStartAnalysisRename(analysis.id, analysis.name)}
+                                className={cn(
+                                  'group flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors hover:bg-accent/50',
+                                  isActive && 'bg-accent text-accent-foreground',
+                                )}
+                              >
+                                <BarChart3 size={14} className="shrink-0 text-violet-500" />
+                                {renamingAnalysisId === analysis.id ? (
+                                  <input
+                                    autoFocus
+                                    className="flex-1 border-0 bg-transparent text-xs outline-none border-b border-primary"
+                                    value={renameDraft}
+                                    onChange={(e) => setRenameDraft(e.target.value)}
+                                    onBlur={handleFinishAnalysisRename}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') handleFinishAnalysisRename()
+                                      if (e.key === 'Escape') setRenamingAnalysisId(null)
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                ) : (
+                                  <span className="truncate">{analysis.name}</span>
+                                )}
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onClick={() => handleStartAnalysisRename(analysis.id, analysis.name)}>
+                                <Pencil size={14} />
+                                {t('datasets.rename')}
+                              </ContextMenuItem>
+                              <ContextMenuSeparator />
+                              <ContextMenuItem
+                                variant="destructive"
+                                onClick={() => deleteAnalysis(analysis.id)}
+                              >
+                                <Trash2 size={14} />
+                                {t('datasets.delete')}
+                              </ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
+                        )
+                      })}
+                    </div>
+                  )}
+                </ScrollArea>
+              </div>
             </div>
           </Allotment.Pane>
 
-          {/* Data table area */}
+          {/* Right side: toolbar + tabs + content (data table | analyses | stats) */}
           <Allotment.Pane minSize={200}>
             <div className="flex h-full flex-col">
               {/* Toolbar */}
@@ -283,6 +417,20 @@ export function DatasetsPage() {
                   </Tooltip>
                 )}
 
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant={dataTableVisible ? 'secondary' : 'ghost'}
+                      size="icon-xs"
+                      onClick={() => setDataTableVisible(!dataTableVisible)}
+                      disabled={!selectedFileId}
+                    >
+                      {dataTableVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>{t('datasets.toggle_data_table')}</TooltipContent>
+                </Tooltip>
+
                 <div className="ml-auto flex items-center gap-1">
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -292,7 +440,7 @@ export function DatasetsPage() {
                         onClick={() => setAnalysesVisible(!analysesVisible)}
                         disabled={!selectedFileId}
                       >
-                        <BarChart3 size={14} />
+                        {analysesVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -320,80 +468,121 @@ export function DatasetsPage() {
 
               {/* File tabs */}
               {openFileIds.length > 0 && (
-                <div className="flex items-center border-b bg-muted/30 overflow-x-auto">
-                  {openFileIds.map((fid) => {
-                    const node = files.find((n) => n.id === fid)
-                    if (!node) return null
-                    const isActive = fid === selectedFileId
-                    // _dirtyVersion subscription ensures re-render on dirty state change
-                    const isDirty = _dirtyVersion >= 0 && isFileDirty(fid)
-                    return (
-                      <button
-                        key={fid}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData('dataset-tab-id', fid)
-                          e.dataTransfer.effectAllowed = 'move'
-                          setDragFileId(fid)
-                        }}
-                        onDragOver={(e) => {
-                          if (!e.dataTransfer.types.includes('dataset-tab-id')) return
-                          e.preventDefault()
-                          e.dataTransfer.dropEffect = 'move'
-                          setDropFileTarget(fid)
-                        }}
-                        onDragLeave={() => setDropFileTarget(null)}
-                        onDrop={(e) => {
-                          e.preventDefault()
-                          setDropFileTarget(null)
-                          setDragFileId(null)
-                          const draggedId = e.dataTransfer.getData('dataset-tab-id')
-                          if (!draggedId || draggedId === fid) return
-                          const fromIdx = openFileIds.indexOf(draggedId)
-                          const toIdx = openFileIds.indexOf(fid)
-                          if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
-                        }}
-                        onDragEnd={() => {
-                          setDragFileId(null)
-                          setDropFileTarget(null)
-                        }}
-                        onClick={() => selectFile(fid)}
-                        className={cn(
-                          'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                          isActive
-                            ? 'bg-background text-foreground'
-                            : 'text-muted-foreground hover:bg-accent/50',
-                          dragFileId === fid && 'opacity-40',
-                          dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50'
-                        )}
-                      >
-                        <span className="max-w-[140px] truncate">{node.name}</span>
-                        {isDirty && (
-                          <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-                        )}
-                        <span
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleCloseFile(fid)
+                <div className="flex items-center border-b bg-muted/30">
+                  <div className="flex items-center overflow-x-auto">
+                    {openFileIds.map((fid) => {
+                      const node = files.find((n) => n.id === fid)
+                      if (!node) return null
+                      const isActive = fid === selectedFileId
+                      const isDirty = _dirtyVersion >= 0 && isFileDirty(fid)
+                      return (
+                        <button
+                          key={fid}
+                          draggable
+                          onDragStart={(e) => {
+                            e.dataTransfer.setData('dataset-tab-id', fid)
+                            e.dataTransfer.effectAllowed = 'move'
+                            setDragFileId(fid)
                           }}
-                          className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          onDragOver={(e) => {
+                            if (!e.dataTransfer.types.includes('dataset-tab-id')) return
+                            e.preventDefault()
+                            e.dataTransfer.dropEffect = 'move'
+                            setDropFileTarget(fid)
+                          }}
+                          onDragLeave={() => setDropFileTarget(null)}
+                          onDrop={(e) => {
+                            e.preventDefault()
+                            setDropFileTarget(null)
+                            setDragFileId(null)
+                            const draggedId = e.dataTransfer.getData('dataset-tab-id')
+                            if (!draggedId || draggedId === fid) return
+                            const fromIdx = openFileIds.indexOf(draggedId)
+                            const toIdx = openFileIds.indexOf(fid)
+                            if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
+                          }}
+                          onDragEnd={() => {
+                            setDragFileId(null)
+                            setDropFileTarget(null)
+                          }}
+                          onClick={() => selectFile(fid)}
+                          className={cn(
+                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            isActive
+                              ? 'bg-background text-foreground'
+                              : 'text-muted-foreground hover:bg-accent/50',
+                            dragFileId === fid && 'opacity-40',
+                            dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50'
+                          )}
                         >
-                          <X size={10} />
-                        </span>
-                      </button>
-                    )
-                  })}
+                          <span className="max-w-[140px] truncate">{node.name}</span>
+                          {isDirty && (
+                            <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
+                          )}
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleCloseFile(fid)
+                            }}
+                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               )}
 
-              {/* Data table content */}
+              {/* Content area: (data table | analyses) | stats — nested Allotment */}
               <div className="min-h-0 flex-1 overflow-hidden">
                 {selectedFile ? (
-                  <DatasetTable
-                    fileId={selectedFileId!}
-                    selectedColumnId={selectedColumnId}
-                    onSelectColumn={setSelectedColumnId}
-                  />
+                  <Allotment proportionalLayout={false}>
+                    {/* Left: data table + analyses (inner split) */}
+                    <Allotment.Pane minSize={200}>
+                      <Allotment proportionalLayout={false}>
+                        {/* Data table */}
+                        <Allotment.Pane minSize={200} visible={dataTableVisible}>
+                          <DatasetTable
+                            fileId={selectedFileId!}
+                            selectedColumnId={selectedColumnId}
+                            onSelectColumn={setSelectedColumnId}
+                          />
+                        </Allotment.Pane>
+
+                        {/* Analyses panel (content only, tab bar is above) */}
+                        <Allotment.Pane
+                          minSize={200}
+                          visible={showAnalyses}
+                        >
+                          <div className="h-full border-l">
+                            {selectedFileId && (
+                              <AnalysesPanel
+                                datasetFileId={selectedFileId}
+                                hideTabBar
+                              />
+                            )}
+                          </div>
+                        </Allotment.Pane>
+                      </Allotment>
+                    </Allotment.Pane>
+
+                    {/* Right: column stats */}
+                    <Allotment.Pane
+                      preferredSize={280}
+                      minSize={200}
+                      maxSize={400}
+                      visible={statsVisible}
+                    >
+                      <div className="flex h-full flex-col border-l">
+                        <ColumnStatsPanel
+                          fileId={selectedFileId}
+                          columnId={selectedColumnId}
+                        />
+                      </div>
+                    </Allotment.Pane>
+                  </Allotment>
                 ) : (
                   <div className="flex h-full flex-col items-center justify-center text-center">
                     <Table2
@@ -409,34 +598,6 @@ export function DatasetsPage() {
                   </div>
                 )}
               </div>
-            </div>
-          </Allotment.Pane>
-
-          {/* Analyses panel */}
-          <Allotment.Pane
-            preferredSize={400}
-            minSize={200}
-            visible={analysesVisible && !!selectedFileId}
-          >
-            <div className="flex h-full flex-col border-l">
-              {selectedFileId && (
-                <AnalysesPanel datasetFileId={selectedFileId} />
-              )}
-            </div>
-          </Allotment.Pane>
-
-          {/* Column stats panel */}
-          <Allotment.Pane
-            preferredSize={280}
-            minSize={200}
-            maxSize={400}
-            visible={statsVisible && !!selectedFileId}
-          >
-            <div className="flex h-full flex-col border-l">
-              <ColumnStatsPanel
-                fileId={selectedFileId}
-                columnId={selectedColumnId}
-              />
             </div>
           </Allotment.Pane>
         </Allotment>
@@ -458,6 +619,13 @@ export function DatasetsPage() {
         onOpenChange={setUploadOpen}
         parentId={selectedParentId}
       />
+      {selectedFileId && (
+        <CreateAnalysisDialog
+          open={createAnalysisOpen}
+          onOpenChange={setCreateAnalysisOpen}
+          datasetFileId={selectedFileId}
+        />
+      )}
 
       {/* Unsaved changes confirmation dialog */}
       <Dialog

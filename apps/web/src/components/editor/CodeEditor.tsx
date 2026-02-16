@@ -149,6 +149,7 @@ export function CodeEditor({
       theme={resolvedTheme}
       options={{
         readOnly,
+        domReadOnly: readOnly,
         minimap: { enabled: editorSettings.minimap },
         fontSize: editorSettings.fontSize,
         fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",

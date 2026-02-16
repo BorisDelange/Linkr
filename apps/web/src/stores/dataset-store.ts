@@ -592,13 +592,14 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   importData: (fileId, columns, rows) => {
     const storage = getStorage()
     _loadedData.set(fileId, rows)
+    const snapshot = JSON.stringify(rows)
+    _savedDataSnapshot.set(fileId, snapshot)
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns, rowCount: rows.length, updatedAt: new Date().toISOString() } : f),
+      _dirtyVersion: s._dirtyVersion + 1,
     }))
     storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, updatedAt: new Date().toISOString() }).catch(() => {})
-    storage.datasetData.save({ datasetFileId: fileId, rows }).then(() => {
-      _savedDataSnapshot.set(fileId, JSON.stringify(rows))
-    }).catch(() => {})
+    storage.datasetData.save({ datasetFileId: fileId, rows }).catch(() => {})
   },
 
   saveFile: async (id) => {

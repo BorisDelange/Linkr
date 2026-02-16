@@ -32,19 +32,39 @@ function sortRootNodes(a: TreeNode, b: TreeNode): number {
   return sortNodes(a, b)
 }
 
-export function FileTree() {
+interface FileTreeProps {
+  showVirtualFiles: boolean
+}
+
+export function FileTree({ showVirtualFiles }: FileTreeProps) {
   const { t } = useTranslation()
   const { expandedFolders, selectedFileId, moveNode } = useFileStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
 
+  // When virtual files are hidden, check if a folder contains only virtual descendants
+  function hasNonVirtualDescendant(parentId: string): boolean {
+    const children = nodes.filter((f) => f.parentId === parentId)
+    return children.some((child) =>
+      child.virtual !== true || (child.type === 'folder' && hasNonVirtualDescendant(child.id))
+    )
+  }
+
+  function isVisible(node: TreeNode): boolean {
+    if (showVirtualFiles) return true
+    if (node.virtual !== true) return true
+    // Virtual folder: only show if it has non-virtual descendants
+    if (node.type === 'folder') return hasNonVirtualDescendant(node.id)
+    return false
+  }
+
   const rootNodes = nodes
-    .filter((f) => f.parentId === null)
+    .filter((f) => f.parentId === null && isVisible(f))
     .sort(sortRootNodes)
 
   function getChildren(parentId: string): TreeNode[] {
-    return nodes.filter((f) => f.parentId === parentId).sort(sortNodes)
+    return nodes.filter((f) => f.parentId === parentId && isVisible(f)).sort(sortNodes)
   }
 
   if (rootNodes.length === 0) {
