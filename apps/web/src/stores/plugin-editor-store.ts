@@ -283,7 +283,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   async savePlugin() {
     const { editingPluginId, isBuiltIn } = get()
     let { files } = get()
-    if (!editingPluginId || isBuiltIn) return
+    if (!editingPluginId) return
 
     // Compute content hash + auto-stamp workspace organization into plugin.json
     try {
@@ -307,10 +307,18 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     } catch { /* invalid plugin.json — save without hash */ }
 
     const storage = getStorage()
-    await storage.userPlugins.update(editingPluginId, {
-      files: { ...files },
-      updatedAt: new Date().toISOString(),
-    })
+    const now = new Date().toISOString()
+
+    if (isBuiltIn) {
+      // First save of a built-in plugin: create as user plugin
+      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now })
+      set({ isBuiltIn: false })
+    } else {
+      await storage.userPlugins.update(editingPluginId, {
+        files: { ...files },
+        updatedAt: now,
+      })
+    }
 
     // Hot-register in plugin registry
     try {

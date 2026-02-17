@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
@@ -10,17 +10,16 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
 
 interface PluginTestPanelProps {
+  activeTab: 'config' | 'code' | 'results'
   isExecuting: boolean
   result: RuntimeOutput | null
   statusMessage: string | null
   columns: DatasetColumn[]
 }
 
-export function PluginTestPanel({ isExecuting, result, statusMessage, columns }: PluginTestPanelProps) {
+export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage, columns }: PluginTestPanelProps) {
   const { t } = useTranslation()
   const { files, testLanguage, testConfig } = usePluginEditorStore()
-
-  const [activeTab, setActiveTab] = useState<'config' | 'code' | 'results'>('config')
 
   const parsedSchema = useMemo(() => {
     try {
@@ -42,29 +41,8 @@ export function PluginTestPanel({ isExecuting, result, statusMessage, columns }:
     } catch { return template }
   }, [files, testLanguage, testConfig, columns, parsedSchema])
 
-  const tabs = [
-    { id: 'config' as const, label: t('plugins.config_preview') },
-    { id: 'code' as const, label: t('plugins.test_code') },
-    { id: 'results' as const, label: t('plugins.test_results') },
-  ]
-
   return (
     <div className="flex h-full flex-col">
-      {/* Tab bar */}
-      <div className="flex items-center gap-1 border-b px-2 py-1">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`rounded px-2 py-1 text-xs transition-colors ${activeTab === tab.id ? 'bg-accent text-accent-foreground font-medium' : 'text-muted-foreground hover:bg-accent/50'}`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
       <div className="min-h-0 flex-1 overflow-auto">
         {activeTab === 'config' && (
           <PluginConfigPreview columns={columns.length > 0 ? columns : undefined} />

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   File,
@@ -71,7 +71,6 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
   const {
     files,
     activeFile,
-    isBuiltIn,
     openFile,
     createFile,
     deleteFile,
@@ -90,8 +89,7 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
   const [renameValue, setRenameValue] = useState('')
   const [datasets, setDatasets] = useState<{ id: string; name: string; columns: DatasetColumn[] }[]>([])
 
-  const handleProjectChange = useCallback(async (uid: string) => {
-    setTestProject(uid)
+  const loadDatasets = useCallback(async (uid: string) => {
     try {
       const storage = getStorage()
       const dsFiles = await storage.datasetFiles.getByProject(uid)
@@ -102,7 +100,17 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
     } catch {
       setDatasets([])
     }
-  }, [setTestProject])
+  }, [])
+
+  const handleProjectChange = useCallback(async (uid: string) => {
+    setTestProject(uid)
+    await loadDatasets(uid)
+  }, [setTestProject, loadDatasets])
+
+  // Load datasets on mount if a project is already selected (e.g. switching plugins)
+  useEffect(() => {
+    if (testProjectUid) loadDatasets(testProjectUid)
+  }, [testProjectUid, loadDatasets])
 
   const filenames = Object.keys(files).sort((a, b) => {
     if (a === 'plugin.json') return -1
@@ -133,20 +141,18 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
     <div className="flex h-full flex-col border-r">
       <div className="flex items-center justify-between border-b px-2 py-1.5">
         <div className="flex items-center gap-0.5">
-          {!isBuiltIn && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => { setCreating(true); setNewFileName('') }}
-                >
-                  <FilePlus size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
-            </Tooltip>
-          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => { setCreating(true); setNewFileName('') }}
+              >
+                <FilePlus size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
+          </Tooltip>
           {/* Test config popover */}
           <Popover>
             <Tooltip>
@@ -267,7 +273,7 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
                 </button>
               )}
             </ContextMenuTrigger>
-            {!isBuiltIn && filename !== 'plugin.json' && (
+            {filename !== 'plugin.json' && (
               <ContextMenuContent>
                 <ContextMenuItem onClick={() => { setRenamingFile(filename); setRenameValue(filename) }}>
                   <Pencil size={12} className="mr-2" />

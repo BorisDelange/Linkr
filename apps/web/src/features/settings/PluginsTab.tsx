@@ -4,7 +4,6 @@ import { Plus, Puzzle, Trash2, Download, Upload } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
@@ -40,7 +39,7 @@ function LanguageBadge({ language }: { language: string }) {
   const badge = LANG_BADGE[language]
   if (!badge) return null
   return (
-    <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', badge.color)}>
+    <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight', badge.color)}>
       {badge.label}
     </span>
   )
@@ -215,29 +214,27 @@ export function PluginsTab() {
               className="group relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
             >
               {/* Action buttons — top-right, visible on hover */}
-              {!plugin.isBuiltIn && (
-                <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => handleExport(plugin.id, e)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
-                    className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                    title={t('plugins.export')}
-                  >
-                    <Download size={12} />
-                  </span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
-                    className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  >
-                    <Trash2 size={12} />
-                  </span>
-                </div>
-              )}
+              <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => handleExport(plugin.id, e)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
+                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={t('plugins.export')}
+                >
+                  <Download size={12} />
+                </span>
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
+                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                >
+                  <Trash2 size={12} />
+                </span>
+              </div>
 
               <div className="flex items-center gap-2">
                 <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
@@ -249,25 +246,22 @@ export function PluginsTab() {
                 {plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
               </p>
               <div className="flex items-center gap-1 flex-wrap">
-                {plugin.manifest.languages?.map((l) => (
-                  <LanguageBadge key={l} language={l} />
-                ))}
-                {plugin.manifest.runtime?.includes('js-widget') && (
-                  <LanguageBadge language="js-widget" />
-                )}
                 {plugin.manifest.badges?.map((badge) => (
                   <span
                     key={badge.id}
-                    className={cn('shrink-0 rounded-full px-1.5 py-px text-[9px] font-medium leading-none', getBadgeClasses(badge.color))}
+                    className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight', getBadgeClasses(badge.color))}
                     style={getBadgeStyle(badge.color)}
                   >
                     {badge.label}
                   </span>
                 ))}
                 <div className="ml-auto flex items-center gap-1.5">
-                  <Badge variant="outline" className="text-[10px] shrink-0">
-                    {plugin.isBuiltIn ? t('plugins.built_in') : t('plugins.custom')}
-                  </Badge>
+                  {plugin.manifest.languages?.map((l) => (
+                    <LanguageBadge key={l} language={l} />
+                  ))}
+                  {plugin.manifest.runtime?.includes('js-widget') && (
+                    <LanguageBadge language="js-widget" />
+                  )}
                   <span className="text-[10px] text-muted-foreground shrink-0">
                     v{plugin.manifest.version ?? '1.0.0'}
                   </span>
