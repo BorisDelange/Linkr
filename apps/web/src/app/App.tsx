@@ -7,7 +7,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
-import { seedDemoDatabase, seedDemoDashboard } from '@/lib/demo-seed'
+import { seedDemoDatabase } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -70,10 +70,10 @@ export function App() {
     i18n.changeLanguage(language)
   }, [language, i18n])
 
-  // Seed demo database and dashboard on first launch, then reload stores
+  // Seed demo database on first launch, then reload stores
   useEffect(() => {
     if (projectsLoaded && dataSourcesLoaded) {
-      Promise.all([seedDemoDatabase(), seedDemoDashboard()]).then(() => {
+      seedDemoDatabase().then(() => {
         loadProjects()
         loadDataSources()
       })

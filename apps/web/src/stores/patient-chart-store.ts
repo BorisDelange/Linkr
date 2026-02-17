@@ -20,12 +20,10 @@ export type PatientWidgetType =
 
 export interface TimelineConfig {
   conceptIds: number[]
-  eventTableLabel: string
 }
 
 export interface ClinicalTableConfig {
   conceptIds: number[]
-  eventTableLabel: string
   orientation: 'concepts-as-rows' | 'concepts-as-columns'
 }
 
@@ -101,11 +99,10 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
 function defaultConfigForType(type: PatientWidgetType): PatientWidgetConfig {
   switch (type) {
     case 'timeline':
-      return { conceptIds: [], eventTableLabel: '' } as TimelineConfig
+      return { conceptIds: [] } as TimelineConfig
     case 'clinical_table':
       return {
         conceptIds: [],
-        eventTableLabel: '',
         orientation: 'concepts-as-rows',
       } as ClinicalTableConfig
     default:

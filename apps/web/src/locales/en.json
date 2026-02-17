@@ -444,6 +444,7 @@
     "upload_delimiter_tab": "Tab",
     "upload_delimiter_semicolon": "Semicolon (;)",
     "upload_delimiter_pipe": "Pipe (|)",
+    "upload_sheet": "Sheet",
     "upload_encoding": "Encoding",
     "upload_skip_rows": "Skip rows",
     "upload_header": "Header row",

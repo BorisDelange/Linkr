@@ -177,33 +177,31 @@ WHERE "${pt.idColumn}" = '${patientId}'`
 
 /**
  * Build query for timeline data — numeric values for selected concepts over time.
+ * Queries ALL event tables that have a value column and date column.
  * Returns: concept_id, concept_name, value, event_date.
  */
 export function buildTimelineQuery(
   mapping: SchemaMapping,
-  eventTableLabel: string,
   conceptIds: number[],
   patientId: string,
   visitId: string | null,
 ): string | null {
-  const et = mapping.eventTables?.[eventTableLabel]
-  if (!et || !et.valueColumn || !et.dateColumn) return null
-
-  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-  if (!patientIdCol) return null
-
-  const dict = getDictionaryForEvent(mapping, et)
+  if (!mapping.eventTables || conceptIds.length === 0) return null
   const idList = conceptIds.join(', ')
+  const parts: string[] = []
 
-  // Build concept match (standard + source)
-  const conceptMatch = buildConceptInCondition('e', et, idList)
+  for (const [, et] of Object.entries(mapping.eventTables)) {
+    if (!et.valueColumn || !et.dateColumn) continue
+    const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+    if (!patientIdCol) continue
 
-  // Visit filter
-  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+    const dict = getDictionaryForEvent(mapping, et)
+    const conceptMatch = buildConceptInCondition('e', et, idList)
+    const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
 
-  if (dict) {
-    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
-    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+    if (dict) {
+      const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
+      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
   c."${dict.nameColumn}" AS concept_name,
   e."${et.valueColumn}" AS value,
   e."${et.dateColumn}" AS event_date
@@ -211,20 +209,22 @@ FROM "${et.table}" e
 INNER JOIN "${dict.table}" c ON ${joinCond}
 WHERE e."${patientIdCol}" = '${patientId}'
   AND (${conceptMatch})
-  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}
-ORDER BY e."${et.dateColumn}"`
-  }
-
-  // No dictionary — use concept ID as name
-  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
+    } else {
+      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
   CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
   e."${et.valueColumn}" AS value,
   e."${et.dateColumn}" AS event_date
 FROM "${et.table}" e
 WHERE e."${patientIdCol}" = '${patientId}'
   AND (${conceptMatch})
-  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}
-ORDER BY e."${et.dateColumn}"`
+  AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
+    }
+  }
+
+  if (parts.length === 0) return null
+  if (parts.length === 1) return `${parts[0]}\nORDER BY event_date`
+  return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date`
 }
 
 // ---------------------------------------------------------------------------
@@ -233,53 +233,58 @@ ORDER BY e."${et.dateColumn}"`
 
 /**
  * Build query for clinical table — all values for selected concepts.
+ * Queries ALL event tables that have a date column.
  * Returns: concept_id, concept_name, value_numeric, value_string, event_date.
  * Pivot (concepts-as-rows vs concepts-as-columns) is done client-side.
  */
 export function buildClinicalTableQuery(
   mapping: SchemaMapping,
-  eventTableLabel: string,
   conceptIds: number[],
   patientId: string,
   visitId: string | null,
 ): string | null {
-  const et = mapping.eventTables?.[eventTableLabel]
-  if (!et || !et.dateColumn) return null
-
-  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-  if (!patientIdCol) return null
-
-  const dict = getDictionaryForEvent(mapping, et)
+  if (!mapping.eventTables || conceptIds.length === 0) return null
   const idList = conceptIds.join(', ')
-  const conceptMatch = buildConceptInCondition('e', et, idList)
-  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+  const parts: string[] = []
 
-  const valueCols = [
-    et.valueColumn ? `e."${et.valueColumn}" AS value_numeric` : 'NULL AS value_numeric',
-    et.valueStringColumn ? `e."${et.valueStringColumn}" AS value_string` : 'NULL AS value_string',
-  ].join(',\n  ')
+  for (const [, et] of Object.entries(mapping.eventTables)) {
+    if (!et.dateColumn) continue
+    const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
+    if (!patientIdCol) continue
 
-  if (dict) {
-    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
-    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+    const dict = getDictionaryForEvent(mapping, et)
+    const conceptMatch = buildConceptInCondition('e', et, idList)
+    const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+
+    const valueCols = [
+      et.valueColumn ? `e."${et.valueColumn}" AS value_numeric` : 'NULL AS value_numeric',
+      et.valueStringColumn ? `e."${et.valueStringColumn}" AS value_string` : 'NULL AS value_string',
+    ].join(',\n  ')
+
+    if (dict) {
+      const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
+      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
   c."${dict.nameColumn}" AS concept_name,
   ${valueCols},
   e."${et.dateColumn}" AS event_date
 FROM "${et.table}" e
 INNER JOIN "${dict.table}" c ON ${joinCond}
 WHERE e."${patientIdCol}" = '${patientId}'
-  AND (${conceptMatch})${visitFilter}
-ORDER BY e."${et.dateColumn}" DESC`
-  }
-
-  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
+  AND (${conceptMatch})${visitFilter}`)
+    } else {
+      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
   CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
   ${valueCols},
   e."${et.dateColumn}" AS event_date
 FROM "${et.table}" e
 WHERE e."${patientIdCol}" = '${patientId}'
-  AND (${conceptMatch})${visitFilter}
-ORDER BY e."${et.dateColumn}" DESC`
+  AND (${conceptMatch})${visitFilter}`)
+    }
+  }
+
+  if (parts.length === 0) return null
+  if (parts.length === 1) return `${parts[0]}\nORDER BY event_date DESC`
+  return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date DESC`
 }
 
 // ---------------------------------------------------------------------------

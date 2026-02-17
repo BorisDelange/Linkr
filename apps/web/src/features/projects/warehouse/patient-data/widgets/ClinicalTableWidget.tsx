@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Settings2, ArrowRightLeft } from 'lucide-react'
+import { ArrowRightLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { usePatientChartContext } from '../PatientChartContext'
@@ -10,7 +10,6 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildClinicalTableQuery } from '@/lib/duckdb/patient-data-queries'
-import { ConceptPickerDialog } from '../ConceptPickerDialog'
 
 interface ClinicalTableWidgetProps {
   widgetId: string
@@ -33,7 +32,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
   const widget = widgets.find((w) => w.id === widgetId)
   const config = (widget?.config ?? {
     conceptIds: [],
-    eventTableLabel: '',
     orientation: 'concepts-as-rows',
   }) as ClinicalTableConfig
 
@@ -42,26 +40,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
 
   const [data, setData] = useState<ClinicalRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [pickerOpen, setPickerOpen] = useState(false)
-
-  // Available event table labels
-  const eventLabels = useMemo(
-    () =>
-      schemaMapping?.eventTables
-        ? Object.keys(schemaMapping.eventTables)
-        : [],
-    [schemaMapping],
-  )
-
-  // Auto-set first event table if not configured
-  useEffect(() => {
-    if (!config.eventTableLabel && eventLabels.length > 0) {
-      updateWidgetConfig(widgetId, {
-        ...config,
-        eventTableLabel: eventLabels[0],
-      })
-    }
-  }, [config, eventLabels, widgetId, updateWidgetConfig])
 
   // Fetch data
   useEffect(() => {
@@ -69,8 +47,7 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
       !dataSourceId ||
       !schemaMapping ||
       !patientId ||
-      config.conceptIds.length === 0 ||
-      !config.eventTableLabel
+      config.conceptIds.length === 0
     ) {
       setData([])
       return
@@ -81,7 +58,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
 
     const sql = buildClinicalTableQuery(
       schemaMapping,
-      config.eventTableLabel,
       config.conceptIds,
       patientId,
       visitId,
@@ -108,7 +84,7 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId, visitId, config.conceptIds, config.eventTableLabel])
+  }, [dataSourceId, schemaMapping, patientId, visitId, config.conceptIds])
 
   const toggleOrientation = () => {
     updateWidgetConfig(widgetId, {
@@ -118,15 +94,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
           ? 'concepts-as-columns'
           : 'concepts-as-rows',
     })
-  }
-
-  const handleConceptsSelected = (ids: number[], label: string) => {
-    updateWidgetConfig(widgetId, {
-      ...config,
-      conceptIds: ids,
-      eventTableLabel: label,
-    })
-    setPickerOpen(false)
   }
 
   const formatValue = (row: ClinicalRow) => {
@@ -151,26 +118,10 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
   // Empty state
   if (config.conceptIds.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2">
+      <div className="flex h-full items-center justify-center">
         <p className="text-xs text-muted-foreground">
           {t('patient_data.configure_concepts')}
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={() => setPickerOpen(true)}
-        >
-          <Settings2 size={12} />
-          {t('patient_data.select_concepts')}
-        </Button>
-        <ConceptPickerDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          selectedConceptIds={config.conceptIds}
-          eventTableLabel={config.eventTableLabel}
-          onConfirm={handleConceptsSelected}
-        />
       </div>
     )
   }
@@ -208,18 +159,14 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
 
     return (
       <div className="relative h-full">
-        <div className="absolute top-0 right-0 z-10 flex gap-0.5">
-          <Button variant="ghost" size="icon-xs" onClick={toggleOrientation}>
-            <ArrowRightLeft size={10} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={() => setPickerOpen(true)}
-          >
-            <Settings2 size={10} />
-          </Button>
-        </div>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="absolute top-0 right-0 z-10"
+          onClick={toggleOrientation}
+        >
+          <ArrowRightLeft size={10} />
+        </Button>
         <ScrollArea className="h-full">
           <table className="w-full text-xs">
             <thead>
@@ -250,13 +197,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
             </tbody>
           </table>
         </ScrollArea>
-        <ConceptPickerDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          selectedConceptIds={config.conceptIds}
-          eventTableLabel={config.eventTableLabel}
-          onConfirm={handleConceptsSelected}
-        />
       </div>
     )
   }
@@ -272,18 +212,14 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
 
   return (
     <div className="relative h-full">
-      <div className="absolute top-0 right-0 z-10 flex gap-0.5">
-        <Button variant="ghost" size="icon-xs" onClick={toggleOrientation}>
-          <ArrowRightLeft size={10} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={() => setPickerOpen(true)}
-        >
-          <Settings2 size={10} />
-        </Button>
-      </div>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        className="absolute top-0 right-0 z-10"
+        onClick={toggleOrientation}
+      >
+        <ArrowRightLeft size={10} />
+      </Button>
       <ScrollArea className="h-full">
         <table className="w-full text-xs">
           <thead>
@@ -314,13 +250,6 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
           </tbody>
         </table>
       </ScrollArea>
-      <ConceptPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        selectedConceptIds={config.conceptIds}
-        eventTableLabel={config.eventTableLabel}
-        onConfirm={handleConceptsSelected}
-      />
     </div>
   )
 }

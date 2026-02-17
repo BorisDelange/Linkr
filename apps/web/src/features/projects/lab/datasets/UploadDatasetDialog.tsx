@@ -108,6 +108,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [encoding, setEncoding] = useState<Encoding>('UTF-8')
   const [hasHeader, setHasHeader] = useState(true)
 
+  // Excel-specific options
+  const [sheetNames, setSheetNames] = useState<string[]>([])
+  const [selectedSheet, setSelectedSheet] = useState<string>('')
+
   // Reset state on close
   useEffect(() => {
     if (!open) {
@@ -119,6 +123,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setSkipRows(0)
       setEncoding('UTF-8')
       setHasHeader(true)
+      setSheetNames([])
+      setSelectedSheet('')
     }
   }, [open])
 
@@ -128,7 +134,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       parseFile(file)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet])
 
   const isCSVLike = useCallback((f: File) => {
     const ext = f.name.toLowerCase()
@@ -159,7 +165,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [delimiter, skipRows, encoding, hasHeader, isCSVLike, isExcel, isParquet, t])
+  }, [delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, t])
 
   const parseCSV = useCallback((f: File) => {
     const papaConfig: Papa.ParseLocalConfig<Record<string, unknown>, File> = {
@@ -220,7 +226,14 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer)
         const wb = XLSX.read(data, { type: 'array' })
-        const sheetName = wb.SheetNames[0]
+
+        // Populate sheet list and auto-select first sheet if none chosen
+        setSheetNames(wb.SheetNames)
+        const sheetName = selectedSheet && wb.SheetNames.includes(selectedSheet)
+          ? selectedSheet
+          : wb.SheetNames[0]
+        if (!selectedSheet && sheetName) setSelectedSheet(sheetName)
+
         if (!sheetName) {
           setError(t('datasets.upload_no_columns'))
           setLoading(false)
@@ -263,7 +276,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setLoading(false)
     }
     reader.readAsArrayBuffer(f)
-  }, [skipRows, hasHeader, t])
+  }, [skipRows, hasHeader, selectedSheet, t])
 
   const parseParquet = useCallback(async (f: File) => {
     try {
@@ -343,6 +356,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (encoding !== 'UTF-8') opts.encoding = encoding
     if (skipRows > 0) opts.skipRows = skipRows
     if (!hasHeader) opts.hasHeader = false
+    if (selectedSheet) opts.sheet = selectedSheet
     const parseOpts = Object.keys(opts).length > 0 ? opts : undefined
 
     // Build raw file blob for re-import support
@@ -366,7 +380,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       // Single atomic method — no race conditions
       await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
     }
-  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader])
+  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader, selectedSheet])
 
   const handleImport = useCallback(() => {
     if (!parsed) return
@@ -385,6 +399,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   }, [])
 
   const showCSVOptions = file && isCSVLike(file)
+  const showExcelOptions = file && isExcel(file)
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -448,7 +463,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                 </Button>
               </div>
 
-              {/* Parse options (CSV/TSV only) */}
+              {/* Parse options (CSV/TSV) */}
               {showCSVOptions && (
                 <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
@@ -479,6 +494,49 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={skipRows}
+                      onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
+                        <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Parse options (Excel) */}
+              {showExcelOptions && (
+                <div className="grid grid-cols-3 gap-3">
+                  {sheetNames.length > 1 && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('datasets.upload_sheet')}</Label>
+                      <Select value={selectedSheet} onValueChange={setSelectedSheet}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sheetNames.map((name) => (
+                            <SelectItem key={name} value={name}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
                     <Input

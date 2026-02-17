@@ -546,6 +546,8 @@ export interface DatasetParseOptions {
   encoding?: string
   skipRows?: number
   hasHeader?: boolean
+  /** Excel sheet name (only for .xlsx/.xls files). */
+  sheet?: string
 }
 
 export interface DatasetFile {

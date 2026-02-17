@@ -10,8 +10,6 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
-import { Settings2 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { usePatientChartContext } from '../PatientChartContext'
 import {
   usePatientChartStore,
@@ -19,7 +17,6 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { ConceptPickerDialog } from '../ConceptPickerDialog'
 
 interface TimelineWidgetProps {
   widgetId: string
@@ -43,13 +40,12 @@ const COLORS = [
 export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
   const { t } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const { widgets, selectedPatientId, selectedVisitId, updateWidgetConfig } =
+  const { widgets, selectedPatientId, selectedVisitId } =
     usePatientChartStore()
 
   const widget = widgets.find((w) => w.id === widgetId)
   const config = (widget?.config ?? {
     conceptIds: [],
-    eventTableLabel: '',
   }) as TimelineConfig
 
   const patientId = selectedPatientId[projectUid] ?? null
@@ -57,26 +53,6 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
 
   const [data, setData] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(false)
-  const [pickerOpen, setPickerOpen] = useState(false)
-
-  // Available event table labels
-  const eventLabels = useMemo(
-    () =>
-      schemaMapping?.eventTables
-        ? Object.keys(schemaMapping.eventTables)
-        : [],
-    [schemaMapping],
-  )
-
-  // Auto-set first event table if not configured
-  useEffect(() => {
-    if (!config.eventTableLabel && eventLabels.length > 0) {
-      updateWidgetConfig(widgetId, {
-        ...config,
-        eventTableLabel: eventLabels[0],
-      })
-    }
-  }, [config, eventLabels, widgetId, updateWidgetConfig])
 
   // Fetch data
   useEffect(() => {
@@ -84,8 +60,7 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
       !dataSourceId ||
       !schemaMapping ||
       !patientId ||
-      config.conceptIds.length === 0 ||
-      !config.eventTableLabel
+      config.conceptIds.length === 0
     ) {
       setData([])
       return
@@ -96,7 +71,6 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
 
     const sql = buildTimelineQuery(
       schemaMapping,
-      config.eventTableLabel,
       config.conceptIds,
       patientId,
       visitId,
@@ -123,7 +97,7 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId, visitId, config.conceptIds, config.eventTableLabel])
+  }, [dataSourceId, schemaMapping, patientId, visitId, config.conceptIds])
 
   // Reshape data for Recharts: pivot by date, one key per concept_name
   const { chartData, conceptNames } = useMemo(() => {
@@ -145,38 +119,13 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
     return { chartData: sorted, conceptNames: [...nameSet] }
   }, [data])
 
-  const handleConceptsSelected = (ids: number[], label: string) => {
-    updateWidgetConfig(widgetId, {
-      ...config,
-      conceptIds: ids,
-      eventTableLabel: label,
-    })
-    setPickerOpen(false)
-  }
-
   // Empty state — no concepts configured
   if (config.conceptIds.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2">
+      <div className="flex h-full items-center justify-center">
         <p className="text-xs text-muted-foreground">
           {t('patient_data.configure_concepts')}
         </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={() => setPickerOpen(true)}
-        >
-          <Settings2 size={12} />
-          {t('patient_data.select_concepts')}
-        </Button>
-        <ConceptPickerDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          selectedConceptIds={config.conceptIds}
-          eventTableLabel={config.eventTableLabel}
-          onConfirm={handleConceptsSelected}
-        />
       </div>
     )
   }
@@ -204,26 +153,10 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
   // No data
   if (data.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2">
+      <div className="flex h-full items-center justify-center">
         <p className="text-xs text-muted-foreground">
           {t('patient_data.no_data')}
         </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="gap-1.5 text-xs"
-          onClick={() => setPickerOpen(true)}
-        >
-          <Settings2 size={12} />
-          {t('patient_data.select_concepts')}
-        </Button>
-        <ConceptPickerDialog
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          selectedConceptIds={config.conceptIds}
-          eventTableLabel={config.eventTableLabel}
-          onConfirm={handleConceptsSelected}
-        />
       </div>
     )
   }
@@ -242,52 +175,35 @@ export function TimelineWidget({ widgetId }: TimelineWidgetProps) {
   }
 
   return (
-    <div className="relative h-full w-full">
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="absolute top-0 right-0 z-10"
-        onClick={() => setPickerOpen(true)}
-      >
-        <Settings2 size={10} />
-      </Button>
-      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
-        <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
-          <XAxis
-            dataKey="date"
-            tick={{ fontSize: 9 }}
-            tickFormatter={formatDate}
+    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+      <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />
+        <XAxis
+          dataKey="date"
+          tick={{ fontSize: 9 }}
+          tickFormatter={formatDate}
+        />
+        <YAxis tick={{ fontSize: 9 }} width={40} />
+        <Tooltip
+          contentStyle={{ fontSize: 11 }}
+          labelFormatter={formatDate}
+        />
+        {conceptNames.length > 1 && (
+          <Legend wrapperStyle={{ fontSize: 10 }} />
+        )}
+        {conceptNames.map((name, i) => (
+          <Line
+            key={name}
+            type="monotone"
+            dataKey={name}
+            stroke={COLORS[i % COLORS.length]}
+            strokeWidth={1.5}
+            dot={{ r: 2 }}
+            activeDot={{ r: 3 }}
+            connectNulls
           />
-          <YAxis tick={{ fontSize: 9 }} width={40} />
-          <Tooltip
-            contentStyle={{ fontSize: 11 }}
-            labelFormatter={formatDate}
-          />
-          {conceptNames.length > 1 && (
-            <Legend wrapperStyle={{ fontSize: 10 }} />
-          )}
-          {conceptNames.map((name, i) => (
-            <Line
-              key={name}
-              type="monotone"
-              dataKey={name}
-              stroke={COLORS[i % COLORS.length]}
-              strokeWidth={1.5}
-              dot={{ r: 2 }}
-              activeDot={{ r: 3 }}
-              connectNulls
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-      <ConceptPickerDialog
-        open={pickerOpen}
-        onOpenChange={setPickerOpen}
-        selectedConceptIds={config.conceptIds}
-        eventTableLabel={config.eventTableLabel}
-        onConfirm={handleConceptsSelected}
-      />
-    </div>
+        ))}
+      </LineChart>
+    </ResponsiveContainer>
   )
 }

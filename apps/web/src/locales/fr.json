@@ -444,6 +444,7 @@
     "upload_delimiter_tab": "Tabulation",
     "upload_delimiter_semicolon": "Point-virgule (;)",
     "upload_delimiter_pipe": "Pipe (|)",
+    "upload_sheet": "Feuille",
     "upload_encoding": "Encodage",
     "upload_skip_rows": "Lignes à sauter",
     "upload_header": "Ligne d'en-tête",

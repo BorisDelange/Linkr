@@ -12,11 +12,16 @@ import { TimelineWidget } from './widgets/TimelineWidget'
 import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
 import { MedicationWidget } from './widgets/MedicationWidget'
 import { DiagnosisWidget } from './widgets/DiagnosisWidget'
+import { ConceptPickerDialog } from './ConceptPickerDialog'
 
 interface PatientChartGridProps {
   widgets: PatientChartWidget[]
   editMode: boolean
+  hideTitleBars?: boolean
 }
+
+/** Widget types that support concept editing. */
+const CONCEPT_WIDGET_TYPES = new Set(['timeline', 'clinical_table'])
 
 function renderWidgetContent(widget: PatientChartWidget) {
   switch (widget.type) {
@@ -40,10 +45,18 @@ function renderWidgetContent(widget: PatientChartWidget) {
 export function PatientChartGrid({
   widgets,
   editMode,
+  hideTitleBars,
 }: PatientChartGridProps) {
-  const { updateWidgetLayout, removeWidget } = usePatientChartStore()
+  const { updateWidgetLayout, removeWidget, updateWidgetConfig } =
+    usePatientChartStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
+
+  // Concept picker state — lifted here so WidgetCard "Edit" can open it
+  const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const editingWidget = editingWidgetId
+    ? widgets.find((w) => w.id === editingWidgetId)
+    : null
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -94,6 +107,16 @@ export function PatientChartGrid({
     [widgets, updateWidgetLayout],
   )
 
+  const handleConceptsConfirm = useCallback(
+    (ids: number[]) => {
+      if (!editingWidget) return
+      const config = editingWidget.config as Record<string, unknown>
+      updateWidgetConfig(editingWidget.id, { ...config, conceptIds: ids })
+      setEditingWidgetId(null)
+    },
+    [editingWidget, updateWidgetConfig],
+  )
+
   return (
     <div ref={containerRef} className="w-full">
       <GridLayout
@@ -119,13 +142,31 @@ export function PatientChartGrid({
             <WidgetCard
               title={widget.name}
               onRemove={() => removeWidget(widget.id)}
+              onEdit={
+                CONCEPT_WIDGET_TYPES.has(widget.type)
+                  ? () => setEditingWidgetId(widget.id)
+                  : undefined
+              }
               editMode={editMode}
+              hideTitleBar={hideTitleBars}
             >
               {renderWidgetContent(widget)}
             </WidgetCard>
           </div>
         ))}
       </GridLayout>
+
+      {/* Shared concept picker dialog */}
+      <ConceptPickerDialog
+        open={editingWidgetId !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingWidgetId(null)
+        }}
+        selectedConceptIds={
+          (editingWidget?.config as Record<string, unknown>)?.conceptIds as number[] ?? []
+        }
+        onConfirm={handleConceptsConfirm}
+      />
     </div>
   )
 }

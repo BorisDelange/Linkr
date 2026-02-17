@@ -57,7 +57,7 @@ export interface ConceptStats {
 export function useConcepts(dataSourceId: string | undefined, schemaMapping: SchemaMapping | undefined) {
   const [hasConceptTable, setHasConceptTable] = useState<boolean | null>(null)
   const [filters, setFilters] = useState<ConceptFilters>(EMPTY_FILTERS)
-  const [sorting, setSorting] = useState<ConceptSorting | null>(null)
+  const [sorting, setSorting] = useState<ConceptSorting | null>({ columnId: 'record_count', desc: true })
   const [debouncedTextFilters, setDebouncedTextFilters] = useState<ConceptFilters>(EMPTY_FILTERS)
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(50)

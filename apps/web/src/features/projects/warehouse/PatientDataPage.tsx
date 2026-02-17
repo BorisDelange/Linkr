@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Plus, Pencil, Lock, Users, LayoutGrid } from 'lucide-react'
+import { Plus, Pencil, Lock, Users, LayoutGrid, PanelTop } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -21,6 +21,7 @@ export function PatientDataPage() {
   const projectUid = uid ?? ''
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
+  const [hideTitleBars, setHideTitleBars] = useState(false)
 
   const { getActiveSource } = useDataSourceStore()
   const mappedSource = projectUid ? getActiveSource(projectUid) : undefined
@@ -99,14 +100,25 @@ export function PatientDataPage() {
 
           <div className="ml-auto flex items-center gap-1 py-1">
             {editMode && (
-              <Button
-                size="xs"
-                className="gap-1"
-                onClick={() => setAddWidgetOpen(true)}
-              >
-                <Plus size={12} />
-                {t('dashboard.add_widget')}
-              </Button>
+              <>
+                <Button
+                  size="xs"
+                  className="gap-1"
+                  onClick={() => setAddWidgetOpen(true)}
+                >
+                  <Plus size={12} />
+                  {t('dashboard.add_widget')}
+                </Button>
+                <Button
+                  variant={hideTitleBars ? 'secondary' : 'ghost'}
+                  size="xs"
+                  className="gap-1"
+                  onClick={() => setHideTitleBars(!hideTitleBars)}
+                  title={t('dashboard.show_widget_titles')}
+                >
+                  <PanelTop size={12} />
+                </Button>
+              </>
             )}
             <Button
               variant={editMode ? 'default' : 'ghost'}
@@ -138,6 +150,7 @@ export function PatientDataPage() {
                   <PatientChartGrid
                     widgets={tabWidgets}
                     editMode={editMode}
+                    hideTitleBars={hideTitleBars}
                   />
                 </ScrollArea>
               ) : (

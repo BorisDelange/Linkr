@@ -95,12 +95,17 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
   const [encoding, setEncoding] = useState<Encoding>('UTF-8')
   const [hasHeader, setHasHeader] = useState(true)
 
+  // Excel-specific options
+  const [sheetNames, setSheetNames] = useState<string[]>([])
+  const [selectedSheet, setSelectedSheet] = useState<string>('')
+
   // Load raw file and initialize options when dialog opens
   useEffect(() => {
     if (!open) return
     setLoadingRaw(true)
     setError(null)
     setParsed(null)
+    setSheetNames([])
 
     // Initialize from saved parse options
     const opts = file.parseOptions
@@ -108,6 +113,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
     setSkipRows(opts?.skipRows ?? 0)
     setEncoding((opts?.encoding as Encoding) ?? 'UTF-8')
     setHasHeader(opts?.hasHeader !== false)
+    setSelectedSheet(opts?.sheet ?? '')
 
     getStorage().datasetRawFiles.get(file.id).then((raw) => {
       if (raw) {
@@ -139,6 +145,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
   }, [])
 
   const showCSVOptions = rawFileName ? isCSVLike(rawFileName) : false
+  const showExcelOptions = rawFileName ? isExcel(rawFileName) : false
 
   // Parse the raw blob with current options
   const parseRaw = useCallback(() => {
@@ -191,7 +198,14 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer)
           const wb = XLSX.read(data, { type: 'array' })
-          const sheetName = wb.SheetNames[0]
+
+          // Populate sheet list and auto-select first sheet if none chosen
+          setSheetNames(wb.SheetNames)
+          const sheetName = selectedSheet && wb.SheetNames.includes(selectedSheet)
+            ? selectedSheet
+            : wb.SheetNames[0]
+          if (!selectedSheet && sheetName) setSelectedSheet(sheetName)
+
           if (!sheetName) {
             setError(t('datasets.upload_no_columns'))
             setLoading(false)
@@ -257,7 +271,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
         setLoading(false)
       })()
     }
-  }, [rawBlob, rawFileName, delimiter, skipRows, encoding, hasHeader, isCSVLike, isExcel, isParquet, t])
+  }, [rawBlob, rawFileName, delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, t])
 
   // Auto-parse when raw file is loaded or options change
   useEffect(() => {
@@ -275,12 +289,13 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
     if (encoding !== 'UTF-8') opts.encoding = encoding
     if (skipRows > 0) opts.skipRows = skipRows
     if (!hasHeader) opts.hasHeader = false
+    if (selectedSheet) opts.sheet = selectedSheet
     const parseOpts = Object.keys(opts).length > 0 ? opts : undefined
 
     await store.reimportData(file.id, parsed.columns, parsed.rows, parseOpts)
     setReimporting(false)
     onOpenChange(false)
-  }, [parsed, file.id, delimiter, encoding, skipRows, hasHeader, onOpenChange])
+  }, [parsed, file.id, delimiter, encoding, skipRows, hasHeader, selectedSheet, onOpenChange])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -315,7 +330,7 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                 </div>
               </div>
 
-              {/* Parse options (CSV/TSV only) */}
+              {/* Parse options (CSV/TSV) */}
               {showCSVOptions && (
                 <div className="grid grid-cols-4 gap-3">
                   <div className="space-y-1">
@@ -346,6 +361,49 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={skipRows}
+                      onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">{t('datasets.upload_header')}</Label>
+                    <Select value={hasHeader ? 'yes' : 'no'} onValueChange={(v) => setHasHeader(v === 'yes')}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="yes">{t('datasets.upload_header_yes')}</SelectItem>
+                        <SelectItem value="no">{t('datasets.upload_header_no')}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              {/* Parse options (Excel) */}
+              {showExcelOptions && (
+                <div className="grid grid-cols-3 gap-3">
+                  {sheetNames.length > 1 && (
+                    <div className="space-y-1">
+                      <Label className="text-xs">{t('datasets.upload_sheet')}</Label>
+                      <Select value={selectedSheet} onValueChange={setSelectedSheet}>
+                        <SelectTrigger className="h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {sheetNames.map((name) => (
+                            <SelectItem key={name} value={name}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-1">
                     <Label className="text-xs">{t('datasets.upload_skip_rows')}</Label>
                     <Input
