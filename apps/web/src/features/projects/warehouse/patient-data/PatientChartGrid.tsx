@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -13,6 +14,16 @@ import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
 import { MedicationWidget } from './widgets/MedicationWidget'
 import { DiagnosisWidget } from './widgets/DiagnosisWidget'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface PatientChartGridProps {
   widgets: PatientChartWidget[]
@@ -50,6 +61,7 @@ export function PatientChartGrid({
   editMode,
   hideTitleBars,
 }: PatientChartGridProps) {
+  const { t } = useTranslation()
   const { updateWidgetLayout, removeWidget, updateWidgetConfig } =
     usePatientChartStore()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -57,6 +69,8 @@ export function PatientChartGrid({
 
   // Concept picker state — lifted here so WidgetCard "Edit" can open it
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
+  const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
   const editingWidget = editingWidgetId
     ? widgets.find((w) => w.id === editingWidgetId)
     : null
@@ -144,7 +158,7 @@ export function PatientChartGrid({
           <div key={widget.id}>
             <WidgetCard
               title={widget.name}
-              onRemove={() => removeWidget(widget.id)}
+              onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onEdit={
                 CONCEPT_WIDGET_TYPES.has(widget.type)
                   ? () => setEditingWidgetId(widget.id)
@@ -175,6 +189,29 @@ export function PatientChartGrid({
         }
         onConfirm={handleConceptsConfirm}
       />
+
+      <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('dashboard.delete_widget_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (confirmDeleteWidgetId) removeWidget(confirmDeleteWidgetId)
+                setConfirmDeleteWidgetId(null)
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

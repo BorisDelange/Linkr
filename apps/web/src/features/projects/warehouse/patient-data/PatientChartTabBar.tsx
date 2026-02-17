@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   DndContext,
@@ -16,36 +16,53 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { X, Plus } from 'lucide-react'
+import { Plus, Pencil, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   usePatientChartStore,
   type PatientChartTab,
 } from '@/stores/patient-chart-store'
-import { Input } from '@/components/ui/input'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface PatientChartTabBarProps {
   projectUid: string
+  editMode: boolean
 }
 
 function SortableTab({
   tab,
   isActive,
   canClose,
+  editMode,
   onActivate,
   onClose,
-  onRename,
+  onStartRename,
 }: {
   tab: PatientChartTab
   isActive: boolean
   canClose: boolean
+  editMode: boolean
   onActivate: () => void
   onClose: () => void
-  onRename: (name: string) => void
+  onStartRename: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(tab.name)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const { t } = useTranslation()
 
   const {
     attributes,
@@ -54,7 +71,7 @@ function SortableTab({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: tab.id })
+  } = useSortable({ id: tab.id, disabled: !editMode })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -63,72 +80,98 @@ function SortableTab({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  const handleDoubleClick = () => {
-    setEditName(tab.name)
-    setEditing(true)
-    setTimeout(() => inputRef.current?.select(), 0)
-  }
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...(editMode ? listeners : {})}
+          onClick={onActivate}
+          onDoubleClick={onStartRename}
+          className={cn(
+            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
+            isActive
+              ? 'border-primary text-foreground'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
+            isDragging && 'cursor-grabbing'
+          )}
+        >
+          <span>{tab.name}</span>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onStartRename}>
+          <Pencil size={14} />
+          {t('common.rename')}
+        </ContextMenuItem>
+        {canClose && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onClick={onClose}>
+              <Trash2 size={14} />
+              {t('common.delete')}
+            </ContextMenuItem>
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
 
-  const handleFinishRename = () => {
-    setEditing(false)
-    if (editName.trim() && editName.trim() !== tab.name) {
-      onRename(editName.trim())
-    }
-  }
+/** Inline rename input — rendered instead of SortableTab when editing. */
+function TabRenameInput({
+  tab,
+  isActive,
+  onFinish,
+}: {
+  tab: PatientChartTab
+  isActive: boolean
+  onFinish: (newName: string | null) => void
+}) {
+  const [value, setValue] = useState(tab.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (el) {
+        el.focus()
+        const len = el.value.length
+        el.setSelectionRange(len, len)
+      }
+    })
+  }, [])
+
+  const commit = useCallback(() => {
+    const trimmed = value.trim()
+    onFinish(trimmed && trimmed !== tab.name ? trimmed : null)
+  }, [value, tab.name, onFinish])
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      {...attributes}
-      {...listeners}
-      onClick={onActivate}
-      onDoubleClick={handleDoubleClick}
       className={cn(
-        'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
-        isActive
-          ? 'border-primary text-foreground'
-          : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
-        isDragging && 'cursor-grabbing',
+        'flex items-center border-b-2 px-3 py-1.5',
+        isActive ? 'border-primary' : 'border-transparent',
       )}
     >
-      {editing ? (
-        <Input
-          ref={inputRef}
-          value={editName}
-          onChange={(e) => setEditName(e.target.value)}
-          onBlur={handleFinishRename}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleFinishRename()
-            if (e.key === 'Escape') setEditing(false)
-          }}
-          className="h-5 w-24 px-1 text-xs"
-          onClick={(e) => e.stopPropagation()}
-        />
-      ) : (
-        <span>{tab.name}</span>
-      )}
-      {canClose && (
-        <button
-          onClick={(e) => {
-            e.stopPropagation()
-            onClose()
-          }}
-          className={cn(
-            'rounded p-0.5 transition-opacity',
-            isActive
-              ? 'opacity-60 hover:opacity-100 hover:bg-accent'
-              : 'opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:bg-accent',
-          )}
-        >
-          <X size={10} />
-        </button>
-      )}
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') onFinish(null)
+        }}
+        className="h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none"
+      />
     </div>
   )
 }
 
-export function PatientChartTabBar({ projectUid }: PatientChartTabBarProps) {
+export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarProps) {
   const { t } = useTranslation()
   const {
     tabs: allTabs,
@@ -139,6 +182,10 @@ export function PatientChartTabBar({ projectUid }: PatientChartTabBarProps) {
     reorderTabs,
     setActiveTab,
   } = usePatientChartStore()
+
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
+  const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
+  const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
 
   const tabs = allTabs
     .filter((tab) => tab.projectUid === projectUid)
@@ -162,39 +209,82 @@ export function PatientChartTabBar({ projectUid }: PatientChartTabBarProps) {
     )
   }
 
+  const handleConfirmDelete = () => {
+    if (confirmDeleteTabId) {
+      removeTab(confirmDeleteTabId)
+      setConfirmDeleteTabId(null)
+    }
+  }
+
+  const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
+    if (newName) renameTab(tabId, newName)
+    setRenamingTabId(null)
+  }, [renameTab])
+
   return (
-    <div className="flex items-center overflow-hidden">
-      <div className="flex items-center overflow-x-auto scrollbar-hide">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={tabs.map((tab) => tab.id)}
-            strategy={horizontalListSortingStrategy}
+    <>
+      <div className="flex items-center overflow-hidden">
+        <div className="flex items-center overflow-x-auto scrollbar-hide">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            {tabs.map((tab) => (
-              <SortableTab
-                key={tab.id}
-                tab={tab}
-                isActive={tab.id === currentActiveId}
-                canClose={tabs.length > 1}
-                onActivate={() => setActiveTab(projectUid, tab.id)}
-                onClose={() => removeTab(tab.id)}
-                onRename={(name) => renameTab(tab.id, name)}
-              />
-            ))}
-          </SortableContext>
-        </DndContext>
+            <SortableContext
+              items={tabs.map((tab) => tab.id)}
+              strategy={horizontalListSortingStrategy}
+            >
+              {tabs.map((tab) =>
+                renamingTabId === tab.id ? (
+                  <TabRenameInput
+                    key={tab.id}
+                    tab={tab}
+                    isActive={tab.id === currentActiveId}
+                    onFinish={(name) => handleRenameFinish(tab.id, name)}
+                  />
+                ) : (
+                  <SortableTab
+                    key={tab.id}
+                    tab={tab}
+                    isActive={tab.id === currentActiveId}
+                    canClose={tabs.length > 1}
+                    editMode={editMode}
+                    onActivate={() => setActiveTab(projectUid, tab.id)}
+                    onClose={() => setConfirmDeleteTabId(tab.id)}
+                    onStartRename={() => setRenamingTabId(tab.id)}
+                  />
+                )
+              )}
+            </SortableContext>
+          </DndContext>
+        </div>
+        {editMode && (
+          <button
+            onClick={() => addTab(projectUid)}
+            className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            title={t('dashboard.add_tab')}
+          >
+            <Plus size={12} />
+          </button>
+        )}
       </div>
-      <button
-        onClick={() => addTab(projectUid)}
-        className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        title={t('dashboard.add_tab')}
-      >
-        <Plus size={12} />
-      </button>
-    </div>
+
+      <AlertDialog open={confirmDeleteTabId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteTabId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('dashboard.delete_tab_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('dashboard.delete_tab_description', { name: confirmDeleteTab?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleConfirmDelete}>
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

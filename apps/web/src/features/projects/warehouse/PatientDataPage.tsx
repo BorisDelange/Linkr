@@ -30,15 +30,12 @@ export function PatientDataPage() {
   const dataSourceId = mappedSource?.id
   const schemaMapping = mappedSource?.schemaMapping
 
-  const { tabs, widgets, activeTabId, showWidgetTitles, addTab } = usePatientChartStore()
+  const { tabs, widgets, activeTabId, showWidgetTitles, ensureDefaults } = usePatientChartStore()
 
-  // Ensure at least one tab exists for this project
+  // Ensure default tabs+widgets exist for this project on first visit
   useEffect(() => {
-    const projectTabs = tabs.filter((t) => t.projectUid === projectUid)
-    if (projectTabs.length === 0 && projectUid) {
-      addTab(projectUid)
-    }
-  }, [projectUid, tabs, addTab])
+    if (projectUid) ensureDefaults(projectUid)
+  }, [projectUid, ensureDefaults])
 
   const projectTabs = tabs
     .filter((tab) => tab.projectUid === projectUid)
@@ -98,7 +95,7 @@ export function PatientDataPage() {
       <div className="flex h-full flex-col overflow-hidden">
         {/* Tab bar + actions */}
         <div className="flex items-center border-b px-3 shrink-0">
-          <PatientChartTabBar projectUid={projectUid} />
+          <PatientChartTabBar projectUid={projectUid} editMode={editMode} />
 
           <div className="ml-auto flex items-center gap-1 py-1">
             <Button

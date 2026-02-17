@@ -39,7 +39,7 @@ function Histogram({ data }: { data: HistogramBin[] }) {
         <Tooltip
           formatter={(value) => [Number(value).toLocaleString(), 'Count']}
           labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-          contentStyle={{ fontSize: 11 }}
+          contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
         />
         <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
       </BarChart>

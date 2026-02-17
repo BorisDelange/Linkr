@@ -84,6 +84,9 @@ interface PatientChartState {
     layout: { x: number; y: number; w: number; h: number },
   ) => void
   updateWidgetConfig: (widgetId: string, config: PatientWidgetConfig) => void
+
+  // Ensure default tabs+widgets exist for a project (called once on first visit)
+  ensureDefaults: (projectUid: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +300,44 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
         w.id === widgetId ? { ...w, config } : w,
       ),
     })),
+
+  ensureDefaults: (projectUid) =>
+    set((s) => {
+      if (s.tabs.some((t) => t.projectUid === projectUid)) return s
+
+      const summaryTabId = `pctab-${tabCounter++}`
+      const haemoTabId = `pctab-${tabCounter++}`
+
+      const newTabs: PatientChartTab[] = [
+        { id: summaryTabId, projectUid, name: 'Summary', displayOrder: 0 },
+        { id: haemoTabId, projectUid, name: 'Haemodynamics', displayOrder: 1 },
+      ]
+
+      const newWidgets: PatientChartWidget[] = [
+        {
+          id: `pcw-${widgetCounter++}`,
+          tabId: summaryTabId,
+          type: 'patient_summary',
+          name: 'Patient Summary',
+          layout: { x: 0, y: 0, w: 12, h: 5 },
+          config: {},
+        },
+        {
+          id: `pcw-${widgetCounter++}`,
+          tabId: haemoTabId,
+          type: 'timeline',
+          name: 'Timeline',
+          layout: { x: 0, y: 0, w: 24, h: 5 },
+          config: { conceptIds: [3027018] } as TimelineConfig,
+        },
+      ]
+
+      return {
+        tabs: [...s.tabs, ...newTabs],
+        widgets: [...s.widgets, ...newWidgets],
+        activeTabId: { ...s.activeTabId, [projectUid]: summaryTabId },
+      }
+    }),
 }))
 
 // Persist tabs/widgets to localStorage on change
