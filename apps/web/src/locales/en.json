@@ -1385,6 +1385,7 @@
     "new_child_page": "New child page",
     "rename": "Rename",
     "delete_page": "Delete page",
+    "change_icon": "Change icon",
     "create_first_page": "Create your first page",
     "empty_tree": "No pages yet. Create your first page to get started.",
     "select_or_create": "Select a page from the tree or create a new one to get started.",

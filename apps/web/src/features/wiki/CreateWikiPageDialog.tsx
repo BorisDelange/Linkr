@@ -20,6 +20,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { IconPicker } from '@/components/ui/icon-picker'
 import { useWikiStore } from '@/stores/wiki-store'
 
 interface CreateWikiPageDialogProps {
@@ -298,7 +299,7 @@ export function CreateWikiPageDialog({
   const { t } = useTranslation()
   const { addPage, setActivePage } = useWikiStore()
   const [title, setTitle] = useState('')
-  const [icon, setIcon] = useState('')
+  const [icon, setIcon] = useState('FileText')
   const [selectedTemplate, setSelectedTemplate] = useState('blank')
 
   const handleCreate = async () => {
@@ -315,7 +316,7 @@ export function CreateWikiPageDialog({
     setActivePage(id)
     onOpenChange(false)
     setTitle('')
-    setIcon('')
+    setIcon('FileText')
     setSelectedTemplate('blank')
   }
 
@@ -327,24 +328,15 @@ export function CreateWikiPageDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="flex gap-2">
-            <div className="w-16">
-              <Label className="text-xs">{t('wiki.icon')}</Label>
-              <Input
-                value={icon}
-                onChange={(e) => setIcon(e.target.value)}
-                placeholder="📄"
-                className="mt-1 h-9 text-center text-lg"
-                maxLength={2}
-              />
-            </div>
-            <div className="flex-1">
-              <Label className="text-xs">{t('wiki.page_title')}</Label>
+          <div className="space-y-2">
+            <Label className="text-xs">{t('wiki.page_title')}</Label>
+            <div className="flex items-center gap-2">
+              <IconPicker value={icon} onChange={setIcon} modal={false} />
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={t('wiki.page_title_placeholder')}
-                className="mt-1 h-9"
+                className="h-9 flex-1"
                 autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
               />

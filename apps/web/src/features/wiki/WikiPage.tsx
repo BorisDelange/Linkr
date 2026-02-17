@@ -7,6 +7,7 @@ import { WikiTreeSidebar } from './WikiTreeSidebar'
 import { WikiPageEditor } from './WikiPageEditor'
 import { WikiSearchDialog } from './WikiSearchDialog'
 import { CreateWikiPageDialog } from './CreateWikiPageDialog'
+import { WikiIconDialog } from './WikiIconDialog'
 
 export function WikiPage() {
   const { t } = useTranslation()
@@ -17,11 +18,13 @@ export function WikiPage() {
     currentWorkspaceId,
     activePageId,
     getPage,
+    updatePage,
   } = useWikiStore()
 
   const [searchOpen, setSearchOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [createParentId, setCreateParentId] = useState<string | null>(null)
+  const [iconDialogPageId, setIconDialogPageId] = useState<string | null>(null)
 
   // Load wiki pages when workspace changes
   useEffect(() => {
@@ -65,6 +68,7 @@ export function WikiPage() {
           workspaceId={wsUid}
           onCreatePage={handleCreatePage}
           onSearch={() => setSearchOpen(true)}
+          onChangeIcon={(pageId) => setIconDialogPageId(pageId)}
         />
       </div>
 
@@ -93,6 +97,15 @@ export function WikiPage() {
         onOpenChange={setCreateOpen}
         workspaceId={wsUid}
         parentId={createParentId}
+      />
+      <WikiIconDialog
+        pageId={iconDialogPageId}
+        currentIcon={iconDialogPageId ? getPage(iconDialogPageId)?.icon : undefined}
+        onClose={() => setIconDialogPageId(null)}
+        onChange={(icon) => {
+          if (iconDialogPageId) updatePage(iconDialogPageId, { icon })
+          setIconDialogPageId(null)
+        }}
       />
     </div>
   )

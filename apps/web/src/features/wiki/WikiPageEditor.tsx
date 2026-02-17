@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import * as LucideIcons from 'lucide-react'
 import {
   Pencil,
   Check,
@@ -9,6 +10,7 @@ import {
   Shield,
   ShieldCheck,
   ChevronRight,
+  Puzzle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { MarkdownToolbar, applyMarkdownFormat } from '@/components/editor/MarkdownToolbar'
@@ -20,6 +22,12 @@ import { WikiAttachmentsDialog } from './WikiAttachmentsDialog'
 import { WikiHistoryPanel } from './WikiHistoryPanel'
 import type { WikiPage } from '@/types'
 
+function resolveIcon(name: string): LucideIcons.LucideIcon {
+  const icon = (LucideIcons as Record<string, unknown>)[name]
+  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
+  return Puzzle
+}
+
 interface WikiPageEditorProps {
   page: WikiPage
   workspaceId: string
@@ -27,7 +35,7 @@ interface WikiPageEditorProps {
 
 export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   const { t } = useTranslation()
-  const { viewMode, setViewMode, savePage, updatePage, getPage, getBreadcrumbs, pages } = useWikiStore()
+  const { viewMode, setViewMode, savePage, updatePage, getBreadcrumbs, pages } = useWikiStore()
   const [localContent, setLocalContent] = useState(page.content)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -127,15 +135,18 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
       {/* Breadcrumbs + actions bar */}
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-2">
         <div className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
-          {breadcrumbs.map((crumb, i) => (
-            <span key={crumb.id} className="flex items-center gap-1 min-w-0">
-              {i > 0 && <ChevronRight size={10} className="shrink-0" />}
-              <span className={`truncate ${crumb.id === page.id ? 'font-medium text-foreground' : 'hover:text-foreground cursor-pointer'}`}>
-                {crumb.icon && <span className="mr-0.5">{crumb.icon}</span>}
-                {crumb.title}
+          {breadcrumbs.map((crumb, i) => {
+            const CrumbIcon = crumb.icon ? resolveIcon(crumb.icon) : null
+            return (
+              <span key={crumb.id} className="flex items-center gap-1 min-w-0">
+                {i > 0 && <ChevronRight size={10} className="shrink-0" />}
+                <span className={`flex items-center gap-0.5 truncate ${crumb.id === page.id ? 'font-medium text-foreground' : 'hover:text-foreground cursor-pointer'}`}>
+                  {CrumbIcon && <CrumbIcon size={11} className="shrink-0" />}
+                  {crumb.title}
+                </span>
               </span>
-            </span>
-          ))}
+            )
+          })}
         </div>
         <div className="flex items-center gap-1">
           {/* Verified badge */}
@@ -209,10 +220,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-3xl px-6 py-6">
             {/* Page title */}
-            <h1 className="text-2xl font-bold text-foreground">
-              {page.icon && <span className="mr-2">{page.icon}</span>}
-              {page.title}
-            </h1>
+            <h1 className="text-2xl font-bold text-foreground">{page.title}</h1>
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               <span>{t('wiki.last_updated', { time: updatedAgo })}</span>
               {page.owner && <span>· {page.owner}</span>}

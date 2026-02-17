@@ -1,25 +1,26 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import * as LucideIcons from 'lucide-react'
 import {
   ChevronRight,
   Plus,
   FileText,
   FolderOpen,
   Search,
-  MoreHorizontal,
   Pencil,
   Trash2,
   FilePlus,
-  GripVertical,
+  Smile,
+  Puzzle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import {
   Collapsible,
   CollapsibleContent,
@@ -33,13 +34,20 @@ interface WikiTreeNode {
   children: WikiTreeNode[]
 }
 
+function resolveIcon(name: string): LucideIcons.LucideIcon {
+  const icon = (LucideIcons as Record<string, unknown>)[name]
+  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
+  return Puzzle
+}
+
 interface WikiTreeSidebarProps {
   workspaceId: string
   onCreatePage: (parentId: string | null) => void
   onSearch: () => void
+  onChangeIcon: (pageId: string) => void
 }
 
-export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch }: WikiTreeSidebarProps) {
+export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
   const tree = getTree()
@@ -100,6 +108,7 @@ export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch }: WikiTre
               activePageId={activePageId}
               onSelect={setActivePage}
               onCreateChild={onCreatePage}
+              onChangeIcon={onChangeIcon}
             />
           ))
         )}
@@ -116,13 +125,15 @@ interface TreeItemProps {
   activePageId: string | null
   onSelect: (id: string) => void
   onCreateChild: (parentId: string | null) => void
+  onChangeIcon: (pageId: string) => void
 }
 
-function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeItemProps) {
+function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChangeIcon }: TreeItemProps) {
   const { t } = useTranslation()
   const { updatePage, deletePage } = useWikiStore()
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(node.page.title)
+  const renameRef = useRef<HTMLInputElement>(null)
   const hasChildren = node.children.length > 0
   const isActive = node.page.id === activePageId
 
@@ -137,7 +148,33 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeIt
     await deletePage(node.page.id)
   }, [node.page.id, deletePage])
 
-  const content = (
+  // Focus rename input after context menu closes
+  useEffect(() => {
+    if (isRenaming) {
+      // Delay to let context menu unmount and release focus
+      const raf = requestAnimationFrame(() => {
+        const el = renameRef.current
+        if (el) {
+          el.focus()
+          const len = el.value.length
+          el.setSelectionRange(len, len)
+        }
+      })
+      return () => cancelAnimationFrame(raf)
+    }
+  }, [isRenaming])
+
+  // Render the icon
+  const renderIcon = () => {
+    if (node.page.icon) {
+      const Icon = resolveIcon(node.page.icon)
+      return <Icon size={14} className="shrink-0 text-muted-foreground" />
+    }
+    if (hasChildren) return <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
+    return <FileText size={14} className="shrink-0 text-muted-foreground" />
+  }
+
+  const row = (
     <div
       className={`group flex items-center gap-1 rounded-md px-1.5 py-1 mx-1 cursor-pointer transition-colors ${
         isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/50'
@@ -155,16 +192,11 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeIt
         <span className="h-4 w-4 shrink-0" />
       )}
 
-      {node.page.icon ? (
-        <span className="shrink-0 text-sm">{node.page.icon}</span>
-      ) : hasChildren ? (
-        <FolderOpen size={14} className="shrink-0 text-muted-foreground" />
-      ) : (
-        <FileText size={14} className="shrink-0 text-muted-foreground" />
-      )}
+      {renderIcon()}
 
       {isRenaming ? (
-        <Input
+        <input
+          ref={renameRef}
           value={renameValue}
           onChange={(e) => setRenameValue(e.target.value)}
           onBlur={handleRename}
@@ -172,40 +204,43 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeIt
             if (e.key === 'Enter') handleRename()
             if (e.key === 'Escape') setIsRenaming(false)
           }}
-          className="h-5 flex-1 rounded-sm border-0 bg-transparent px-1 py-0 text-xs focus-visible:ring-1"
-          autoFocus
+          className="min-w-0 flex-1 rounded-sm border border-primary/40 bg-primary/5 px-0.5 text-xs leading-none outline-none"
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
         <span className="min-w-0 flex-1 truncate text-xs">{node.page.title}</span>
       )}
-
-      {/* Context menu */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-          <button className="flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100">
-            <MoreHorizontal size={12} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[160px]">
-          <DropdownMenuItem onClick={() => onCreateChild(node.page.id)}>
-            <FilePlus size={14} /> {t('wiki.new_child_page')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => { setRenameValue(node.page.title); setIsRenaming(true) }}>
-            <Pencil size={14} /> {t('wiki.rename')}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
-            <Trash2 size={14} /> {t('wiki.delete_page')}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
+  )
+
+  const wrappedRow = (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        {row}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-[180px]">
+        <ContextMenuItem onClick={() => onCreateChild(node.page.id)}>
+          <FilePlus size={14} /> {t('wiki.new_child_page')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onClick={() => { setRenameValue(node.page.title); setIsRenaming(true) }}>
+          <Pencil size={14} /> {t('wiki.rename')}
+        </ContextMenuItem>
+        <ContextMenuItem onClick={() => onChangeIcon(node.page.id)}>
+          <Smile size={14} /> {t('wiki.change_icon')}
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem variant="destructive" onClick={handleDelete}>
+          <Trash2 size={14} /> {t('wiki.delete_page')}
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
   )
 
   if (hasChildren) {
     return (
       <Collapsible defaultOpen className="group/tree">
-        {content}
+        {wrappedRow}
         <CollapsibleContent>
           {node.children.map((child) => (
             <TreeItem
@@ -215,6 +250,7 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeIt
               activePageId={activePageId}
               onSelect={onSelect}
               onCreateChild={onCreateChild}
+              onChangeIcon={onChangeIcon}
             />
           ))}
         </CollapsibleContent>
@@ -222,5 +258,5 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild }: TreeIt
     )
   }
 
-  return content
+  return wrappedRow
 }
