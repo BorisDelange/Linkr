@@ -4,7 +4,7 @@ This file provides guidance to Claude Code when working with the LinkR v2 codeba
 
 ## Project Overview
 
-LinkR is a healthcare data visualization and analysis platform using the OMOP Common Data Model (CDM). It provides tools for clinicians, statisticians, and data scientists to work with clinical data warehouses through an intuitive web interface.
+LinkR is a healthcare data visualization and analysis platform. It provides tools for clinicians, statisticians, and data scientists to work with clinical data warehouses through an intuitive web interface. While OMOP CDM is the primary supported data model, LinkR is **not locked to OMOP** — the schema presets system allows working with any data model (OMOP, i2b2, FHIR-flattened, custom hospital schemas, etc.).
 
 **v2** is a full rewrite from R/Shiny to React + FastAPI, with dual deployment (static WASM frontend-only, or full-stack with Python backend).
 
@@ -16,42 +16,55 @@ linkr/
 ├── README.md                     # Project readme
 ├── LICENSE, LICENSE.md           # Licenses
 ├── package.json, turbo.json      # Monorepo config (Turborepo)
+├── docs/                         # Documentation (vision, benchmarks)
+│   ├── vision-roadmap.md         # Long-term vision: workspaces, monitoring, deployment
+│   └── shadcn-components.md      # Available shadcn/ui components
 ├── apps/
 │   ├── web/                      # React frontend (Vite + TypeScript)
 │   │   ├── src/
-│   │   │   ├── app/              # App entry, providers, routing
-│   │   │   ├── components/       # Reusable UI components
-│   │   │   │   ├── ui/           # shadcn/ui components
+│   │   │   ├── app/              # App entry (App.tsx: routing, providers, store init)
+│   │   │   ├── components/
+│   │   │   │   ├── ui/           # shadcn/ui components (~27 files)
 │   │   │   │   ├── layout/       # Sidebar, Header, StatusBar
 │   │   │   │   ├── editor/       # Monaco editor wrapper
-│   │   │   │   ├── terminal/     # xterm.js wrapper
-│   │   │   │   ├── dashboard/    # GridStack widget components
-│   │   │   │   └── file-explorer/# File tree component
+│   │   │   │   └── terminal/     # xterm.js wrapper
 │   │   │   ├── features/         # Domain-specific modules
 │   │   │   │   ├── home/         # Home/welcome page
+│   │   │   │   ├── catalog/      # Data catalog (stub)
+│   │   │   │   ├── wiki/         # Wiki (stub)
+│   │   │   │   ├── warehouse/    # App-level warehouse (databases, schema presets, concept mapping, ETL)
+│   │   │   │   ├── versioning/   # App-level versioning (stub)
+│   │   │   │   ├── login/        # Login page (not routed yet)
 │   │   │   │   ├── projects/     # Project management
-│   │   │   │   │   ├── warehouse/  # Data Warehouse pages (Databases, Concepts, Data Quality, Patient Data)
-│   │   │   │   │   │   └── concepts/ # Concept browser (table, detail, stats, queries)
-│   │   │   │   │   ├── cohorts/    # Cohort builder (criteria, editor, card)
-│   │   │   │   │   ├── lab/        # Lab pages (Datasets, IDE, Dashboards)
-│   │   │   │   │   ├── data-sources/ # Data source cards, dialogs, stats (legacy, migrating to Databases)
-│   │   │   │   │   ├── dashboard/  # Dashboard widgets (patient count, vitals, timeline)
-│   │   │   │   │   ├── files/      # File explorer, code editor, terminal
-│   │   │   │   │   └── versioning/ # Git-like versioning (history, remote, export)
-│   │   │   │   ├── plugins/      # Plugin browser/management
-│   │   │   │   └── settings/     # App settings
-│   │   │   ├── stores/           # Zustand state stores
+│   │   │   │   │   ├── summary/    # Summary tabs (Overview, Readme, Tasks)
+│   │   │   │   │   ├── pipeline/   # Pipeline DAG editor (React Flow)
+│   │   │   │   │   ├── warehouse/  # Warehouse pages
+│   │   │   │   │   │   ├── databases/   # Database cards, import, stats dashboard
+│   │   │   │   │   │   ├── concepts/    # OMOP concept browser (table, detail, stats)
+│   │   │   │   │   │   ├── subsets/     # Cohort builder (criteria forms, editor, cards)
+│   │   │   │   │   │   └── patient-data/# Patient timeline, widgets, charts
+│   │   │   │   │   ├── lab/        # Lab pages
+│   │   │   │   │   │   └── datasets/    # Dataset management, analyses, code generators
+│   │   │   │   │   │       └── analyses/# Built-in analysis types (Table1, Summary, etc.)
+│   │   │   │   │   ├── dashboard/  # Dashboard system (GridStack, widgets, renderers)
+│   │   │   │   │   ├── files/      # IDE: file tree, code editor, terminal, connections
+│   │   │   │   │   ├── versioning/ # Project versioning (local history, remote git, export)
+│   │   │   │   │   └── cohorts/    # Legacy cohort builder (being replaced by subsets/)
+│   │   │   │   ├── settings/     # App settings, plugin editor, schema presets, users
+│   │   │   │   └── plugins/      # Plugin browser (merged into settings)
+│   │   │   ├── stores/           # Zustand state stores (14 stores)
 │   │   │   ├── hooks/            # Custom React hooks
-│   │   │   ├── lib/              # Utilities (api client, i18n, cn, WASM runtimes)
-│   │   │   │   ├── duckdb/      # DuckDB-WASM engine, OMOP table defs, stats
-│   │   │   │   └── storage/     # IndexedDB persistence layer (idb)
-│   │   │   ├── types/            # TypeScript type definitions
+│   │   │   ├── lib/
+│   │   │   │   ├── duckdb/       # DuckDB-WASM engine, OMOP tables, stats, cohort queries
+│   │   │   │   ├── runtimes/     # Pyodide + WebR execution engines
+│   │   │   │   ├── storage/      # IndexedDB persistence layer (idb)
+│   │   │   │   └── analysis-plugins/ # Analysis plugin system + code templates
+│   │   │   ├── types/            # TypeScript type definitions (~490 lines)
 │   │   │   └── locales/          # i18n JSON files (en.json, fr.json)
 │   │   ├── vite.config.ts
 │   │   └── tailwind.config.ts
 │   │
 │   └── api/                      # FastAPI backend (Python) — not yet created
-│       └── ...
 │
 ├── packages/shared/              # Shared JSON schemas (plugin, project, widget)
 ├── docker/                       # Docker configs
@@ -63,26 +76,41 @@ linkr/
 The sidebar switches between app-level and project-level navigation based on `activeProjectUid`.
 
 ### App-level navigation
-- Home (`/`)
-- Projects (`/projects`)
-- Settings (`/settings`)
+```
+🏠 Home                             /
+📁 Projects                         /projects
+🏪 Catalog                          /catalog              (stub — coming soon)
+📖 Wiki                             /wiki                 (stub — coming soon)
+🧩 Plugins                          /plugins
+🏭 Warehouse (group)
+   ├── 📊 Databases                 /warehouse/databases
+   ├── 📄 Schema Presets            /warehouse/schema-presets
+   ├── ⇄ Concept Mapping           /warehouse/concept-mapping
+   └── ⚙️ ETL                       /warehouse/etl
+🌳 Versioning                       /versioning
+── footer ──
+⚙️ Settings                         /settings
+👤 Profile                          /profile
+```
 
 ### Project-level navigation
 ```
-📋 Summary                          /projects/:uid/summary
-🔀 Pipeline                         /projects/:uid/pipeline
-🏥 Data Warehouse (group)
+📊 Summary                          /projects/:uid/summary
+⚙️ Pipeline                         /projects/:uid/pipeline
+💻 IDE                              /projects/:uid/ide
+🏭 Data Warehouse (group, default open)
    ├── 📊 Databases                 /projects/:uid/warehouse/databases
-   ├── 🔬 Concepts                  /projects/:uid/warehouse/concepts
+   ├── 📖 Concepts                  /projects/:uid/warehouse/concepts
    ├── ✅ Data Quality              /projects/:uid/warehouse/data-quality
    ├── 👥 Cohorts                   /projects/:uid/warehouse/cohorts
-   └── 🏷️ Patient Data             /projects/:uid/warehouse/patient-data
-🧪 Lab (group)
+   └── 👤 Patient Data              /projects/:uid/warehouse/patient-data
+🧪 Lab (group, default open)
    ├── 📁 Datasets                  /projects/:uid/lab/datasets
-   ├── 💻 IDE                       /projects/:uid/lab/ide
-   └── 📈 Dashboards               /projects/:uid/lab/dashboards
-🔄 Versioning                       /projects/:uid/versioning
-⚙️ Settings                         /projects/:uid/settings
+   ├── 📈 Dashboards                /projects/:uid/lab/dashboards
+   │   └── :dashboardId             /projects/:uid/lab/dashboards/:dashboardId
+   └── 📄 Reports                   /projects/:uid/lab/reports  (stub — coming soon)
+🌳 Versioning                       /projects/:uid/versioning   (stub — coming soon)
+⚙️ Project Settings                 /projects/:uid/settings
 ```
 
 ### Data flow philosophy
@@ -183,6 +211,35 @@ The app supports two modes via a `queryDataSource(dataSourceId, sql)` abstractio
 - Files: `plugin.json`, `ui.tsx`, `server.py`, `translations.json`
 - Execution: backend mode (WebSocket) or WASM mode (Pyodide/webR)
 
+### Plugin & Project Traceability
+
+Both plugins and projects share these metadata fields for distributed traceability:
+
+**Organization & Catalog**
+- `organization?: OrganizationInfo` — author metadata (name, location, website, email, referenceId)
+- `catalogVisibility?: 'listed' | 'unlisted'` — whether the item appears in the community catalog when published to git
+
+**Content-Addressable Identity**
+- `contentHash?: string` — SHA-256 of functional content, computed automatically on save (`lib/plugin-hash.ts`)
+- `version` remains a human-chosen label (semver convention); `contentHash` is the machine identity
+- Hash includes: `configSchema`, `dependencies`, `component`, `runtime`, `languages`, template file contents
+- Hash excludes (metadata-only): `name`, `description`, `version`, `icon`, `iconColor`, `badges`, `tags`, `category`, `organization`, `catalogVisibility`, `origin`, `parentRef`, `changelog`
+
+**Lineage Tracking**
+- `origin?: PluginOrigin` — original creator (`pluginId`, `organizationId`, `repository`)
+- `parentRef?: ParentRef` — parent version this was forked from (`contentHash`, `organizationId`, `version`)
+- `changelog?: ChangelogEntry[]` — human-written release notes per version, each entry linked to a `contentHash`
+
+**Distributed fork scenario:**
+```
+Rennes: contentHash=aaa, origin=rennes, parent=null, v1.0.0
+  → Paris fork: contentHash=bbb, origin=rennes, parent={hash:aaa, org:rennes}, v1.1.0
+    → Munich fork: contentHash=ccc, origin=rennes, parent={hash:bbb, org:paris}, v1.1.0
+```
+Same version label (v1.1.0) but different hashes → no confusion. Lineage chain is traceable.
+
+**Types:** defined in `types/index.ts` (`OrganizationInfo`, `CatalogVisibility`, `PluginOrigin`, `ParentRef`, `ChangelogEntry`) and used in both `AnalysisPluginManifest` and `Project`.
+
 ## Development Guidelines
 
 ### Internationalization
@@ -203,15 +260,21 @@ const { t } = useTranslation()
 - **Database tables**: snake_case (`widget_configs`)
 
 ### Component Organization
-- **components/ui/**: Generic, reusable UI components (shadcn/ui)
+- **components/ui/**: Generic, reusable UI components (shadcn/ui, ~27 files)
 - **components/layout/**: App shell components (Sidebar, Header, StatusBar)
 - **components/editor/**: Monaco editor wrapper
 - **components/terminal/**: xterm.js wrapper
-- **features/projects/warehouse/**: Data Warehouse pages (Databases, Concepts, Data Quality, Patient Data)
-- **features/projects/cohorts/**: Cohort builder (criteria forms, editor dialog, cards)
-- **features/projects/lab/**: Lab pages (Datasets, IDE, Dashboards) — wrappers/stubs
-- **features/projects/files/**: IDE implementation (file tree, code editor, terminal)
-- **features/projects/dashboard/**: Dashboard widgets
+- **features/projects/warehouse/**: Data Warehouse pages (Databases, Concepts, Data Quality, Cohorts, Patient Data)
+- **features/projects/warehouse/subsets/**: Cohort builder (criteria forms, editor dialog, cards)
+- **features/projects/lab/**: Lab pages (Datasets, Dashboards, Reports)
+- **features/projects/lab/datasets/**: Dataset management with built-in analyses (Table1, Summary, Distribution, Correlation, CrossTab)
+- **features/projects/files/**: IDE implementation (file tree, code editor, terminal, connections)
+- **features/projects/dashboard/**: Dashboard system (GridStack layout, widget renderers: builtin, plugin, inline code)
+- **features/projects/pipeline/**: Pipeline DAG editor (React Flow canvas, node palette, config panel)
+- **features/projects/summary/**: Project overview tabs (Overview counts, Readme editor with history, Tasks)
+- **features/projects/versioning/**: Git-like versioning (local history, remote git, export)
+- **features/warehouse/**: App-level warehouse management (databases catalog, schema presets, concept mapping, ETL)
+- **features/settings/**: App settings (users, plugin editor, schema presets ERD, editor settings)
 
 ### shadcn/ui Usage (IMPORTANT)
 **Before building any UI**, always check `docs/shadcn-components.md` for the list of available shadcn/ui components. Reuse existing shadcn components as much as possible instead of hand-coding with raw Tailwind. The shadcn/ui repo is cloned at `../shadcn-ui/` for reference — source components are in `apps/v4/registry/bases/radix/ui/`.
@@ -223,9 +286,23 @@ Currently installed components are in `apps/web/src/components/ui/`. To add a ne
 4. Place the component in `apps/web/src/components/ui/`
 
 ### State Management
-- **Zustand stores** for client-side state (UI, preferences, active project)
+- **Zustand stores** for client-side state (14 stores total)
 - **TanStack Query** for server data (projects, datasets, plugins)
-- Stores: `useAppStore` (projects, UI state), `useDataSourceStore` (data sources), `useCohortStore` (cohorts), `useDashboardStore` (dashboards), `useFileStore` (file editor), `useVersioningStore` (versioning)
+- Core stores:
+  - `useAppStore` — projects, active project, user, UI preferences, editor settings
+  - `useDataSourceStore` — data sources, file uploads, DuckDB mounting, schema mapping
+  - `useCohortStore` — cohort definitions and results
+  - `usePipelineStore` — pipeline DAG (nodes, edges, execution state)
+  - `useDashboardStore` — dashboards, tabs, widgets, layout persistence
+  - `useDatasetStore` — dataset files, data cache, column metadata, analyses (largest store)
+  - `useFileStore` — IDE file tree, content, execution state, output cache (largest store)
+  - `useConnectionStore` — IDE database connections
+  - `usePatientChartStore` — patient selection, chart tabs, widget configs
+  - `useVersioningStore` — commits, remote git, branches, export
+  - `usePluginEditorStore` — plugin file editing, metadata, testing
+  - `useRuntimeStore` — code execution environment state
+  - `useSharedFsStore` — browser File System Access API handles
+  - `useShortcutStore` — keyboard shortcut definitions
 
 ### Path Aliases
 Use `@/` prefix for imports from `src/`:
@@ -328,3 +405,22 @@ my-project/
 ├── temp/
 └── logs/
 ```
+
+## Long-term Vision
+
+The current focus is **Research** (warehouse, pipeline, lab). Future capabilities are documented in `docs/vision-roadmap.md`. The key principle: **design current code so it doesn't block future evolution**.
+
+### Three use cases for LinkR
+1. **Research** (current priority) — explore OMOP data, build cohorts, create datasets, run analyses, publish results
+2. **Monitoring / Pilotage** (next) — live dashboards for hospital services (quality indicators, adverse events, operational KPIs), scheduled refresh, alerts
+3. **AI Deployment / CDSS** (long term, TBD) — model registry, serving, prediction logging, drift monitoring, audit trail for regulatory compliance (EU MDR, FDA)
+
+### Workspaces (future)
+Projects will eventually be grouped into **workspaces** (similar to GitHub Organizations / GitLab Groups). A workspace = an organizational boundary (e.g., "CHU Rennes privé", "CHU Rennes public") with shared plugins, database connections, wiki, and a git remote. Current code should avoid hard-coupling projects to global state — prefer passing `projectUid` explicitly so a `workspaceUid` layer can be inserted later.
+
+### Architectural choices that preserve flexibility
+- **Storage interfaces** (`lib/storage/index.ts`) abstract persistence — can switch from IndexedDB to server API without changing feature code
+- **`queryDataSource()` abstraction** — local DuckDB-WASM or remote API, transparent to callers
+- **Project-scoped data** — data sources, cohorts, dashboards, files are all keyed by `projectUid`, making it easy to add a `workspaceUid` parent later
+- **Plugin system** — self-contained directories, can be shared at workspace level in the future
+- **Dashboard widget renderers** — builtin, plugin, inline code — extensible for future monitoring widgets

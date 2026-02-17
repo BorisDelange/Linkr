@@ -8,6 +8,7 @@ import {
   unregisterAnalysisPlugin,
 } from '@/lib/analysis-plugins/registry'
 import { buildPlugin } from '@/lib/analysis-plugins/default-plugins'
+import { computePluginContentHash } from '@/lib/plugin-hash'
 
 export interface PluginListItem {
   id: string
@@ -278,8 +279,18 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async savePlugin() {
-    const { editingPluginId, files, isBuiltIn } = get()
+    const { editingPluginId, isBuiltIn } = get()
+    let { files } = get()
     if (!editingPluginId || isBuiltIn) return
+
+    // Compute content hash and inject into plugin.json before saving
+    try {
+      const hash = await computePluginContentHash(files)
+      const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+      manifest.contentHash = hash
+      files = { ...files, 'plugin.json': JSON.stringify(manifest, null, 2) }
+      set({ files })
+    } catch { /* invalid plugin.json — save without hash */ }
 
     const storage = getStorage()
     await storage.userPlugins.update(editingPluginId, {

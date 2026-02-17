@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import {
   FolderOpen,
@@ -17,6 +18,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
 
 const MAX_RECENT = 4
@@ -26,7 +28,7 @@ export function WorkspaceHomePage() {
   const navigate = useNavigate()
   const { wsUid } = useParams()
   const { _workspacesRaw } = useWorkspaceStore()
-  const { _projectsRaw, getWorkspaceProjects, openProject } = useAppStore()
+  const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
   const projects = wsUid ? getWorkspaceProjects(wsUid) : []
@@ -78,45 +80,67 @@ export function WorkspaceHomePage() {
     },
   ]
 
-  const org = workspace?.organization
+  const { getOrganization } = useOrganizationStore()
+  const linkedOrg = workspace?.organizationId ? getOrganization(workspace.organizationId) : null
+  const org = linkedOrg ?? (workspace?.organization?.name ? workspace?.organization : null)
+  const wsDescription = workspace?.description[language] ?? workspace?.description['en'] ?? ''
+
+  const wsName = workspace?.name[language] ?? workspace?.name['en'] ?? ''
 
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-4xl px-8 py-12">
-        {/* Organization info card */}
-        {org && org.name && (
-          <Card className="mb-8">
-            <CardContent className="flex items-start gap-4 p-5">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                <Building2 size={20} className="text-primary" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-card-foreground">{org.name}</p>
-                  {org.type && (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                      {t(`workspaces.org_type_${org.type}`)}
-                    </span>
-                  )}
+        {/* Workspace + Organization hero card */}
+        <Card className="mb-8">
+          <CardContent className="flex gap-0 p-0">
+            {/* Workspace (left) */}
+            <div className="min-w-0 flex-1 p-5">
+              <h2 className="text-lg font-semibold text-card-foreground leading-tight">{wsName}</h2>
+              {wsDescription && (
+                <p className="mt-1.5 text-sm text-muted-foreground">{wsDescription}</p>
+              )}
+            </div>
+            {/* Organization (right) */}
+            {org && org.name && (
+              <div className="flex max-w-[280px] shrink-0 items-center border-l px-5">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <Building2 size={18} className="text-primary" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <p className="truncate text-sm font-medium text-card-foreground">{org.name}</p>
+                        </TooltipTrigger>
+                        <TooltipContent>{org.name}</TooltipContent>
+                      </Tooltip>
+                      {org.type && (
+                        <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                          {org.type === 'other' && org.customType ? org.customType : t(`workspaces.org_type_${org.type}`)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                      {(org.location || org.country) && (
+                        <span className="flex items-center gap-1">
+                          <MapPin size={10} />
+                          {[org.location, org.country].filter(Boolean).join(', ')}
+                        </span>
+                      )}
+                      {org.website && (
+                        <span className="flex items-center gap-1"><Globe size={10} />{org.website}</span>
+                      )}
+                      {org.email && (
+                        <span className="flex items-center gap-1"><Mail size={10} />{org.email}</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  {(org.location || org.country) && (
-                    <span className="flex items-center gap-1">
-                      <MapPin size={12} />
-                      {[org.location, org.country].filter(Boolean).join(', ')}
-                    </span>
-                  )}
-                  {org.website && (
-                    <span className="flex items-center gap-1"><Globe size={12} />{org.website}</span>
-                  )}
-                  {org.email && (
-                    <span className="flex items-center gap-1"><Mail size={12} />{org.email}</span>
-                  )}
-                </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         {/* Recent projects */}
         <div>

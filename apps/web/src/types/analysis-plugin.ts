@@ -1,4 +1,4 @@
-import type { DatasetAnalysis, BadgeColor } from '@/types'
+import type { DatasetAnalysis, BadgeColor, OrganizationInfo, CatalogVisibility, PluginOrigin, ParentRef, ChangelogEntry } from '@/types'
 
 /** A colored label badge on a plugin (same pattern as project badges). */
 export interface PluginBadge {
@@ -47,6 +47,18 @@ export interface AnalysisPluginManifest {
   component?: string
   /** Custom colored badges for categorizing the plugin. */
   badges?: PluginBadge[]
+  /** Organization or author metadata. */
+  organization?: OrganizationInfo
+  /** Whether this plugin appears in the community catalog. Defaults to 'unlisted'. */
+  catalogVisibility?: CatalogVisibility
+  /** SHA-256 hash of functional content (configSchema, templates, dependencies, component, runtime, languages). */
+  contentHash?: string
+  /** Original creator of this plugin (before any forks). */
+  origin?: PluginOrigin
+  /** Parent version this was forked from. */
+  parentRef?: ParentRef
+  /** Human-written release notes per version. */
+  changelog?: ChangelogEntry[]
 }
 
 /** Resolved plugin with loaded templates and component reference. */

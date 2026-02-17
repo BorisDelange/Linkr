@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
-import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge } from '@/types'
+import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge, CatalogVisibility } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,8 +23,19 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog'
 
-const PRESET_COLORS: { value: PresetBadgeColor; bg: string; text: string; swatch: string }[] = [
+export const PRESET_COLORS: { value: PresetBadgeColor; bg: string; text: string; swatch: string }[] = [
   { value: 'red', bg: 'bg-red-100 dark:bg-red-950', text: 'text-red-700 dark:text-red-300', swatch: 'bg-red-400' },
   { value: 'blue', bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', swatch: 'bg-blue-400' },
   { value: 'green', bg: 'bg-green-100 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', swatch: 'bg-green-400' },
@@ -48,7 +59,7 @@ export function getBadgeStyle(color: BadgeColor): React.CSSProperties | undefine
   return { backgroundColor: `${color}20`, color }
 }
 
-function isCustomColor(color: BadgeColor): boolean {
+export function isCustomColor(color: BadgeColor): boolean {
   return !PRESET_COLORS.some((pc) => pc.value === color)
 }
 
@@ -75,12 +86,13 @@ const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'dra
 export function ProjectSettingsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { uid } = useParams()
+  const { wsUid, uid } = useParams()
   const {
     _projectsRaw,
     projects,
     updateProjectStatus,
     updateProjectBadges,
+    updateProjectCatalogVisibility,
     deleteProject,
     closeProject,
   } = useAppStore()
@@ -89,10 +101,14 @@ export function ProjectSettingsPage() {
   const project = projects.find((p) => p.uid === uid)
   const badges = projectRaw?.badges ?? []
   const status = projectRaw?.status ?? 'active'
+  const catalogVisibility = projectRaw?.catalogVisibility ?? 'unlisted'
 
   // Badge creation
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+
+  const projectDisplayName = project?.name ?? ''
 
   const handleAddBadge = () => {
     if (!uid || !newBadgeLabel.trim()) return
@@ -114,7 +130,7 @@ export function ProjectSettingsPage() {
     if (!uid) return
     await deleteProject(uid)
     closeProject()
-    navigate('/projects')
+    navigate(wsUid ? `/workspaces/${wsUid}/projects` : '/workspaces')
   }
 
   return (
@@ -129,6 +145,7 @@ export function ProjectSettingsPage() {
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="general">{t('project_settings.general')}</TabsTrigger>
           <TabsTrigger value="status-badges">{t('project_settings.status_and_badges')}</TabsTrigger>
+          <TabsTrigger value="publishing">{t('project_settings.publishing')}</TabsTrigger>
           <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>
         </TabsList>
 
@@ -201,13 +218,13 @@ export function ProjectSettingsPage() {
                     {badges.map((badge) => (
                       <span
                         key={badge.id}
-                        className={`group inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
+                        className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
                         style={getBadgeStyle(badge.color)}
                       >
                         {badge.label}
                         <button
                           onClick={() => handleRemoveBadge(badge.id)}
-                          className="opacity-0 transition-opacity group-hover:opacity-100"
+                          className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                         >
                           <X size={12} />
                         </button>
@@ -275,6 +292,35 @@ export function ProjectSettingsPage() {
           </div>
         </TabsContent>
 
+        {/* Publishing */}
+        <TabsContent value="publishing" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-2xl space-y-6 pt-2">
+            {/* Catalog visibility */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">{t('catalog.visibility')}</CardTitle>
+                <CardDescription>{t('catalog.visibility_description')}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Select
+                  value={catalogVisibility}
+                  onValueChange={(value) => {
+                    if (uid) updateProjectCatalogVisibility(uid, value as CatalogVisibility)
+                  }}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="unlisted">{t('catalog.unlisted')}</SelectItem>
+                    <SelectItem value="listed">{t('catalog.listed')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         {/* Danger zone */}
         <TabsContent value="danger" className="min-h-0 flex-1 overflow-auto pb-6">
           <div className="mx-auto max-w-2xl pt-2">
@@ -287,11 +333,47 @@ export function ProjectSettingsPage() {
                   {t('project_settings.danger_zone_description')}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <Button variant="destructive" size="sm" onClick={handleDelete}>
-                  <Trash2 size={14} />
-                  {t('project_settings.delete_project')}
-                </Button>
+              <CardContent className="space-y-4">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 size={14} />
+                      {t('project_settings.delete_project')}
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p>{t('project_settings.delete_confirm_description')}</p>
+                          <p className="text-sm">
+                            {t('project_settings.delete_confirm_type')}{' '}
+                            <span className="font-semibold text-foreground">{projectDisplayName}</span>
+                          </p>
+                          <Input
+                            value={deleteConfirm}
+                            onChange={(e) => setDeleteConfirm(e.target.value)}
+                            placeholder={projectDisplayName}
+                            className="mt-2"
+                          />
+                        </div>
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={() => setDeleteConfirm('')}>
+                        {t('common.cancel')}
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        disabled={deleteConfirm !== projectDisplayName}
+                        className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+                        onClick={handleDelete}
+                      >
+                        {t('project_settings.delete_project')}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </CardContent>
             </Card>
           </div>

@@ -53,6 +53,8 @@
     "field_org_website_placeholder": "ex. https://www.exemple-hopital.org",
     "field_org_email": "Email",
     "field_org_email_placeholder": "ex. contact@exemple.org",
+    "field_org_custom_type": "Type personnalisé",
+    "field_org_custom_type_placeholder": "ex. Agence de santé, ONG...",
     "field_org_reference_id": "Identifiant de référence",
     "project_count_one": "projet",
     "project_count_other": "projets",
@@ -77,7 +79,14 @@
     "delete_workspace_description": "Cette action supprimera définitivement l'espace de travail. Les projets deviendront non assignés.",
     "delete_workspace_confirm": "Tapez le nom de l'espace de travail pour confirmer",
     "unassigned": "Personnel / Non assigné",
-    "unassigned_description": "Projets non assignés à un espace de travail"
+    "unassigned_description": "Projets non assignés à un espace de travail",
+    "select_organization": "Sélectionner une organisation",
+    "create_new_organization": "Créer une nouvelle organisation...",
+    "organization_shared_note": "Pour modifier les détails de l'organisation, allez dans Paramètres > Organisations. Les modifications s'appliquent à tous les espaces de travail liés.",
+    "change_organization": "Changer d'organisation",
+    "no_organization": "Aucune organisation",
+    "tab_badges": "Badges",
+    "badges_description": "Ajoutez des labels pour catégoriser cet espace de travail."
   },
   "project_nav": {
     "summary": "Résumé",
@@ -1047,6 +1056,9 @@
     "danger_zone": "Zone de danger",
     "danger_zone_description": "Actions irréversibles. Procédez avec prudence.",
     "delete_project": "Supprimer le projet",
+    "delete_confirm_title": "Supprimer ce projet ?",
+    "delete_confirm_description": "Cette action est irréversible. Toutes les données du projet, fichiers, dashboards et datasets seront définitivement supprimés.",
+    "delete_confirm_type": "Pour confirmer, tapez le nom du projet :",
     "publishing": "Publication"
   },
   "settings": {
@@ -1091,7 +1103,19 @@
     "schema_preset_new_name": "Nouveau modèle de schéma",
     "schema_preset_new_description": "Entrez un nom pour le nouveau preset de schéma.",
     "schema_preset_export": "Exporter JSON",
-    "schema_preset_import": "Importer"
+    "schema_preset_import": "Importer",
+    "tab_users": "Utilisateurs",
+    "tab_organizations": "Organisations",
+    "organizations_title": "Organisations",
+    "organizations_description": "Gérer les organisations liées à vos espaces de travail.",
+    "add_organization": "Ajouter une organisation",
+    "edit_organization": "Modifier l'organisation",
+    "delete_organization": "Supprimer l'organisation",
+    "delete_organization_confirm": "Êtes-vous sûr de vouloir supprimer cette organisation ?",
+    "delete_organization_has_workspaces": "Cette organisation est liée à {{count}} espace(s) de travail. La supprimer retirera le lien.",
+    "organization_linked_workspaces": "espace(s) de travail",
+    "no_organizations": "Aucune organisation",
+    "no_organizations_description": "Créez votre première organisation pour la lier à des espaces de travail."
   },
   "organization": {
     "title": "Organisation",
@@ -1107,14 +1131,6 @@
     "reference_id": "Identifiant de référence",
     "reference_id_placeholder": "ex. ROR:02mhbdp94",
     "reference_id_hint": "Identifiant interne de l'organisation (ROR ID, code institutionnel, etc.)"
-  },
-  "catalog": {
-    "visibility": "Visibilité dans le catalogue",
-    "visibility_description": "Contrôle si cet élément apparaît dans le catalogue communautaire.",
-    "listed": "Référencé",
-    "listed_description": "Visible dans le catalogue communautaire une fois publié.",
-    "unlisted": "Non référencé",
-    "unlisted_description": "Publié sur git mais masqué dans le catalogue."
   },
   "plugins": {
     "title": "Plugins",
@@ -1161,6 +1177,8 @@
     "icon_filtered": "{{shown}} sur {{total}} icônes",
     "icon_no_results": "Aucune icône trouvée.",
     "publishing": "Publication",
+    "org_from_workspace": "Héritée de l'organisation du workspace.",
+    "no_workspace_org": "Aucune organisation définie sur ce workspace.",
     "content_hash": "Hash de contenu",
     "content_hash_none": "Enregistrer pour calculer",
     "origin_label": "Origine",
@@ -1358,7 +1376,13 @@
     "title": "Catalogue",
     "description": "Parcourir et installer des projets, plugins et outils partagés par les équipes de recherche.",
     "coming_soon": "Bientôt disponible",
-    "coming_soon_description": "Découvrez le contenu publié par les équipes de recherche, chacune depuis son propre dépôt Git."
+    "coming_soon_description": "Découvrez le contenu publié par les équipes de recherche, chacune depuis son propre dépôt Git.",
+    "visibility": "Visibilité dans le catalogue",
+    "visibility_description": "Contrôle si cet élément apparaît dans le catalogue communautaire.",
+    "listed": "Référencé",
+    "listed_description": "Visible dans le catalogue communautaire une fois publié.",
+    "unlisted": "Non référencé",
+    "unlisted_description": "Publié sur git mais masqué dans le catalogue."
   },
   "wiki": {
     "title": "Wiki",

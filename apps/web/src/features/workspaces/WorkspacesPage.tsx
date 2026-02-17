@@ -7,11 +7,12 @@ import { Plus, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 
 export function WorkspacesPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { workspaces, openWorkspace } = useWorkspaceStore()
+  const { workspaces, _workspacesRaw, openWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -53,6 +54,8 @@ export function WorkspacesPage() {
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {workspaces.map((ws) => {
               const projectCount = getWorkspaceProjects(ws.id).length
+              const raw = _workspacesRaw.find((w) => w.id === ws.id)
+              const badges = raw?.badges ?? []
               return (
                 <Card
                   key={ws.id}
@@ -77,6 +80,19 @@ export function WorkspacesPage() {
                       <p className="mt-2 truncate text-xs text-muted-foreground" title={ws.description}>
                         {ws.description}
                       </p>
+                    )}
+                    {badges.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {badges.map((badge) => (
+                          <span
+                            key={badge.id}
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
+                            style={getBadgeStyle(badge.color)}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
                     )}
                     <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground">
                       <span>

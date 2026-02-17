@@ -35,10 +35,19 @@ export interface OrganizationInfo {
   country?: string
   website?: string
   email?: string
+  /** Free-text type label when type is 'other'. */
+  customType?: string
   /** Internal organization identifier (ROR ID, institutional code, etc.). */
   referenceId?: string
   /** User-defined key-value pairs (e.g. department, FINESS code, NPI). */
   customFields?: Record<string, string>
+}
+
+/** First-class organization entity stored in its own IDB table. */
+export interface Organization extends OrganizationInfo {
+  id: string
+  createdAt: string
+  updatedAt: string
 }
 
 /** Whether an item appears in the community catalog when published via git. */
@@ -73,7 +82,10 @@ export interface Workspace {
   id: string
   name: LocalizedString
   description: LocalizedString
-  organization: OrganizationInfo
+  organizationId?: string
+  /** @deprecated Kept for backward compat after v17 migration. Use organizationId instead. */
+  organization?: OrganizationInfo
+  badges?: ProjectBadge[]
   gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string

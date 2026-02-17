@@ -74,6 +74,8 @@ export function Header() {
   const navigate = useNavigate()
   const {
     activeProjectName,
+    activeProjectUid,
+    closeProject,
     darkMode,
     toggleDarkMode,
     language,
@@ -144,7 +146,17 @@ export function Header() {
           {activeWorkspaceName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <Badge variant="outline" className="text-[11px]">{activeWorkspaceName}</Badge>
+              <Badge
+                variant="outline"
+                className="cursor-pointer text-[11px] transition-colors hover:bg-accent"
+                onClick={() => {
+                  if (activeProjectUid) closeProject()
+                  const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                  if (wsId) navigate(`/workspaces/${wsId}/home`)
+                }}
+              >
+                {activeWorkspaceName}
+              </Badge>
             </>
           )}
           {activeProjectName && (

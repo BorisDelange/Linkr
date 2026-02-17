@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Routes, Route, Navigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
@@ -45,6 +46,7 @@ import { WorkspaceSettingsPage } from '@/features/workspaces/WorkspaceSettingsPa
 
 export function App() {
   const { darkMode, language, projectsLoaded, loadProjects, activeProjectUid } = useAppStore()
+  const { organizationsLoaded, loadOrganizations } = useOrganizationStore()
   const { workspacesLoaded, loadWorkspaces } = useWorkspaceStore()
   const { dataSourcesLoaded, loadDataSources, mountProjectSources } = useDataSourceStore()
   const { cohortsLoaded, loadCohorts } = useCohortStore()
@@ -52,12 +54,13 @@ export function App() {
   const { i18n } = useTranslation()
 
   useEffect(() => {
+    loadOrganizations()
     loadWorkspaces()
     loadProjects()
     loadDataSources()
     loadCohorts()
     loadPipelines()
-  }, [loadWorkspaces, loadProjects, loadDataSources, loadCohorts, loadPipelines])
+  }, [loadOrganizations, loadWorkspaces, loadProjects, loadDataSources, loadCohorts, loadPipelines])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -85,7 +88,7 @@ export function App() {
     }
   }, [activeProjectUid, dataSourcesLoaded, mountProjectSources])
 
-  if (!workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded) {
+  if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded) {
     return null
   }
 

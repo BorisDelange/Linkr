@@ -164,6 +164,9 @@ const projectNavItems: SegmentNavEntry[] = [
     ],
   },
   { segment: 'versioning', icon: GitBranch, labelKey: 'project_nav.versioning', iconColor: 'text-orange-400' },
+]
+
+const projectBottomItems: SegmentNavItem[] = [
   { segment: 'settings', icon: Settings2, labelKey: 'project_nav.project_settings', iconColor: 'text-slate-400' },
 ]
 
@@ -402,6 +405,15 @@ export function AppSidebar() {
           <SidebarSeparator />
           <SidebarMenu>
             {workspaceBottomItems.map((item) => renderSegmentTopItem(item))}
+          </SidebarMenu>
+        </SidebarFooter>
+      )}
+
+      {level === 'project' && (
+        <SidebarFooter>
+          <SidebarSeparator />
+          <SidebarMenu>
+            {projectBottomItems.map((item) => renderSegmentTopItem(item))}
           </SidebarMenu>
         </SidebarFooter>
       )}

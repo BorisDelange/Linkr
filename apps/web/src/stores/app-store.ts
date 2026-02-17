@@ -1,6 +1,13 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { Project, Workspace, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
+import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
+
+// Lazy reference to break circular dependency with workspace-store at module init time.
+// Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
+let _useWorkspaceStore: any = null
+export function registerWorkspaceStore(store: any) {
+  _useWorkspaceStore = store
+}
 
 interface AuthUser {
   id: number
@@ -76,6 +83,17 @@ function projectToItem(project: Project, lang: string): ProjectItem {
 const SEED_KEY = 'linkr-seeded'
 const DEMO_UID = '00000000-0000-0000-0000-000000000001'
 const DEMO_WORKSPACE_ID = '00000000-0000-0000-0000-000000000010'
+const DEMO_ORG_ID = '00000000-0000-0000-0000-000000000020'
+
+function createDemoOrganization(): Organization {
+  return {
+    id: DEMO_ORG_ID,
+    name: 'Demo Hospital',
+    type: 'hospital',
+    createdAt: '2026-02-10T00:00:00.000Z',
+    updatedAt: '2026-02-10T00:00:00.000Z',
+  }
+}
 
 function createDemoWorkspace(): Workspace {
   return {
@@ -88,10 +106,7 @@ function createDemoWorkspace(): Workspace {
       en: 'Retrospective studies on ICU patient outcomes using the MIMIC-IV demo dataset.',
       fr: 'Études rétrospectives sur le devenir des patients de réanimation à partir du jeu de données MIMIC-IV demo.',
     },
-    organization: {
-      name: 'Demo Hospital',
-      type: 'hospital',
-    },
+    organizationId: DEMO_ORG_ID,
     createdAt: '2026-02-10T00:00:00.000Z',
     updatedAt: '2026-02-10T00:00:00.000Z',
   }
@@ -308,13 +323,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Seed demo workspace + project on first launch
     if (projects.length === 0 && !localStorage.getItem(SEED_KEY)) {
+      const demoOrg = createDemoOrganization()
+      await storage.organizations.create(demoOrg)
       const demoWs = createDemoWorkspace()
       await storage.workspaces.create(demoWs)
       const demo = createDemoProject()
       await storage.projects.create(demo)
       localStorage.setItem(SEED_KEY, '1')
       projects = [demo]
-      // Reload workspace store so it picks up the seeded workspace
+      // Reload org + workspace stores so they pick up the seeded data
+      const { useOrganizationStore } = await import('./organization-store')
+      useOrganizationStore.getState().loadOrganizations()
       const { useWorkspaceStore } = await import('./workspace-store')
       useWorkspaceStore.getState().loadWorkspaces()
     }
@@ -532,17 +551,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   openProject: (uid, name) => {
     // Auto-set active workspace if the project belongs to one
     const project = get()._projectsRaw.find((p) => p.uid === uid)
-    if (project?.workspaceId) {
-      // Lazy import to avoid circular dependency at module init
-      const { useWorkspaceStore } = require('./workspace-store') as typeof import('./workspace-store')
-      const wsState = useWorkspaceStore.getState()
+    if (project?.workspaceId && _useWorkspaceStore) {
+      const wsState = _useWorkspaceStore.getState()
       if (wsState.activeWorkspaceId !== project.workspaceId) {
-        const ws = wsState._workspacesRaw.find((w) => w.id === project.workspaceId)
+        const ws = wsState._workspacesRaw.find((w: Workspace) => w.id === project.workspaceId)
         if (ws) {
           const lang = get().language
           const wsName = ws.name[lang] ?? ws.name['en'] ?? Object.values(ws.name)[0] ?? ''
           // Set workspace directly without calling closeProject (would loop)
-          useWorkspaceStore.setState({ activeWorkspaceId: ws.id, activeWorkspaceName: wsName })
+          _useWorkspaceStore.setState({ activeWorkspaceId: ws.id, activeWorkspaceName: wsName })
         }
       }
     }

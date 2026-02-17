@@ -43,7 +43,7 @@ import { useDatasetStore } from '@/stores/dataset-store'
 export function LabDashboardsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { uid } = useParams()
+  const { wsUid, uid } = useParams()
   const projectUid = uid ?? ''
 
   const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard, updateDashboard } = useDashboardStore()
@@ -86,7 +86,7 @@ export function LabDashboardsPage() {
     setCreateOpen(false)
     setCreateName('')
     setCreateDatasetId(null)
-    navigate(`/projects/${projectUid}/lab/dashboards/${id}`)
+    navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${id}`)
   }
 
   const handleDelete = () => {
@@ -148,7 +148,7 @@ export function LabDashboardsPage() {
                 <Card
                   key={dash.id}
                   className="cursor-pointer transition-colors hover:bg-accent"
-                  onClick={() => navigate(`/projects/${projectUid}/lab/dashboards/${dash.id}`)}
+                  onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${dash.id}`)}
                 >
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2">

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Tag, Plus } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Tag, Plus, Building2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -11,10 +11,13 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useOrganizationStore } from '@/stores/organization-store'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
-import type { PresetBadgeColor, BadgeColor } from '@/types'
+import { Textarea } from '@/components/ui/textarea'
+import type { PresetBadgeColor, BadgeColor, CatalogVisibility, ChangelogEntry, LocalizedString } from '@/types'
 import type { PluginBadge } from '@/types/analysis-plugin'
 
 const PRESET_COLORS: { value: PresetBadgeColor; swatch: string }[] = [
@@ -43,7 +46,7 @@ const languageFromFilename = (filename: string): string => {
 }
 
 export function PluginEditor() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     editingPluginId,
     isBuiltIn,
@@ -123,6 +126,10 @@ export function PluginEditor() {
   const pluginIcon: string = manifest.icon ?? 'Puzzle'
   const pluginIconColor: BadgeColor | undefined = manifest.iconColor
   const pluginBadges: PluginBadge[] = manifest.badges ?? []
+  const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
+  const pluginContentHash: string | undefined = manifest.contentHash
+  const pluginOrigin = manifest.origin as { pluginId: string; organizationId?: string } | undefined
+  const pluginChangelog: ChangelogEntry[] = manifest.changelog ?? []
 
   // Helper to update a field in plugin.json
   const updateManifestField = useCallback((key: string, value: unknown) => {
@@ -148,6 +155,41 @@ export function PluginEditor() {
   const handleRemoveBadge = useCallback((id: string) => {
     updateManifestField('badges', pluginBadges.filter(b => b.id !== id))
   }, [pluginBadges, updateManifestField])
+
+  // Resolve workspace organization (read-only for plugin)
+  const { activeWorkspaceId, _workspacesRaw } = useWorkspaceStore()
+  const { getOrganization } = useOrganizationStore()
+  const workspaceOrg = useMemo(() => {
+    const ws = _workspacesRaw.find((w) => w.id === activeWorkspaceId)
+    if (!ws) return undefined
+    if (ws.organizationId) return getOrganization(ws.organizationId)
+    // Legacy fallback
+    return ws.organization ? { ...ws.organization, id: '', createdAt: '', updatedAt: '' } : undefined
+  }, [activeWorkspaceId, _workspacesRaw, getOrganization])
+
+  // Changelog state
+  const [newChangelogVersion, setNewChangelogVersion] = useState('')
+  const [newChangelogNotes, setNewChangelogNotes] = useState('')
+
+  const handleAddChangelog = useCallback(() => {
+    const version = newChangelogVersion.trim()
+    const notes = newChangelogNotes.trim()
+    if (!version || !notes) return
+    const lang = (i18n.language ?? 'en') as string
+    const entry: ChangelogEntry = {
+      version,
+      contentHash: pluginContentHash,
+      date: new Date().toISOString().slice(0, 10),
+      notes: { [lang]: notes } as LocalizedString,
+    }
+    updateManifestField('changelog', [...pluginChangelog, entry])
+    setNewChangelogVersion('')
+    setNewChangelogNotes('')
+  }, [newChangelogVersion, newChangelogNotes, pluginContentHash, pluginChangelog, updateManifestField, i18n.language])
+
+  const handleRemoveChangelog = useCallback((index: number) => {
+    updateManifestField('changelog', pluginChangelog.filter((_, i) => i !== index))
+  }, [pluginChangelog, updateManifestField])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
@@ -280,14 +322,14 @@ export function PluginEditor() {
                       {pluginBadges.map((badge) => (
                         <span
                           key={badge.id}
-                          className={cn('group inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium', getBadgeClasses(badge.color))}
+                          className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium', getBadgeClasses(badge.color))}
                           style={getBadgeStyle(badge.color)}
                         >
                           {badge.label}
                           <button
                             type="button"
                             onClick={() => handleRemoveBadge(badge.id)}
-                            className="opacity-0 transition-opacity group-hover:opacity-100"
+                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
                           >
                             <X size={10} />
                           </button>
@@ -347,6 +389,150 @@ export function PluginEditor() {
                     <Plus size={12} />
                     {t('plugins.add_badge')}
                   </Button>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
+          {/* Publishing popover (organization, catalog visibility, traceability) */}
+          {!isBuiltIn && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-1 text-xs">
+                  <Building2 size={12} />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[380px] max-h-[70vh] overflow-auto space-y-4">
+                {/* Organization (inherited from workspace) */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">{t('organization.title')}</Label>
+                  <p className="text-[10px] text-muted-foreground">{t('plugins.org_from_workspace')}</p>
+                  {workspaceOrg ? (
+                    <div className="space-y-1 rounded-md border border-border/50 bg-muted/30 px-2.5 py-2">
+                      <p className="text-xs font-medium">{workspaceOrg.name}</p>
+                      {(workspaceOrg.location || workspaceOrg.country) && (
+                        <p className="text-[10px] text-muted-foreground">
+                          {[workspaceOrg.location, workspaceOrg.country].filter(Boolean).join(', ')}
+                        </p>
+                      )}
+                      {workspaceOrg.website && (
+                        <p className="text-[10px] text-muted-foreground">{workspaceOrg.website}</p>
+                      )}
+                      {workspaceOrg.email && (
+                        <p className="text-[10px] text-muted-foreground">{workspaceOrg.email}</p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground italic">{t('plugins.no_workspace_org')}</p>
+                  )}
+                </div>
+
+                {/* Catalog visibility */}
+                <div className="space-y-2 border-t pt-3">
+                  <Label className="text-xs font-medium">{t('catalog.visibility')}</Label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateManifestField('catalogVisibility', 'unlisted')}
+                      className={cn(
+                        'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                        pluginCatalogVisibility !== 'listed'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-accent',
+                      )}
+                    >
+                      {t('catalog.unlisted')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateManifestField('catalogVisibility', 'listed')}
+                      className={cn(
+                        'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                        pluginCatalogVisibility === 'listed'
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:bg-accent',
+                      )}
+                    >
+                      {t('catalog.listed')}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Content hash & origin */}
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">{t('plugins.content_hash')}</Label>
+                    <span className="font-mono text-[10px] text-muted-foreground select-all">
+                      {pluginContentHash ? pluginContentHash.slice(0, 16) + '…' : t('plugins.content_hash_none')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-medium">{t('plugins.origin_label')}</Label>
+                    <span className="text-[10px] text-muted-foreground">
+                      {pluginOrigin
+                        ? `${pluginOrigin.pluginId}${pluginOrigin.organizationId ? ` (${pluginOrigin.organizationId})` : ''}`
+                        : t('plugins.origin_none')}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Changelog */}
+                <div className="space-y-2 border-t pt-3">
+                  <Label className="text-xs font-medium">{t('plugins.changelog')}</Label>
+                  {pluginChangelog.length > 0 ? (
+                    <div className="space-y-1.5 max-h-32 overflow-auto">
+                      {pluginChangelog.map((entry, i) => {
+                        const lang = i18n.language as string
+                        const noteText = entry.notes[lang] ?? entry.notes.en ?? Object.values(entry.notes)[0] ?? ''
+                        return (
+                          <div key={i} className="group flex items-start gap-2 rounded border border-border/50 px-2 py-1.5">
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-medium">{entry.version}</span>
+                                <span className="text-[9px] text-muted-foreground">{entry.date}</span>
+                              </div>
+                              <p className="text-[10px] text-muted-foreground line-clamp-2">{noteText}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveChangelog(i)}
+                              className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                            >
+                              <X size={10} className="text-muted-foreground" />
+                            </button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground">{t('plugins.no_changelog')}</p>
+                  )}
+                  <div className="space-y-1.5">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input
+                        value={newChangelogVersion}
+                        onChange={(e) => setNewChangelogVersion(e.target.value)}
+                        className="h-7 text-xs"
+                        placeholder={t('plugins.changelog_version')}
+                      />
+                      <Textarea
+                        value={newChangelogNotes}
+                        onChange={(e) => setNewChangelogNotes(e.target.value)}
+                        className="col-span-2 min-h-[28px] resize-none text-xs"
+                        rows={1}
+                        placeholder={t('plugins.changelog_notes')}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddChangelog}
+                      disabled={!newChangelogVersion.trim() || !newChangelogNotes.trim()}
+                      className="h-7 gap-1 text-xs w-full"
+                    >
+                      <Plus size={12} />
+                      {t('plugins.add_changelog_entry')}
+                    </Button>
+                  </div>
                 </div>
               </PopoverContent>
             </Popover>

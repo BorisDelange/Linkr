@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { Workspace, OrganizationInfo, GitRemoteConfig, Language } from '@/types'
-import { useAppStore } from './app-store'
+import type { Workspace, GitRemoteConfig, Language, ProjectBadge } from '@/types'
+import { useAppStore, registerWorkspaceStore } from './app-store'
+import { useOrganizationStore } from './organization-store'
 
 export interface WorkspaceItem {
   id: string
@@ -12,12 +13,21 @@ export interface WorkspaceItem {
   updatedAt: string
 }
 
+function resolveOrgName(ws: Workspace): string {
+  if (ws.organizationId) {
+    const org = useOrganizationStore.getState().getOrganization(ws.organizationId)
+    if (org) return org.name
+  }
+  // Fallback to embedded org (legacy data)
+  return ws.organization?.name ?? ''
+}
+
 function workspaceToItem(ws: Workspace, lang: string): WorkspaceItem {
   return {
     id: ws.id,
     name: ws.name[lang] ?? ws.name['en'] ?? Object.values(ws.name)[0] ?? '',
     description: ws.description[lang] ?? ws.description['en'] ?? Object.values(ws.description)[0] ?? '',
-    organizationName: ws.organization.name,
+    organizationName: resolveOrgName(ws),
     createdAt: ws.createdAt.split('T')[0],
     updatedAt: ws.updatedAt,
   }
@@ -38,21 +48,19 @@ interface WorkspaceState {
   addWorkspace: (params: {
     name: string
     description: string
-    organization: OrganizationInfo
+    organizationId?: string
     gitRemoteConfig?: GitRemoteConfig
   }) => Promise<string>
   updateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>
+  updateWorkspaceBadges: (id: string, badges: ProjectBadge[]) => Promise<void>
   deleteWorkspace: (id: string) => Promise<void>
 
   // Navigation
   openWorkspace: (id: string, name: string) => void
   closeWorkspace: () => void
-
-  // Helpers
-  getUniqueOrganizations: () => OrganizationInfo[]
 }
 
-export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
+export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
   _workspacesRaw: [],
   workspaces: [],
   workspacesLoaded: false,
@@ -71,7 +79,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     })
   },
 
-  addWorkspace: async ({ name, description, organization, gitRemoteConfig }) => {
+  addWorkspace: async ({ name, description, organizationId, gitRemoteConfig }) => {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const lang = useAppStore.getState().language
@@ -79,7 +87,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       id,
       name: { [lang]: name },
       description: { [lang]: description },
-      organization,
+      organizationId,
       gitRemoteConfig,
       createdAt: now,
       updatedAt: now,
@@ -112,6 +120,20 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     })
   },
 
+  updateWorkspaceBadges: async (id, badges) => {
+    await getStorage().workspaces.update(id, { badges })
+    const lang = useAppStore.getState().language
+    set((s) => {
+      const newRaw = s._workspacesRaw.map((ws) =>
+        ws.id === id ? { ...ws, badges, updatedAt: new Date().toISOString() } : ws,
+      )
+      return {
+        _workspacesRaw: newRaw,
+        workspaces: newRaw.map((ws) => workspaceToItem(ws, lang)),
+      }
+    })
+  },
+
   deleteWorkspace: async (id) => {
     await getStorage().workspaces.delete(id)
     set((s) => ({
@@ -133,19 +155,10 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     useAppStore.getState().closeProject()
     set({ activeWorkspaceId: null, activeWorkspaceName: null })
   },
-
-  getUniqueOrganizations: () => {
-    const seen = new Set<string>()
-    const result: OrganizationInfo[] = []
-    for (const ws of get()._workspacesRaw) {
-      if (ws.organization.name && !seen.has(ws.organization.name)) {
-        seen.add(ws.organization.name)
-        result.push(ws.organization)
-      }
-    }
-    return result
-  },
 }))
+
+// Register with app-store to break circular dependency
+registerWorkspaceStore(useWorkspaceStore)
 
 // Re-derive display items when language changes
 useAppStore.subscribe((state, prevState) => {
@@ -154,6 +167,19 @@ useAppStore.subscribe((state, prevState) => {
     if (wsState._workspacesRaw.length > 0) {
       useWorkspaceStore.setState({
         workspaces: wsState._workspacesRaw.map((ws) => workspaceToItem(ws, state.language)),
+      })
+    }
+  }
+})
+
+// Re-derive display items when organization data changes (org name updated, etc.)
+useOrganizationStore.subscribe((state, prevState) => {
+  if (state._organizationsRaw !== prevState._organizationsRaw) {
+    const wsState = useWorkspaceStore.getState()
+    if (wsState._workspacesRaw.length > 0) {
+      const lang = useAppStore.getState().language
+      useWorkspaceStore.setState({
+        workspaces: wsState._workspacesRaw.map((ws) => workspaceToItem(ws, lang)),
       })
     }
   }

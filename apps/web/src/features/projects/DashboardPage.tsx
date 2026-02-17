@@ -14,7 +14,7 @@ import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 
 export function DashboardPage() {
   const { t } = useTranslation()
-  const { uid, dashboardId } = useParams()
+  const { wsUid, uid, dashboardId } = useParams()
   const navigate = useNavigate()
   const projectUid = uid ?? ''
   const currentDashboardId = dashboardId ?? ''
@@ -63,7 +63,7 @@ export function DashboardPage() {
             variant="link"
             size="sm"
             className="mt-2"
-            onClick={() => navigate(`/projects/${projectUid}/lab/dashboards`)}
+            onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards`)}
           >
             {t('dashboard.back_to_list')}
           </Button>
@@ -81,7 +81,7 @@ export function DashboardPage() {
             variant="ghost"
             size="icon-xs"
             className="mr-1"
-            onClick={() => navigate(`/projects/${projectUid}/lab/dashboards`)}
+            onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards`)}
             title={t('dashboard.back_to_list')}
           >
             <ArrowLeft size={14} />

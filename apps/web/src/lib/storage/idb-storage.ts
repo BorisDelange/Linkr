@@ -1,9 +1,13 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace } from '@/types'
-import type { Storage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
+  organizations: {
+    key: string
+    value: Organization
+  }
   workspaces: {
     key: string
     value: Workspace
@@ -128,7 +132,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 16
+const DB_VERSION = 17
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -291,10 +295,72 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         const wsStore = db.createObjectStore('workspaces', { keyPath: 'id' })
         wsStore.createIndex('by-updated', 'updatedAt')
       }
+      // Version 17: Organizations as first-class entity
+      // Extract embedded organization from each workspace, deduplicate by name,
+      // create Organization records, and link workspaces via organizationId.
+      if (oldVersion < 17) {
+        db.createObjectStore('organizations', { keyPath: 'id' })
+        // Migrate existing workspace org data
+        if (oldVersion >= 16) {
+          const wsStore = transaction.objectStore('workspaces')
+          const orgStore = transaction.objectStore('organizations')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(wsStore.getAll() as Promise<any[]>).then((workspaces) => {
+            const orgByName = new Map<string, string>() // name → org id
+            const now = new Date().toISOString()
+            for (const ws of workspaces) {
+              if (ws.organization?.name && !ws.organizationId) {
+                const name = ws.organization.name
+                if (!orgByName.has(name)) {
+                  const orgId = crypto.randomUUID()
+                  orgByName.set(name, orgId)
+                  orgStore.put({
+                    id: orgId,
+                    ...ws.organization,
+                    createdAt: now,
+                    updatedAt: now,
+                  })
+                }
+                ws.organizationId = orgByName.get(name)
+                wsStore.put(ws)
+              }
+            }
+          })
+        }
+      }
     },
   })
   _dbPromise.catch(() => { _dbPromise = null })
   return _dbPromise
+}
+
+class IDBOrganizationStorage implements OrganizationStorage {
+  async getAll(): Promise<Organization[]> {
+    const db = await getDB()
+    return db.getAll('organizations')
+  }
+
+  async getById(id: string): Promise<Organization | undefined> {
+    const db = await getDB()
+    return db.get('organizations', id)
+  }
+
+  async create(org: Organization): Promise<void> {
+    const db = await getDB()
+    await db.add('organizations', org)
+  }
+
+  async update(id: string, changes: Partial<Organization>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('organizations', id)
+    if (!existing) return
+    await db.put('organizations', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('organizations', id)
+  }
 }
 
 class IDBWorkspaceStorage implements WorkspaceStorage {
@@ -893,6 +959,7 @@ class IDBDashboardWidgetStorage implements DashboardWidgetStorage {
 
 export function createIDBStorage(): Storage {
   return {
+    organizations: new IDBOrganizationStorage(),
     workspaces: new IDBWorkspaceStorage(),
     projects: new IDBProjectStorage(),
     dataSources: new IDBDataSourceStorage(),
