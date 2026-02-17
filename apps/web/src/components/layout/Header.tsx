@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useDashboardStore } from '@/stores/dashboard-store'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -72,6 +73,7 @@ export function Header() {
     user,
     logout,
   } = useAppStore()
+  const dashboards = useDashboardStore((s) => s.dashboards)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -97,6 +99,14 @@ export function Header() {
     const projectMatch = location.pathname.match(/^\/projects\/[^/]+\/(.+)$/)
     if (projectMatch) {
       const segment = projectMatch[1]
+
+      // Dashboard editor: show dashboard name
+      const dashMatch = segment.match(/^lab\/dashboards\/(.+)$/)
+      if (dashMatch) {
+        const dash = dashboards.find((d) => d.id === dashMatch[1])
+        return dash?.name ?? t('project_nav.dashboards')
+      }
+
       const key = projectSegmentTitleKeys[segment]
       return key ? t(key) : segment
     }

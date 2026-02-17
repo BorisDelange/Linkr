@@ -113,7 +113,20 @@
     "delete_confirm_title": "Delete dashboard?",
     "delete_confirm_description": "This will permanently delete the dashboard and all its widgets.",
     "rename_title": "Rename dashboard",
-    "widget_configure": "Configure"
+    "widget_configure": "Configure",
+    "field_dataset_placeholder": "Select a dataset...",
+    "field_dataset_hint": "Widgets can use data from this dataset. You can also change it later.",
+    "settings_title": "Dashboard settings",
+    "settings_description": "Configure the dataset and filter columns for this dashboard.",
+    "settings_filters": "Filter columns",
+    "settings_filters_hint": "Select which columns appear in the filter sidebar.",
+    "settings_add_filter": "Add a filter column...",
+    "settings_filters_no_dataset": "Select a dataset first to configure filters.",
+    "filter_type_categorical": "Categorical",
+    "filter_type_numeric": "Numeric",
+    "filter_type_date": "Date",
+    "plugin_configure_description": "Configure the plugin settings before adding it as a widget.",
+    "plugin_no_plugins": "No analysis plugins available."
   },
   "concepts": {
     "title": "Concepts",
@@ -955,7 +968,8 @@
     "status_and_badges": "Status & Badges",
     "danger_zone": "Danger zone",
     "danger_zone_description": "Irreversible actions. Proceed with caution.",
-    "delete_project": "Delete project"
+    "delete_project": "Delete project",
+    "publishing": "Publishing"
   },
   "settings": {
     "title": "Settings",
@@ -1001,6 +1015,29 @@
     "schema_preset_export": "Export JSON",
     "schema_preset_import": "Import"
   },
+  "organization": {
+    "title": "Organization",
+    "description": "Information about the author or organization.",
+    "name": "Organization name",
+    "name_placeholder": "e.g. Assistance Publique - Hôpitaux de Paris",
+    "location": "Location",
+    "location_placeholder": "e.g. Paris, France",
+    "website": "Website",
+    "website_placeholder": "e.g. https://www.aphp.fr",
+    "email": "Email",
+    "email_placeholder": "e.g. contact@example.org",
+    "reference_id": "Reference ID",
+    "reference_id_placeholder": "e.g. ROR:02mhbdp94",
+    "reference_id_hint": "Internal organization identifier (ROR ID, institutional code, etc.)"
+  },
+  "catalog": {
+    "visibility": "Catalog visibility",
+    "visibility_description": "Control whether this item appears in the community catalog.",
+    "listed": "Listed",
+    "listed_description": "Visible in the community catalog when published.",
+    "unlisted": "Unlisted",
+    "unlisted_description": "Published to git but hidden from the catalog browser."
+  },
   "plugins": {
     "title": "Plugins",
     "description": "Create and manage analysis plugins.",
@@ -1044,7 +1081,17 @@
     "icon_search_placeholder": "Search icons...",
     "icon_total": "{{count}} icons",
     "icon_filtered": "{{shown}} of {{total}} icons",
-    "icon_no_results": "No icons found."
+    "icon_no_results": "No icons found.",
+    "publishing": "Publishing",
+    "content_hash": "Content hash",
+    "content_hash_none": "Save to compute",
+    "origin_label": "Origin",
+    "origin_none": "Original plugin",
+    "changelog": "Changelog",
+    "no_changelog": "No changelog entries yet.",
+    "add_changelog_entry": "Add entry",
+    "changelog_version": "Version",
+    "changelog_notes": "Release notes"
   },
   "profile": {
     "title": "Profile",

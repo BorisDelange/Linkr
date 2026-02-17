@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
-import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter } from 'lucide-react'
+import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -10,6 +10,7 @@ import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { DashboardDataProvider } from './dashboard/DashboardDataProvider'
+import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -21,6 +22,7 @@ export function DashboardPage() {
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const {
     dashboards,
@@ -99,6 +101,14 @@ export function DashboardPage() {
                 {t('dashboard.toggle_filters')}
               </Button>
             )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setSettingsOpen(true)}
+              title={t('dashboard.settings_title')}
+            >
+              <Settings2 size={13} />
+            </Button>
             {editMode && (
               <Button
                 size="xs"
@@ -172,6 +182,13 @@ export function DashboardPage() {
           open={filterOpen}
           onOpenChange={setFilterOpen}
           dashboard={dashboard}
+        />
+
+        <DashboardSettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          dashboard={dashboard}
+          projectUid={projectUid}
         />
       </div>
     </DashboardDataProvider>

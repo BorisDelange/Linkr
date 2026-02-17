@@ -1,13 +1,18 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Activity, Users, TrendingUp, Heart, TableIcon, Hash, BarChart3, Code2 } from 'lucide-react'
+import { Activity, Users, TrendingUp, Heart, TableIcon, Hash, BarChart3, Code2, ArrowLeft } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDashboardData } from './DashboardDataProvider'
 import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
+import type { AnalysisPlugin } from '@/types/analysis-plugin'
+import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
+import { Button } from '@/components/ui/button'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -89,11 +94,23 @@ const builtinOptions: BuiltinOption[] = [
 ]
 
 export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { addWidget } = useDashboardStore()
+  const { columns } = useDashboardData()
   const [activeTab, setActiveTab] = useState('builtin')
+  const lang = i18n.language as 'en' | 'fr'
+
+  // Plugin config step
+  const [selectedPlugin, setSelectedPlugin] = useState<AnalysisPlugin | null>(null)
+  const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
 
   const plugins = getAllAnalysisPlugins()
+
+  const resetAndClose = () => {
+    setSelectedPlugin(null)
+    setPluginConfig({})
+    onOpenChange(false)
+  }
 
   const handleAddBuiltin = (opt: BuiltinOption) => {
     const source: DashboardWidgetSource = {
@@ -102,17 +119,38 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
       config: { ...opt.defaultConfig },
     }
     addWidget(tabId, source, t(opt.nameKey))
-    onOpenChange(false)
+    resetAndClose()
   }
 
-  const handleAddPlugin = (pluginId: string, pluginName: string) => {
+  const handleSelectPlugin = (plugin: AnalysisPlugin) => {
+    const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
+
+    if (hasConfig) {
+      setSelectedPlugin(plugin)
+      setPluginConfig({})
+    } else {
+      // No config needed, add immediately
+      const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
+      const source: DashboardWidgetSource = {
+        type: 'plugin',
+        pluginId: plugin.manifest.id,
+        config: {},
+      }
+      addWidget(tabId, source, name)
+      resetAndClose()
+    }
+  }
+
+  const handleConfirmPlugin = () => {
+    if (!selectedPlugin) return
+    const name = selectedPlugin.manifest.name[lang] ?? selectedPlugin.manifest.name.en ?? selectedPlugin.manifest.id
     const source: DashboardWidgetSource = {
       type: 'plugin',
-      pluginId,
-      config: {},
+      pluginId: selectedPlugin.manifest.id,
+      config: { ...pluginConfig },
     }
-    addWidget(tabId, source, pluginName)
-    onOpenChange(false)
+    addWidget(tabId, source, name)
+    resetAndClose()
   }
 
   const handleAddInline = (language: 'python' | 'r' | 'sql') => {
@@ -123,11 +161,55 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
       config: {},
     }
     addWidget(tabId, source, `Custom ${language}`)
-    onOpenChange(false)
+    resetAndClose()
+  }
+
+  // Plugin config step view
+  if (selectedPlugin) {
+    const pluginName = selectedPlugin.manifest.name[lang] ?? selectedPlugin.manifest.name.en ?? selectedPlugin.manifest.id
+    return (
+      <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setSelectedPlugin(null)}
+              >
+                <ArrowLeft size={14} />
+              </Button>
+              {pluginName}
+            </DialogTitle>
+            <DialogDescription>
+              {t('dashboard.plugin_configure_description')}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="max-h-80 overflow-y-auto">
+            <GenericConfigPanel
+              schema={selectedPlugin.manifest.configSchema!}
+              config={pluginConfig}
+              columns={columns}
+              onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setSelectedPlugin(null)}>
+              {t('common.back')}
+            </Button>
+            <Button size="sm" onClick={handleConfirmPlugin}>
+              {t('dashboard.add_widget')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('dashboard.add_widget_title')}</DialogTitle>
@@ -175,31 +257,33 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
             <div className="grid gap-2 max-h-80 overflow-y-auto">
               {plugins.length === 0 ? (
                 <p className="text-xs text-muted-foreground text-center py-4">
-                  No analysis plugins available
+                  {t('dashboard.plugin_no_plugins')}
                 </p>
               ) : (
                 plugins.map((plugin) => {
-                  const name = typeof plugin.manifest.name === 'object'
-                    ? (plugin.manifest.name as Record<string, string>).en ?? plugin.manifest.id
-                    : plugin.manifest.id
-                  const desc = typeof plugin.manifest.description === 'object'
-                    ? (plugin.manifest.description as Record<string, string>).en ?? ''
-                    : ''
+                  const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
+                  const desc = plugin.manifest.description[lang] ?? plugin.manifest.description.en ?? ''
+                  const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
                   return (
                     <button
                       key={plugin.manifest.id}
-                      onClick={() => handleAddPlugin(plugin.manifest.id, name)}
+                      onClick={() => handleSelectPlugin(plugin)}
                       className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                         <BarChart3 size={20} className="text-primary" />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{name}</p>
                         {desc && (
                           <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
                         )}
                       </div>
+                      {hasConfig && (
+                        <span className="text-[10px] text-muted-foreground shrink-0">
+                          {t('dashboard.widget_configure')}...
+                        </span>
+                      )}
                     </button>
                   )
                 })
