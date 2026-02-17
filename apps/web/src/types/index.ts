@@ -275,6 +275,44 @@ export interface ReadmeAttachment {
   createdAt: string
 }
 
+// --- Wiki Types ---
+
+export interface WikiSnapshot {
+  id: string
+  content: string
+  savedAt: string
+}
+
+export interface WikiPage {
+  id: string
+  workspaceId: string
+  parentId: string | null
+  title: string
+  slug: string
+  icon?: string
+  content: string
+  template?: string
+  owner?: string
+  verified?: boolean
+  verifiedAt?: string
+  reviewDueAt?: string
+  sortOrder: number
+  history: WikiSnapshot[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface WikiAttachment {
+  id: string
+  pageId: string
+  workspaceId: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  data: ArrayBuffer
+  createdAt: string
+}
+
 // --- Dashboard Types ---
 
 export interface DashboardFilterColumn {

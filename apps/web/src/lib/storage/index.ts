@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -182,6 +182,27 @@ export interface DashboardWidgetStorage {
   deleteByTab(tabId: string): Promise<void>
 }
 
+/** Storage interface for wiki page persistence. */
+export interface WikiPageStorage {
+  getByWorkspace(workspaceId: string): Promise<WikiPage[]>
+  getById(id: string): Promise<WikiPage | undefined>
+  create(page: WikiPage): Promise<void>
+  update(id: string, changes: Partial<WikiPage>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByWorkspace(workspaceId: string): Promise<void>
+}
+
+/** Storage interface for wiki attachment blobs. */
+export interface WikiAttachmentStorage {
+  getByPage(pageId: string): Promise<WikiAttachment[]>
+  getByWorkspace(workspaceId: string): Promise<WikiAttachment[]>
+  getById(id: string): Promise<WikiAttachment | undefined>
+  create(attachment: WikiAttachment): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByPage(pageId: string): Promise<void>
+  deleteByWorkspace(workspaceId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -204,6 +225,8 @@ export interface Storage {
   dashboards: DashboardStorage
   dashboardTabs: DashboardTabStorage
   dashboardWidgets: DashboardWidgetStorage
+  wikiPages: WikiPageStorage
+  wikiAttachments: WikiAttachmentStorage
 }
 
 let _storage: Storage | null = null

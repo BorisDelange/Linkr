@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -129,10 +129,26 @@ interface LinkrDB extends DBSchema {
       'by-tab': string
     }
   }
+  wiki_pages: {
+    key: string
+    value: WikiPage
+    indexes: {
+      'by-workspace': string
+      'by-parent': string
+    }
+  }
+  wiki_attachments: {
+    key: string
+    value: WikiAttachment
+    indexes: {
+      'by-page': string
+      'by-workspace': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 17
+const DB_VERSION = 18
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -327,6 +343,15 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
             }
           })
         }
+      }
+      // Version 18: Wiki pages and attachments
+      if (oldVersion < 18) {
+        const wikiPageStore = db.createObjectStore('wiki_pages', { keyPath: 'id' })
+        wikiPageStore.createIndex('by-workspace', 'workspaceId')
+        wikiPageStore.createIndex('by-parent', 'parentId')
+        const wikiAttStore = db.createObjectStore('wiki_attachments', { keyPath: 'id' })
+        wikiAttStore.createIndex('by-page', 'pageId')
+        wikiAttStore.createIndex('by-workspace', 'workspaceId')
       }
     },
   })
@@ -957,6 +982,92 @@ class IDBDashboardWidgetStorage implements DashboardWidgetStorage {
   }
 }
 
+class IDBWikiPageStorage implements WikiPageStorage {
+  async getByWorkspace(workspaceId: string): Promise<WikiPage[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('wiki_pages', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<WikiPage | undefined> {
+    const db = await getDB()
+    return db.get('wiki_pages', id)
+  }
+
+  async create(page: WikiPage): Promise<void> {
+    const db = await getDB()
+    await db.put('wiki_pages', page)
+  }
+
+  async update(id: string, changes: Partial<WikiPage>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('wiki_pages', id)
+    if (!existing) return
+    await db.put('wiki_pages', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('wiki_pages', id)
+  }
+
+  async deleteByWorkspace(workspaceId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('wiki_pages', 'by-workspace', workspaceId)
+    const tx = db.transaction('wiki_pages', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBWikiAttachmentStorage implements WikiAttachmentStorage {
+  async getByPage(pageId: string): Promise<WikiAttachment[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('wiki_attachments', 'by-page', pageId)
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<WikiAttachment[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('wiki_attachments', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<WikiAttachment | undefined> {
+    const db = await getDB()
+    return db.get('wiki_attachments', id)
+  }
+
+  async create(attachment: WikiAttachment): Promise<void> {
+    const db = await getDB()
+    await db.put('wiki_attachments', attachment)
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('wiki_attachments', id)
+  }
+
+  async deleteByPage(pageId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('wiki_attachments', 'by-page', pageId)
+    const tx = db.transaction('wiki_attachments', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+
+  async deleteByWorkspace(workspaceId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('wiki_attachments', 'by-workspace', workspaceId)
+    const tx = db.transaction('wiki_attachments', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -979,5 +1090,7 @@ export function createIDBStorage(): Storage {
     dashboards: new IDBDashboardStorage(),
     dashboardTabs: new IDBDashboardTabStorage(),
     dashboardWidgets: new IDBDashboardWidgetStorage(),
+    wikiPages: new IDBWikiPageStorage(),
+    wikiAttachments: new IDBWikiAttachmentStorage(),
   }
 }

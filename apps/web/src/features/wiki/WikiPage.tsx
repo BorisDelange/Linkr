@@ -1,26 +1,99 @@
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useParams } from 'react-router'
 import { BookOpen } from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { useWikiStore } from '@/stores/wiki-store'
+import { WikiTreeSidebar } from './WikiTreeSidebar'
+import { WikiPageEditor } from './WikiPageEditor'
+import { WikiSearchDialog } from './WikiSearchDialog'
+import { CreateWikiPageDialog } from './CreateWikiPageDialog'
 
 export function WikiPage() {
   const { t } = useTranslation()
-  return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-2xl font-bold text-foreground">{t('wiki.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('wiki.description')}</p>
-        <Card className="mt-6">
-          <div className="flex flex-col items-center py-12">
-            <BookOpen size={40} className="text-muted-foreground" />
-            <div className="mt-4 flex items-center gap-2">
-              <p className="text-sm font-medium text-foreground">{t('wiki.title')}</p>
-              <Badge variant="secondary" className="text-[10px]">{t('wiki.coming_soon')}</Badge>
-            </div>
-            <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">{t('wiki.coming_soon_description')}</p>
-          </div>
-        </Card>
+  const { wsUid } = useParams<{ wsUid: string }>()
+  const {
+    pagesLoaded,
+    loadPages,
+    currentWorkspaceId,
+    activePageId,
+    getPage,
+  } = useWikiStore()
+
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createParentId, setCreateParentId] = useState<string | null>(null)
+
+  // Load wiki pages when workspace changes
+  useEffect(() => {
+    if (wsUid && wsUid !== currentWorkspaceId) {
+      loadPages(wsUid)
+    }
+  }, [wsUid, currentWorkspaceId, loadPages])
+
+  const activePage = activePageId ? getPage(activePageId) : undefined
+
+  const handleCreatePage = (parentId: string | null) => {
+    setCreateParentId(parentId)
+    setCreateOpen(true)
+  }
+
+  // Keyboard shortcut: Cmd/Ctrl+K for search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  if (!wsUid || !pagesLoaded) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">{t('common.loading')}</p>
       </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full overflow-hidden">
+      {/* Tree sidebar */}
+      <div className="w-64 shrink-0 overflow-hidden border-r bg-muted/30">
+        <WikiTreeSidebar
+          workspaceId={wsUid}
+          onCreatePage={handleCreatePage}
+          onSearch={() => setSearchOpen(true)}
+        />
+      </div>
+
+      {/* Content area */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {activePage ? (
+          <WikiPageEditor page={activePage} workspaceId={wsUid} />
+        ) : (
+          <div className="flex h-full flex-col items-center justify-center text-center">
+            <BookOpen size={48} className="text-muted-foreground/30" />
+            <h2 className="mt-4 text-lg font-semibold text-foreground">{t('wiki.title')}</h2>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+              {t('wiki.select_or_create')}
+            </p>
+            <p className="mt-3 text-xs text-muted-foreground/60">
+              {t('wiki.search_shortcut')}
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Dialogs */}
+      <WikiSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      <CreateWikiPageDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        workspaceId={wsUid}
+        parentId={createParentId}
+      />
     </div>
   )
 }
