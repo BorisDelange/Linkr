@@ -54,7 +54,7 @@ export function LoginPage() {
         <div className="w-full max-w-sm">
           <div className="mb-8 text-center">
             <h1 className="text-3xl font-bold text-primary">
-              linkr
+              Linkr
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               Healthcare Data Platform
@@ -116,7 +116,7 @@ export function LoginPage() {
           </Card>
 
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            linkr v2.0 &middot; InterHop
+            Linkr v2.0 &middot; InterHop
           </p>
         </div>
       </div>

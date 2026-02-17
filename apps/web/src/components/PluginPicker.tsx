@@ -43,7 +43,6 @@ function getIconColorProps(iconColor?: BadgeColor): { className?: string; style?
 export const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
   r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
 }
 
 // ---------------------------------------------------------------------------
@@ -214,11 +213,6 @@ export function PluginPicker({
                       </span>
                     )
                   })}
-                  {m.runtime?.includes('js-widget') && (
-                    <span className={cn('shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none', LANG_BADGE['js-widget'].color)}>
-                      {LANG_BADGE['js-widget'].label}
-                    </span>
-                  )}
                   {m.badges?.map((badge) => (
                     <span
                       key={badge.id}

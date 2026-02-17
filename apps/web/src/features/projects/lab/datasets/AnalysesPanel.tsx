@@ -1,4 +1,4 @@
-import { useState, useMemo, Suspense } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -17,38 +17,17 @@ interface AnalysesPanelProps {
 
 /**
  * Infer the default language for a legacy analysis that has no `config.language`.
- * JS-widget-only plugins default to 'js-widget', script plugins to 'python'.
  */
 function inferDefaultLanguage(pluginId: string): AnalysisLanguage {
   const plugin = getAnalysisPlugin(pluginId)
   if (!plugin) return 'python'
-  const rt = plugin.manifest.runtime
-  if (rt.length === 1 && rt[0] === 'js-widget') return 'js-widget'
-  if (rt.includes('script') && plugin.manifest.languages.length > 0) return plugin.manifest.languages[0]
-  return 'js-widget'
+  if (plugin.manifest.languages.length > 0) return plugin.manifest.languages[0]
+  return 'python'
 }
 
 function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
-  const { t } = useTranslation()
-
   const plugin = getAnalysisPlugin(analysis.type)
   const language = (analysis.config.language as AnalysisLanguage | undefined) ?? inferDefaultLanguage(analysis.type)
-
-  // JS widget mode: render the lazy-loaded component
-  if (language === 'js-widget' && plugin?.jsComponent) {
-    const Component = plugin.jsComponent
-    return (
-      <Suspense
-        fallback={
-          <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
-            {t('common.loading')}
-          </div>
-        }
-      >
-        <Component analysis={analysis} />
-      </Suspense>
-    )
-  }
 
   // Script mode (python / r): resolve template + AnalysisShell + GenericConfigPanel
   if (plugin && (language === 'python' || language === 'r')) {

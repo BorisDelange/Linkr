@@ -1,4 +1,4 @@
-import type { DatasetAnalysis, BadgeColor, OrganizationInfo, CatalogVisibility, PluginOrigin, ParentRef, ChangelogEntry } from '@/types'
+import type { BadgeColor, OrganizationInfo, CatalogVisibility, PluginOrigin, ParentRef, ChangelogEntry } from '@/types'
 
 /** A colored label badge on a plugin (same pattern as project badges). */
 export interface PluginBadge {
@@ -22,7 +22,7 @@ export interface PluginConfigField {
 }
 
 /** Runtime mode(s) the plugin supports. */
-export type PluginRuntime = 'script' | 'js-widget'
+export type PluginRuntime = 'script'
 
 /** The full plugin manifest, matching the JSON schema from plugin.json files. */
 export interface AnalysisPluginManifest {
@@ -44,14 +44,13 @@ export interface AnalysisPluginManifest {
     r?: string[]
   }
   templates?: Record<string, string>
-  component?: string
   /** Custom colored badges for categorizing the plugin. */
   badges?: PluginBadge[]
   /** Organization or author metadata. */
   organization?: OrganizationInfo
   /** Whether this plugin appears in the community catalog. Defaults to 'unlisted'. */
   catalogVisibility?: CatalogVisibility
-  /** SHA-256 hash of functional content (configSchema, templates, dependencies, component, runtime, languages). */
+  /** SHA-256 hash of functional content (configSchema, templates, dependencies, runtime, languages). */
   contentHash?: string
   /** Original creator of this plugin (before any forks). */
   origin?: PluginOrigin
@@ -61,11 +60,9 @@ export interface AnalysisPluginManifest {
   changelog?: ChangelogEntry[]
 }
 
-/** Resolved plugin with loaded templates and component reference. */
+/** Resolved plugin with loaded templates. */
 export interface AnalysisPlugin {
   manifest: AnalysisPluginManifest
-  /** Loaded template strings, keyed by language. null if runtime is js-widget only. */
+  /** Loaded template strings, keyed by language. */
   templates: Record<string, string> | null
-  /** React component for js-widget mode. null if runtime is script only. */
-  jsComponent: React.ComponentType<{ analysis: DatasetAnalysis }> | null
 }

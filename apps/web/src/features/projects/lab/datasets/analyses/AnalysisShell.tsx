@@ -308,6 +308,8 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
                       language={language}
                       onChange={handleCodeChange}
                       height="100%"
+                      onRunSelectionOrLine={handleRun}
+                      onRunFile={handleRun}
                     />
                   )}
                 </div>

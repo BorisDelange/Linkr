@@ -32,7 +32,6 @@ import { PluginEditor } from './PluginEditor'
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
   r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
 }
 
 function LanguageBadge({ language }: { language: string }) {
@@ -157,7 +156,7 @@ export function PluginsTab() {
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null, null))
+      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* skip */ }
 
     await refreshPluginList()
@@ -259,9 +258,6 @@ export function PluginsTab() {
                   {plugin.manifest.languages?.map((l) => (
                     <LanguageBadge key={l} language={l} />
                   ))}
-                  {plugin.manifest.runtime?.includes('js-widget') && (
-                    <LanguageBadge language="js-widget" />
-                  )}
                   <span className="text-[10px] text-muted-foreground shrink-0">
                     v{plugin.manifest.version ?? '1.0.0'}
                   </span>

@@ -59,7 +59,6 @@ import type { AnalysisLanguage } from '@/types'
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
   r: { label: 'R', color: 'text-blue-500 bg-blue-500/10' },
-  'js-widget': { label: 'JS', color: 'text-amber-500 bg-amber-500/10' },
 }
 
 function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: string }) {
@@ -67,10 +66,8 @@ function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: 
   let lang = language
   if (!lang) {
     const plugin = getAnalysisPlugin(type)
-    if (plugin) {
-      const rt = plugin.manifest.runtime
-      if (rt.length === 1 && rt[0] === 'js-widget') lang = 'js-widget'
-      else if (rt.includes('script') && plugin.manifest.languages.length > 0) lang = plugin.manifest.languages[0]
+    if (plugin && plugin.manifest.languages.length > 0) {
+      lang = plugin.manifest.languages[0]
     }
   }
   if (!lang) return null

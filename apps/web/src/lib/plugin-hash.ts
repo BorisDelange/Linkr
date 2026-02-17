@@ -2,7 +2,7 @@
  * Content-addressable hashing for plugin traceability.
  *
  * Computes a SHA-256 hash of the *functional* content of a plugin:
- * configSchema, templates (code), dependencies, component, runtime, languages.
+ * configSchema, templates (code), dependencies, runtime, languages.
  *
  * Metadata-only fields (name, description, version, icon, badges, organization,
  * catalogVisibility, origin, parentRef, changelog) are excluded so that
@@ -44,7 +44,6 @@ export async function computePluginContentHash(
   const functional: Record<string, unknown> = {
     configSchema: manifest.configSchema ?? {},
     dependencies: manifest.dependencies ?? {},
-    component: manifest.component ?? null,
     runtime: manifest.runtime ?? [],
     languages: manifest.languages ?? [],
   }

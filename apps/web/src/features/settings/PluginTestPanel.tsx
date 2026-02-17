@@ -15,9 +15,11 @@ interface PluginTestPanelProps {
   result: RuntimeOutput | null
   statusMessage: string | null
   columns: DatasetColumn[]
+  installedDeps?: string[]
+  onRerun?: () => void
 }
 
-export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage, columns }: PluginTestPanelProps) {
+export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage, columns, installedDeps, onRerun }: PluginTestPanelProps) {
   const { t } = useTranslation()
   const { files, testLanguage, testConfig } = usePluginEditorStore()
 
@@ -71,6 +73,8 @@ export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage,
                 result={result}
                 isExecuting={isExecuting}
                 statusMessage={statusMessage}
+                installedDeps={installedDeps}
+                onRerun={onRerun}
               />
             ) : (
               <div className="flex h-full items-center justify-center text-xs text-muted-foreground">

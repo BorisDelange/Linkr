@@ -568,7 +568,7 @@ export interface DatasetData {
 
 export type DatasetAnalysisType = string
 
-export type AnalysisLanguage = 'python' | 'r' | 'js-widget'
+export type AnalysisLanguage = 'python' | 'r'
 
 export interface DatasetAnalysis {
   id: string

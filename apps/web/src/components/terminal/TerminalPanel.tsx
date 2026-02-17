@@ -9,7 +9,7 @@ type TerminalType = 'bash' | 'python' | 'r'
 
 const terminalConfig: Record<TerminalType, { welcome: string; prompt: string }> = {
   bash: {
-    welcome: '\x1b[1;34mlinkr Terminal\x1b[0m — Bash (WASM)\r\n\x1b[2mNote: limited shell — use Python or R terminals for code execution\x1b[0m\r\n',
+    welcome: '\x1b[1;34mLinkr Terminal\x1b[0m — Bash (WASM)\r\n\x1b[2mNote: limited shell — use Python or R terminals for code execution\x1b[0m\r\n',
     prompt: '$ ',
   },
   python: {

@@ -25,14 +25,6 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
     )
   }
 
-  if (plugin.jsComponent && !plugin.templates) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-        This plugin type is not supported in dashboard widgets
-      </div>
-    )
-  }
-
   return <ScriptPluginWidget widget={widget} />
 }
 

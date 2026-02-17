@@ -23,6 +23,8 @@ import { PluginTestPanel } from './PluginTestPanel'
 import { bumpVersion, type BumpType } from '@/lib/semver'
 import { resolveTemplate } from '@/lib/analysis-plugins/template-resolver'
 import { executeAnalysisCode, executeAnalysisCodeR } from '@/features/projects/lab/datasets/analysis-executor'
+import { listPythonPackages, installPythonPackage } from '@/lib/runtimes/pyodide-engine'
+import { listRPackages, installRPackage } from '@/lib/runtimes/webr-engine'
 import { getStorage } from '@/lib/storage'
 import type { PresetBadgeColor, BadgeColor, CatalogVisibility, DatasetColumn } from '@/types'
 import type { PluginBadge, PluginConfigField } from '@/types/analysis-plugin'
@@ -85,6 +87,7 @@ export function PluginEditor() {
   const [testResult, setTestResult] = useState<RuntimeOutput | null>(null)
   const [testStatusMessage, setTestStatusMessage] = useState<string | null>(null)
   const [testColumns, setTestColumns] = useState<DatasetColumn[]>([])
+  const [testInstalledDeps, setTestInstalledDeps] = useState<string[]>([])
 
   // --- Drag reorder state ---
   const [dragFile, setDragFile] = useState<string | null>(null)
@@ -188,9 +191,12 @@ export function PluginEditor() {
   // Test execution
   const handleRunTest = useCallback(async () => {
     if (!testDatasetFileId) return
+    setActiveOutputTab('results')
+    if (!outputVisible) setOutputVisible(true)
     setIsExecuting(true)
     setTestResult(null)
     setTestStatusMessage(null)
+    setTestInstalledDeps([])
     try {
       const storage = getStorage()
       // Load dataset rows + columns
@@ -199,6 +205,33 @@ export function PluginEditor() {
       setTestColumns(cols)
       const datasetData = await storage.datasetData.get(testDatasetFileId)
       const rows = datasetData?.rows ?? []
+
+      // Auto-install declared dependencies from plugin.json
+      let manifestDeps: string[] = []
+      try {
+        const m = JSON.parse(files['plugin.json'] ?? '{}')
+        manifestDeps = m.dependencies?.[testLanguage] ?? []
+      } catch { /* invalid json */ }
+
+      const newlyInstalled: string[] = []
+      if (manifestDeps.length > 0) {
+        const installed = testLanguage === 'python'
+          ? await listPythonPackages()
+          : await listRPackages()
+        const installedNames = new Set(installed.map(p => p.name.toLowerCase()))
+        const missing = manifestDeps.filter(d => !installedNames.has(d.toLowerCase()))
+        for (const pkg of missing) {
+          setTestStatusMessage(`Installing ${pkg}...`)
+          if (testLanguage === 'python') {
+            await installPythonPackage(pkg, (msg) => setTestStatusMessage(msg))
+          } else {
+            await installRPackage(pkg, (msg) => setTestStatusMessage(msg))
+          }
+          newlyInstalled.push(pkg)
+        }
+      }
+      setTestInstalledDeps(newlyInstalled)
+      setTestStatusMessage(null)
 
       // Find template
       let template = ''
@@ -223,7 +256,7 @@ export function PluginEditor() {
       setIsExecuting(false)
       setTestStatusMessage(null)
     }
-  }, [testDatasetFileId, testLanguage, files, testConfig, parsedSchema])
+  }, [testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
@@ -643,7 +676,7 @@ export function PluginEditor() {
                   <div className="mx-0.5 h-4 w-px shrink-0 bg-border" />
                 )}
 
-                {/* Output tabs (Config / Code / Results) — not closable */}
+                {/* Output tabs: Config / Code / Results */}
                 {(['config', 'code', 'results'] as const).map((tab) => (
                   <button
                     key={tab}
@@ -698,6 +731,8 @@ export function PluginEditor() {
                       result={testResult}
                       statusMessage={testStatusMessage}
                       columns={testColumns}
+                      installedDeps={testInstalledDeps}
+                      onRerun={handleRunTest}
                     />
                   </Allotment.Pane>
                 </Allotment>

@@ -371,7 +371,7 @@ export function AppSidebar() {
           onClick={handleLogoClick}
         >
           <LinkRLogo size={28} animated />
-          <span className="text-[15px] font-semibold text-sidebar-foreground">LinkR</span>
+          <span className="text-[15px] font-semibold text-sidebar-foreground">Linkr</span>
         </Link>
         <SidebarTrigger />
       </SidebarHeader>

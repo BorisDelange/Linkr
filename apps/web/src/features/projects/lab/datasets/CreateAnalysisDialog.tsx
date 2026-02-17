@@ -37,15 +37,11 @@ interface CreateAnalysisDialogProps {
 const LANGUAGE_LABELS: Record<AnalysisLanguage, { en: string; fr: string }> = {
   python: { en: 'Python', fr: 'Python' },
   r: { en: 'R', fr: 'R' },
-  'js-widget': { en: 'JS Widget', fr: 'Widget JS' },
 }
 
 function getAvailableLanguages(plugin: AnalysisPlugin): AnalysisLanguage[] {
   const langs: AnalysisLanguage[] = []
-  if (plugin.manifest.runtime.includes('script')) {
-    for (const l of plugin.manifest.languages) langs.push(l)
-  }
-  if (plugin.manifest.runtime.includes('js-widget')) langs.push('js-widget')
+  for (const l of plugin.manifest.languages) langs.push(l)
   return langs
 }
 

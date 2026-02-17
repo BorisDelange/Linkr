@@ -153,6 +153,21 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
             </TooltipTrigger>
             <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
           </Tooltip>
+          {onRun && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={onRun}
+                  disabled={isRunning || !testDatasetFileId}
+                >
+                  {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('plugins.test_run')}</TooltipContent>
+            </Tooltip>
+          )}
           {/* Test config popover */}
           <Popover>
             <Tooltip>
@@ -213,20 +228,6 @@ export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListP
               </div>
             </PopoverContent>
           </Popover>
-          {/* Run test button */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onRun}
-                disabled={isRunning || !testDatasetFileId}
-              >
-                {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('plugins.test_run')}</TooltipContent>
-          </Tooltip>
         </div>
         {onCollapse && (
           <Tooltip>

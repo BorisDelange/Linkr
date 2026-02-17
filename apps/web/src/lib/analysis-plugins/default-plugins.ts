@@ -1,4 +1,3 @@
-import { lazy } from 'react'
 import type { AnalysisPlugin, AnalysisPluginManifest } from '@/types/analysis-plugin'
 import { registerAnalysisPlugin } from './registry'
 import { getStorage } from '@/lib/storage'
@@ -6,7 +5,6 @@ import { getStorage } from '@/lib/storage'
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import distributionManifest from '@default-plugins/analyses/distribution/plugin.json'
-import summaryManifest from '@default-plugins/analyses/summary/plugin.json'
 import correlationManifest from '@default-plugins/analyses/correlation/plugin.json'
 import crosstabManifest from '@default-plugins/analyses/crosstab/plugin.json'
 
@@ -19,14 +17,6 @@ import correlationPy from '@default-plugins/analyses/correlation/correlation.py.
 import correlationR from '@default-plugins/analyses/correlation/correlation.R.template?raw'
 import crosstabPy from '@default-plugins/analyses/crosstab/crosstab.py.template?raw'
 import crosstabR from '@default-plugins/analyses/crosstab/crosstab.R.template?raw'
-
-// --- JS widget component map (lazy-loaded, named exports → default) ---
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const JS_COMPONENTS: Record<string, React.LazyExoticComponent<React.ComponentType<any>>> = {
-  SummaryAnalysis: lazy(() =>
-    import('@/features/projects/lab/datasets/analyses/SummaryAnalysis').then(m => ({ default: m.SummaryAnalysis })),
-  ),
-}
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): AnalysisPluginManifest {
@@ -41,13 +31,9 @@ function normaliseManifest(raw: Record<string, unknown>): AnalysisPluginManifest
 export function buildPlugin(
   rawManifest: Record<string, unknown>,
   templates: Record<string, string> | null,
-  jsComponent?: React.ComponentType<{ analysis: import('@/types').DatasetAnalysis }> | null,
 ): AnalysisPlugin {
   const manifest = normaliseManifest(rawManifest)
-  const componentName = manifest.component
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const resolvedComponent = jsComponent ?? (componentName ? (JS_COMPONENTS[componentName] as any) ?? null : null)
-  return { manifest, templates, jsComponent: resolvedComponent }
+  return { manifest, templates }
 }
 
 export function registerDefaultPlugins() {
@@ -56,9 +42,6 @@ export function registerDefaultPlugins() {
   )
   registerAnalysisPlugin(
     buildPlugin(distributionManifest as unknown as Record<string, unknown>, { python: distributionPy, r: distributionR }),
-  )
-  registerAnalysisPlugin(
-    buildPlugin(summaryManifest as unknown as Record<string, unknown>, null),
   )
   registerAnalysisPlugin(
     buildPlugin(correlationManifest as unknown as Record<string, unknown>, { python: correlationPy, r: correlationR }),
@@ -84,7 +67,7 @@ export async function registerUserPlugins() {
           else if (filename.endsWith('.R.template')) templates.r = content
         }
         registerAnalysisPlugin(
-          buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null, null),
+          buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null),
         )
       } catch {
         // Skip plugins with invalid plugin.json
