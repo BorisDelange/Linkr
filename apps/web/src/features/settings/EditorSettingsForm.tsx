@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, type EditorSettings } from '@/stores/app-store'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -22,16 +22,18 @@ export function EditorSettingsForm() {
         <Select
           value={editorSettings.theme}
           onValueChange={(v) =>
-            updateEditorSettings({ theme: v as 'auto' | 'vs' | 'vs-dark' })
+            updateEditorSettings({ theme: v as EditorSettings['theme'] })
           }
         >
-          <SelectTrigger className="w-24">
+          <SelectTrigger className="w-36">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="auto">{t('editor.theme_auto')}</SelectItem>
-            <SelectItem value="vs">{t('editor.theme_light')}</SelectItem>
-            <SelectItem value="vs-dark">{t('editor.theme_dark')}</SelectItem>
+            <SelectItem value="linkr-light">{t('editor.theme_linkr_light')}</SelectItem>
+            <SelectItem value="linkr-dark">{t('editor.theme_linkr_dark')}</SelectItem>
+            <SelectItem value="vs">{t('editor.theme_vs_light')}</SelectItem>
+            <SelectItem value="vs-dark">{t('editor.theme_vs_dark')}</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -37,7 +37,7 @@ export interface EditorSettings {
   minimap: boolean
   lineNumbers: 'on' | 'off' | 'relative'
   tabSize: number
-  theme: 'auto' | 'vs' | 'vs-dark'
+  theme: 'auto' | 'linkr-light' | 'linkr-dark' | 'vs' | 'vs-dark'
   autoSave: boolean
   autoSaveDelay: number
 }

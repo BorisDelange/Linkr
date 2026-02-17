@@ -1219,8 +1219,10 @@
     "tab_size": "Taille de tabulation",
     "theme": "Thème",
     "theme_auto": "Auto",
-    "theme_light": "Clair",
-    "theme_dark": "Sombre",
+    "theme_linkr_light": "LinkR Clair",
+    "theme_linkr_dark": "LinkR Sombre",
+    "theme_vs_light": "VS Clair",
+    "theme_vs_dark": "VS Sombre",
     "auto_save": "Sauvegarde automatique",
     "auto_save_delay": "Délai de sauvegarde"
   },

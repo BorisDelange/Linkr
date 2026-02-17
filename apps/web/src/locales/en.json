@@ -1218,8 +1218,10 @@
     "tab_size": "Tab size",
     "theme": "Theme",
     "theme_auto": "Auto",
-    "theme_light": "Light",
-    "theme_dark": "Dark",
+    "theme_linkr_light": "LinkR Light",
+    "theme_linkr_dark": "LinkR Dark",
+    "theme_vs_light": "VS Light",
+    "theme_vs_dark": "VS Dark",
     "auto_save": "Auto-save",
     "auto_save_delay": "Auto-save delay"
   },
