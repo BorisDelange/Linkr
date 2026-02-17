@@ -23,6 +23,8 @@ import { cn } from '@/lib/utils'
 interface OutputTableProps {
   headers: string[]
   rows: string[][]
+  /** Compact mode for dashboard widgets — hides toolbar, filter row, and page-size selector. */
+  compact?: boolean
 }
 
 type InferredType = 'number' | 'boolean' | 'date' | 'string' | 'unknown'
@@ -58,7 +60,7 @@ function isNullish(val: string | undefined): boolean {
   return lower === 'null' || lower === 'na' || lower === 'none' || lower === 'nan'
 }
 
-export function OutputTable({ headers, rows }: OutputTableProps) {
+export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
@@ -119,43 +121,45 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Toolbar: column visibility */}
-      <div className="flex items-center justify-between border-b px-2 py-1">
-        <span className="text-xs text-muted-foreground">
-          {hasActiveFilters
-            ? t('files.table_total', { count: totalCount }) +
-              ` / ${rows.length}`
-            : ''}
-        </span>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
-              <Settings2 size={12} />
-              {t('files.columns', 'Columns')}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="max-h-[300px] w-[180px] overflow-y-auto">
-            <DropdownMenuLabel className="text-xs">
-              {t('files.columns', 'Columns')}
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {headers.map((h, idx) => (
-              <DropdownMenuCheckboxItem
-                key={idx}
-                checked={!hiddenColumns.has(idx)}
-                onCheckedChange={() => toggleColumn(idx)}
-                onSelect={(e) => e.preventDefault()}
-                className="text-xs"
-              >
-                <div className="flex items-center gap-1.5">
-                  <TypeBadge type={columnTypes[idx]} size="sm" />
-                  <span className="truncate">{h}</span>
-                </div>
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+      {/* Toolbar: column visibility (hidden in compact mode) */}
+      {!compact && (
+        <div className="flex items-center justify-between border-b px-2 py-1">
+          <span className="text-xs text-muted-foreground">
+            {hasActiveFilters
+              ? t('files.table_total', { count: totalCount }) +
+                ` / ${rows.length}`
+              : ''}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
+                <Settings2 size={12} />
+                {t('files.columns', 'Columns')}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="max-h-[300px] w-[180px] overflow-y-auto">
+              <DropdownMenuLabel className="text-xs">
+                {t('files.columns', 'Columns')}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {headers.map((h, idx) => (
+                <DropdownMenuCheckboxItem
+                  key={idx}
+                  checked={!hiddenColumns.has(idx)}
+                  onCheckedChange={() => toggleColumn(idx)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-xs"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <TypeBadge type={columnTypes[idx]} size="sm" />
+                    <span className="truncate">{h}</span>
+                  </div>
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      )}
 
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
@@ -163,13 +167,13 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
           <thead className="sticky top-0 z-10 bg-muted">
             {/* Column headers */}
             <tr>
-              <th className="sticky left-0 z-20 bg-muted w-10 min-w-[40px] border-b border-r px-2 py-1.5 text-center text-muted-foreground font-normal">
+              <th className={cn('sticky left-0 z-20 bg-muted w-10 min-w-[40px] border-b border-r text-center text-muted-foreground font-normal', compact ? 'px-1 py-0.5' : 'px-2 py-1.5')}>
                 #
               </th>
               {visibleIndices.map((idx) => (
                 <th
                   key={idx}
-                  className="border-b border-r px-3 py-1.5 text-left font-medium whitespace-nowrap"
+                  className={cn('border-b border-r text-left font-medium whitespace-nowrap', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}
                 >
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={columnTypes[idx]} size="sm" />
@@ -178,20 +182,22 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
                 </th>
               ))}
             </tr>
-            {/* Column filter row */}
-            <tr>
-              <th className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1" />
-              {visibleIndices.map((idx) => (
-                <th key={`filter-${idx}`} className="border-b border-r px-1 py-1 bg-muted">
-                  <input
-                    className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-                    placeholder={`${headers[idx]}...`}
-                    value={columnFilters[idx] ?? ''}
-                    onChange={(e) => handleFilterChange(idx, e.target.value)}
-                  />
-                </th>
-              ))}
-            </tr>
+            {/* Column filter row (hidden in compact mode) */}
+            {!compact && (
+              <tr>
+                <th className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1" />
+                {visibleIndices.map((idx) => (
+                  <th key={`filter-${idx}`} className="border-b border-r px-1 py-1 bg-muted">
+                    <input
+                      className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
+                      placeholder={`${headers[idx]}...`}
+                      value={columnFilters[idx] ?? ''}
+                      onChange={(e) => handleFilterChange(idx, e.target.value)}
+                    />
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {pageRows.length === 0 ? (
@@ -206,7 +212,7 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
             ) : (
               pageRows.map((row, rowIdx) => (
                 <tr key={rowIdx} className="hover:bg-accent/30">
-                  <td className="sticky left-0 z-[5] bg-background border-b border-r px-2 py-1 text-center text-muted-foreground tabular-nums">
+                  <td className={cn('sticky left-0 z-[5] bg-background border-b border-r text-center text-muted-foreground tabular-nums', compact ? 'px-1 py-0' : 'px-2 py-1')}>
                     {page * pageSize + rowIdx + 1}
                   </td>
                   {visibleIndices.map((colIdx) => {
@@ -216,7 +222,8 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
                       <td
                         key={colIdx}
                         className={cn(
-                          'border-b border-r px-3 py-1 whitespace-nowrap max-w-[300px] truncate',
+                          'border-b border-r whitespace-nowrap max-w-[300px] truncate',
+                          compact ? 'px-2 py-0' : 'px-3 py-1',
                           columnTypes[colIdx] === 'number' && !nullish && 'tabular-nums',
                         )}
                         title={!nullish ? val : undefined}
@@ -235,52 +242,56 @@ export function OutputTable({ headers, rows }: OutputTableProps) {
       </div>
 
       {/* Pagination bar */}
-      <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
+      <div className={cn('flex shrink-0 items-center justify-between border-t', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
         <span className="text-xs text-muted-foreground">
           {t('files.table_total', { count: totalCount })}
         </span>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {t('files.table_per_page')}
-          </span>
-          <Select
-            value={String(pageSize)}
-            onValueChange={(v) => {
-              setPageSize(Number(v))
-              setPage(0)
-            }}
-          >
-            <SelectTrigger className="h-7 w-[70px] text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="10">10</SelectItem>
-              <SelectItem value="25">25</SelectItem>
-              <SelectItem value="50">50</SelectItem>
-              <SelectItem value="100">100</SelectItem>
-              <SelectItem value="500">500</SelectItem>
-            </SelectContent>
-          </Select>
+          {!compact && (
+            <>
+              <span className="text-xs text-muted-foreground">
+                {t('files.table_per_page')}
+              </span>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => {
+                  setPageSize(Number(v))
+                  setPage(0)
+                }}
+              >
+                <SelectTrigger className="h-7 w-[70px] text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                  <SelectItem value="500">500</SelectItem>
+                </SelectContent>
+              </Select>
+            </>
+          )}
           <span className="text-xs text-muted-foreground">
             {t('files.table_page', { page: page + 1, total: totalPages })}
           </span>
           <Button
             variant="outline"
             size="icon"
-            className="h-7 w-7"
+            className={compact ? 'h-5 w-5' : 'h-7 w-7'}
             disabled={page === 0}
             onClick={() => setPage(page - 1)}
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={compact ? 10 : 14} />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="h-7 w-7"
+            className={compact ? 'h-5 w-5' : 'h-7 w-7'}
             disabled={page >= totalPages - 1}
             onClick={() => setPage(page + 1)}
           >
-            <ChevronRight size={14} />
+            <ChevronRight size={compact ? 10 : 14} />
           </Button>
         </div>
       </div>

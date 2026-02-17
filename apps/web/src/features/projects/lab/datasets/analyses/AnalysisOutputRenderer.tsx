@@ -84,9 +84,11 @@ interface AnalysisOutputRendererProps {
   statusMessage?: string | null
   installedDeps?: string[]
   onRerun?: () => void
+  /** Compact mode for dashboard widgets — less padding, no borders on table. */
+  compact?: boolean
 }
 
-export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun }: AnalysisOutputRendererProps) {
+export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun, compact }: AnalysisOutputRendererProps) {
   const { t } = useTranslation()
   const [expandedPanel, setExpandedPanel] = useState<'info' | 'warnings' | null>(null)
 
@@ -119,9 +121,14 @@ export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, ins
   const hasStdout = result.stdout.length > 0
   const missingPackages = hasError ? detectMissingPackages(errors) : []
 
+  // In compact mode, render table directly without ScrollArea wrapper for better space usage
+  if (compact && hasTable && result.table && !hasError && !hasFigures) {
+    return <OutputTable headers={result.table.headers} rows={result.table.rows} compact />
+  }
+
   return (
     <ScrollArea className="h-full">
-      <div className="p-3 space-y-3">
+      <div className={compact ? 'p-1.5 space-y-1.5' : 'p-3 space-y-3'}>
         {/* Errors (real) */}
         {hasError && (
           <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 space-y-2">
@@ -196,8 +203,8 @@ export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, ins
 
         {/* Table */}
         {hasTable && result.table && (
-          <div className="rounded-md border overflow-hidden">
-            <OutputTable headers={result.table.headers} rows={result.table.rows} />
+          <div className={compact ? 'overflow-hidden' : 'rounded-md border overflow-hidden'}>
+            <OutputTable headers={result.table.headers} rows={result.table.rows} compact={compact} />
           </div>
         )}
 

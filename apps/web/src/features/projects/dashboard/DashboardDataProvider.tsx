@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { DatasetColumn, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -63,12 +63,20 @@ interface DashboardDataProviderProps {
 }
 
 export function DashboardDataProvider({ datasetFileId, children }: DashboardDataProviderProps) {
-  const { files, getFileRows } = useDatasetStore()
+  const { files, getFileRows, loadFileData } = useDatasetStore()
   const { activeFilters } = useDashboardStore()
+  const [dataReady, setDataReady] = useState(false)
+
+  // Ensure row data is loaded from IDB (needed after app restart)
+  useEffect(() => {
+    if (!datasetFileId) { setDataReady(true); return }
+    setDataReady(false)
+    loadFileData(datasetFileId).then(() => setDataReady(true))
+  }, [datasetFileId, loadFileData])
 
   const datasetFile = files.find((f) => f.id === datasetFileId)
-  const columns = datasetFile?.columns ?? []
-  const rows = datasetFileId ? getFileRows(datasetFileId) : []
+  const columns = dataReady ? (datasetFile?.columns ?? []) : []
+  const rows = dataReady && datasetFileId ? getFileRows(datasetFileId) : []
 
   const filteredRows = useMemo(
     () => applyFilters(rows, activeFilters),
