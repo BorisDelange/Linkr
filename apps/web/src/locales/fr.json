@@ -558,7 +558,14 @@
     "analysis_save": "Sauvegarder",
     "analysis_save_tooltip": "Sauvegarder la configuration de l'analyse",
     "analysis_auto_run": "Auto",
-    "analysis_auto_run_tooltip": "Exécuter automatiquement à l'ouverture (masque le panneau config)"
+    "analysis_auto_run_tooltip": "Exécuter automatiquement à l'ouverture (masque le panneau config)",
+    "import_settings": "Options d'import",
+    "import_settings_title": "Options d'import",
+    "import_settings_description": "Modifiez la façon dont ce fichier est lu et ré-importez les données.",
+    "import_settings_no_raw": "Aucun fichier source stocké. Ré-importez le fichier pour modifier les options.",
+    "import_settings_source_file": "Fichier source",
+    "import_settings_apply": "Ré-importer",
+    "import_settings_reimporting": "Ré-importation..."
   },
   "subsets": {
     "title": "Sous-ensembles",
@@ -643,6 +650,9 @@
     "search_concepts": "Rechercher des concepts...",
     "concepts_selected": "{{count}} sélectionné(s)",
     "no_concepts_found": "Aucun concept trouvé.",
+    "selected_concepts": "Sélectionnés",
+    "no_concepts_selected": "Cliquez sur les lignes du tableau pour sélectionner des concepts.",
+    "clear_selection": "Tout effacer",
     "event_table": "Table d'événements",
     "no_medication_table": "Aucune table de médicaments dans cette base.",
     "no_diagnosis_table": "Aucune table de diagnostics dans cette base.",

@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -97,6 +97,10 @@ interface LinkrDB extends DBSchema {
     key: string
     value: DatasetData
   }
+  dataset_raw_files: {
+    key: string
+    value: DatasetRawFile
+  }
   dataset_analyses: {
     key: string
     value: DatasetAnalysis
@@ -148,7 +152,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 18
+const DB_VERSION = 19
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -352,6 +356,10 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         const wikiAttStore = db.createObjectStore('wiki_attachments', { keyPath: 'id' })
         wikiAttStore.createIndex('by-page', 'pageId')
         wikiAttStore.createIndex('by-workspace', 'workspaceId')
+      }
+      // Version 19: Raw source files for dataset re-import
+      if (oldVersion < 19) {
+        db.createObjectStore('dataset_raw_files', { keyPath: 'datasetFileId' })
       }
     },
   })
@@ -807,6 +815,23 @@ class IDBDatasetDataStorage implements DatasetDataStorage {
   }
 }
 
+class IDBDatasetRawFileStorage implements DatasetRawFileStorage {
+  async get(datasetFileId: string): Promise<DatasetRawFile | undefined> {
+    const db = await getDB()
+    return db.get('dataset_raw_files', datasetFileId)
+  }
+
+  async save(data: DatasetRawFile): Promise<void> {
+    const db = await getDB()
+    await db.put('dataset_raw_files', data)
+  }
+
+  async delete(datasetFileId: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dataset_raw_files', datasetFileId)
+  }
+}
+
 class IDBDatasetAnalysisStorage implements DatasetAnalysisStorage {
   async getByDataset(datasetFileId: string): Promise<DatasetAnalysis[]> {
     const db = await getDB()
@@ -1085,6 +1110,7 @@ export function createIDBStorage(): Storage {
     ideFiles: new IDBIdeFileStorage(),
     datasetFiles: new IDBDatasetFileStorage(),
     datasetData: new IDBDatasetDataStorage(),
+    datasetRawFiles: new IDBDatasetRawFileStorage(),
     datasetAnalyses: new IDBDatasetAnalysisStorage(),
     userPlugins: new IDBUserPluginStorage(),
     dashboards: new IDBDashboardStorage(),

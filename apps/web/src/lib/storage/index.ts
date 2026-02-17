@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -134,6 +134,13 @@ export interface DatasetDataStorage {
   delete(datasetFileId: string): Promise<void>
 }
 
+/** Storage interface for raw source files used to import datasets. */
+export interface DatasetRawFileStorage {
+  get(datasetFileId: string): Promise<DatasetRawFile | undefined>
+  save(data: DatasetRawFile): Promise<void>
+  delete(datasetFileId: string): Promise<void>
+}
+
 /** Storage interface for dataset analysis configs (lightweight, versioned). */
 export interface DatasetAnalysisStorage {
   getByDataset(datasetFileId: string): Promise<DatasetAnalysis[]>
@@ -220,6 +227,7 @@ export interface Storage {
   ideFiles: IdeFileStorage
   datasetFiles: DatasetFileStorage
   datasetData: DatasetDataStorage
+  datasetRawFiles: DatasetRawFileStorage
   datasetAnalyses: DatasetAnalysisStorage
   userPlugins: UserPluginStorage
   dashboards: DashboardStorage

@@ -566,6 +566,12 @@ export interface DatasetData {
   rows: Record<string, unknown>[]
 }
 
+export interface DatasetRawFile {
+  datasetFileId: string
+  blob: Blob
+  fileName: string
+}
+
 export type DatasetAnalysisType = string
 
 export type AnalysisLanguage = 'python' | 'r'

@@ -8,7 +8,7 @@
 
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
-import { getPyodide, executePython } from '@/lib/runtimes/pyodide-engine'
+import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, executeR } from '@/lib/runtimes/webr-engine'
 
 /**
@@ -16,8 +16,12 @@ import { getWebR, executeR } from '@/lib/runtimes/webr-engine'
  *
  * Rows in the store are keyed by column.id (e.g. 'col-1728394').
  * We remap to column.name (e.g. 'age') for the user-facing DataFrame.
+ *
+ * The JSON data is embedded directly in the code string (base64-encoded)
+ * instead of passed via Pyodide globals to avoid race conditions when
+ * multiple executions run concurrently (e.g. dashboard widgets).
  */
-function buildInjectionCode(columns: DatasetColumn[]): string {
+function buildInjectionCode(columns: DatasetColumn[], jsonDataB64: string): string {
   // Build rename mapping: { col_id: col_name }
   const renameEntries = columns
     .map((c) => `    ${JSON.stringify(c.id)}: ${JSON.stringify(c.name)}`)
@@ -39,14 +43,15 @@ function buildInjectionCode(columns: DatasetColumn[]): string {
 import pandas as pd
 import numpy as np
 import json as _json
+import base64 as _b64
 
-_raw = _json.loads(_linkr_dataset_json)
+_raw = _json.loads(_b64.b64decode(${JSON.stringify(jsonDataB64)}).decode('utf-8'))
 dataset = pd.DataFrame(_raw)
 dataset = dataset.rename(columns={
 ${renameEntries}
 })
 ${coercions}
-del _raw, _linkr_dataset_json, _json
+del _raw, _json, _b64
 `
 }
 
@@ -63,14 +68,13 @@ export async function executeAnalysisCode(
   rows: Record<string, unknown>[],
   columns: DatasetColumn[],
 ): Promise<RuntimeOutput> {
-  const pyodide = await getPyodide()
-
-  // Pass the dataset JSON via Pyodide globals (safe, no string interpolation issues)
+  // Encode data as base64 to embed in the code string directly.
+  // This avoids using Pyodide globals which are shared and can race.
   const jsonData = JSON.stringify(rows)
-  pyodide.globals.set('_linkr_dataset_json', jsonData)
+  const jsonDataB64 = btoa(unescape(encodeURIComponent(jsonData)))
 
   // Build full code: injection preamble + user script
-  const preamble = buildInjectionCode(columns)
+  const preamble = buildInjectionCode(columns, jsonDataB64)
   const fullCode = preamble + '\n' + code
 
   // Execute through the existing Pyodide engine (captures table, figures, stdout, stderr)

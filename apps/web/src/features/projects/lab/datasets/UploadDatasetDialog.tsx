@@ -333,8 +333,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     ) ?? null
   }, [parsed, parentId, storeFiles])
 
-  const doImport = useCallback((mode: 'new' | 'overwrite' | 'copy') => {
-    if (!parsed) return
+  const doImport = useCallback(async (mode: 'new' | 'overwrite' | 'copy') => {
+    if (!parsed || !file) return
     const store = useDatasetStore.getState()
 
     // Build parse options to persist
@@ -343,36 +343,30 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (encoding !== 'UTF-8') opts.encoding = encoding
     if (skipRows > 0) opts.skipRows = skipRows
     if (!hasHeader) opts.hasHeader = false
+    const parseOpts = Object.keys(opts).length > 0 ? opts : undefined
 
-    const saveOpts = (fileId: string) => {
-      if (Object.keys(opts).length > 0) {
-        import('@/lib/storage').then(({ getStorage }) => {
-          getStorage().datasetFiles.update(fileId, { parseOptions: opts }).catch(() => {})
-        })
-      }
-    }
+    // Build raw file blob for re-import support
+    const rawFile = { blob: file, fileName: file.name }
+
+    // Close dialog immediately to avoid re-render showing conflict banner
+    onOpenChange(false)
 
     if (mode === 'overwrite' && existingFile) {
-      store.importData(existingFile.id, parsed.columns, parsed.rows)
+      // Sequential IDB writes via reimportData (awaited)
+      await store.reimportData(existingFile.id, parsed.columns, parsed.rows, parseOpts)
       store.openFile(existingFile.id)
       store.selectFile(existingFile.id)
-      saveOpts(existingFile.id)
+      // Save raw file for re-import
+      const { getStorage } = await import('@/lib/storage')
+      await getStorage().datasetRawFiles.save({ datasetFileId: existingFile.id, ...rawFile })
     } else {
       const fileName = mode === 'copy'
         ? getUniqueName(parsed.fileName, parentId, store.files)
         : parsed.fileName
-      store.createFile(fileName, parentId)
-      const newState = useDatasetStore.getState()
-      const newFile = newState.files[newState.files.length - 1]
-      if (newFile) {
-        store.importData(newFile.id, parsed.columns, parsed.rows)
-        store.openFile(newFile.id)
-        store.selectFile(newFile.id)
-        saveOpts(newFile.id)
-      }
+      // Single atomic method — no race conditions
+      await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
     }
-    onOpenChange(false)
-  }, [parsed, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader])
+  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader])
 
   const handleImport = useCallback(() => {
     if (!parsed) return

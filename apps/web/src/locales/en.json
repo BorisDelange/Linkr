@@ -558,7 +558,14 @@
     "analysis_save": "Save",
     "analysis_save_tooltip": "Save analysis configuration",
     "analysis_auto_run": "Auto",
-    "analysis_auto_run_tooltip": "Auto-run on open (hides config panel)"
+    "analysis_auto_run_tooltip": "Auto-run on open (hides config panel)",
+    "import_settings": "Import settings",
+    "import_settings_title": "Import settings",
+    "import_settings_description": "Change how this file is parsed and re-import the data.",
+    "import_settings_no_raw": "No source file stored. Re-upload the file to change import settings.",
+    "import_settings_source_file": "Source file",
+    "import_settings_apply": "Re-import",
+    "import_settings_reimporting": "Re-importing..."
   },
   "subsets": {
     "title": "Subsets",
@@ -643,6 +650,9 @@
     "search_concepts": "Search concepts...",
     "concepts_selected": "{{count}} selected",
     "no_concepts_found": "No concepts found.",
+    "selected_concepts": "Selected",
+    "no_concepts_selected": "Click rows in the table to select concepts.",
+    "clear_selection": "Clear all",
     "event_table": "Event table",
     "no_medication_table": "No medication table in this database.",
     "no_diagnosis_table": "No diagnosis table in this database.",

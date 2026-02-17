@@ -11,6 +11,7 @@ import {
   Clipboard,
   ChevronRight,
   ChevronDown,
+  Settings2,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -32,6 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
 
 function sortNodes(a: DatasetFile, b: DatasetFile): number {
@@ -69,9 +71,10 @@ interface DatasetTreeItemProps {
   depth: number
   getChildren: (parentId: string) => DatasetFile[]
   onRequestDelete: (node: DatasetFile) => void
+  onRequestImportSettings: (node: DatasetFile) => void
 }
 
-function DatasetTreeItem({ node, depth, getChildren, onRequestDelete }: DatasetTreeItemProps) {
+function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestImportSettings }: DatasetTreeItemProps) {
   const { t } = useTranslation()
   const {
     files,
@@ -277,6 +280,12 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete }: DatasetT
               {t('files.download')}
             </ContextMenuItem>
           )}
+          {!isFolder && (
+            <ContextMenuItem onClick={() => onRequestImportSettings(node)}>
+              <Settings2 size={14} />
+              {t('datasets.import_settings')}
+            </ContextMenuItem>
+          )}
           <ContextMenuSeparator />
           <ContextMenuItem
             onClick={() => {
@@ -308,6 +317,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete }: DatasetT
             depth={depth + 1}
             getChildren={getChildren}
             onRequestDelete={onRequestDelete}
+            onRequestImportSettings={onRequestImportSettings}
           />
         ))}
     </>
@@ -323,6 +333,7 @@ export function DatasetFileTree() {
   const { files, moveNode, deleteNode } = useDatasetStore()
   const [rootDragOver, setRootDragOver] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<DatasetFile | null>(null)
+  const [importSettingsTarget, setImportSettingsTarget] = useState<DatasetFile | null>(null)
 
   const rootNodes = files.filter((f) => f.parentId === null).sort(sortNodes)
 
@@ -381,6 +392,7 @@ export function DatasetFileTree() {
               depth={0}
               getChildren={getChildren}
               onRequestDelete={setDeleteTarget}
+              onRequestImportSettings={setImportSettingsTarget}
             />
           ))}
         </div>
@@ -404,6 +416,14 @@ export function DatasetFileTree() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {importSettingsTarget && (
+        <ImportSettingsDialog
+          open={!!importSettingsTarget}
+          onOpenChange={(open) => { if (!open) setImportSettingsTarget(null) }}
+          file={importSettingsTarget}
+        />
+      )}
     </>
   )
 }

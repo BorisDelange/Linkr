@@ -49,6 +49,8 @@ interface DatasetState {
   renameColumn: (fileId: string, columnId: string, newName: string) => void
   reorderColumns: (fileId: string, fromIndex: number, toIndex: number) => void
   importData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[]) => void
+  createFileWithData: (name: string, parentId: string | null, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions, rawFile?: { blob: Blob; fileName: string }) => Promise<string>
+  reimportData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions) => Promise<void>
 
   saveFile: (id: string) => Promise<void>
   revertFile: (id: string) => void
@@ -329,6 +331,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     for (const rid of idsToRemove) {
       storage.datasetFiles.delete(rid).catch(() => {})
       storage.datasetData.delete(rid).catch(() => {})
+      storage.datasetRawFiles.delete(rid).catch(() => {})
     }
     for (const analysis of removedAnalyses) {
       storage.datasetAnalyses.delete(analysis.id).catch(() => {})
@@ -513,6 +516,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     })),
 
   loadFileData: async (fileId) => {
+    // Skip IDB load if data is already in memory (e.g. just imported)
+    if (_loadedData.has(fileId)) return
     try {
       const storage = getStorage()
       const data = await storage.datasetData.get(fileId)
@@ -665,6 +670,76 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }))
     storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, updatedAt: new Date().toISOString() }).catch(() => {})
     storage.datasetData.save({ datasetFileId: fileId, rows }).catch(() => {})
+  },
+
+  createFileWithData: async (name, parentId, columns, rows, parseOptions, rawFile) => {
+    const projectUid = get().activeProjectUid ?? ''
+    const id = `file-${fileCounter++}`
+    const now = new Date().toISOString()
+    const node: DatasetFile = {
+      id,
+      projectUid,
+      name,
+      type: 'file',
+      parentId,
+      columns,
+      rowCount: rows.length,
+      parseOptions,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Update Zustand state synchronously
+    _loadedData.set(id, rows)
+    _savedDataSnapshot.set(id, JSON.stringify(rows))
+    set((s) => ({
+      files: [...s.files, node],
+      selectedFileId: id,
+      openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
+
+    // Persist to IDB sequentially — no race conditions
+    const storage = getStorage()
+    await storage.datasetFiles.create(node)
+    await storage.datasetData.save({ datasetFileId: id, rows })
+    if (rawFile) {
+      await storage.datasetRawFiles.save({ datasetFileId: id, ...rawFile })
+    }
+
+    get().pushUndo({
+      id: `undo-${undoCounter++}`,
+      descriptionKey: 'datasets.new_file',
+      descriptionParams: { name },
+      timestamp: Date.now(),
+      undo: () => {
+        set((s) => ({
+          files: s.files.filter((f) => f.id !== id),
+          selectedFileId: s.selectedFileId === id ? null : s.selectedFileId,
+          openFileIds: s.openFileIds.filter((fid) => fid !== id),
+        }))
+        _loadedData.delete(id)
+        _savedDataSnapshot.delete(id)
+        storage.datasetFiles.delete(id).catch(() => {})
+        storage.datasetData.delete(id).catch(() => {})
+        storage.datasetRawFiles.delete(id).catch(() => {})
+      },
+    })
+
+    return id
+  },
+
+  reimportData: async (fileId, columns, rows, parseOptions) => {
+    const storage = getStorage()
+    _loadedData.set(fileId, rows)
+    const snapshot = JSON.stringify(rows)
+    _savedDataSnapshot.set(fileId, snapshot)
+    set((s) => ({
+      files: s.files.map((f) => f.id === fileId ? { ...f, columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() } : f),
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
+    await storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() })
+    await storage.datasetData.save({ datasetFileId: fileId, rows })
   },
 
   saveFile: async (id) => {

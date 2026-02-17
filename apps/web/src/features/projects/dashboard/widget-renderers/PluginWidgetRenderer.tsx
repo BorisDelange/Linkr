@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
-import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
+import { getAnalysisPlugin, ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
 import { useDashboardData } from '../DashboardDataProvider'
 import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
 
@@ -58,6 +58,9 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
         setResult({ stdout: '', stderr: 'No code template found', figures: [], table: null, html: null })
         return
       }
+
+      // Ensure plugin dependencies are installed (cached per session)
+      await ensurePluginDependencies(source.pluginId, language)
 
       const { resolveTemplate } = await import('@/lib/analysis-plugins/template-resolver')
       const code = resolveTemplate(
