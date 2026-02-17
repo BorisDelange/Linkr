@@ -224,7 +224,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       pointSize: 2.5,
       highlightCircleSize: 4,
       connectSeparatedPoints: true,
-      legend: conceptNames.length > 1 ? 'follow' : 'never',
+      legend: 'follow',
       labelsSeparateLines: true,
 
       // Grid & axes
@@ -251,6 +251,8 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       rangeSelectorBackgroundStrokeColor: theme.rangeSelectorBackgroundStrokeColor,
       rangeSelectorAlpha: theme.rangeSelectorAlpha,
 
+      // Interaction: default model supports drag-to-zoom on x-axis
+      interactionModel: Dygraph.defaultInteractionModel,
       animatedZooms: true,
     }
 
@@ -266,6 +268,10 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
         opts,
       )
     }
+
+    // Prevent native browser image drag on range selector handles
+    container.querySelectorAll<HTMLImageElement>('.dygraph-rangesel-zoomhandle')
+      .forEach((img) => { img.draggable = false })
   }, [chartData, conceptNames, getThemeColors])
 
   // Resize when container changes
@@ -331,11 +337,15 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
 
   return (
     <div className="relative h-full w-full timeline-widget">
-      {/* Dygraphs mounts here — always in the DOM to avoid removeChild errors */}
+      {/* Dygraphs mounts here — always in the DOM to avoid removeChild errors.
+          stopPropagation prevents react-grid-layout drag handlers from capturing
+          mousedown/touchstart, which would block dygraphs zoom & range selector. */}
       <div
         ref={chartContainerRef}
         className="h-full w-full"
         style={{ visibility: overlayMessage ? 'hidden' : 'visible' }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
       />
       {/* Overlay for empty/loading states */}
       {overlayMessage && (

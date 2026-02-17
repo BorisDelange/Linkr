@@ -50,7 +50,7 @@ function SortableTab({
   editMode,
   onActivate,
   onClose,
-  onRename,
+  onStartRename,
 }: {
   tab: DashboardTab
   isActive: boolean
@@ -58,12 +58,9 @@ function SortableTab({
   editMode: boolean
   onActivate: () => void
   onClose: () => void
-  onRename: (name: string) => void
+  onStartRename: () => void
 }) {
   const { t } = useTranslation()
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(tab.name)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const {
     attributes,
@@ -81,27 +78,6 @@ function SortableTab({
     opacity: isDragging ? 0.5 : 1,
   }
 
-  // Focus the input when editing starts (after React renders it)
-  useEffect(() => {
-    if (editing) {
-      requestAnimationFrame(() => {
-        const el = inputRef.current
-        if (el) {
-          el.focus()
-          const len = el.value.length
-          el.setSelectionRange(len, len)
-        }
-      })
-    }
-  }, [editing])
-
-  const handleFinishRename = useCallback(() => {
-    if (editName.trim() && editName.trim() !== tab.name) {
-      onRename(editName.trim())
-    }
-    setEditing(false)
-  }, [editName, tab.name, onRename])
-
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -111,7 +87,7 @@ function SortableTab({
           {...attributes}
           {...(editMode ? listeners : {})}
           onClick={onActivate}
-          onDoubleClick={() => { setEditName(tab.name); setEditing(true) }}
+          onDoubleClick={onStartRename}
           className={cn(
             'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
             isActive
@@ -120,26 +96,11 @@ function SortableTab({
             isDragging && 'cursor-grabbing'
           )}
         >
-          {editing ? (
-            <input
-              ref={inputRef}
-              value={editName}
-              onChange={(e) => setEditName(e.target.value)}
-              onBlur={handleFinishRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleFinishRename()
-                if (e.key === 'Escape') setEditing(false)
-              }}
-              className="h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none"
-              onClick={(e) => e.stopPropagation()}
-            />
-          ) : (
-            <span>{tab.name}</span>
-          )}
+          <span>{tab.name}</span>
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ContextMenuItem onClick={() => { setEditName(tab.name); setEditing(true) }}>
+        <ContextMenuItem onClick={onStartRename}>
           <Pencil size={14} />
           {t('common.rename')}
         </ContextMenuItem>
@@ -157,6 +118,57 @@ function SortableTab({
   )
 }
 
+/** Inline rename input — rendered instead of SortableTab when editing. */
+function TabRenameInput({
+  tab,
+  isActive,
+  onFinish,
+}: {
+  tab: DashboardTab
+  isActive: boolean
+  onFinish: (newName: string | null) => void
+}) {
+  const [value, setValue] = useState(tab.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (el) {
+        el.focus()
+        const len = el.value.length
+        el.setSelectionRange(len, len)
+      }
+    })
+  }, [])
+
+  const commit = useCallback(() => {
+    const trimmed = value.trim()
+    onFinish(trimmed && trimmed !== tab.name ? trimmed : null)
+  }, [value, tab.name, onFinish])
+
+  return (
+    <div
+      className={cn(
+        'flex items-center border-b-2 px-3 py-1.5',
+        isActive ? 'border-primary' : 'border-transparent',
+      )}
+    >
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') onFinish(null)
+        }}
+        className="h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none"
+      />
+    </div>
+  )
+}
+
 export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps) {
   const { t } = useTranslation()
   const {
@@ -169,6 +181,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     setActiveTab,
   } = useDashboardStore()
 
+  const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
   const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
 
@@ -201,6 +214,11 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     }
   }
 
+  const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
+    if (newName) renameTab(tabId, newName)
+    setRenamingTabId(null)
+  }, [renameTab])
+
   return (
     <>
       <div className="flex items-center overflow-hidden">
@@ -214,18 +232,27 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
               items={tabs.map((t) => t.id)}
               strategy={horizontalListSortingStrategy}
             >
-              {tabs.map((tab) => (
-                <SortableTab
-                  key={tab.id}
-                  tab={tab}
-                  isActive={tab.id === currentActiveId}
-                  canClose={tabs.length > 1}
-                  editMode={editMode}
-                  onActivate={() => setActiveTab(dashboardId, tab.id)}
-                  onClose={() => setConfirmDeleteTabId(tab.id)}
-                  onRename={(name) => renameTab(tab.id, name)}
-                />
-              ))}
+              {tabs.map((tab) =>
+                renamingTabId === tab.id ? (
+                  <TabRenameInput
+                    key={tab.id}
+                    tab={tab}
+                    isActive={tab.id === currentActiveId}
+                    onFinish={(name) => handleRenameFinish(tab.id, name)}
+                  />
+                ) : (
+                  <SortableTab
+                    key={tab.id}
+                    tab={tab}
+                    isActive={tab.id === currentActiveId}
+                    canClose={tabs.length > 1}
+                    editMode={editMode}
+                    onActivate={() => setActiveTab(dashboardId, tab.id)}
+                    onClose={() => setConfirmDeleteTabId(tab.id)}
+                    onStartRename={() => setRenamingTabId(tab.id)}
+                  />
+                )
+              )}
             </SortableContext>
           </DndContext>
         </div>

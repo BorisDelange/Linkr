@@ -57,6 +57,14 @@ function inferColumnType(values: unknown[]): DatasetColumn['type'] {
 
   if (allNumbers) return 'number'
   if (allBooleans) return 'boolean'
+
+  let allDates = true
+  for (const v of nonNull.slice(0, 100)) {
+    const s = String(v).trim()
+    if (isNaN(Date.parse(s)) || /^\d+$/.test(s)) { allDates = false; break }
+  }
+  if (allDates) return 'date'
+
   return 'string'
 }
 

@@ -63,6 +63,48 @@ function buildHistogram(sorted: number[], bins: number) {
   return result
 }
 
+function formatDateLabel(ts: number): string {
+  const d = new Date(ts)
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+}
+
+function formatDateFull(ts: number): string {
+  const d = new Date(ts)
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
+function computeDateSpan(minTs: number, maxTs: number): string {
+  const diffMs = maxTs - minTs
+  const days = Math.round(diffMs / 86_400_000)
+  if (days < 1) return '< 1 day'
+  if (days < 31) return `${days}d`
+  const months = Math.round(days / 30.44)
+  if (months < 12) return `${months}mo`
+  const years = Math.floor(months / 12)
+  const rem = months % 12
+  return rem > 0 ? `${years}y ${rem}mo` : `${years}y`
+}
+
+function buildDateHistogram(sortedTs: number[], bins: number) {
+  if (sortedTs.length === 0) return []
+  const min = sortedTs[0]
+  const max = sortedTs[sortedTs.length - 1]
+  if (min === max) return [{ label: formatDateLabel(min), count: sortedTs.length, pct: 100 }]
+  const step = (max - min) / bins
+  const result: { label: string; count: number; pct: number }[] = []
+  for (let i = 0; i < bins; i++) {
+    const lo = min + i * step
+    const hi = i === bins - 1 ? max + 1 : min + (i + 1) * step
+    const count = sortedTs.filter((v) => v >= lo && v < hi).length
+    result.push({
+      label: formatDateLabel(lo),
+      count,
+      pct: (count / sortedTs.length) * 100,
+    })
+  }
+  return result
+}
+
 function buildCategoryDistribution(values: unknown[]) {
   const counts = new Map<string, number>()
   for (const v of values) {
@@ -110,8 +152,43 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     const nullCount = total - nonNull
     const uniqueCount = new Set(nonNullValues.map(String)).size
 
+    // Date detection (before numeric — date strings would fail Number() anyway)
+    const dateTimestamps: number[] = []
+    let isDate = column.type === 'date'
+    if (!isDate && nonNullValues.length > 0) {
+      let allDates = true
+      for (const v of nonNullValues.slice(0, 100)) {
+        const s = String(v).trim()
+        const ts = Date.parse(s)
+        if (isNaN(ts) || /^\d+$/.test(s)) { allDates = false; break }
+      }
+      if (allDates) isDate = true
+    }
+
+    let dateStats: { minTs: number; maxTs: number; span: string; earliest: string; latest: string } | null = null
+    let dateHistogram: { label: string; count: number; pct: number }[] = []
+    if (isDate && nonNullValues.length > 0) {
+      for (const v of nonNullValues) {
+        const ts = Date.parse(String(v).trim())
+        if (!isNaN(ts)) dateTimestamps.push(ts)
+      }
+      if (dateTimestamps.length > 0) {
+        const sortedTs = [...dateTimestamps].sort((a, b) => a - b)
+        const minTs = sortedTs[0]
+        const maxTs = sortedTs[sortedTs.length - 1]
+        dateStats = {
+          minTs,
+          maxTs,
+          span: computeDateSpan(minTs, maxTs),
+          earliest: formatDateFull(minTs),
+          latest: formatDateFull(maxTs),
+        }
+        dateHistogram = buildDateHistogram(sortedTs, HISTOGRAM_BINS)
+      }
+    }
+
     const numericValues = nonNullValues.map(Number).filter((n) => !isNaN(n))
-    const isNumeric = column.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length)
+    const isNumeric = !isDate && (column.type === 'number' || (numericValues.length > 0 && numericValues.length === nonNullValues.length))
 
     let numeric = null
     let histogram: { label: string; count: number; pct: number }[] = []
@@ -121,11 +198,11 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     }
 
     let categories = null
-    if (!isNumeric && nonNullValues.length > 0) {
+    if (!isNumeric && !isDate && nonNullValues.length > 0) {
       categories = buildCategoryDistribution(nonNullValues)
     }
 
-    return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, categories }
+    return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, isDate, dateStats, dateHistogram, categories }
   }, [column, columnId, rows, _dirtyVersion]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!fileId || !columnId || !column) {
@@ -207,7 +284,39 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
                 <Tooltip
                   formatter={(value) => [Number(value).toLocaleString(), 'Count']}
                   labelFormatter={(label) => Number(label).toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                  contentStyle={{ fontSize: 11 }}
+                  contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
+                />
+                <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Temporal statistics */}
+        {stats.isDate && stats.dateStats && (
+          <div className="space-y-1 border-t pt-3">
+            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_temporal')}</h4>
+            <StatRow label={t('datasets.stats_earliest')} value={stats.dateStats.earliest} />
+            <StatRow label={t('datasets.stats_latest')} value={stats.dateStats.latest} />
+            <StatRow label={t('datasets.stats_span')} value={stats.dateStats.span} />
+          </div>
+        )}
+
+        {/* Temporal histogram */}
+        {stats.isDate && stats.dateHistogram.length > 1 && (
+          <div className="space-y-1 border-t pt-3">
+            <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_timeline')}</h4>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={stats.dateHistogram} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 9 }}
+                  interval="preserveStartEnd"
+                />
+                <YAxis tick={{ fontSize: 9 }} width={30} />
+                <Tooltip
+                  formatter={(value) => [Number(value).toLocaleString(), 'Count']}
+                  contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
                 />
                 <Bar dataKey="count" fill="var(--color-primary)" radius={[2, 2, 0, 0]} />
               </BarChart>

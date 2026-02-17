@@ -235,6 +235,15 @@ body {
   stroke-width: 2;
 }
 
+/* Dygraphs — override react-grid-layout's blanket `pointer-events: none` on img
+   which disables the range selector zoom handles (they are <img> elements). */
+.timeline-widget .dygraph-rangesel-zoomhandle {
+  pointer-events: auto !important;
+  user-select: none !important;
+  -webkit-user-drag: none !important;
+  cursor: col-resize !important;
+}
+
 /* Dygraphs theme — axis labels & legend adapt to light/dark */
 .timeline-widget .dygraph-axis-label {
   color: var(--muted-foreground);
