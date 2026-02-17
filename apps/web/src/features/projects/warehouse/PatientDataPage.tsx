@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Plus, Pencil, Lock, Users, LayoutGrid, PanelTop } from 'lucide-react'
+import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,6 +14,7 @@ import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
 import { PatientChartGrid } from './patient-data/PatientChartGrid'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
+import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
 
 export function PatientDataPage() {
   const { t } = useTranslation()
@@ -21,14 +22,15 @@ export function PatientDataPage() {
   const projectUid = uid ?? ''
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
-  const [hideTitleBars, setHideTitleBars] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sidebarVisible, setSidebarVisible] = useState(true)
 
   const { getActiveSource } = useDataSourceStore()
   const mappedSource = projectUid ? getActiveSource(projectUid) : undefined
   const dataSourceId = mappedSource?.id
   const schemaMapping = mappedSource?.schemaMapping
 
-  const { tabs, widgets, activeTabId, addTab } = usePatientChartStore()
+  const { tabs, widgets, activeTabId, showWidgetTitles, addTab } = usePatientChartStore()
 
   // Ensure at least one tab exists for this project
   useEffect(() => {
@@ -99,26 +101,23 @@ export function PatientDataPage() {
           <PatientChartTabBar projectUid={projectUid} />
 
           <div className="ml-auto flex items-center gap-1 py-1">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setSettingsOpen(true)}
+              title={t('patient_data.settings_title')}
+            >
+              <Settings2 size={13} />
+            </Button>
             {editMode && (
-              <>
-                <Button
-                  size="xs"
-                  className="gap-1"
-                  onClick={() => setAddWidgetOpen(true)}
-                >
-                  <Plus size={12} />
-                  {t('dashboard.add_widget')}
-                </Button>
-                <Button
-                  variant={hideTitleBars ? 'secondary' : 'ghost'}
-                  size="xs"
-                  className="gap-1"
-                  onClick={() => setHideTitleBars(!hideTitleBars)}
-                  title={t('dashboard.show_widget_titles')}
-                >
-                  <PanelTop size={12} />
-                </Button>
-              </>
+              <Button
+                size="xs"
+                className="gap-1"
+                onClick={() => setAddWidgetOpen(true)}
+              >
+                <Plus size={12} />
+                {t('dashboard.add_widget')}
+              </Button>
             )}
             <Button
               variant={editMode ? 'default' : 'ghost'}
@@ -138,6 +137,14 @@ export function PatientDataPage() {
                 </>
               )}
             </Button>
+            <Button
+              variant={sidebarVisible ? 'ghost' : 'secondary'}
+              size="icon-xs"
+              onClick={() => setSidebarVisible(!sidebarVisible)}
+              title={t('patient_data.toggle_sidebar')}
+            >
+              <PanelRight size={13} />
+            </Button>
           </div>
         </div>
 
@@ -150,7 +157,7 @@ export function PatientDataPage() {
                   <PatientChartGrid
                     widgets={tabWidgets}
                     editMode={editMode}
-                    hideTitleBars={hideTitleBars}
+                    hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
                   />
                 </ScrollArea>
               ) : (
@@ -183,7 +190,7 @@ export function PatientDataPage() {
                 </div>
               )}
             </Allotment.Pane>
-            <Allotment.Pane minSize={250} preferredSize={320}>
+            <Allotment.Pane minSize={250} preferredSize={320} visible={sidebarVisible}>
               <PatientDataSidebar />
             </Allotment.Pane>
           </Allotment>
@@ -193,6 +200,12 @@ export function PatientDataPage() {
           open={addWidgetOpen}
           onOpenChange={setAddWidgetOpen}
           tabId={currentTabId ?? ''}
+        />
+
+        <PatientDataSettingsDialog
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          projectUid={projectUid}
         />
       </div>
     </PatientChartContext.Provider>

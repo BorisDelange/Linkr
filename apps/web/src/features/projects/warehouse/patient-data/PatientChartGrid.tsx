@@ -23,14 +23,17 @@ interface PatientChartGridProps {
 /** Widget types that support concept editing. */
 const CONCEPT_WIDGET_TYPES = new Set(['timeline', 'clinical_table'])
 
-function renderWidgetContent(widget: PatientChartWidget) {
+function renderWidgetContent(
+  widget: PatientChartWidget,
+  onConfigureConcepts?: () => void,
+) {
   switch (widget.type) {
     case 'patient_summary':
       return <PatientSummaryWidget />
     case 'timeline':
-      return <TimelineWidget widgetId={widget.id} />
+      return <TimelineWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
     case 'clinical_table':
-      return <ClinicalTableWidget widgetId={widget.id} />
+      return <ClinicalTableWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
     case 'medications':
       return <MedicationWidget />
     case 'diagnoses':
@@ -150,7 +153,12 @@ export function PatientChartGrid({
               editMode={editMode}
               hideTitleBar={hideTitleBars}
             >
-              {renderWidgetContent(widget)}
+              {renderWidgetContent(
+                widget,
+                CONCEPT_WIDGET_TYPES.has(widget.type)
+                  ? () => setEditingWidgetId(widget.id)
+                  : undefined,
+              )}
             </WidgetCard>
           </div>
         ))}

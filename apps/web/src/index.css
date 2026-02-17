@@ -234,3 +234,19 @@ body {
   stroke: var(--ring);
   stroke-width: 2;
 }
+
+/* Dygraphs theme — axis labels & legend adapt to light/dark */
+.timeline-widget .dygraph-axis-label {
+  color: var(--muted-foreground);
+  font-size: 10px;
+}
+.timeline-widget .dygraph-legend {
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 4px 8px;
+  font-size: 11px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  pointer-events: none;
+}

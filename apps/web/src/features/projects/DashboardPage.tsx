@@ -91,7 +91,7 @@ export function DashboardPage() {
             <ArrowLeft size={14} />
           </Button>
 
-          <DashboardTabBar dashboardId={currentDashboardId} />
+          <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} />
 
           <div className="ml-auto flex items-center gap-1 py-1">
             {dashboard.filterConfig.length > 0 && (

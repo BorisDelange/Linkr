@@ -57,6 +57,9 @@ interface PatientChartState {
   widgets: PatientChartWidget[]
   activeTabId: Record<string, string>
 
+  // Display settings (keyed by projectUid)
+  showWidgetTitles: Record<string, boolean>
+
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
   setSelectedPatient: (projectUid: string, patientId: string | null) => void
@@ -69,6 +72,9 @@ interface PatientChartState {
   renameTab: (tabId: string, name: string) => void
   reorderTabs: (projectUid: string, orderedIds: string[]) => void
   setActiveTab: (projectUid: string, tabId: string) => void
+
+  // Display settings
+  setShowWidgetTitles: (projectUid: string, show: boolean) => void
 
   // Widget CRUD
   addWidget: (tabId: string, type: PatientWidgetType, name: string) => void
@@ -120,6 +126,7 @@ interface PersistedState {
   tabs: PatientChartTab[]
   widgets: PatientChartWidget[]
   activeTabId: Record<string, string>
+  showWidgetTitles: Record<string, boolean>
   tabCounter: number
   widgetCounter: number
 }
@@ -156,6 +163,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   tabs: persisted.tabs ?? [],
   widgets: persisted.widgets ?? [],
   activeTabId: persisted.activeTabId ?? {},
+  showWidgetTitles: persisted.showWidgetTitles ?? {},
 
   // --- Selection (cascade resets) ---
 
@@ -244,6 +252,13 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
       activeTabId: { ...s.activeTabId, [projectUid]: tabId },
     })),
 
+  // --- Display settings ---
+
+  setShowWidgetTitles: (projectUid, show) =>
+    set((s) => ({
+      showWidgetTitles: { ...s.showWidgetTitles, [projectUid]: show },
+    })),
+
   // --- Widget CRUD ---
 
   addWidget: (tabId, type, name) => {
@@ -291,6 +306,7 @@ usePatientChartStore.subscribe((state) => {
       tabs: state.tabs,
       widgets: state.widgets,
       activeTabId: state.activeTabId,
+      showWidgetTitles: state.showWidgetTitles,
       tabCounter,
       widgetCounter,
     }

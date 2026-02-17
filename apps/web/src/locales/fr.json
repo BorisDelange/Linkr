@@ -201,7 +201,11 @@
     "filter_type_numeric": "Numérique",
     "filter_type_date": "Date",
     "plugin_configure_description": "Configurez les paramètres du plugin avant de l'ajouter comme widget.",
-    "plugin_no_plugins": "Aucun plugin d'analyse disponible."
+    "plugin_no_plugins": "Aucun plugin d'analyse disponible.",
+    "delete_tab_title": "Supprimer l'onglet ?",
+    "delete_tab_description": "Cela supprimera définitivement l'onglet \"{{name}}\" et tous ses widgets.",
+    "delete_widget_title": "Supprimer le widget ?",
+    "delete_widget_description": "Cela supprimera définitivement le widget \"{{name}}\"."
   },
   "concepts": {
     "title": "Concepts",
@@ -678,7 +682,10 @@
     "female_short": "F",
     "filter_all": "Tous",
     "admission_date": "Date d'admission",
-    "clear_filters": "Effacer les filtres"
+    "clear_filters": "Effacer les filtres",
+    "settings_title": "Paramètres données patient",
+    "settings_description": "Configurer les options d'affichage de la page données patient.",
+    "toggle_sidebar": "Afficher/masquer le panneau latéral"
   },
   "files": {
     "explorer": "Explorateur",
@@ -1369,7 +1376,8 @@
     "confirm": "Confirmer",
     "select_all": "Tout",
     "select_none": "Aucun",
-    "none": "Aucun"
+    "none": "Aucun",
+    "rename": "Renommer"
   },
   "user_menu": {
     "profile": "Profil",

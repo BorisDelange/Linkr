@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowRightLeft } from 'lucide-react'
+import { ArrowRightLeft, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { usePatientChartContext } from '../PatientChartContext'
@@ -13,6 +13,7 @@ import { buildClinicalTableQuery } from '@/lib/duckdb/patient-data-queries'
 
 interface ClinicalTableWidgetProps {
   widgetId: string
+  onConfigureConcepts?: () => void
 }
 
 interface ClinicalRow {
@@ -23,7 +24,7 @@ interface ClinicalRow {
   event_date: string
 }
 
-export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
+export function ClinicalTableWidget({ widgetId, onConfigureConcepts }: ClinicalTableWidgetProps) {
   const { t } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const { widgets, selectedPatientId, selectedVisitId, updateWidgetConfig } =
@@ -118,10 +119,21 @@ export function ClinicalTableWidget({ widgetId }: ClinicalTableWidgetProps) {
   // Empty state
   if (config.conceptIds.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full flex-col items-center justify-center gap-2">
         <p className="text-xs text-muted-foreground">
           {t('patient_data.configure_concepts')}
         </p>
+        {onConfigureConcepts && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 text-xs"
+            onClick={onConfigureConcepts}
+          >
+            <Settings2 size={12} />
+            {t('patient_data.select_concepts')}
+          </Button>
+        )}
       </div>
     )
   }

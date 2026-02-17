@@ -1,4 +1,5 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
@@ -8,6 +9,16 @@ import { WidgetCard } from './WidgetCard'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface WidgetGridProps {
   widgets: DashboardWidget[]
@@ -27,10 +38,13 @@ function renderWidgetContent(widget: DashboardWidget) {
 }
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps) {
+  const { t } = useTranslation()
   const { updateWidgetLayout, removeWidget } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
+  const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
 
   const editingWidget = editingWidgetId ? widgets.find(w => w.id === editingWidgetId) ?? null : null
 
@@ -107,7 +121,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps
           <div key={widget.id}>
             <WidgetCard
               title={widget.name}
-              onRemove={() => removeWidget(widget.id)}
+              onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onEdit={() => setEditingWidgetId(widget.id)}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
@@ -123,6 +137,29 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps
         open={editingWidgetId !== null}
         onOpenChange={(open) => { if (!open) setEditingWidgetId(null) }}
       />
+
+      <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('dashboard.delete_widget_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('dashboard.delete_widget_description', { name: confirmDeleteWidget?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (confirmDeleteWidgetId) removeWidget(confirmDeleteWidgetId)
+                setConfirmDeleteWidgetId(null)
+              }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
