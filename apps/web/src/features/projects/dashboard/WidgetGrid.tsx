@@ -5,19 +5,18 @@ import 'react-resizable/css/styles.css'
 import type { DashboardWidget } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { WidgetCard } from './WidgetCard'
-import { BuiltinWidgetRenderer } from './widget-renderers/BuiltinWidgetRenderer'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
+import { WidgetEditorDialog } from './WidgetEditorDialog'
 
 interface WidgetGridProps {
   widgets: DashboardWidget[]
   editMode: boolean
+  hideTitleBars?: boolean
 }
 
 function renderWidgetContent(widget: DashboardWidget) {
   switch (widget.source.type) {
-    case 'builtin':
-      return <BuiltinWidgetRenderer widget={widget} />
     case 'plugin':
       return <PluginWidgetRenderer widget={widget} />
     case 'inline':
@@ -27,10 +26,13 @@ function renderWidgetContent(widget: DashboardWidget) {
   }
 }
 
-export function WidgetGrid({ widgets, editMode }: WidgetGridProps) {
+export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps) {
   const { updateWidgetLayout, removeWidget } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
+  const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+
+  const editingWidget = editingWidgetId ? widgets.find(w => w.id === editingWidgetId) ?? null : null
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -106,13 +108,21 @@ export function WidgetGrid({ widgets, editMode }: WidgetGridProps) {
             <WidgetCard
               title={widget.name}
               onRemove={() => removeWidget(widget.id)}
+              onEdit={() => setEditingWidgetId(widget.id)}
               editMode={editMode}
+              hideTitleBar={hideTitleBars}
             >
               {renderWidgetContent(widget)}
             </WidgetCard>
           </div>
         ))}
       </GridLayout>
+
+      <WidgetEditorDialog
+        widget={editingWidget}
+        open={editingWidgetId !== null}
+        onOpenChange={(open) => { if (!open) setEditingWidgetId(null) }}
+      />
     </div>
   )
 }

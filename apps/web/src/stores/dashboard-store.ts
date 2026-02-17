@@ -40,6 +40,7 @@ interface DashboardState {
 
   // Filter runtime state
   setFilter: (columnId: string, value: FilterValue) => void
+  setAllFilters: (filters: Record<string, FilterValue>) => void
   clearFilter: (columnId: string) => void
   clearAllFilters: () => void
 }
@@ -69,22 +70,7 @@ function initCounters(dashboards: Dashboard[], tabs: DashboardTab[], widgets: Da
   widgetCounter = maxW
 }
 
-// Default widget layouts per builtin type
-const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
-  admission_count: { w: 6, h: 4 },
-  patient_count: { w: 6, h: 4 },
-  admission_timeline: { w: 12, h: 6 },
-  heart_rate: { w: 12, h: 6 },
-  vitals_table: { w: 12, h: 8 },
-  kpi: { w: 6, h: 4 },
-  table: { w: 12, h: 8 },
-  chart: { w: 12, h: 6 },
-}
-
-function getDefaultLayout(source: DashboardWidgetSource): { w: number; h: number } {
-  if (source.type === 'builtin') {
-    return defaultWidgetLayouts[source.builtinType] ?? { w: 6, h: 4 }
-  }
+function getDefaultLayout(_source: DashboardWidgetSource): { w: number; h: number } {
   return { w: 12, h: 6 }
 }
 
@@ -326,6 +312,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set((s) => ({
       activeFilters: { ...s.activeFilters, [columnId]: value },
     })),
+
+  setAllFilters: (filters) => set({ activeFilters: filters }),
 
   clearFilter: (columnId) =>
     set((s) => {

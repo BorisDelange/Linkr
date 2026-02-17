@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
+import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { useDashboardData } from '../DashboardDataProvider'
-import { Loader2 } from 'lucide-react'
+import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
 
 interface InlineCodeWidgetRendererProps {
   widget: DashboardWidget
@@ -14,76 +17,58 @@ export function InlineCodeWidgetRenderer({ widget }: InlineCodeWidgetRendererPro
 }
 
 function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
+  const { t } = useTranslation()
   const { filteredRows, columns } = useDashboardData()
-  const [output, setOutput] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [loading, setLoading] = useState(false)
+  const [runCount, setRunCount] = useState(0)
 
   const source = widget.source as { type: 'inline'; language: string; code: string; config: Record<string, unknown> }
 
-  useEffect(() => {
+  const execute = useCallback(async () => {
     if (!source.code.trim()) {
-      setOutput('No code to execute')
+      setResult({ stdout: 'No code to execute', stderr: '', figures: [], table: null, html: null })
       return
     }
 
-    if (filteredRows.length === 0) {
-      setOutput('No data available')
-      return
-    }
+    if (columns.length === 0) return
 
-    let cancelled = false
     setLoading(true)
-    setError(null)
+    setResult(null)
 
-    import('@/features/projects/lab/datasets/analysis-executor').then(async (executor) => {
-      try {
-        const result = await executor.executeAnalysisCode(
-          source.code,
-          filteredRows,
-          columns,
-        )
-        if (!cancelled) {
-          if (result.stderr) {
-            setError(result.stderr)
-          } else {
-            setOutput(result.stdout || 'Execution complete')
-          }
-        }
-      } catch (err) {
-        if (!cancelled) setError(String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }).catch((err) => {
-      if (!cancelled) {
-        setError(`Failed to load executor: ${err}`)
-        setLoading(false)
-      }
-    })
-
-    return () => { cancelled = true }
+    try {
+      const executor = await import('@/features/projects/lab/datasets/analysis-executor')
+      const exec = source.language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
+      const output = await exec(source.code, filteredRows, columns)
+      setResult(output)
+    } catch (err) {
+      setResult({ stdout: '', stderr: String(err), figures: [], table: null, html: null })
+    } finally {
+      setLoading(false)
+    }
   }, [filteredRows, columns, source.code, source.language])
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 size={16} className="animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+  useEffect(() => {
+    execute()
+  }, [execute, runCount])
 
-  if (error) {
+  // No dataset configured
+  if (columns.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-2">
-        <div className="text-xs text-destructive max-w-full overflow-auto">{error}</div>
+      <div className="flex h-full items-center justify-center gap-2 p-3 text-xs text-muted-foreground">
+        <AlertTriangle size={14} />
+        {t('dashboard.widget_no_dataset')}
       </div>
     )
   }
 
   return (
-    <div className="h-full overflow-auto p-2">
-      <pre className="text-xs whitespace-pre-wrap">{output}</pre>
+    <div className="h-full overflow-hidden">
+      <AnalysisOutputRenderer
+        result={result}
+        isExecuting={loading}
+        onRerun={() => setRunCount(c => c + 1)}
+      />
     </div>
   )
 }

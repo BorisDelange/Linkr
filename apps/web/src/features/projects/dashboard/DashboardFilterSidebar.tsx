@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -6,7 +6,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Sheet,
+  SheetClose,
   SheetContent,
+  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
@@ -23,26 +25,56 @@ interface DashboardFilterSidebarProps {
 
 export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
-  const { activeFilters, setFilter, clearAllFilters } = useDashboardStore()
+  const { activeFilters, setAllFilters } = useDashboardStore()
   const { files, getFileRows } = useDatasetStore()
+
+  // Local deferred filter state
+  const [localFilters, setLocalFilters] = useState<Record<string, FilterValue>>({})
+
+  // Sync from store when sidebar opens
+  useEffect(() => {
+    if (open) {
+      setLocalFilters({ ...activeFilters })
+    }
+  }, [open, activeFilters])
 
   const datasetFile = files.find((f) => f.id === dashboard.datasetFileId)
   const columns = datasetFile?.columns ?? []
   const rows = dashboard.datasetFileId ? getFileRows(dashboard.datasetFileId) : []
 
-  const activeFilterCount = Object.keys(activeFilters).length
+  const localFilterCount = Object.keys(localFilters).length
+
+  const handleLocalFilterChange = (columnId: string, value: FilterValue) => {
+    setLocalFilters(prev => ({ ...prev, [columnId]: value }))
+  }
+
+  const handleClearAll = () => {
+    setLocalFilters({})
+  }
+
+  const handleApply = () => {
+    setAllFilters(localFilters)
+    onOpenChange(false)
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-80 p-0 flex flex-col">
+      <SheetContent side="right" showCloseButton={false} className="w-80 p-0 flex flex-col">
         <SheetHeader className="px-4 py-3 border-b shrink-0">
           <div className="flex items-center justify-between">
             <SheetTitle className="text-sm">{t('dashboard.filter_title')}</SheetTitle>
-            {activeFilterCount > 0 && (
-              <Button variant="ghost" size="xs" onClick={clearAllFilters}>
-                {t('dashboard.filter_clear_all')}
-              </Button>
-            )}
+            <div className="flex items-center gap-1">
+              {localFilterCount > 0 && (
+                <Button variant="ghost" size="xs" onClick={handleClearAll}>
+                  {t('dashboard.filter_clear_all')}
+                </Button>
+              )}
+              <SheetClose asChild>
+                <Button variant="ghost" size="icon-xs">
+                  <X size={14} />
+                </Button>
+              </SheetClose>
+            </div>
           </div>
         </SheetHeader>
 
@@ -65,8 +97,8 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
                         label={label}
                         columnId={fc.columnId}
                         rows={rows}
-                        value={activeFilters[fc.columnId] as FilterValue & { type: 'categorical' } | undefined}
-                        onChange={(v) => setFilter(fc.columnId, v)}
+                        value={localFilters[fc.columnId] as FilterValue & { type: 'categorical' } | undefined}
+                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
                       />
                     )
                   case 'numeric':
@@ -76,8 +108,8 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
                         label={label}
                         columnId={fc.columnId}
                         rows={rows}
-                        value={activeFilters[fc.columnId] as FilterValue & { type: 'numeric' } | undefined}
-                        onChange={(v) => setFilter(fc.columnId, v)}
+                        value={localFilters[fc.columnId] as FilterValue & { type: 'numeric' } | undefined}
+                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
                       />
                     )
                   case 'date':
@@ -86,8 +118,8 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
                         key={fc.columnId}
                         label={label}
                         columnId={fc.columnId}
-                        value={activeFilters[fc.columnId] as FilterValue & { type: 'date' } | undefined}
-                        onChange={(v) => setFilter(fc.columnId, v)}
+                        value={localFilters[fc.columnId] as FilterValue & { type: 'date' } | undefined}
+                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
                       />
                     )
                   default:
@@ -97,6 +129,14 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
             )}
           </div>
         </ScrollArea>
+
+        {dashboard.filterConfig.length > 0 && (
+          <SheetFooter className="border-t px-4 py-3">
+            <Button size="sm" className="w-full" onClick={handleApply}>
+              {t('dashboard.filter_apply')}
+            </Button>
+          </SheetFooter>
+        )}
       </SheetContent>
     </Sheet>
   )
@@ -127,7 +167,7 @@ function CategoricalFilter({
   }, [rows, columnId])
 
   const selected = new Set(value?.selected ?? [])
-  const allSelected = selected.size === 0 // empty means no filter active
+  const allSelected = selected.size === 0
 
   const toggle = (val: string) => {
     const next = new Set(selected)

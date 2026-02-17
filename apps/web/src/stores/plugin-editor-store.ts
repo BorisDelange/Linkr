@@ -9,6 +9,8 @@ import {
 } from '@/lib/analysis-plugins/registry'
 import { buildPlugin } from '@/lib/analysis-plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
+import { useWorkspaceStore } from './workspace-store'
+import { useOrganizationStore } from './organization-store'
 
 export interface PluginListItem {
   id: string
@@ -283,11 +285,23 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     let { files } = get()
     if (!editingPluginId || isBuiltIn) return
 
-    // Compute content hash and inject into plugin.json before saving
+    // Compute content hash + auto-stamp workspace organization into plugin.json
     try {
       const hash = await computePluginContentHash(files)
       const manifest = JSON.parse(files['plugin.json'] ?? '{}')
       manifest.contentHash = hash
+
+      // Stamp workspace organization (read-only, inherited)
+      const { activeWorkspaceId, _workspacesRaw } = useWorkspaceStore.getState()
+      const ws = _workspacesRaw.find((w) => w.id === activeWorkspaceId)
+      if (ws?.organizationId) {
+        const org = useOrganizationStore.getState().getOrganization(ws.organizationId)
+        if (org) {
+          const { id: _id, createdAt: _ca, updatedAt: _ua, ...orgInfo } = org
+          manifest.organization = orgInfo
+        }
+      }
+
       files = { ...files, 'plugin.json': JSON.stringify(manifest, null, 2) }
       set({ files })
     } catch { /* invalid plugin.json — save without hash */ }

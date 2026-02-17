@@ -167,43 +167,7 @@ export async function seedDemoDashboard(): Promise<void> {
       displayOrder: 0,
     }
 
-    const widgets: DashboardWidget[] = [
-      {
-        id: 'dw-demo-1',
-        tabId,
-        name: 'Patient Count',
-        layout: { x: 0, y: 0, w: 6, h: 4 },
-        source: { type: 'builtin', builtinType: 'patient_count', config: {} },
-      },
-      {
-        id: 'dw-demo-2',
-        tabId,
-        name: 'Admission Count',
-        layout: { x: 6, y: 0, w: 6, h: 4 },
-        source: { type: 'builtin', builtinType: 'admission_count', config: {} },
-      },
-      {
-        id: 'dw-demo-3',
-        tabId,
-        name: 'Admission Timeline',
-        layout: { x: 0, y: 4, w: 12, h: 6 },
-        source: { type: 'builtin', builtinType: 'admission_timeline', config: {} },
-      },
-      {
-        id: 'dw-demo-4',
-        tabId,
-        name: 'Heart Rate',
-        layout: { x: 12, y: 0, w: 12, h: 6 },
-        source: { type: 'builtin', builtinType: 'heart_rate', config: {} },
-      },
-      {
-        id: 'dw-demo-5',
-        tabId,
-        name: 'Vitals Table',
-        layout: { x: 12, y: 6, w: 12, h: 8 },
-        source: { type: 'builtin', builtinType: 'vitals_table', config: {} },
-      },
-    ]
+    const widgets: DashboardWidget[] = []
 
     await storage.dashboards.create(dashboard)
     await storage.dashboardTabs.create(tab)

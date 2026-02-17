@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { useTranslation } from 'react-i18next'
+import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
+import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
 import { useDashboardData } from '../DashboardDataProvider'
-import { Loader2 } from 'lucide-react'
+import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -22,8 +25,6 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
     )
   }
 
-  // JS-widget plugins require a DatasetAnalysis context not available in dashboard widgets.
-  // Only script-based plugins are supported here.
   if (plugin.jsComponent && !plugin.templates) {
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
@@ -32,98 +33,80 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
     )
   }
 
-  // Script runtime: execute code and show output
   return <ScriptPluginWidget widget={widget} />
 }
 
-function LoadingSpinner() {
-  return (
-    <div className="flex h-full items-center justify-center">
-      <Loader2 size={16} className="animate-spin text-muted-foreground" />
-    </div>
-  )
-}
-
 function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
+  const { t } = useTranslation()
   const { filteredRows, columns } = useDashboardData()
-  const [output, setOutput] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<RuntimeOutput | null>(null)
   const [loading, setLoading] = useState(false)
+  const [runCount, setRunCount] = useState(0)
 
   const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
 
-  useEffect(() => {
-    if (filteredRows.length === 0) {
-      setOutput('No data available')
-      return
-    }
+  const execute = useCallback(async () => {
+    if (columns.length === 0) return
 
-    let cancelled = false
     setLoading(true)
-    setError(null)
+    setResult(null)
 
-    // Dynamically import the analysis executor to avoid circular deps
-    import('@/features/projects/lab/datasets/analysis-executor').then(async (executor) => {
-      try {
-        const plugin = getAnalysisPlugin(source.pluginId)
-        if (!plugin || !plugin.templates) {
-          if (!cancelled) setError('Plugin templates not found')
-          return
-        }
-
-        // Use Python template by default
-        const template = plugin.templates.python ?? plugin.templates.r
-        if (!template) {
-          if (!cancelled) setError('No code template found')
-          return
-        }
-
-        // Resolve template with config
-        const { resolveTemplate } = await import('@/lib/analysis-plugins/template-resolver')
-        const code = resolveTemplate(
-          template,
-          source.config,
-          columns,
-          plugin.manifest.configSchema,
-          plugin.templates.python ? 'python' : 'r',
-        )
-
-        const result = await executor.executeAnalysisCode(code, filteredRows, columns)
-        if (!cancelled) {
-          if (result.stderr) {
-            setError(result.stderr)
-          } else {
-            setOutput(result.stdout || 'Execution complete')
-          }
-        }
-      } catch (err) {
-        if (!cancelled) setError(String(err))
-      } finally {
-        if (!cancelled) setLoading(false)
+    try {
+      const executor = await import('@/features/projects/lab/datasets/analysis-executor')
+      const plugin = getAnalysisPlugin(source.pluginId)
+      if (!plugin || !plugin.templates) {
+        setResult({ stdout: '', stderr: 'Plugin templates not found', figures: [], table: null, html: null })
+        return
       }
-    }).catch((err) => {
-      if (!cancelled) {
-        setError(`Failed to load executor: ${err}`)
-        setLoading(false)
-      }
-    })
 
-    return () => { cancelled = true }
+      // Detect language: prefer Python, fallback to R
+      const language = plugin.templates.python ? 'python' : 'r'
+      const template = language === 'python' ? plugin.templates.python : plugin.templates.r
+      if (!template) {
+        setResult({ stdout: '', stderr: 'No code template found', figures: [], table: null, html: null })
+        return
+      }
+
+      const { resolveTemplate } = await import('@/lib/analysis-plugins/template-resolver')
+      const code = resolveTemplate(
+        template,
+        source.config,
+        columns,
+        plugin.manifest.configSchema,
+        language,
+      )
+
+      const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
+      const output = await exec(code, filteredRows, columns)
+      setResult(output)
+    } catch (err) {
+      setResult({ stdout: '', stderr: String(err), figures: [], table: null, html: null })
+    } finally {
+      setLoading(false)
+    }
   }, [filteredRows, columns, source.pluginId, source.config])
 
-  if (loading) return <LoadingSpinner />
+  useEffect(() => {
+    execute()
+  }, [execute, runCount])
 
-  if (error) {
+  // No dataset configured
+  if (columns.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center p-2">
-        <div className="text-xs text-destructive max-w-full overflow-auto">{error}</div>
+      <div className="flex h-full items-center justify-center gap-2 p-3 text-xs text-muted-foreground">
+        <AlertTriangle size={14} />
+        {t('dashboard.widget_no_dataset')}
       </div>
     )
   }
 
   return (
-    <div className="h-full overflow-auto p-2">
-      <pre className="text-xs whitespace-pre-wrap">{output}</pre>
+    <div className="h-full overflow-hidden">
+      <AnalysisOutputRenderer
+        result={result}
+        isExecuting={loading}
+        onRerun={() => setRunCount(c => c + 1)}
+      />
     </div>
   )
 }

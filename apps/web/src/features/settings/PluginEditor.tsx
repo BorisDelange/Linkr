@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Tag, Plus, Building2 } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -11,14 +11,16 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
-import { useWorkspaceStore } from '@/stores/workspace-store'
-import { useOrganizationStore } from '@/stores/organization-store'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
-import { Textarea } from '@/components/ui/textarea'
-import type { PresetBadgeColor, BadgeColor, CatalogVisibility, ChangelogEntry, LocalizedString } from '@/types'
-import type { PluginBadge } from '@/types/analysis-plugin'
+import { bumpVersion, type BumpType } from '@/lib/semver'
+import { resolveTemplate } from '@/lib/analysis-plugins/template-resolver'
+import { executeAnalysisCode, executeAnalysisCodeR } from '@/features/projects/lab/datasets/analysis-executor'
+import { getStorage } from '@/lib/storage'
+import type { PresetBadgeColor, BadgeColor, CatalogVisibility, DatasetColumn } from '@/types'
+import type { PluginBadge, PluginConfigField } from '@/types/analysis-plugin'
+import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 const PRESET_COLORS: { value: PresetBadgeColor; swatch: string }[] = [
   { value: 'red', swatch: 'bg-red-400' },
@@ -46,7 +48,7 @@ const languageFromFilename = (filename: string): string => {
 }
 
 export function PluginEditor() {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const {
     editingPluginId,
     isBuiltIn,
@@ -63,9 +65,19 @@ export function PluginEditor() {
     closeFile,
     updateFileContent,
     reorderOpenFiles,
+    testLanguage,
+    testProjectUid,
+    testDatasetFileId,
+    testConfig,
   } = usePluginEditorStore()
 
   const [explorerVisible, setExplorerVisible] = useState(true)
+
+  // --- Test execution state ---
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [testResult, setTestResult] = useState<RuntimeOutput | null>(null)
+  const [testStatusMessage, setTestStatusMessage] = useState<string | null>(null)
+  const [testColumns, setTestColumns] = useState<DatasetColumn[]>([])
 
   // --- Drag reorder state ---
   const [dragFile, setDragFile] = useState<string | null>(null)
@@ -127,9 +139,6 @@ export function PluginEditor() {
   const pluginIconColor: BadgeColor | undefined = manifest.iconColor
   const pluginBadges: PluginBadge[] = manifest.badges ?? []
   const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
-  const pluginContentHash: string | undefined = manifest.contentHash
-  const pluginOrigin = manifest.origin as { pluginId: string; organizationId?: string } | undefined
-  const pluginChangelog: ChangelogEntry[] = manifest.changelog ?? []
 
   // Helper to update a field in plugin.json
   const updateManifestField = useCallback((key: string, value: unknown) => {
@@ -156,40 +165,58 @@ export function PluginEditor() {
     updateManifestField('badges', pluginBadges.filter(b => b.id !== id))
   }, [pluginBadges, updateManifestField])
 
-  // Resolve workspace organization (read-only for plugin)
-  const { activeWorkspaceId, _workspacesRaw } = useWorkspaceStore()
-  const { getOrganization } = useOrganizationStore()
-  const workspaceOrg = useMemo(() => {
-    const ws = _workspacesRaw.find((w) => w.id === activeWorkspaceId)
-    if (!ws) return undefined
-    if (ws.organizationId) return getOrganization(ws.organizationId)
-    // Legacy fallback
-    return ws.organization ? { ...ws.organization, id: '', createdAt: '', updatedAt: '' } : undefined
-  }, [activeWorkspaceId, _workspacesRaw, getOrganization])
+  // Version bump
+  const handleBumpVersion = useCallback((type: BumpType) => {
+    updateManifestField('version', bumpVersion(pluginVersion, type))
+  }, [pluginVersion, updateManifestField])
 
-  // Changelog state
-  const [newChangelogVersion, setNewChangelogVersion] = useState('')
-  const [newChangelogNotes, setNewChangelogNotes] = useState('')
+  // Parse configSchema for test execution
+  const parsedSchema = useMemo(() => {
+    try {
+      const m = JSON.parse(files['plugin.json'] ?? '{}')
+      return (m.configSchema ?? {}) as Record<string, PluginConfigField>
+    } catch { return {} }
+  }, [files])
 
-  const handleAddChangelog = useCallback(() => {
-    const version = newChangelogVersion.trim()
-    const notes = newChangelogNotes.trim()
-    if (!version || !notes) return
-    const lang = (i18n.language ?? 'en') as string
-    const entry: ChangelogEntry = {
-      version,
-      contentHash: pluginContentHash,
-      date: new Date().toISOString().slice(0, 10),
-      notes: { [lang]: notes } as LocalizedString,
+  // Test execution
+  const handleRunTest = useCallback(async () => {
+    if (!testDatasetFileId) return
+    setIsExecuting(true)
+    setTestResult(null)
+    setTestStatusMessage(null)
+    try {
+      const storage = getStorage()
+      // Load dataset rows + columns
+      const dsFile = await storage.datasetFiles.getById(testDatasetFileId)
+      const cols = dsFile?.columns ?? []
+      setTestColumns(cols)
+      const datasetData = await storage.datasetData.get(testDatasetFileId)
+      const rows = datasetData?.rows ?? []
+
+      // Find template
+      let template = ''
+      for (const [filename, content] of Object.entries(files)) {
+        if (testLanguage === 'python' && filename.endsWith('.py.template')) { template = content; break }
+        if (testLanguage === 'r' && filename.endsWith('.R.template')) { template = content; break }
+      }
+
+      const code = resolveTemplate(template, testConfig, cols, parsedSchema, testLanguage)
+      const exec = testLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+      const output = await exec(code, rows, cols)
+      setTestResult(output)
+    } catch (err) {
+      setTestResult({
+        stdout: '',
+        stderr: err instanceof Error ? err.message : String(err),
+        figures: [],
+        table: null,
+        html: null,
+      })
+    } finally {
+      setIsExecuting(false)
+      setTestStatusMessage(null)
     }
-    updateManifestField('changelog', [...pluginChangelog, entry])
-    setNewChangelogVersion('')
-    setNewChangelogNotes('')
-  }, [newChangelogVersion, newChangelogNotes, pluginContentHash, pluginChangelog, updateManifestField, i18n.language])
-
-  const handleRemoveChangelog = useCallback((index: number) => {
-    updateManifestField('changelog', pluginChangelog.filter((_, i) => i !== index))
-  }, [pluginChangelog, updateManifestField])
+  }, [testDatasetFileId, testLanguage, files, testConfig, parsedSchema])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
@@ -235,28 +262,24 @@ export function PluginEditor() {
               {t('plugins.save')}
             </Button>
           )}
+          {/* Settings popover (appearance, version, badges, publishing) */}
           {!isBuiltIn && (
             <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                  <Tag size={12} />
+                  <Settings size={12} />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-[340px] space-y-4">
-                {/* Icon */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">{t('plugins.icon')}</Label>
+              <PopoverContent align="end" className="w-[340px] max-h-[70vh] overflow-auto space-y-4">
+                {/* Appearance */}
+                <div className="space-y-3">
+                  <Label className="text-xs font-medium">{t('plugins.appearance')}</Label>
                   <IconPicker
                     value={pluginIcon}
                     onChange={(name) => updateManifestField('icon', name)}
                     iconColor={pluginIconColor && !PRESET_COLORS.some(c => c.value === pluginIconColor) ? pluginIconColor : undefined}
                   />
-                </div>
-                {/* Icon color */}
-                <div className="space-y-2">
-                  <Label className="text-xs">{t('plugins.icon_color')}</Label>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {/* None / default */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
                     <button
                       type="button"
                       onClick={() => updateManifestField('iconColor', undefined)}
@@ -304,19 +327,39 @@ export function PluginEditor() {
                     </div>
                   </div>
                 </div>
+
                 {/* Version */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs">{t('plugins.version')}</Label>
-                  <Input
-                    value={pluginVersion}
-                    onChange={(e) => updateManifestField('version', e.target.value)}
-                    className="h-7 text-xs"
-                    placeholder="1.0.0"
-                  />
+                <div className="space-y-2 border-t pt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className="text-xs font-medium">{t('plugins.version')}</Label>
+                    <Input
+                      value={pluginVersion}
+                      onChange={(e) => updateManifestField('version', e.target.value)}
+                      className="h-6 w-24 text-right font-mono text-xs"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {(['patch', 'minor', 'major'] as BumpType[]).map((type) => {
+                      const bumped = bumpVersion(pluginVersion, type)
+                      return (
+                        <Button
+                          key={type}
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleBumpVersion(type)}
+                          className="h-auto flex-col gap-0 py-1.5 text-xs"
+                        >
+                          <span className="font-medium">{t(`plugins.bump_${type}`)}</span>
+                          <span className="text-[10px] text-muted-foreground">{bumped}</span>
+                        </Button>
+                      )
+                    })}
+                  </div>
                 </div>
+
                 {/* Badges */}
-                <div className="space-y-2.5">
-                  <Label className="text-xs">{t('plugins.badges')}</Label>
+                <div className="space-y-2.5 border-t pt-3">
+                  <Label className="text-xs font-medium">{t('plugins.badges')}</Label>
                   {pluginBadges.length > 0 && (
                     <div className="flex flex-wrap gap-1.5">
                       {pluginBadges.map((badge) => (
@@ -390,45 +433,10 @@ export function PluginEditor() {
                     {t('plugins.add_badge')}
                   </Button>
                 </div>
-              </PopoverContent>
-            </Popover>
-          )}
-          {/* Publishing popover (organization, catalog visibility, traceability) */}
-          {!isBuiltIn && (
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="sm" className="gap-1 text-xs">
-                  <Building2 size={12} />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[380px] max-h-[70vh] overflow-auto space-y-4">
-                {/* Organization (inherited from workspace) */}
-                <div className="space-y-2">
-                  <Label className="text-xs font-medium">{t('organization.title')}</Label>
-                  <p className="text-[10px] text-muted-foreground">{t('plugins.org_from_workspace')}</p>
-                  {workspaceOrg ? (
-                    <div className="space-y-1 rounded-md border border-border/50 bg-muted/30 px-2.5 py-2">
-                      <p className="text-xs font-medium">{workspaceOrg.name}</p>
-                      {(workspaceOrg.location || workspaceOrg.country) && (
-                        <p className="text-[10px] text-muted-foreground">
-                          {[workspaceOrg.location, workspaceOrg.country].filter(Boolean).join(', ')}
-                        </p>
-                      )}
-                      {workspaceOrg.website && (
-                        <p className="text-[10px] text-muted-foreground">{workspaceOrg.website}</p>
-                      )}
-                      {workspaceOrg.email && (
-                        <p className="text-[10px] text-muted-foreground">{workspaceOrg.email}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground italic">{t('plugins.no_workspace_org')}</p>
-                  )}
-                </div>
 
-                {/* Catalog visibility */}
+                {/* Publishing */}
                 <div className="space-y-2 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('catalog.visibility')}</Label>
+                  <Label className="text-xs font-medium">{t('plugins.publishing_section')}</Label>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -456,84 +464,6 @@ export function PluginEditor() {
                     </button>
                   </div>
                 </div>
-
-                {/* Content hash & origin */}
-                <div className="space-y-2 border-t pt-3">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-medium">{t('plugins.content_hash')}</Label>
-                    <span className="font-mono text-[10px] text-muted-foreground select-all">
-                      {pluginContentHash ? pluginContentHash.slice(0, 16) + '…' : t('plugins.content_hash_none')}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-medium">{t('plugins.origin_label')}</Label>
-                    <span className="text-[10px] text-muted-foreground">
-                      {pluginOrigin
-                        ? `${pluginOrigin.pluginId}${pluginOrigin.organizationId ? ` (${pluginOrigin.organizationId})` : ''}`
-                        : t('plugins.origin_none')}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Changelog */}
-                <div className="space-y-2 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('plugins.changelog')}</Label>
-                  {pluginChangelog.length > 0 ? (
-                    <div className="space-y-1.5 max-h-32 overflow-auto">
-                      {pluginChangelog.map((entry, i) => {
-                        const lang = i18n.language as string
-                        const noteText = entry.notes[lang] ?? entry.notes.en ?? Object.values(entry.notes)[0] ?? ''
-                        return (
-                          <div key={i} className="group flex items-start gap-2 rounded border border-border/50 px-2 py-1.5">
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] font-medium">{entry.version}</span>
-                                <span className="text-[9px] text-muted-foreground">{entry.date}</span>
-                              </div>
-                              <p className="text-[10px] text-muted-foreground line-clamp-2">{noteText}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveChangelog(i)}
-                              className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                            >
-                              <X size={10} className="text-muted-foreground" />
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-muted-foreground">{t('plugins.no_changelog')}</p>
-                  )}
-                  <div className="space-y-1.5">
-                    <div className="grid grid-cols-3 gap-2">
-                      <Input
-                        value={newChangelogVersion}
-                        onChange={(e) => setNewChangelogVersion(e.target.value)}
-                        className="h-7 text-xs"
-                        placeholder={t('plugins.changelog_version')}
-                      />
-                      <Textarea
-                        value={newChangelogNotes}
-                        onChange={(e) => setNewChangelogNotes(e.target.value)}
-                        className="col-span-2 min-h-[28px] resize-none text-xs"
-                        rows={1}
-                        placeholder={t('plugins.changelog_notes')}
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleAddChangelog}
-                      disabled={!newChangelogVersion.trim() || !newChangelogNotes.trim()}
-                      className="h-7 gap-1 text-xs w-full"
-                    >
-                      <Plus size={12} />
-                      {t('plugins.add_changelog_entry')}
-                    </Button>
-                  </div>
-                </div>
               </PopoverContent>
             </Popover>
           )}
@@ -554,7 +484,7 @@ export function PluginEditor() {
         <Allotment>
           {/* File list */}
           <Allotment.Pane preferredSize={180} minSize={120} maxSize={300} visible={explorerVisible}>
-            <PluginFileList onCollapse={() => setExplorerVisible(false)} />
+            <PluginFileList onCollapse={() => setExplorerVisible(false)} isRunning={isExecuting} onRun={handleRunTest} />
           </Allotment.Pane>
 
           {/* Editor area */}
@@ -563,6 +493,16 @@ export function PluginEditor() {
               {/* Tab bar with scroll arrows */}
               {openFiles.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
+                  {!explorerVisible && (
+                    <button
+                      type="button"
+                      onClick={() => setExplorerVisible(true)}
+                      className="shrink-0 px-1 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
+                      title={t('plugins.files')}
+                    >
+                      <PanelLeft size={12} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => scrollTabs('left')}
@@ -683,8 +623,14 @@ export function PluginEditor() {
                     onSave={handleSave}
                   />
                 ) : (
-                  <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
                     {t('plugins.select_file')}
+                    {!explorerVisible && (
+                      <Button variant="ghost" size="sm" onClick={() => setExplorerVisible(true)} className="gap-1 text-xs">
+                        <PanelLeft size={12} />
+                        {t('plugins.files')}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   File,
@@ -9,9 +9,21 @@ import {
   PanelLeft,
   Trash2,
   Pencil,
+  Settings2,
+  Play,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -26,6 +38,9 @@ import {
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { useAppStore } from '@/stores/app-store'
+import { getStorage } from '@/lib/storage'
+import type { DatasetColumn } from '@/types'
 
 function getFileIcon(filename: string) {
   const ext = filename.split('.').pop()?.toLowerCase()
@@ -46,10 +61,13 @@ function getFileIcon(filename: string) {
 
 interface PluginFileListProps {
   onCollapse?: () => void
+  isRunning?: boolean
+  onRun?: () => void
 }
 
-export function PluginFileList({ onCollapse }: PluginFileListProps) {
+export function PluginFileList({ onCollapse, isRunning, onRun }: PluginFileListProps) {
   const { t } = useTranslation()
+  const projects = useAppStore((s) => s.projects)
   const {
     files,
     activeFile,
@@ -58,12 +76,33 @@ export function PluginFileList({ onCollapse }: PluginFileListProps) {
     createFile,
     deleteFile,
     renameFile,
+    testLanguage,
+    testProjectUid,
+    testDatasetFileId,
+    setTestLanguage,
+    setTestProject,
+    setTestDataset,
   } = usePluginEditorStore()
 
   const [creating, setCreating] = useState(false)
   const [newFileName, setNewFileName] = useState('')
   const [renamingFile, setRenamingFile] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [datasets, setDatasets] = useState<{ id: string; name: string; columns: DatasetColumn[] }[]>([])
+
+  const handleProjectChange = useCallback(async (uid: string) => {
+    setTestProject(uid)
+    try {
+      const storage = getStorage()
+      const dsFiles = await storage.datasetFiles.getByProject(uid)
+      const fileDatasets = dsFiles
+        .filter((f) => f.type === 'file' && f.columns && f.columns.length > 0)
+        .map((f) => ({ id: f.id, name: f.name, columns: f.columns! }))
+      setDatasets(fileDatasets)
+    } catch {
+      setDatasets([])
+    }
+  }, [setTestProject])
 
   const filenames = Object.keys(files).sort((a, b) => {
     if (a === 'plugin.json') return -1
@@ -108,6 +147,80 @@ export function PluginFileList({ onCollapse }: PluginFileListProps) {
               <TooltipContent>{t('plugins.new_file_tooltip')}</TooltipContent>
             </Tooltip>
           )}
+          {/* Test config popover */}
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon-xs">
+                    <Settings2 size={14} />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent>{t('plugins.test_config')}</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="start" className="w-[240px] space-y-3">
+              <Label className="text-xs font-medium">{t('plugins.test_config')}</Label>
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_select_project')}</Label>
+                <Select value={testProjectUid ?? ''} onValueChange={handleProjectChange}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue placeholder={t('plugins.test_select_project')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {projects.map((p) => (
+                      <SelectItem key={p.uid} value={p.uid} className="text-xs">
+                        {p.name || p.uid}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {testProjectUid && (
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground">{t('plugins.test_select_dataset')}</Label>
+                  <Select value={testDatasetFileId ?? ''} onValueChange={setTestDataset}>
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue placeholder={t('plugins.test_select_dataset')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {datasets.map((d) => (
+                        <SelectItem key={d.id} value={d.id} className="text-xs">
+                          {d.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div className="space-y-1">
+                <Label className="text-[10px] text-muted-foreground">{t('plugins.test_language')}</Label>
+                <Select value={testLanguage} onValueChange={(v) => setTestLanguage(v as 'python' | 'r')}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="python" className="text-xs">Python</SelectItem>
+                    <SelectItem value="r" className="text-xs">R</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {/* Run test button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={onRun}
+                disabled={isRunning || !testDatasetFileId}
+              >
+                {isRunning ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('plugins.test_run')}</TooltipContent>
+          </Tooltip>
         </div>
         {onCollapse && (
           <Tooltip>

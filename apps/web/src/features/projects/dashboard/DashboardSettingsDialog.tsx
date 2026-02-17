@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Database, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Dialog,
   DialogContent,
@@ -47,14 +48,16 @@ export function DashboardSettingsDialog({
 
   const [datasetFileId, setDatasetFileId] = useState<string | null>(dashboard.datasetFileId)
   const [filterConfig, setFilterConfig] = useState<DashboardFilterColumn[]>(dashboard.filterConfig)
+  const [showWidgetTitles, setShowWidgetTitles] = useState(dashboard.showWidgetTitles ?? true)
 
   // Reset local state when dialog opens
   useEffect(() => {
     if (open) {
       setDatasetFileId(dashboard.datasetFileId)
       setFilterConfig(dashboard.filterConfig)
+      setShowWidgetTitles(dashboard.showWidgetTitles ?? true)
     }
-  }, [open, dashboard.datasetFileId, dashboard.filterConfig])
+  }, [open, dashboard.datasetFileId, dashboard.filterConfig, dashboard.showWidgetTitles])
 
   const projectDatasetFiles = datasetFiles.filter(
     (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
@@ -77,6 +80,7 @@ export function DashboardSettingsDialog({
     updateDashboard(dashboard.id, {
       datasetFileId,
       filterConfig: validFilters,
+      showWidgetTitles,
     })
     onOpenChange(false)
   }
@@ -199,6 +203,15 @@ export function DashboardSettingsDialog({
             {!datasetFileId && (
               <p className="text-xs text-muted-foreground italic">{t('dashboard.settings_filters_no_dataset')}</p>
             )}
+          </div>
+
+          {/* Widget title bars toggle */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
+              <p className="text-[11px] text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
+            </div>
+            <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
           </div>
         </div>
 

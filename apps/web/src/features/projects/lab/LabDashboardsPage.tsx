@@ -47,7 +47,7 @@ export function LabDashboardsPage() {
   const projectUid = uid ?? ''
 
   const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard, updateDashboard } = useDashboardStore()
-  const { files: datasetFiles } = useDatasetStore()
+  const { files: datasetFiles, loadProjectDatasets } = useDatasetStore()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
@@ -57,7 +57,8 @@ export function LabDashboardsPage() {
 
   useEffect(() => {
     loadProjectDashboards(projectUid)
-  }, [projectUid, loadProjectDashboards])
+    loadProjectDatasets(projectUid)
+  }, [projectUid, loadProjectDashboards, loadProjectDatasets])
 
   const projectDashboards = dashboards
     .filter((d) => d.projectUid === projectUid)

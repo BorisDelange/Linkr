@@ -289,6 +289,7 @@ export interface Dashboard {
   name: string
   datasetFileId: string | null
   filterConfig: DashboardFilterColumn[]
+  showWidgetTitles?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -303,7 +304,6 @@ export interface DashboardTab {
 export type DashboardWidgetSource =
   | { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
   | { type: 'inline'; language: 'python' | 'r' | 'sql'; code: string; config: Record<string, unknown> }
-  | { type: 'builtin'; builtinType: string; config: Record<string, unknown> }
 
 export interface DashboardWidget {
   id: string

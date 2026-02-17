@@ -5,6 +5,7 @@ import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter, Settings2 } from 'lu
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardTabBar } from './dashboard/DashboardTabBar'
 import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
@@ -34,9 +35,12 @@ export function DashboardPage() {
     setActiveDashboard,
   } = useDashboardStore()
 
+  const { loadProjectDatasets } = useDatasetStore()
+
   useEffect(() => {
     loadProjectDashboards(projectUid)
-  }, [projectUid, loadProjectDashboards])
+    loadProjectDatasets(projectUid)
+  }, [projectUid, loadProjectDashboards, loadProjectDatasets])
 
   useEffect(() => {
     if (currentDashboardId) {
@@ -143,7 +147,7 @@ export function DashboardPage() {
         {/* Main content area */}
         <ScrollArea className="flex-1 min-h-0">
           {tabWidgets.length > 0 ? (
-            <WidgetGrid widgets={tabWidgets} editMode={editMode} />
+            <WidgetGrid widgets={tabWidgets} editMode={editMode} hideTitleBars={dashboard.showWidgetTitles === false} />
           ) : (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
               <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">

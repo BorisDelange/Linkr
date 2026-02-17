@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Activity, Users, TrendingUp, Heart, TableIcon, Hash, BarChart3, Code2, ArrowLeft } from 'lucide-react'
+import { Code2, ArrowLeft } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDashboardData } from './DashboardDataProvider'
 import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
 import type { AnalysisPlugin } from '@/types/analysis-plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
+import { PluginPicker } from '@/components/PluginPicker'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -24,109 +25,33 @@ interface AddWidgetDialogProps {
   tabId: string
 }
 
-interface BuiltinOption {
-  builtinType: string
-  nameKey: string
-  descriptionKey: string
-  icon: React.ReactNode
-  defaultConfig: Record<string, unknown>
-}
-
-const builtinOptions: BuiltinOption[] = [
-  // Legacy demo widgets
-  {
-    builtinType: 'admission_count',
-    nameKey: 'dashboard.widget_admission_count',
-    descriptionKey: 'dashboard.widget_admission_count_desc',
-    icon: <Activity size={20} className="text-blue-500" />,
-    defaultConfig: {},
-  },
-  {
-    builtinType: 'patient_count',
-    nameKey: 'dashboard.widget_patient_count',
-    descriptionKey: 'dashboard.widget_patient_count_desc',
-    icon: <Users size={20} className="text-violet-500" />,
-    defaultConfig: {},
-  },
-  {
-    builtinType: 'admission_timeline',
-    nameKey: 'dashboard.widget_admission_timeline',
-    descriptionKey: 'dashboard.widget_admission_timeline_desc',
-    icon: <TrendingUp size={20} className="text-emerald-500" />,
-    defaultConfig: {},
-  },
-  {
-    builtinType: 'heart_rate',
-    nameKey: 'dashboard.widget_heart_rate',
-    descriptionKey: 'dashboard.widget_heart_rate_desc',
-    icon: <Heart size={20} className="text-red-500" />,
-    defaultConfig: {},
-  },
-  {
-    builtinType: 'vitals_table',
-    nameKey: 'dashboard.widget_vitals_table',
-    descriptionKey: 'dashboard.widget_vitals_table_desc',
-    icon: <TableIcon size={20} className="text-orange-500" />,
-    defaultConfig: {},
-  },
-  // Data-aware builtins
-  {
-    builtinType: 'kpi',
-    nameKey: 'dashboard.builtin_kpi',
-    descriptionKey: 'dashboard.builtin_kpi_desc',
-    icon: <Hash size={20} className="text-teal-500" />,
-    defaultConfig: { aggregation: 'count' },
-  },
-  {
-    builtinType: 'table',
-    nameKey: 'dashboard.builtin_table',
-    descriptionKey: 'dashboard.builtin_table_desc',
-    icon: <TableIcon size={20} className="text-blue-500" />,
-    defaultConfig: { maxRows: 50 },
-  },
-  {
-    builtinType: 'chart',
-    nameKey: 'dashboard.builtin_chart',
-    descriptionKey: 'dashboard.builtin_chart_desc',
-    icon: <BarChart3 size={20} className="text-purple-500" />,
-    defaultConfig: { chartType: 'bar' },
-  },
-]
-
 export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const { addWidget } = useDashboardStore()
   const { columns } = useDashboardData()
-  const [activeTab, setActiveTab] = useState('builtin')
+  const [activeTab, setActiveTab] = useState('plugin')
   const lang = i18n.language as 'en' | 'fr'
 
+  const plugins = useMemo(() => getAllAnalysisPlugins(), [])
+  const [selectedPluginId, setSelectedPluginId] = useState('')
+
   // Plugin config step
-  const [selectedPlugin, setSelectedPlugin] = useState<AnalysisPlugin | null>(null)
+  const [configPlugin, setConfigPlugin] = useState<AnalysisPlugin | null>(null)
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
 
-  const plugins = getAllAnalysisPlugins()
-
   const resetAndClose = () => {
-    setSelectedPlugin(null)
+    setConfigPlugin(null)
     setPluginConfig({})
+    setSelectedPluginId('')
     onOpenChange(false)
   }
 
-  const handleAddBuiltin = (opt: BuiltinOption) => {
-    const source: DashboardWidgetSource = {
-      type: 'builtin',
-      builtinType: opt.builtinType,
-      config: { ...opt.defaultConfig },
-    }
-    addWidget(tabId, source, t(opt.nameKey))
-    resetAndClose()
-  }
-
   const handleSelectPlugin = (plugin: AnalysisPlugin) => {
+    setSelectedPluginId(plugin.manifest.id)
     const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
 
     if (hasConfig) {
-      setSelectedPlugin(plugin)
+      setConfigPlugin(plugin)
       setPluginConfig({})
     } else {
       // No config needed, add immediately
@@ -142,11 +67,11 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
   }
 
   const handleConfirmPlugin = () => {
-    if (!selectedPlugin) return
-    const name = selectedPlugin.manifest.name[lang] ?? selectedPlugin.manifest.name.en ?? selectedPlugin.manifest.id
+    if (!configPlugin) return
+    const name = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
     const source: DashboardWidgetSource = {
       type: 'plugin',
-      pluginId: selectedPlugin.manifest.id,
+      pluginId: configPlugin.manifest.id,
       config: { ...pluginConfig },
     }
     addWidget(tabId, source, name)
@@ -165,17 +90,17 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
   }
 
   // Plugin config step view
-  if (selectedPlugin) {
-    const pluginName = selectedPlugin.manifest.name[lang] ?? selectedPlugin.manifest.name.en ?? selectedPlugin.manifest.id
+  if (configPlugin) {
+    const pluginName = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="icon-xs"
-                onClick={() => setSelectedPlugin(null)}
+                onClick={() => setConfigPlugin(null)}
               >
                 <ArrowLeft size={14} />
               </Button>
@@ -188,7 +113,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
 
           <div className="max-h-80 overflow-y-auto">
             <GenericConfigPanel
-              schema={selectedPlugin.manifest.configSchema!}
+              schema={configPlugin.manifest.configSchema!}
               config={pluginConfig}
               columns={columns}
               onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
@@ -196,7 +121,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
           </div>
 
           <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setSelectedPlugin(null)}>
+            <Button variant="outline" size="sm" onClick={() => setConfigPlugin(null)}>
               {t('common.back')}
             </Button>
             <Button size="sm" onClick={handleConfirmPlugin}>
@@ -210,7 +135,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
           <DialogTitle>{t('dashboard.add_widget_title')}</DialogTitle>
           <DialogDescription>
@@ -219,76 +144,22 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-          <TabsList className="w-full">
-            <TabsTrigger value="builtin" className="flex-1 text-xs">
-              {t('dashboard.source_builtin')}
-            </TabsTrigger>
-            <TabsTrigger value="plugin" className="flex-1 text-xs">
+          <TabsList>
+            <TabsTrigger value="plugin" className="text-xs">
               {t('dashboard.source_plugin')}
             </TabsTrigger>
-            <TabsTrigger value="inline" className="flex-1 text-xs">
-              {t('dashboard.source_inline')}
+            <TabsTrigger value="inline" className="text-xs">
+              {t('dashboard.source_custom_code')}
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="builtin" className="mt-3">
-            <div className="grid gap-2 max-h-80 overflow-y-auto">
-              {builtinOptions.map((opt) => (
-                <button
-                  key={opt.builtinType}
-                  onClick={() => handleAddBuiltin(opt)}
-                  className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
-                >
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    {opt.icon}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{t(opt.nameKey)}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t(opt.descriptionKey)}
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </TabsContent>
-
           <TabsContent value="plugin" className="mt-3">
-            <div className="grid gap-2 max-h-80 overflow-y-auto">
-              {plugins.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">
-                  {t('dashboard.plugin_no_plugins')}
-                </p>
-              ) : (
-                plugins.map((plugin) => {
-                  const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
-                  const desc = plugin.manifest.description[lang] ?? plugin.manifest.description.en ?? ''
-                  const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
-                  return (
-                    <button
-                      key={plugin.manifest.id}
-                      onClick={() => handleSelectPlugin(plugin)}
-                      className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
-                    >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                        <BarChart3 size={20} className="text-primary" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{name}</p>
-                        {desc && (
-                          <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
-                        )}
-                      </div>
-                      {hasConfig && (
-                        <span className="text-[10px] text-muted-foreground shrink-0">
-                          {t('dashboard.widget_configure')}...
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
-              )}
-            </div>
+            <PluginPicker
+              plugins={plugins}
+              selectedPluginId={selectedPluginId}
+              onSelectPlugin={handleSelectPlugin}
+              lang={lang}
+            />
           </TabsContent>
 
           <TabsContent value="inline" className="mt-3">
@@ -305,7 +176,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
                   <div className="min-w-0">
                     <p className="text-sm font-medium">{lang.toUpperCase()}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      Write custom {lang} code for this widget
+                      {t('dashboard.custom_code_description', { language: lang.toUpperCase() })}
                     </p>
                   </div>
                 </button>
