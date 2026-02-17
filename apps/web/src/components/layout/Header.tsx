@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,16 +33,23 @@ import {
 
 const routeTitleKeys: Record<string, string> = {
   '/': 'nav.home',
-  '/projects': 'nav.projects',
+  '/workspaces': 'nav.workspaces',
   '/catalog': 'nav.catalog',
-  '/wiki': 'nav.wiki',
-  '/warehouse/databases': 'app_warehouse.nav_databases',
-  '/warehouse/schema-presets': 'app_warehouse.nav_schema_presets',
-  '/warehouse/concept-mapping': 'app_warehouse.nav_concept_mapping',
-  '/warehouse/etl': 'app_warehouse.nav_etl',
-  '/versioning': 'nav.versioning',
   '/settings': 'nav.settings',
   '/profile': 'user_menu.profile',
+}
+
+const workspaceSegmentTitleKeys: Record<string, string> = {
+  'home': 'workspace_nav.home',
+  'projects': 'workspace_nav.projects',
+  'wiki': 'workspace_nav.wiki',
+  'plugins': 'workspace_nav.plugins',
+  'warehouse/databases': 'app_warehouse.nav_databases',
+  'warehouse/schema-presets': 'app_warehouse.nav_schema_presets',
+  'warehouse/concept-mapping': 'app_warehouse.nav_concept_mapping',
+  'warehouse/etl': 'app_warehouse.nav_etl',
+  'versioning': 'workspace_nav.versioning',
+  'settings': 'workspace_nav.settings',
 }
 
 const projectSegmentTitleKeys: Record<string, string> = {
@@ -73,6 +81,7 @@ export function Header() {
     user,
     logout,
   } = useAppStore()
+  const { activeWorkspaceName } = useWorkspaceStore()
   const dashboards = useDashboardStore((s) => s.dashboards)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
@@ -95,8 +104,8 @@ export function Header() {
   }
 
   const getPageLabel = () => {
-    // Check project-level routes: /projects/:uid/segment
-    const projectMatch = location.pathname.match(/^\/projects\/[^/]+\/(.+)$/)
+    // Check project-level routes: /workspaces/:wsUid/projects/:uid/segment
+    const projectMatch = location.pathname.match(/^\/workspaces\/[^/]+\/projects\/[^/]+\/(.+)$/)
     if (projectMatch) {
       const segment = projectMatch[1]
 
@@ -108,6 +117,14 @@ export function Header() {
       }
 
       const key = projectSegmentTitleKeys[segment]
+      return key ? t(key) : segment
+    }
+
+    // Check workspace-level routes: /workspaces/:wsUid/segment
+    const wsMatch = location.pathname.match(/^\/workspaces\/[^/]+\/(.+)$/)
+    if (wsMatch) {
+      const segment = wsMatch[1]
+      const key = workspaceSegmentTitleKeys[segment]
       return key ? t(key) : segment
     }
 
@@ -124,6 +141,12 @@ export function Header() {
           <h1 className="text-[13px] font-medium text-foreground">
             {getPageLabel()}
           </h1>
+          {activeWorkspaceName && (
+            <>
+              <Separator orientation="vertical" className="!h-4" />
+              <Badge variant="outline" className="text-[11px]">{activeWorkspaceName}</Badge>
+            </>
+          )}
           {activeProjectName && (
             <>
               <Separator orientation="vertical" className="!h-4" />

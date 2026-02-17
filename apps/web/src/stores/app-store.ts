@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { Project, Language, TodoItem, ProjectStatus, ProjectBadge } from '@/types'
+import type { Project, Workspace, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
 interface AuthUser {
   id: number
@@ -75,10 +75,32 @@ function projectToItem(project: Project, lang: string): ProjectItem {
 
 const SEED_KEY = 'linkr-seeded'
 const DEMO_UID = '00000000-0000-0000-0000-000000000001'
+const DEMO_WORKSPACE_ID = '00000000-0000-0000-0000-000000000010'
+
+function createDemoWorkspace(): Workspace {
+  return {
+    id: DEMO_WORKSPACE_ID,
+    name: {
+      en: 'Demo ICU Research',
+      fr: 'Recherche Réanimation Demo',
+    },
+    description: {
+      en: 'Retrospective studies on ICU patient outcomes using the MIMIC-IV demo dataset.',
+      fr: 'Études rétrospectives sur le devenir des patients de réanimation à partir du jeu de données MIMIC-IV demo.',
+    },
+    organization: {
+      name: 'Demo Hospital',
+      type: 'hospital',
+    },
+    createdAt: '2026-02-10T00:00:00.000Z',
+    updatedAt: '2026-02-10T00:00:00.000Z',
+  }
+}
 
 function createDemoProject(): Project {
   return {
     uid: DEMO_UID,
+    workspaceId: DEMO_WORKSPACE_ID,
     name: { en: 'ICU Mortality Prediction', fr: 'Prédiction de mortalité en réanimation' },
     description: {
       en: 'Predict in-hospital mortality from the first 24 hours of ICU stay using MIMIC-IV demo data (100 patients, OMOP CDM).',
@@ -205,7 +227,7 @@ interface AppState {
   projects: ProjectItem[]
   projectsLoaded: boolean
   loadProjects: () => Promise<void>
-  addProject: (name: string, description: string) => Promise<string>
+  addProject: (name: string, description: string, workspaceId?: string) => Promise<string>
   updateProject: (uid: string, name: string, description: string) => Promise<void>
   updateProjectTodos: (uid: string, todos: TodoItem[]) => void
   updateProjectNotes: (uid: string, notes: string) => void
@@ -213,6 +235,9 @@ interface AppState {
   restoreReadmeVersion: (uid: string, snapshotId: string) => void
   updateProjectStatus: (uid: string, status: ProjectStatus) => void
   updateProjectBadges: (uid: string, badges: ProjectBadge[]) => void
+  updateProjectOrganization: (uid: string, org: OrganizationInfo | undefined) => void
+  updateProjectCatalogVisibility: (uid: string, visibility: CatalogVisibility) => void
+  getWorkspaceProjects: (workspaceId: string) => ProjectItem[]
   deleteProject: (uid: string) => Promise<void>
 
   // Data source linking (app-level databases ↔ projects)
@@ -281,12 +306,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     const storage = getStorage()
     let projects = await storage.projects.getAll()
 
-    // Seed demo project on first launch
+    // Seed demo workspace + project on first launch
     if (projects.length === 0 && !localStorage.getItem(SEED_KEY)) {
+      const demoWs = createDemoWorkspace()
+      await storage.workspaces.create(demoWs)
       const demo = createDemoProject()
       await storage.projects.create(demo)
       localStorage.setItem(SEED_KEY, '1')
       projects = [demo]
+      // Reload workspace store so it picks up the seeded workspace
+      const { useWorkspaceStore } = await import('./workspace-store')
+      useWorkspaceStore.getState().loadWorkspaces()
     }
 
     const lang = get().language
@@ -297,12 +327,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
-  addProject: async (name, description) => {
+  addProject: async (name, description, workspaceId?) => {
     const uid = crypto.randomUUID()
     const now = new Date().toISOString()
     const lang = get().language
     const project: Project = {
       uid,
+      workspaceId,
       name: { [lang]: name },
       description: { [lang]: description },
       shortDescription: {},
@@ -317,6 +348,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       projects: [...s.projects, projectToItem(project, s.language)],
     }))
     return uid
+  },
+
+  getWorkspaceProjects: (workspaceId) => {
+    const lang = get().language
+    return get()._projectsRaw
+      .filter((p) => p.workspaceId === workspaceId)
+      .map((p) => projectToItem(p, lang))
   },
 
   updateProject: async (uid, name, description) => {
@@ -412,6 +450,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     getStorage().projects.update(uid, { badges })
   },
 
+  updateProjectOrganization: (uid, organization) => {
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, organization } : p
+      ),
+    }))
+    getStorage().projects.update(uid, { organization })
+  },
+
+  updateProjectCatalogVisibility: (uid, catalogVisibility) => {
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, catalogVisibility } : p
+      ),
+    }))
+    getStorage().projects.update(uid, { catalogVisibility })
+  },
+
   deleteProject: async (uid) => {
     await getStorage().projects.delete(uid)
     set((s) => ({
@@ -473,8 +529,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   // Active project
   activeProjectUid: null,
   activeProjectName: null,
-  openProject: (uid, name) =>
-    set({ activeProjectUid: uid, activeProjectName: name }),
+  openProject: (uid, name) => {
+    // Auto-set active workspace if the project belongs to one
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (project?.workspaceId) {
+      // Lazy import to avoid circular dependency at module init
+      const { useWorkspaceStore } = require('./workspace-store') as typeof import('./workspace-store')
+      const wsState = useWorkspaceStore.getState()
+      if (wsState.activeWorkspaceId !== project.workspaceId) {
+        const ws = wsState._workspacesRaw.find((w) => w.id === project.workspaceId)
+        if (ws) {
+          const lang = get().language
+          const wsName = ws.name[lang] ?? ws.name['en'] ?? Object.values(ws.name)[0] ?? ''
+          // Set workspace directly without calling closeProject (would loop)
+          useWorkspaceStore.setState({ activeWorkspaceId: ws.id, activeWorkspaceName: wsName })
+        }
+      }
+    }
+    set({ activeProjectUid: uid, activeProjectName: name })
+  },
   closeProject: () =>
     set({ activeProjectUid: null, activeProjectName: null }),
 

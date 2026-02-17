@@ -17,9 +17,10 @@ import { Textarea } from '@/components/ui/textarea'
 interface CreateProjectDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  workspaceId?: string
 }
 
-export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogProps) {
+export function CreateProjectDialog({ open, onOpenChange, workspaceId }: CreateProjectDialogProps) {
   const { t } = useTranslation()
   const { addProject } = useAppStore()
   const [name, setName] = useState('')
@@ -28,7 +29,7 @@ export function CreateProjectDialog({ open, onOpenChange }: CreateProjectDialogP
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
-    await addProject(name.trim(), description.trim())
+    await addProject(name.trim(), description.trim(), workspaceId)
     setName('')
     setDescription('')
     onOpenChange(false)

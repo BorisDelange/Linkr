@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Routes, Route, Navigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
@@ -10,6 +11,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
+import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { HomePage } from '@/features/home/HomePage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { SummaryPage } from '@/features/projects/SummaryPage'
@@ -37,20 +39,25 @@ import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
+import { WorkspacesPage } from '@/features/workspaces/WorkspacesPage'
+import { WorkspaceHomePage } from '@/features/workspaces/WorkspaceHomePage'
+import { WorkspaceSettingsPage } from '@/features/workspaces/WorkspaceSettingsPage'
 
 export function App() {
   const { darkMode, language, projectsLoaded, loadProjects, activeProjectUid } = useAppStore()
+  const { workspacesLoaded, loadWorkspaces } = useWorkspaceStore()
   const { dataSourcesLoaded, loadDataSources, mountProjectSources } = useDataSourceStore()
   const { cohortsLoaded, loadCohorts } = useCohortStore()
   const { pipelinesLoaded, loadPipelines } = usePipelineStore()
   const { i18n } = useTranslation()
 
   useEffect(() => {
+    loadWorkspaces()
     loadProjects()
     loadDataSources()
     loadCohorts()
     loadPipelines()
-  }, [loadProjects, loadDataSources, loadCohorts, loadPipelines])
+  }, [loadWorkspaces, loadProjects, loadDataSources, loadCohorts, loadPipelines])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -78,7 +85,7 @@ export function App() {
     }
   }, [activeProjectUid, dataSourcesLoaded, mountProjectSources])
 
-  if (!projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded) {
+  if (!workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded) {
     return null
   }
 
@@ -89,44 +96,57 @@ export function App() {
         <Header />
         <main className="flex-1 overflow-hidden">
           <Routes>
+            {/* App-level routes */}
             <Route path="/" element={<HomePage />} />
-            <Route path="/projects" element={<ProjectsPage />} />
-
+            <Route path="/workspaces" element={<WorkspacesPage />} />
             <Route path="/catalog" element={<CatalogPage />} />
-            <Route path="/wiki" element={<WikiPage />} />
-            <Route path="/warehouse" element={<Navigate to="/warehouse/databases" replace />} />
-            <Route path="/warehouse/databases" element={<AppDatabasesPage />} />
-            <Route path="/warehouse/schema-presets" element={<SchemaPresetsPage />} />
-            <Route path="/warehouse/concept-mapping" element={<ConceptMappingPage />} />
-            <Route path="/warehouse/etl" element={<EtlPage />} />
-            <Route path="/versioning" element={<AppVersioningPage />} />
-
-            <Route path="/plugins" element={<PluginsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/profile" element={<ProfilePage />} />
 
-            {/* Project-level routes */}
-            <Route path="/projects/:uid" element={<Navigate to="summary" replace />} />
-            <Route path="/projects/:uid/summary" element={<SummaryPage />} />
-            <Route path="/projects/:uid/pipeline" element={<PipelinePage />} />
-            <Route path="/projects/:uid/ide" element={<IdePage />} />
+            {/* Workspace-level routes */}
+            <Route path="/workspaces/:wsUid" element={<WorkspaceGuard><Navigate to="home" replace /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/home" element={<WorkspaceGuard><WorkspaceHomePage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects" element={<WorkspaceGuard><ProjectsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/wiki" element={<WorkspaceGuard><WikiPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/plugins" element={<WorkspaceGuard><PluginsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse" element={<WorkspaceGuard><Navigate to="databases" replace /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/databases" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/settings" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
 
-            {/* Warehouse routes */}
-            <Route path="/projects/:uid/warehouse/databases" element={<DatabasesPage />} />
-            <Route path="/projects/:uid/warehouse/concepts" element={<ConceptsPage />} />
-            <Route path="/projects/:uid/warehouse/data-quality" element={<DataQualityPage />} />
-            <Route path="/projects/:uid/warehouse/cohorts" element={<WarehouseCohortsPage />} />
-            <Route path="/projects/:uid/warehouse/patient-data" element={<PatientDataPage />} />
+            {/* Project-level routes (nested under workspace) */}
+            <Route path="/workspaces/:wsUid/projects/:uid" element={<WorkspaceGuard><Navigate to="summary" replace /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/summary" element={<WorkspaceGuard><SummaryPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/pipeline" element={<WorkspaceGuard><PipelinePage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/ide" element={<WorkspaceGuard><IdePage /></WorkspaceGuard>} />
 
-            {/* Lab routes */}
-            <Route path="/projects/:uid/lab/datasets" element={<DatasetsPage />} />
-            <Route path="/projects/:uid/lab/dashboards" element={<LabDashboardsPage />} />
-            <Route path="/projects/:uid/lab/dashboards/:dashboardId" element={<DashboardPage />} />
-            <Route path="/projects/:uid/lab/reports" element={<ReportsPage />} />
+            {/* Project warehouse routes */}
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases" element={<WorkspaceGuard><DatabasesPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ConceptsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/data-quality" element={<WorkspaceGuard><DataQualityPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><WarehouseCohortsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><PatientDataPage /></WorkspaceGuard>} />
 
-            {/* Common routes */}
-            <Route path="/projects/:uid/versioning" element={<VersioningPage />} />
-            <Route path="/projects/:uid/settings" element={<ProjectSettingsPage />} />
+            {/* Project lab routes */}
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/datasets" element={<WorkspaceGuard><DatasetsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards" element={<WorkspaceGuard><LabDashboardsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards/:dashboardId" element={<WorkspaceGuard><DashboardPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/reports" element={<WorkspaceGuard><ReportsPage /></WorkspaceGuard>} />
+
+            {/* Project common routes */}
+            <Route path="/workspaces/:wsUid/projects/:uid/versioning" element={<WorkspaceGuard><VersioningPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/settings" element={<WorkspaceGuard><ProjectSettingsPage /></WorkspaceGuard>} />
+
+            {/* Legacy redirects */}
+            <Route path="/projects" element={<Navigate to="/workspaces" replace />} />
+            <Route path="/projects/*" element={<Navigate to="/workspaces" replace />} />
+            <Route path="/wiki" element={<Navigate to="/workspaces" replace />} />
+            <Route path="/plugins" element={<Navigate to="/workspaces" replace />} />
+            <Route path="/warehouse/*" element={<Navigate to="/workspaces" replace />} />
+            <Route path="/versioning" element={<Navigate to="/workspaces" replace />} />
 
             {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />

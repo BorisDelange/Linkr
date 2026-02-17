@@ -1,9 +1,16 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget } from '@/types'
-import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace } from '@/types'
+import type { Storage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
+  workspaces: {
+    key: string
+    value: Workspace
+    indexes: {
+      'by-updated': string
+    }
+  }
   projects: {
     key: string
     value: Project
@@ -121,10 +128,13 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 15
+const DB_VERSION = 16
+
+let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
-  return openDB<LinkrDB>(DB_NAME, DB_VERSION, {
+  if (_dbPromise) return _dbPromise
+  _dbPromise = openDB<LinkrDB>(DB_NAME, DB_VERSION, {
     upgrade(db, oldVersion, _newVersion, transaction) {
       // Version 1: projects
       if (oldVersion < 1) {
@@ -276,8 +286,44 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         const widgetStore = db.createObjectStore('dashboard_widgets', { keyPath: 'id' })
         widgetStore.createIndex('by-tab', 'tabId')
       }
+      // Version 16: Workspaces
+      if (oldVersion < 16) {
+        const wsStore = db.createObjectStore('workspaces', { keyPath: 'id' })
+        wsStore.createIndex('by-updated', 'updatedAt')
+      }
     },
   })
+  _dbPromise.catch(() => { _dbPromise = null })
+  return _dbPromise
+}
+
+class IDBWorkspaceStorage implements WorkspaceStorage {
+  async getAll(): Promise<Workspace[]> {
+    const db = await getDB()
+    return db.getAll('workspaces')
+  }
+
+  async getById(id: string): Promise<Workspace | undefined> {
+    const db = await getDB()
+    return db.get('workspaces', id)
+  }
+
+  async create(workspace: Workspace): Promise<void> {
+    const db = await getDB()
+    await db.add('workspaces', workspace)
+  }
+
+  async update(id: string, changes: Partial<Workspace>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('workspaces', id)
+    if (!existing) return
+    await db.put('workspaces', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('workspaces', id)
+  }
 }
 
 class IDBProjectStorage implements ProjectStorage {
@@ -847,6 +893,7 @@ class IDBDashboardWidgetStorage implements DashboardWidgetStorage {
 
 export function createIDBStorage(): Storage {
   return {
+    workspaces: new IDBWorkspaceStorage(),
     projects: new IDBProjectStorage(),
     dataSources: new IDBDataSourceStorage(),
     files: new IDBFileStorage(),

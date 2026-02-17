@@ -24,8 +24,67 @@ export interface ProjectBadge {
   color: BadgeColor
 }
 
+// --- Organization & Catalog Types (shared by plugins and projects) ---
+
+/** Organization or author metadata. */
+export interface OrganizationInfo {
+  name: string
+  /** Type of organization (e.g. hospital, university, research_institute, company, consortium). */
+  type?: string
+  location?: string
+  country?: string
+  website?: string
+  email?: string
+  /** Internal organization identifier (ROR ID, institutional code, etc.). */
+  referenceId?: string
+  /** User-defined key-value pairs (e.g. department, FINESS code, NPI). */
+  customFields?: Record<string, string>
+}
+
+/** Whether an item appears in the community catalog when published via git. */
+export type CatalogVisibility = 'listed' | 'unlisted'
+
+/** Identifies the original creator of a plugin or project. */
+export interface PluginOrigin {
+  pluginId: string
+  organizationId?: string
+  repository?: string
+}
+
+/** Reference to the parent version this was forked from. */
+export interface ParentRef {
+  contentHash: string
+  organizationId?: string
+  version?: string
+}
+
+/** Human-written release notes for a specific version. */
+export interface ChangelogEntry {
+  version: string
+  contentHash?: string
+  date: string
+  notes: LocalizedString
+}
+
+// --- Workspace ---
+
+/** A workspace is an organizational container for projects, like a GitHub Organization. */
+export interface Workspace {
+  id: string
+  name: LocalizedString
+  description: LocalizedString
+  organization: OrganizationInfo
+  gitRemoteConfig?: GitRemoteConfig
+  createdAt: string
+  updatedAt: string
+}
+
+// --- Project ---
+
 export interface Project {
   uid: string
+  /** Workspace this project belongs to. Undefined = unassigned (legacy). */
+  workspaceId?: string
   name: LocalizedString
   description: LocalizedString
   shortDescription: LocalizedString
@@ -40,6 +99,10 @@ export interface Project {
   readmeHistory?: ReadmeSnapshot[]
   /** IDs of app-level databases linked to this project. */
   linkedDataSourceIds?: string[]
+  /** Organization or author metadata. */
+  organization?: OrganizationInfo
+  /** Whether this project appears in the community catalog. Defaults to 'unlisted'. */
+  catalogVisibility?: CatalogVisibility
   createdAt: string
   updatedAt: string
 }

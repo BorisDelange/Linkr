@@ -1,4 +1,13 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace } from '@/types'
+
+/** Storage interface for workspace persistence. */
+export interface WorkspaceStorage {
+  getAll(): Promise<Workspace[]>
+  getById(id: string): Promise<Workspace | undefined>
+  create(workspace: Workspace): Promise<void>
+  update(id: string, changes: Partial<Workspace>): Promise<void>
+  delete(id: string): Promise<void>
+}
 
 /** Storage interface for project persistence. */
 export interface ProjectStorage {
@@ -166,6 +175,7 @@ export interface DashboardWidgetStorage {
 
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
+  workspaces: WorkspaceStorage
   projects: ProjectStorage
   dataSources: DataSourceStorage
   files: FileStorage

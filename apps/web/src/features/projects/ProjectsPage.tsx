@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { Plus, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -12,7 +13,9 @@ export function ProjectsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { _projectsRaw, projects, openProject } = useAppStore()
+  const { wsUid } = useParams()
+  const { _projectsRaw, projects, getWorkspaceProjects, openProject } = useAppStore()
+  const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   useEffect(() => {
@@ -22,9 +25,16 @@ export function ProjectsPage() {
     }
   }, [searchParams, setSearchParams])
 
+  // Filter projects by workspace if we're inside one
+  const displayProjects = wsUid ? getWorkspaceProjects(wsUid) : projects
+
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
-    navigate(`/projects/${uid}/summary`)
+    if (wsUid) {
+      navigate(`/workspaces/${wsUid}/projects/${uid}/summary`)
+    } else {
+      navigate(`/workspaces/${activeWorkspaceId}/projects/${uid}/summary`)
+    }
   }
 
   return (
@@ -40,7 +50,7 @@ export function ProjectsPage() {
           </Button>
         </div>
 
-        {projects.length === 0 ? (
+        {displayProjects.length === 0 ? (
           <Card className="mt-6">
             <div className="flex flex-col items-center py-12">
               <FolderOpen size={40} className="text-muted-foreground" />
@@ -58,7 +68,7 @@ export function ProjectsPage() {
           </Card>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {projects.map((project) => {
+            {displayProjects.map((project) => {
               const raw = _projectsRaw.find((p) => p.uid === project.uid)
               const badges = raw?.badges ?? []
               const status = raw?.status ?? 'active'
@@ -107,7 +117,7 @@ export function ProjectsPage() {
         )}
       </div>
 
-      <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+      <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
     </div>
   )
 }
