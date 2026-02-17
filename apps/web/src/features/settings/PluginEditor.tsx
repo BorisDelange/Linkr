@@ -637,9 +637,14 @@ export function PluginEditor() {
             </div>
           </Allotment.Pane>
 
-          {/* Preview / Test panel */}
+          {/* Output panel: Config / Code / Results */}
           <Allotment.Pane preferredSize={320} minSize={200}>
-            <PluginTestPanel />
+            <PluginTestPanel
+              isExecuting={isExecuting}
+              result={testResult}
+              statusMessage={testStatusMessage}
+              columns={testColumns}
+            />
           </Allotment.Pane>
         </Allotment>
       </div>

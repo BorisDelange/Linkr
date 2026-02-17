@@ -1170,7 +1170,13 @@
     "bump_patch": "Patch",
     "bump_minor": "Mineur",
     "bump_major": "Majeur",
-    "publishing_section": "Publication"
+    "publishing_section": "Publication",
+    "test_config": "Configuration du test",
+    "test_language": "Langage",
+    "test_code": "Code",
+    "test_results": "Résultats",
+    "test_no_template": "Aucun template trouvé pour le langage sélectionné.",
+    "test_no_results": "Lancez un test pour voir les résultats."
   },
   "profile": {
     "title": "Profil",
