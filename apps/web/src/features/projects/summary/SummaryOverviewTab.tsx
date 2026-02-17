@@ -30,12 +30,16 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
   const pipeline = usePipelineStore((s) =>
     s.pipelines.find((p) => p.projectUid === uid),
   )
+  const allDashboards = useDashboardStore((s) => s.dashboards)
   const allTabs = useDashboardStore((s) => s.tabs)
+  const allWidgets = useDashboardStore((s) => s.widgets)
 
   const dataSources = useMemo(() => getProjectSources(uid), [getProjectSources, uid])
   const cohorts = useMemo(() => getProjectCohorts(uid), [getProjectCohorts, uid])
-  const dashTabs = useMemo(() => allTabs.filter((t) => t.projectUid === uid), [allTabs, uid])
-  const allWidgets = useDashboardStore((s) => s.widgets)
+  const dashTabs = useMemo(() => {
+    const dashIds = new Set(allDashboards.filter((d) => d.projectUid === uid).map((d) => d.id))
+    return allTabs.filter((t) => dashIds.has(t.dashboardId))
+  }, [allTabs, allDashboards, uid])
 
   const stats = useMemo(() => {
     const connectedCount = dataSources.filter((ds) => ds.status === 'connected').length

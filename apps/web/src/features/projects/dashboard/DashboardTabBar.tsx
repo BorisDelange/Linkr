@@ -18,11 +18,12 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { X, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useDashboardStore, type DashboardTab } from '@/stores/dashboard-store'
+import type { DashboardTab } from '@/types'
+import { useDashboardStore } from '@/stores/dashboard-store'
 import { Input } from '@/components/ui/input'
 
 interface DashboardTabBarProps {
-  projectUid: string
+  dashboardId: string
 }
 
 function SortableTab({
@@ -125,7 +126,7 @@ function SortableTab({
   )
 }
 
-export function DashboardTabBar({ projectUid }: DashboardTabBarProps) {
+export function DashboardTabBar({ dashboardId }: DashboardTabBarProps) {
   const { t } = useTranslation()
   const {
     tabs: allTabs,
@@ -138,9 +139,9 @@ export function DashboardTabBar({ projectUid }: DashboardTabBarProps) {
   } = useDashboardStore()
 
   const tabs = allTabs
-    .filter((t) => t.projectUid === projectUid)
+    .filter((t) => t.dashboardId === dashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentActiveId = activeTabId[projectUid] ?? tabs[0]?.id
+  const currentActiveId = activeTabId[dashboardId] ?? tabs[0]?.id
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -154,7 +155,7 @@ export function DashboardTabBar({ projectUid }: DashboardTabBarProps) {
     const newIndex = tabs.findIndex((t) => t.id === over.id)
     const reordered = arrayMove(tabs, oldIndex, newIndex)
     reorderTabs(
-      projectUid,
+      dashboardId,
       reordered.map((t) => t.id)
     )
   }
@@ -177,7 +178,7 @@ export function DashboardTabBar({ projectUid }: DashboardTabBarProps) {
                 tab={tab}
                 isActive={tab.id === currentActiveId}
                 canClose={tabs.length > 1}
-                onActivate={() => setActiveTab(projectUid, tab.id)}
+                onActivate={() => setActiveTab(dashboardId, tab.id)}
                 onClose={() => removeTab(tab.id)}
                 onRename={(name) => renameTab(tab.id, name)}
               />
@@ -186,7 +187,7 @@ export function DashboardTabBar({ projectUid }: DashboardTabBarProps) {
         </DndContext>
       </div>
       <button
-        onClick={() => addTab(projectUid)}
+        onClick={() => addTab(dashboardId)}
         className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
         title={t('dashboard.add_tab')}
       >

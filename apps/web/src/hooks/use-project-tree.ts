@@ -97,6 +97,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const cohorts = useCohortStore((s) => s.cohorts)
   const pipelines = usePipelineStore((s) => s.pipelines)
+  const dashboards = useDashboardStore((s) => s.dashboards)
   const dashboardTabs = useDashboardStore((s) => s.tabs)
   const dashboardWidgets = useDashboardStore((s) => s.widgets)
   const datasetFiles = useDatasetStore((s) => s.files)
@@ -189,16 +190,20 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
     }
 
     // --- dashboards/ ---
-    const projectTabs = dashboardTabs.filter((t) => t.projectUid === projectUid)
-    if (projectTabs.length > 0) {
+    const projectDashboards = dashboards.filter((d) => d.projectUid === projectUid)
+    if (projectDashboards.length > 0) {
       const dashFolderId = 'virtual:dashboards'
       virtual.push(vFolder(dashFolderId, 'dashboards', null))
-      for (const tab of projectTabs) {
-        const slug = slugify(tab.name)
-        const tabWidgets = dashboardWidgets.filter((w) => w.tabId === tab.id)
+      for (const dash of projectDashboards) {
+        const slug = slugify(dash.name)
+        const tabs = dashboardTabs.filter((t) => t.dashboardId === dash.id)
+        const tabsWithWidgets = tabs.map((tab) => ({
+          ...tab,
+          widgets: dashboardWidgets.filter((w) => w.tabId === tab.id),
+        }))
         virtual.push(
-          vFile(`virtual:dashboards/${tab.id}`, `${slug}.json`, dashFolderId,
-            JSON.stringify({ id: tab.id, name: tab.name, displayOrder: tab.displayOrder, widgets: tabWidgets }, null, 2)),
+          vFile(`virtual:dashboards/${dash.id}`, `${slug}.json`, dashFolderId,
+            JSON.stringify({ id: dash.id, name: dash.name, datasetFileId: dash.datasetFileId, tabs: tabsWithWidgets, createdAt: dash.createdAt, updatedAt: dash.updatedAt }, null, 2)),
         )
       }
     }

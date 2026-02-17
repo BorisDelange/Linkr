@@ -5,7 +5,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
-import { seedDemoDatabase } from '@/lib/demo-seed'
+import { seedDemoDatabase, seedDemoDashboard } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -22,6 +22,7 @@ import { PatientDataPage } from '@/features/projects/warehouse/PatientDataPage'
 import { DatasetsPage } from '@/features/projects/lab/DatasetsPage'
 import { IdePage } from '@/features/projects/lab/IdePage'
 import { LabDashboardsPage } from '@/features/projects/lab/LabDashboardsPage'
+import { DashboardPage } from '@/features/projects/DashboardPage'
 import { ReportsPage } from '@/features/projects/lab/ReportsPage'
 import { VersioningPage } from '@/features/projects/VersioningPage'
 import { ProjectSettingsPage } from '@/features/projects/ProjectSettingsPage'
@@ -59,10 +60,10 @@ export function App() {
     i18n.changeLanguage(language)
   }, [language, i18n])
 
-  // Seed demo database on first launch, then reload stores
+  // Seed demo database and dashboard on first launch, then reload stores
   useEffect(() => {
     if (projectsLoaded && dataSourcesLoaded) {
-      seedDemoDatabase().then(() => {
+      Promise.all([seedDemoDatabase(), seedDemoDashboard()]).then(() => {
         loadProjects()
         loadDataSources()
       })
@@ -120,6 +121,7 @@ export function App() {
             {/* Lab routes */}
             <Route path="/projects/:uid/lab/datasets" element={<DatasetsPage />} />
             <Route path="/projects/:uid/lab/dashboards" element={<LabDashboardsPage />} />
+            <Route path="/projects/:uid/lab/dashboards/:dashboardId" element={<DashboardPage />} />
             <Route path="/projects/:uid/lab/reports" element={<ReportsPage />} />
 
             {/* Common routes */}

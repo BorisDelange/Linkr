@@ -200,28 +200,48 @@ export interface ReadmeAttachment {
   createdAt: string
 }
 
-export interface Widget {
-  id: string
-  tabId: string
-  pluginId: number
-  name: string
-  layout: GridLayout
-  config: Record<string, unknown>
+// --- Dashboard Types ---
+
+export interface DashboardFilterColumn {
+  columnId: string
+  type: 'categorical' | 'numeric' | 'date'
+  label?: string
 }
 
-export interface GridLayout {
-  x: number
-  y: number
-  w: number
-  h: number
-}
-
-export interface Tab {
+export interface Dashboard {
   id: string
   projectUid: string
   name: string
+  datasetFileId: string | null
+  filterConfig: DashboardFilterColumn[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DashboardTab {
+  id: string
+  dashboardId: string
+  name: string
   displayOrder: number
 }
+
+export type DashboardWidgetSource =
+  | { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
+  | { type: 'inline'; language: 'python' | 'r' | 'sql'; code: string; config: Record<string, unknown> }
+  | { type: 'builtin'; builtinType: string; config: Record<string, unknown> }
+
+export interface DashboardWidget {
+  id: string
+  tabId: string
+  name: string
+  layout: { x: number; y: number; w: number; h: number }
+  source: DashboardWidgetSource
+}
+
+export type FilterValue =
+  | { type: 'categorical'; selected: string[] }
+  | { type: 'numeric'; min: number | null; max: number | null }
+  | { type: 'date'; from: string | null; to: string | null }
 
 /** Multilingual string: { en: "...", fr: "..." } */
 export type LocalizedString = Record<string, string>

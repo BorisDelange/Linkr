@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget } from '@/types'
 
 /** Storage interface for project persistence. */
 export interface ProjectStorage {
@@ -135,6 +135,35 @@ export interface UserPluginStorage {
   delete(id: string): Promise<void>
 }
 
+/** Storage interface for dashboard persistence. */
+export interface DashboardStorage {
+  getByProject(projectUid: string): Promise<Dashboard[]>
+  getById(id: string): Promise<Dashboard | undefined>
+  create(dashboard: Dashboard): Promise<void>
+  update(id: string, changes: Partial<Dashboard>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for dashboard tab persistence. */
+export interface DashboardTabStorage {
+  getByDashboard(dashboardId: string): Promise<DashboardTab[]>
+  getById(id: string): Promise<DashboardTab | undefined>
+  create(tab: DashboardTab): Promise<void>
+  update(id: string, changes: Partial<DashboardTab>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByDashboard(dashboardId: string): Promise<void>
+}
+
+/** Storage interface for dashboard widget persistence. */
+export interface DashboardWidgetStorage {
+  getByTab(tabId: string): Promise<DashboardWidget[]>
+  getById(id: string): Promise<DashboardWidget | undefined>
+  create(widget: DashboardWidget): Promise<void>
+  update(id: string, changes: Partial<DashboardWidget>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByTab(tabId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   projects: ProjectStorage
@@ -152,6 +181,9 @@ export interface Storage {
   datasetData: DatasetDataStorage
   datasetAnalyses: DatasetAnalysisStorage
   userPlugins: UserPluginStorage
+  dashboards: DashboardStorage
+  dashboardTabs: DashboardTabStorage
+  dashboardWidgets: DashboardWidgetStorage
 }
 
 let _storage: Storage | null = null

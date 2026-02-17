@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin } from '@/types'
-import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget } from '@/types'
+import type { Storage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -97,10 +97,31 @@ interface LinkrDB extends DBSchema {
     key: string
     value: UserPlugin
   }
+  dashboards: {
+    key: string
+    value: Dashboard
+    indexes: {
+      'by-project': string
+    }
+  }
+  dashboard_tabs: {
+    key: string
+    value: DashboardTab
+    indexes: {
+      'by-dashboard': string
+    }
+  }
+  dashboard_widgets: {
+    key: string
+    value: DashboardWidget
+    indexes: {
+      'by-tab': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 14
+const DB_VERSION = 15
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
   return openDB<LinkrDB>(DB_NAME, DB_VERSION, {
@@ -245,6 +266,15 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       // Version 14: User-created plugins
       if (oldVersion < 14) {
         db.createObjectStore('user_plugins', { keyPath: 'id' })
+      }
+      // Version 15: Dashboard system (dashboards, tabs, widgets)
+      if (oldVersion < 15) {
+        const dashStore = db.createObjectStore('dashboards', { keyPath: 'id' })
+        dashStore.createIndex('by-project', 'projectUid')
+        const tabStore = db.createObjectStore('dashboard_tabs', { keyPath: 'id' })
+        tabStore.createIndex('by-dashboard', 'dashboardId')
+        const widgetStore = db.createObjectStore('dashboard_widgets', { keyPath: 'id' })
+        widgetStore.createIndex('by-tab', 'tabId')
       }
     },
   })
@@ -708,6 +738,113 @@ class IDBUserPluginStorage implements UserPluginStorage {
   }
 }
 
+class IDBDashboardStorage implements DashboardStorage {
+  async getByProject(projectUid: string): Promise<Dashboard[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dashboards', 'by-project', projectUid)
+  }
+
+  async getById(id: string): Promise<Dashboard | undefined> {
+    const db = await getDB()
+    return db.get('dashboards', id)
+  }
+
+  async create(dashboard: Dashboard): Promise<void> {
+    const db = await getDB()
+    await db.add('dashboards', dashboard)
+  }
+
+  async update(id: string, changes: Partial<Dashboard>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dashboards', id)
+    if (!existing) return
+    await db.put('dashboards', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dashboards', id)
+  }
+}
+
+class IDBDashboardTabStorage implements DashboardTabStorage {
+  async getByDashboard(dashboardId: string): Promise<DashboardTab[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dashboard_tabs', 'by-dashboard', dashboardId)
+  }
+
+  async getById(id: string): Promise<DashboardTab | undefined> {
+    const db = await getDB()
+    return db.get('dashboard_tabs', id)
+  }
+
+  async create(tab: DashboardTab): Promise<void> {
+    const db = await getDB()
+    await db.add('dashboard_tabs', tab)
+  }
+
+  async update(id: string, changes: Partial<DashboardTab>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dashboard_tabs', id)
+    if (!existing) return
+    await db.put('dashboard_tabs', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dashboard_tabs', id)
+  }
+
+  async deleteByDashboard(dashboardId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('dashboard_tabs', 'by-dashboard', dashboardId)
+    const tx = db.transaction('dashboard_tabs', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBDashboardWidgetStorage implements DashboardWidgetStorage {
+  async getByTab(tabId: string): Promise<DashboardWidget[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dashboard_widgets', 'by-tab', tabId)
+  }
+
+  async getById(id: string): Promise<DashboardWidget | undefined> {
+    const db = await getDB()
+    return db.get('dashboard_widgets', id)
+  }
+
+  async create(widget: DashboardWidget): Promise<void> {
+    const db = await getDB()
+    await db.add('dashboard_widgets', widget)
+  }
+
+  async update(id: string, changes: Partial<DashboardWidget>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dashboard_widgets', id)
+    if (!existing) return
+    await db.put('dashboard_widgets', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dashboard_widgets', id)
+  }
+
+  async deleteByTab(tabId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('dashboard_widgets', 'by-tab', tabId)
+    const tx = db.transaction('dashboard_widgets', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     projects: new IDBProjectStorage(),
@@ -725,5 +862,8 @@ export function createIDBStorage(): Storage {
     datasetData: new IDBDatasetDataStorage(),
     datasetAnalyses: new IDBDatasetAnalysisStorage(),
     userPlugins: new IDBUserPluginStorage(),
+    dashboards: new IDBDashboardStorage(),
+    dashboardTabs: new IDBDashboardTabStorage(),
+    dashboardWidgets: new IDBDashboardWidgetStorage(),
   }
 }

@@ -1,104 +1,179 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
-import { Plus, LayoutGrid, Pencil, Lock } from 'lucide-react'
+import { useParams, useNavigate } from 'react-router'
+import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { DashboardTabBar } from './dashboard/DashboardTabBar'
 import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
+import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
+import { DashboardDataProvider } from './dashboard/DashboardDataProvider'
 
 export function DashboardPage() {
   const { t } = useTranslation()
-  const { uid } = useParams()
+  const { uid, dashboardId } = useParams()
+  const navigate = useNavigate()
   const projectUid = uid ?? ''
+  const currentDashboardId = dashboardId ?? ''
+
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
 
-  const { tabs, widgets, activeTabId } = useDashboardStore()
+  const {
+    dashboards,
+    tabs,
+    widgets,
+    activeTabId,
+    loaded,
+    loadProjectDashboards,
+    setActiveDashboard,
+  } = useDashboardStore()
 
-  const projectTabs = tabs
-    .filter((tab) => tab.projectUid === projectUid)
+  useEffect(() => {
+    loadProjectDashboards(projectUid)
+  }, [projectUid, loadProjectDashboards])
+
+  useEffect(() => {
+    if (currentDashboardId) {
+      setActiveDashboard(currentDashboardId)
+    }
+  }, [currentDashboardId, setActiveDashboard])
+
+  const dashboard = dashboards.find((d) => d.id === currentDashboardId)
+
+  const dashboardTabs = tabs
+    .filter((tab) => tab.dashboardId === currentDashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentTabId = activeTabId[projectUid] ?? projectTabs[0]?.id
+  const currentTabId = activeTabId[currentDashboardId] ?? dashboardTabs[0]?.id
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
 
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* Tab bar + actions */}
-      <div className="flex items-center border-b px-3 shrink-0">
-        <DashboardTabBar projectUid={projectUid} />
+  if (!loaded) return null
 
-        <div className="ml-auto flex items-center gap-1 py-1">
-          {editMode && (
-            <Button
-              size="xs"
-              className="gap-1"
-              onClick={() => setAddWidgetOpen(true)}
-            >
-              <Plus size={12} />
-              {t('dashboard.add_widget')}
-            </Button>
-          )}
+  if (!dashboard) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground">Dashboard not found</p>
           <Button
-            variant={editMode ? 'default' : 'ghost'}
-            size="xs"
-            className="gap-1"
-            onClick={() => setEditMode(!editMode)}
+            variant="link"
+            size="sm"
+            className="mt-2"
+            onClick={() => navigate(`/projects/${projectUid}/lab/dashboards`)}
           >
-            {editMode ? (
-              <>
-                <Lock size={12} />
-                {t('dashboard.lock_layout')}
-              </>
-            ) : (
-              <>
-                <Pencil size={12} />
-                {t('dashboard.edit_layout')}
-              </>
-            )}
+            {t('dashboard.back_to_list')}
           </Button>
         </div>
       </div>
+    )
+  }
 
-      {/* Main content area */}
-      <ScrollArea className="flex-1 min-h-0">
-        {tabWidgets.length > 0 ? (
-          <WidgetGrid widgets={tabWidgets} editMode={editMode} />
-        ) : (
-          <div className="flex h-full min-h-[400px] items-center justify-center p-8">
-            <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                <LayoutGrid size={24} className="text-muted-foreground" />
-              </div>
-              <h3 className="mt-4 text-sm font-medium text-foreground">
-                {t('dashboard.empty_title')}
-              </h3>
-              <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
-                {t('dashboard.empty_description')}
-              </p>
+  return (
+    <DashboardDataProvider datasetFileId={dashboard.datasetFileId}>
+      <div className="flex h-full flex-col overflow-hidden">
+        {/* Tab bar + actions */}
+        <div className="flex items-center border-b px-3 shrink-0">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="mr-1"
+            onClick={() => navigate(`/projects/${projectUid}/lab/dashboards`)}
+            title={t('dashboard.back_to_list')}
+          >
+            <ArrowLeft size={14} />
+          </Button>
+
+          <DashboardTabBar dashboardId={currentDashboardId} />
+
+          <div className="ml-auto flex items-center gap-1 py-1">
+            {dashboard.filterConfig.length > 0 && (
               <Button
-                size="sm"
-                className="mt-4 gap-1.5"
-                onClick={() => {
-                  setEditMode(true)
-                  setAddWidgetOpen(true)
-                }}
+                variant={filterOpen ? 'default' : 'ghost'}
+                size="xs"
+                className="gap-1"
+                onClick={() => setFilterOpen(!filterOpen)}
               >
-                <Plus size={14} />
+                <Filter size={12} />
+                {t('dashboard.toggle_filters')}
+              </Button>
+            )}
+            {editMode && (
+              <Button
+                size="xs"
+                className="gap-1"
+                onClick={() => setAddWidgetOpen(true)}
+              >
+                <Plus size={12} />
                 {t('dashboard.add_widget')}
               </Button>
-            </div>
+            )}
+            <Button
+              variant={editMode ? 'default' : 'ghost'}
+              size="xs"
+              className="gap-1"
+              onClick={() => setEditMode(!editMode)}
+            >
+              {editMode ? (
+                <>
+                  <Lock size={12} />
+                  {t('dashboard.lock_layout')}
+                </>
+              ) : (
+                <>
+                  <Pencil size={12} />
+                  {t('dashboard.edit_layout')}
+                </>
+              )}
+            </Button>
           </div>
-        )}
-      </ScrollArea>
+        </div>
 
-      <AddWidgetDialog
-        open={addWidgetOpen}
-        onOpenChange={setAddWidgetOpen}
-        tabId={currentTabId ?? ''}
-      />
-    </div>
+        {/* Main content area */}
+        <ScrollArea className="flex-1 min-h-0">
+          {tabWidgets.length > 0 ? (
+            <WidgetGrid widgets={tabWidgets} editMode={editMode} />
+          ) : (
+            <div className="flex h-full min-h-[400px] items-center justify-center p-8">
+              <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                  <LayoutGrid size={24} className="text-muted-foreground" />
+                </div>
+                <h3 className="mt-4 text-sm font-medium text-foreground">
+                  {t('dashboard.empty_title')}
+                </h3>
+                <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
+                  {t('dashboard.empty_description')}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-1.5"
+                  onClick={() => {
+                    setEditMode(true)
+                    setAddWidgetOpen(true)
+                  }}
+                >
+                  <Plus size={14} />
+                  {t('dashboard.add_widget')}
+                </Button>
+              </div>
+            </div>
+          )}
+        </ScrollArea>
+
+        <AddWidgetDialog
+          open={addWidgetOpen}
+          onOpenChange={setAddWidgetOpen}
+          tabId={currentTabId ?? ''}
+        />
+
+        <DashboardFilterSidebar
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          dashboard={dashboard}
+        />
+      </div>
+    </DashboardDataProvider>
   )
 }

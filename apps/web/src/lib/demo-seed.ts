@@ -9,9 +9,10 @@
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
-import type { DataSource, StoredFile, DatabaseConnectionConfig } from '@/types'
+import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
+const DEMO_DASHBOARD_SEED_KEY = 'linkr-demo-dashboard-seeded'
 const DEMO_PROJECT_UID = '00000000-0000-0000-0000-000000000001'
 const DEMO_DATASOURCE_ID = '00000000-0000-0000-0000-000000000002'
 
@@ -131,5 +132,88 @@ export async function seedDemoDatabase(): Promise<void> {
   } catch (err) {
     console.error('[demo-seed] Failed to seed demo database:', err)
     // Don't set the flag — will retry on next launch
+  }
+}
+
+/**
+ * Seed a demo dashboard for the demo project on first launch.
+ * Uses legacy builtin widgets (hardcoded mock data) since the demo
+ * project has OMOP warehouse data, not Lab datasets.
+ */
+export async function seedDemoDashboard(): Promise<void> {
+  if (localStorage.getItem(DEMO_DASHBOARD_SEED_KEY)) return
+
+  try {
+    const storage = getStorage()
+    const now = new Date().toISOString()
+
+    const dashboardId = 'dashboard-demo-1'
+    const tabId = 'dtab-demo-1'
+
+    const dashboard: Dashboard = {
+      id: dashboardId,
+      projectUid: DEMO_PROJECT_UID,
+      name: 'Overview',
+      datasetFileId: null,
+      filterConfig: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const tab: DashboardTab = {
+      id: tabId,
+      dashboardId,
+      name: 'Main',
+      displayOrder: 0,
+    }
+
+    const widgets: DashboardWidget[] = [
+      {
+        id: 'dw-demo-1',
+        tabId,
+        name: 'Patient Count',
+        layout: { x: 0, y: 0, w: 6, h: 4 },
+        source: { type: 'builtin', builtinType: 'patient_count', config: {} },
+      },
+      {
+        id: 'dw-demo-2',
+        tabId,
+        name: 'Admission Count',
+        layout: { x: 6, y: 0, w: 6, h: 4 },
+        source: { type: 'builtin', builtinType: 'admission_count', config: {} },
+      },
+      {
+        id: 'dw-demo-3',
+        tabId,
+        name: 'Admission Timeline',
+        layout: { x: 0, y: 4, w: 12, h: 6 },
+        source: { type: 'builtin', builtinType: 'admission_timeline', config: {} },
+      },
+      {
+        id: 'dw-demo-4',
+        tabId,
+        name: 'Heart Rate',
+        layout: { x: 12, y: 0, w: 12, h: 6 },
+        source: { type: 'builtin', builtinType: 'heart_rate', config: {} },
+      },
+      {
+        id: 'dw-demo-5',
+        tabId,
+        name: 'Vitals Table',
+        layout: { x: 12, y: 6, w: 12, h: 8 },
+        source: { type: 'builtin', builtinType: 'vitals_table', config: {} },
+      },
+    ]
+
+    await storage.dashboards.create(dashboard)
+    await storage.dashboardTabs.create(tab)
+    for (const w of widgets) {
+      await storage.dashboardWidgets.create(w)
+    }
+
+    localStorage.setItem(DEMO_DASHBOARD_SEED_KEY, '1')
+    console.info('[demo-seed] Demo dashboard seeded successfully')
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed demo dashboard:', err)
   }
 }

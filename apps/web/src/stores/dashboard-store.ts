@@ -1,140 +1,234 @@
 import { create } from 'zustand'
-
-export interface DashboardTab {
-  id: string
-  projectUid: string
-  name: string
-  displayOrder: number
-}
-
-export interface DashboardWidget {
-  id: string
-  tabId: string
-  type: string
-  name: string
-  layout: { x: number; y: number; w: number; h: number }
-  config: Record<string, unknown>
-}
+import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue } from '@/types'
+import { getStorage } from '@/lib/storage'
 
 interface DashboardState {
+  // Loaded data for current project
+  dashboards: Dashboard[]
   tabs: DashboardTab[]
   widgets: DashboardWidget[]
-  activeTabId: Record<string, string>
+  activeProjectUid: string | null
+  loaded: boolean
 
-  // Tabs CRUD
-  addTab: (projectUid: string) => void
+  // Editor state
+  activeDashboardId: string | null
+  activeTabId: Record<string, string> // dashboardId → tabId
+
+  // Runtime filter state (not persisted)
+  activeFilters: Record<string, FilterValue>
+
+  // Dashboard CRUD
+  loadProjectDashboards: (projectUid: string) => Promise<void>
+  createDashboard: (projectUid: string, name: string, datasetFileId?: string | null) => Promise<string>
+  updateDashboard: (id: string, changes: Partial<Dashboard>) => void
+  deleteDashboard: (id: string) => void
+  setActiveDashboard: (id: string | null) => void
+
+  // Tab CRUD
+  addTab: (dashboardId: string) => void
   removeTab: (tabId: string) => void
   renameTab: (tabId: string, name: string) => void
-  reorderTabs: (projectUid: string, orderedIds: string[]) => void
-  setActiveTab: (projectUid: string, tabId: string) => void
+  reorderTabs: (dashboardId: string, orderedIds: string[]) => void
+  setActiveTab: (dashboardId: string, tabId: string) => void
 
-  // Widgets CRUD
-  addWidget: (tabId: string, type: string, name: string) => void
+  // Widget CRUD
+  addWidget: (tabId: string, source: DashboardWidgetSource, name: string) => void
   removeWidget: (widgetId: string) => void
-  updateWidgetLayout: (
-    widgetId: string,
-    layout: { x: number; y: number; w: number; h: number }
-  ) => void
+  updateWidgetLayout: (widgetId: string, layout: { x: number; y: number; w: number; h: number }) => void
+  updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
+  updateWidgetName: (widgetId: string, name: string) => void
+
+  // Filter runtime state
+  setFilter: (columnId: string, value: FilterValue) => void
+  clearFilter: (columnId: string) => void
+  clearAllFilters: () => void
 }
 
+let dashboardCounter = 10
 let tabCounter = 10
 let widgetCounter = 10
 
-// Default widget layouts per type
-const defaultWidgetLayouts: Record<
-  string,
-  { w: number; h: number }
-> = {
+function initCounters(dashboards: Dashboard[], tabs: DashboardTab[], widgets: DashboardWidget[]) {
+  let maxD = 10
+  let maxT = 10
+  let maxW = 10
+  for (const d of dashboards) {
+    const m = d.id.match(/^dashboard-(\d+)$/)
+    if (m) { const n = parseInt(m[1], 10); if (n >= maxD) maxD = n + 1 }
+  }
+  for (const t of tabs) {
+    const m = t.id.match(/^dtab-(\d+)$/)
+    if (m) { const n = parseInt(m[1], 10); if (n >= maxT) maxT = n + 1 }
+  }
+  for (const w of widgets) {
+    const m = w.id.match(/^dw-(\d+)$/)
+    if (m) { const n = parseInt(m[1], 10); if (n >= maxW) maxW = n + 1 }
+  }
+  dashboardCounter = maxD
+  tabCounter = maxT
+  widgetCounter = maxW
+}
+
+// Default widget layouts per builtin type
+const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
   admission_count: { w: 6, h: 4 },
   patient_count: { w: 6, h: 4 },
   admission_timeline: { w: 12, h: 6 },
   heart_rate: { w: 12, h: 6 },
   vitals_table: { w: 12, h: 8 },
+  kpi: { w: 6, h: 4 },
+  table: { w: 12, h: 8 },
+  chart: { w: 12, h: 6 },
 }
 
-// Demo data: tabs + widgets for project MIMIC-IV Demo
-const DEMO_PROJECT_UID = '00000000-0000-0000-0000-000000000001'
+function getDefaultLayout(source: DashboardWidgetSource): { w: number; h: number } {
+  if (source.type === 'builtin') {
+    return defaultWidgetLayouts[source.builtinType] ?? { w: 6, h: 4 }
+  }
+  return { w: 12, h: 6 }
+}
 
-const defaultTabs: DashboardTab[] = [
-  {
-    id: 'tab-1',
-    projectUid: DEMO_PROJECT_UID,
-    name: 'Overview',
-    displayOrder: 0,
-  },
-  {
-    id: 'tab-2',
-    projectUid: DEMO_PROJECT_UID,
-    name: 'Patient view',
-    displayOrder: 1,
-  },
-]
+export const useDashboardStore = create<DashboardState>((set, get) => ({
+  dashboards: [],
+  tabs: [],
+  widgets: [],
+  activeProjectUid: null,
+  loaded: false,
+  activeDashboardId: null,
+  activeTabId: {},
+  activeFilters: {},
 
-const defaultWidgets: DashboardWidget[] = [
-  {
-    id: 'w-1',
-    tabId: 'tab-1',
-    type: 'admission_count',
-    name: 'Admissions',
-    layout: { x: 0, y: 0, w: 6, h: 4 },
-    config: {},
-  },
-  {
-    id: 'w-2',
-    tabId: 'tab-1',
-    type: 'patient_count',
-    name: 'Patients',
-    layout: { x: 6, y: 0, w: 6, h: 4 },
-    config: {},
-  },
-  {
-    id: 'w-3',
-    tabId: 'tab-1',
-    type: 'admission_timeline',
-    name: 'Admission timeline',
-    layout: { x: 0, y: 4, w: 24, h: 6 },
-    config: {},
-  },
-  {
-    id: 'w-4',
-    tabId: 'tab-2',
-    type: 'heart_rate',
-    name: 'Heart rate',
-    layout: { x: 0, y: 0, w: 12, h: 6 },
-    config: {},
-  },
-  {
-    id: 'w-5',
-    tabId: 'tab-2',
-    type: 'vitals_table',
-    name: 'Vital signs',
-    layout: { x: 12, y: 0, w: 12, h: 8 },
-    config: {},
-  },
-]
+  loadProjectDashboards: async (projectUid) => {
+    if (get().activeProjectUid === projectUid && get().loaded) return
 
-export const useDashboardStore = create<DashboardState>((set) => ({
-  tabs: defaultTabs,
-  widgets: defaultWidgets,
-  activeTabId: {
-    [DEMO_PROJECT_UID]: 'tab-1',
+    try {
+      const storage = getStorage()
+      const dashboards = await storage.dashboards.getByProject(projectUid)
+
+      // Load all tabs and widgets for all dashboards in this project
+      const allTabs: DashboardTab[] = []
+      const allWidgets: DashboardWidget[] = []
+      for (const dash of dashboards) {
+        const tabs = await storage.dashboardTabs.getByDashboard(dash.id)
+        allTabs.push(...tabs)
+        for (const tab of tabs) {
+          const widgets = await storage.dashboardWidgets.getByTab(tab.id)
+          allWidgets.push(...widgets)
+        }
+      }
+
+      initCounters(dashboards, allTabs, allWidgets)
+
+      set({
+        dashboards,
+        tabs: allTabs,
+        widgets: allWidgets,
+        activeProjectUid: projectUid,
+        loaded: true,
+        activeDashboardId: null,
+        activeTabId: {},
+        activeFilters: {},
+      })
+    } catch {
+      set({
+        dashboards: [],
+        tabs: [],
+        widgets: [],
+        activeProjectUid: projectUid,
+        loaded: true,
+        activeDashboardId: null,
+        activeTabId: {},
+        activeFilters: {},
+      })
+    }
   },
 
-  addTab: (projectUid) => {
-    const id = `tab-${tabCounter++}`
-    set((s) => {
-      const existing = s.tabs.filter((t) => t.projectUid === projectUid)
-      const newTab: DashboardTab = {
+  createDashboard: async (projectUid, name, datasetFileId) => {
+    const id = `dashboard-${dashboardCounter++}`
+    const now = new Date().toISOString()
+    const dashboard: Dashboard = {
+      id,
+      projectUid,
+      name,
+      datasetFileId: datasetFileId ?? null,
+      filterConfig: [],
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    // Create a default first tab
+    const tabId = `dtab-${tabCounter++}`
+    const tab: DashboardTab = {
+      id: tabId,
+      dashboardId: id,
+      name: 'Tab 1',
+      displayOrder: 0,
+    }
+
+    set((s) => ({
+      dashboards: [...s.dashboards, dashboard],
+      tabs: [...s.tabs, tab],
+    }))
+
+    getStorage().dashboards.create(dashboard).catch(() => {})
+    getStorage().dashboardTabs.create(tab).catch(() => {})
+
+    return id
+  },
+
+  updateDashboard: (id, changes) => {
+    set((s) => ({
+      dashboards: s.dashboards.map((d) =>
+        d.id === id ? { ...d, ...changes, updatedAt: new Date().toISOString() } : d
+      ),
+    }))
+    getStorage().dashboards.update(id, changes).catch(() => {})
+  },
+
+  deleteDashboard: (id) => {
+    const state = get()
+    const dashTabs = state.tabs.filter((t) => t.dashboardId === id)
+    const tabIds = new Set(dashTabs.map((t) => t.id))
+
+    set((s) => ({
+      dashboards: s.dashboards.filter((d) => d.id !== id),
+      tabs: s.tabs.filter((t) => t.dashboardId !== id),
+      widgets: s.widgets.filter((w) => !tabIds.has(w.tabId)),
+      activeDashboardId: s.activeDashboardId === id ? null : s.activeDashboardId,
+    }))
+
+    // Cascade delete in storage
+    const storage = getStorage()
+    for (const tab of dashTabs) {
+      storage.dashboardWidgets.deleteByTab(tab.id).catch(() => {})
+    }
+    storage.dashboardTabs.deleteByDashboard(id).catch(() => {})
+    storage.dashboards.delete(id).catch(() => {})
+  },
+
+  setActiveDashboard: (id) => {
+    set({ activeDashboardId: id, activeFilters: {} })
+  },
+
+  // --- Tab CRUD ---
+
+  addTab: (dashboardId) => {
+    const id = `dtab-${tabCounter++}`
+    const tab: DashboardTab = (() => {
+      const existing = get().tabs.filter((t) => t.dashboardId === dashboardId)
+      return {
         id,
-        projectUid,
+        dashboardId,
         name: `Tab ${existing.length + 1}`,
         displayOrder: existing.length,
       }
-      return {
-        tabs: [...s.tabs, newTab],
-        activeTabId: { ...s.activeTabId, [projectUid]: id },
-      }
-    })
+    })()
+
+    set((s) => ({
+      tabs: [...s.tabs, tab],
+      activeTabId: { ...s.activeTabId, [dashboardId]: id },
+    }))
+    getStorage().dashboardTabs.create(tab).catch(() => {})
   },
 
   removeTab: (tabId) =>
@@ -142,68 +236,102 @@ export const useDashboardStore = create<DashboardState>((set) => ({
       const tab = s.tabs.find((t) => t.id === tabId)
       if (!tab) return s
       const siblings = s.tabs
-        .filter((t) => t.projectUid === tab.projectUid && t.id !== tabId)
+        .filter((t) => t.dashboardId === tab.dashboardId && t.id !== tabId)
         .sort((a, b) => a.displayOrder - b.displayOrder)
       if (siblings.length === 0) return s // don't remove last tab
       const newActive =
-        s.activeTabId[tab.projectUid] === tabId
+        s.activeTabId[tab.dashboardId] === tabId
           ? siblings[0].id
-          : s.activeTabId[tab.projectUid]
+          : s.activeTabId[tab.dashboardId]
+
+      // Fire-and-forget storage deletes
+      getStorage().dashboardWidgets.deleteByTab(tabId).catch(() => {})
+      getStorage().dashboardTabs.delete(tabId).catch(() => {})
+
       return {
         tabs: s.tabs.filter((t) => t.id !== tabId),
         widgets: s.widgets.filter((w) => w.tabId !== tabId),
-        activeTabId: { ...s.activeTabId, [tab.projectUid]: newActive },
+        activeTabId: { ...s.activeTabId, [tab.dashboardId]: newActive },
       }
     }),
 
-  renameTab: (tabId, name) =>
+  renameTab: (tabId, name) => {
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, name } : t)),
-    })),
+    }))
+    getStorage().dashboardTabs.update(tabId, { name }).catch(() => {})
+  },
 
-  reorderTabs: (projectUid, orderedIds) =>
+  reorderTabs: (dashboardId, orderedIds) => {
     set((s) => ({
       tabs: s.tabs.map((t) => {
-        if (t.projectUid === projectUid) {
+        if (t.dashboardId === dashboardId) {
           const idx = orderedIds.indexOf(t.id)
           return idx >= 0 ? { ...t, displayOrder: idx } : t
         }
         return t
       }),
-    })),
-
-  setActiveTab: (projectUid, tabId) =>
-    set((s) => ({
-      activeTabId: { ...s.activeTabId, [projectUid]: tabId },
-    })),
-
-  addWidget: (tabId, type, name) => {
-    const id = `w-${widgetCounter++}`
-    const defaultLayout = defaultWidgetLayouts[type] ?? { w: 4, h: 3 }
-    set((s) => ({
-      widgets: [
-        ...s.widgets,
-        {
-          id,
-          tabId,
-          type,
-          name,
-          layout: { x: 0, y: Infinity, ...defaultLayout },
-          config: {},
-        },
-      ],
     }))
+    // Persist each tab's new order
+    for (let i = 0; i < orderedIds.length; i++) {
+      getStorage().dashboardTabs.update(orderedIds[i], { displayOrder: i }).catch(() => {})
+    }
   },
 
-  removeWidget: (widgetId) =>
+  setActiveTab: (dashboardId, tabId) =>
     set((s) => ({
-      widgets: s.widgets.filter((w) => w.id !== widgetId),
+      activeTabId: { ...s.activeTabId, [dashboardId]: tabId },
     })),
 
-  updateWidgetLayout: (widgetId, layout) =>
+  // --- Widget CRUD ---
+
+  addWidget: (tabId, source, name) => {
+    const id = `dw-${widgetCounter++}`
+    const layout = { x: 0, y: Infinity, ...getDefaultLayout(source) }
+    const widget: DashboardWidget = { id, tabId, name, layout, source }
+
+    set((s) => ({ widgets: [...s.widgets, widget] }))
+    getStorage().dashboardWidgets.create(widget).catch(() => {})
+  },
+
+  removeWidget: (widgetId) => {
+    set((s) => ({ widgets: s.widgets.filter((w) => w.id !== widgetId) }))
+    getStorage().dashboardWidgets.delete(widgetId).catch(() => {})
+  },
+
+  updateWidgetLayout: (widgetId, layout) => {
     set((s) => ({
-      widgets: s.widgets.map((w) =>
-        w.id === widgetId ? { ...w, layout } : w
-      ),
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, layout } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { layout }).catch(() => {})
+  },
+
+  updateWidgetSource: (widgetId, source) => {
+    set((s) => ({
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, source } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { source }).catch(() => {})
+  },
+
+  updateWidgetName: (widgetId, name) => {
+    set((s) => ({
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, name } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { name }).catch(() => {})
+  },
+
+  // --- Filter runtime state ---
+
+  setFilter: (columnId, value) =>
+    set((s) => ({
+      activeFilters: { ...s.activeFilters, [columnId]: value },
     })),
+
+  clearFilter: (columnId) =>
+    set((s) => {
+      const { [columnId]: _, ...rest } = s.activeFilters
+      return { activeFilters: rest }
+    }),
+
+  clearAllFilters: () => set({ activeFilters: {} }),
 }))

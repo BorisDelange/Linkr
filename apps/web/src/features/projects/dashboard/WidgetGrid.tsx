@@ -2,33 +2,28 @@ import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import { useDashboardStore, type DashboardWidget } from '@/stores/dashboard-store'
+import type { DashboardWidget } from '@/types'
+import { useDashboardStore } from '@/stores/dashboard-store'
 import { WidgetCard } from './WidgetCard'
-import { AdmissionCountWidget } from './widgets/AdmissionCountWidget'
-import { PatientCountWidget } from './widgets/PatientCountWidget'
-import { AdmissionTimelineWidget } from './widgets/AdmissionTimelineWidget'
-import { HeartRateWidget } from './widgets/HeartRateWidget'
-import { VitalsTableWidget } from './widgets/VitalsTableWidget'
+import { BuiltinWidgetRenderer } from './widget-renderers/BuiltinWidgetRenderer'
+import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
+import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 
 interface WidgetGridProps {
   widgets: DashboardWidget[]
   editMode: boolean
 }
 
-function renderWidgetContent(type: string) {
-  switch (type) {
-    case 'admission_count':
-      return <AdmissionCountWidget />
-    case 'patient_count':
-      return <PatientCountWidget />
-    case 'admission_timeline':
-      return <AdmissionTimelineWidget />
-    case 'heart_rate':
-      return <HeartRateWidget />
-    case 'vitals_table':
-      return <VitalsTableWidget />
+function renderWidgetContent(widget: DashboardWidget) {
+  switch (widget.source.type) {
+    case 'builtin':
+      return <BuiltinWidgetRenderer widget={widget} />
+    case 'plugin':
+      return <PluginWidgetRenderer widget={widget} />
+    case 'inline':
+      return <InlineCodeWidgetRenderer widget={widget} />
     default:
-      return <div className="text-xs text-muted-foreground">Unknown widget</div>
+      return <div className="text-xs text-muted-foreground">Unknown widget type</div>
   }
 }
 
@@ -37,7 +32,6 @@ export function WidgetGrid({ widgets, editMode }: WidgetGridProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
 
-  // Measure container width and react to resizes
   useEffect(() => {
     if (!containerRef.current) return
     const observer = new ResizeObserver((entries) => {
@@ -114,7 +108,7 @@ export function WidgetGrid({ widgets, editMode }: WidgetGridProps) {
               onRemove={() => removeWidget(widget.id)}
               editMode={editMode}
             >
-              {renderWidgetContent(widget.type)}
+              {renderWidgetContent(widget)}
             </WidgetCard>
           </div>
         ))}
