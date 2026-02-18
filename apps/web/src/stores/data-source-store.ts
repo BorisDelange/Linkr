@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { useAppStore } from '@/stores/app-store'
+import { useConnectionStore } from '@/stores/connection-store'
 import type {
   DataSource,
   DatabaseConnectionConfig,
@@ -143,6 +144,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       saveActiveDataSourceIds(next)
       return { activeDataSourceIds: next }
     })
+    // Sync IDE connection dropdown
+    useConnectionStore.getState().setActiveConnection(dataSourceId)
   },
 
   getActiveSource: (projectUid) => {

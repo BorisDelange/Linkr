@@ -1,6 +1,8 @@
 import type { SchemaMapping, SchemaPresetId } from '@/types/schema-mapping'
 import { ALL_OMOP_TABLES } from '@/lib/duckdb/omop-tables'
 import { OMOP_54_DDL } from '@/lib/schema-ddl/omop-5.4-ddl'
+import { MIMIC_III_DDL } from '@/lib/schema-ddl/mimic-iii-ddl'
+import { MIMIC_IV_DDL } from '@/lib/schema-ddl/mimic-iv-ddl'
 
 // ---------------------------------------------------------------------------
 // OMOP CDM 5.4
@@ -256,6 +258,7 @@ const mimicIII: SchemaMapping = {
     female: 'F',
   },
   knownTables: MIMIC_III_TABLES,
+  ddl: MIMIC_III_DDL,
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +371,7 @@ const mimicIV: SchemaMapping = {
     female: 'F',
   },
   knownTables: MIMIC_IV_TABLES,
+  ddl: MIMIC_IV_DDL,
 }
 
 // ---------------------------------------------------------------------------
