@@ -41,6 +41,9 @@ const omop54: SchemaMapping = {
     startDateColumn: 'visit_detail_start_datetime',
     endDateColumn: 'visit_detail_end_datetime',
     unitColumn: 'care_site_id',
+    unitNameTable: 'care_site',
+    unitNameIdColumn: 'care_site_id',
+    unitNameColumn: 'care_site_name',
   },
   conceptTables: [
     {
@@ -186,6 +189,7 @@ const mimicIII: SchemaMapping = {
     patientIdColumn: 'subject_id',
     startDateColumn: 'admittime',
     endDateColumn: 'dischtime',
+    typeColumn: 'admission_type',
   },
   noteTable: {
     table: 'noteevents',
@@ -255,16 +259,129 @@ const mimicIII: SchemaMapping = {
 }
 
 // ---------------------------------------------------------------------------
+// MIMIC-IV
+// ---------------------------------------------------------------------------
+
+const MIMIC_IV_TABLES = [
+  'patients', 'admissions', 'icustays', 'transfers', 'services',
+  'chartevents', 'labevents', 'datetimeevents',
+  'diagnoses_icd', 'procedures_icd', 'hcpcsevents',
+  'prescriptions', 'inputevents', 'outputevents', 'ingredientevents',
+  'procedureevents', 'microbiologyevents',
+  'emar', 'emar_detail', 'pharmacy', 'poe', 'poe_detail',
+  'drgcodes', 'omr', 'provider', 'caregiver',
+  'd_items', 'd_labitems', 'd_hcpcs', 'd_icd_diagnoses', 'd_icd_procedures',
+  'demo_subject_id',
+]
+
+const mimicIV: SchemaMapping = {
+  presetId: 'mimic-iv',
+  presetLabel: 'MIMIC-IV',
+  patientTable: {
+    table: 'patients',
+    idColumn: 'subject_id',
+    genderColumn: 'gender',
+  },
+  visitTable: {
+    table: 'admissions',
+    idColumn: 'hadm_id',
+    patientIdColumn: 'subject_id',
+    startDateColumn: 'admittime',
+    endDateColumn: 'dischtime',
+    typeColumn: 'admission_type',
+  },
+  visitDetailTable: {
+    table: 'icustays',
+    idColumn: 'stay_id',
+    visitIdColumn: 'hadm_id',
+    patientIdColumn: 'subject_id',
+    startDateColumn: 'intime',
+    endDateColumn: 'outtime',
+    unitColumn: 'first_careunit',
+  },
+  conceptTables: [
+    {
+      key: 'd_items',
+      table: 'd_items',
+      idColumn: 'itemid',
+      nameColumn: 'label',
+      extraColumns: {
+        category: 'category',
+      },
+    },
+    {
+      key: 'd_labitems',
+      table: 'd_labitems',
+      idColumn: 'itemid',
+      nameColumn: 'label',
+      extraColumns: {
+        category: 'category',
+      },
+    },
+  ],
+  eventTables: {
+    'Chart events': {
+      table: 'chartevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'valuenum',
+      valueStringColumn: 'value',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'charttime',
+      conceptDictionaryKey: 'd_items',
+    },
+    'Lab events': {
+      table: 'labevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'valuenum',
+      valueStringColumn: 'value',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'charttime',
+      conceptDictionaryKey: 'd_labitems',
+    },
+    'Input events': {
+      table: 'inputevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'amount',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'starttime',
+      conceptDictionaryKey: 'd_items',
+    },
+    'Output events': {
+      table: 'outputevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'value',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'charttime',
+      conceptDictionaryKey: 'd_items',
+    },
+    'Procedure events': {
+      table: 'procedureevents',
+      conceptIdColumn: 'itemid',
+      valueColumn: 'value',
+      patientIdColumn: 'subject_id',
+      dateColumn: 'starttime',
+      conceptDictionaryKey: 'd_items',
+    },
+  },
+  genderValues: {
+    male: 'M',
+    female: 'F',
+  },
+  knownTables: MIMIC_IV_TABLES,
+}
+
+// ---------------------------------------------------------------------------
 // Built-in presets registry
 // ---------------------------------------------------------------------------
 
 /** Built-in preset IDs in display order. */
-export const BUILTIN_PRESET_IDS: SchemaPresetId[] = ['omop-5.4', 'omop-5.3', 'mimic-iii']
+export const BUILTIN_PRESET_IDS: SchemaPresetId[] = ['omop-5.4', 'omop-5.3', 'mimic-iv', 'mimic-iii']
 
 /** Built-in presets keyed by ID. */
 export const SCHEMA_PRESETS: Record<string, SchemaMapping> = {
   'omop-5.4': omop54,
   'omop-5.3': omop53,
+  'mimic-iv': mimicIV,
   'mimic-iii': mimicIII,
 }
 

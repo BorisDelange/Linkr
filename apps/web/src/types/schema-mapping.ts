@@ -2,7 +2,7 @@
  * Schema preset identifier.
  * Built-in presets use fixed IDs; custom presets use free-form string IDs (UUID or slug).
  */
-export type SchemaPresetId = 'omop-5.4' | 'omop-5.3' | 'mimic-iii' | 'none' | (string & {})
+export type SchemaPresetId = 'omop-5.4' | 'omop-5.3' | 'mimic-iv' | 'mimic-iii' | 'none' | (string & {})
 
 /**
  * Mapping that tells the app how to interpret a database schema.
@@ -27,6 +27,8 @@ export interface SchemaMapping {
     patientIdColumn: string
     startDateColumn: string
     endDateColumn?: string
+    /** Optional column describing the visit type (e.g. visit_source_value, admission_type). */
+    typeColumn?: string
   }
 
   /**
@@ -59,6 +61,16 @@ export interface SchemaMapping {
     endDateColumn?: string
     /** Optional care site / unit column (e.g. care_site_id, curr_careunit). */
     unitColumn?: string
+    /**
+     * Optional lookup table to resolve unitColumn IDs to human-readable names.
+     * OMOP: care_site table (care_site_id → care_site_name).
+     * Not needed when unitColumn already contains names (e.g. MIMIC-III first_careunit).
+     */
+    unitNameTable?: string
+    /** ID column in the lookup table to join on (e.g. care_site_id). */
+    unitNameIdColumn?: string
+    /** Name column in the lookup table (e.g. care_site_name). */
+    unitNameColumn?: string
   }
 
   /**

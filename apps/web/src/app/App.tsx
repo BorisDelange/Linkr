@@ -7,7 +7,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
-import { seedDemoDatabase } from '@/lib/demo-seed'
+import { seedDemoDatabase, seedMimicIVRawDatabase } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -39,7 +39,7 @@ import { AppDatabasesPage } from '@/features/warehouse/AppDatabasesPage'
 import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
-import { AppDataQualityPage } from '@/features/warehouse/AppDataQualityPage'
+import { DqPage } from '@/features/warehouse/DqPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
 import { WorkspacesPage } from '@/features/workspaces/WorkspacesPage'
 import { WorkspaceHomePage } from '@/features/workspaces/WorkspaceHomePage'
@@ -74,10 +74,12 @@ export function App() {
   // Seed demo database on first launch, then reload stores
   useEffect(() => {
     if (projectsLoaded && dataSourcesLoaded) {
-      seedDemoDatabase().then(() => {
-        loadProjects()
-        loadDataSources()
-      })
+      seedDemoDatabase()
+        .then(() => seedMimicIVRawDatabase())
+        .then(() => {
+          loadProjects()
+          loadDataSources()
+        })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectsLoaded, dataSourcesLoaded])
@@ -119,7 +121,8 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><AppDataQualityPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/data-quality/:ruleSetId" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
