@@ -1,5 +1,6 @@
 import type { SchemaMapping, SchemaPresetId } from '@/types/schema-mapping'
 import { ALL_OMOP_TABLES } from '@/lib/duckdb/omop-tables'
+import { OMOP_54_DDL } from '@/lib/schema-ddl/omop-5.4-ddl'
 
 // ---------------------------------------------------------------------------
 // OMOP CDM 5.4
@@ -93,6 +94,7 @@ const omop54: SchemaMapping = {
     unknown: '0',
   },
   knownTables: [...ALL_OMOP_TABLES],
+  ddl: OMOP_54_DDL,
 }
 
 // ---------------------------------------------------------------------------

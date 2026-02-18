@@ -132,6 +132,8 @@ export interface DatabaseConnectionConfig {
   fileNames?: string[]
   /** True when files are referenced via File System Access API handles (no binary copy). */
   useFileHandles?: boolean
+  /** True when database is an in-memory DuckDB schema created from DDL (no files). */
+  inMemory?: boolean
   host?: string
   port?: number
   database?: string

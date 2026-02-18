@@ -63,6 +63,18 @@ interface DataSourceState {
   mountProjectSources: (projectUid: string) => Promise<void>
   /** Re-request File System Access permissions for a disconnected data source. */
   reconnectDataSource: (id: string) => Promise<void>
+
+  /**
+   * Create an empty database from a schema preset's DDL.
+   * Creates an in-memory DuckDB schema with the DDL tables.
+   * Returns the new data source ID.
+   */
+  createEmptyDatabase: (source: {
+    name: string
+    description: string
+    schemaMapping: SchemaMapping
+    ddl: string
+  }) => Promise<string>
 }
 
 /** Timeout for DuckDB mount operations (ms). */
@@ -297,6 +309,57 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     })
   },
 
+  createEmptyDatabase: async (source) => {
+    const id = crypto.randomUUID()
+    const now = new Date().toISOString()
+
+    const connectionConfig: DatabaseConnectionConfig = {
+      engine: 'duckdb',
+      inMemory: true,
+    }
+
+    const newSource: DataSource = {
+      id,
+      name: source.name,
+      description: source.description,
+      sourceType: 'database',
+      connectionConfig: connectionConfig as unknown as ConnectionConfig,
+      schemaMapping: source.schemaMapping,
+      status: 'configuring' as DataSourceStatus,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await getStorage().dataSources.create(newSource)
+    set((s) => ({ dataSources: [...s.dataSources, newSource] }))
+
+    try {
+      await withTimeout(engine.mountEmptyFromDDL(id, source.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+      mountedSources.add(id)
+      const stats = await withTimeout(engine.computeStats(id, source.schemaMapping), STATS_TIMEOUT, 'computeStats')
+      const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((ds) =>
+          ds.id === id ? { ...ds, ...updated } : ds,
+        ),
+      }))
+    } catch (err) {
+      handleDuckDBError(err)
+      console.error('Failed to create empty database:', err)
+      const errorMessage = err instanceof Error ? err.message : String(err)
+      const updated: Partial<DataSource> = { status: 'error', errorMessage }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((ds) =>
+          ds.id === id ? { ...ds, ...updated } : ds,
+        ),
+      }))
+    }
+
+    return id
+  },
+
   testConnection: async (id) => {
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds || busySources.has(id)) return
@@ -311,7 +374,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     try {
       if (!mountedSources.has(id)) {
-        if (config.useFileHandles) {
+        if (config.inMemory && ds.schemaMapping?.ddl) {
+          // In-memory database: remount from DDL
+          await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+        } else if (config.useFileHandles) {
           const handles = await getStorage().fileHandles.getByDataSource(id)
           const granted = await engine.requestHandlePermissions(handles)
           if (!granted) throw new Error('File access permission denied')

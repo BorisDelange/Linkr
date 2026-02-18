@@ -367,7 +367,15 @@
     "size_warning_hint": "Use Chrome or Edge for direct file access without copying.",
     "size_warning_blocked": "Import blocked: files exceed browser storage limits. Use Chrome or Edge for direct access.",
     "import_mode_direct": "Direct access — no data copied into the browser",
-    "reconnect": "Reconnect"
+    "reconnect": "Reconnect",
+    "create_from_preset": "Create from preset",
+    "create_from_preset_description": "Create an empty database with the table structure defined by a schema preset (DDL).",
+    "schema_preset": "Schema preset",
+    "select_preset": "Select a preset...",
+    "no_presets_with_ddl": "No presets with DDL available. Add a DDL to a preset in the Schema Presets page.",
+    "database_name": "Database name",
+    "database_name_placeholder": "e.g. OMOP CDM (empty)",
+    "created_from_preset": "Created from {{preset}} preset (empty)"
   },
   "reports": {
     "title": "Reports",
@@ -1110,6 +1118,7 @@
     "schema_preset_value_string": "Value (string)",
     "schema_preset_tab_erd": "Schema",
     "schema_preset_tab_detail": "Detail",
+    "schema_preset_no_ddl": "No DDL defined for this preset.",
     "schema_preset_new": "New preset",
     "schema_preset_new_name": "New schema preset",
     "schema_preset_new_description": "Enter a name for the new schema preset.",
@@ -1381,7 +1390,8 @@
     "select_all": "All",
     "select_none": "None",
     "none": "None",
-    "rename": "Rename"
+    "rename": "Rename",
+    "refresh": "Refresh"
   },
   "user_menu": {
     "profile": "Profile",

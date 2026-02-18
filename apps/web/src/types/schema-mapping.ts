@@ -71,6 +71,13 @@ export interface SchemaMapping {
 
   /** Known table names for Parquet folder table name extraction. */
   knownTables?: string[]
+
+  /**
+   * Optional DDL (CREATE TABLE statements) for this schema.
+   * Used to create empty databases from a preset (e.g., empty OMOP target for ETL).
+   * The DDL should use DuckDB-compatible SQL syntax.
+   */
+  ddl?: string
 }
 
 /**

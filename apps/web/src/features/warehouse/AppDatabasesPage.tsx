@@ -1,12 +1,29 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
-import type { DataSource } from '@/types'
-import { Database, Plus } from 'lucide-react'
+import type { DataSource, CustomSchemaPreset } from '@/types'
+import { Database, Plus, FileCode } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -17,9 +34,144 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailSheet } from '@/features/projects/warehouse/databases/DatabaseDetailSheet'
+
+// ---------------------------------------------------------------------------
+// CreateFromPresetDialog — create an empty database from a preset DDL
+// ---------------------------------------------------------------------------
+
+function CreateFromPresetDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const { createEmptyDatabase } = useDataSourceStore()
+  const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
+  const [selectedPresetId, setSelectedPresetId] = useState('')
+  const [name, setName] = useState('')
+  const [creating, setCreating] = useState(false)
+
+  const loadPresets = useCallback(async () => {
+    try {
+      const presets = await getStorage().schemaPresets.getAll()
+      setCustomPresets(presets)
+    } catch {
+      // IDB not ready
+    }
+  }, [])
+
+  useEffect(() => {
+    if (open) loadPresets()
+  }, [open, loadPresets])
+
+  // Collect all presets that have a DDL
+  const presetsWithDDL: { id: string; label: string; ddl: string; mapping: import('@/types/schema-mapping').SchemaMapping }[] = []
+  for (const presetId of BUILTIN_PRESET_IDS) {
+    const preset = SCHEMA_PRESETS[presetId]
+    if (preset?.ddl) {
+      presetsWithDDL.push({ id: presetId, label: preset.presetLabel, ddl: preset.ddl, mapping: preset })
+    }
+  }
+  for (const cp of customPresets) {
+    if (cp.mapping.ddl) {
+      presetsWithDDL.push({ id: cp.presetId, label: cp.mapping.presetLabel, ddl: cp.mapping.ddl, mapping: cp.mapping })
+    }
+  }
+
+  const selectedPreset = presetsWithDDL.find((p) => p.id === selectedPresetId)
+
+  // Auto-fill name when preset changes
+  useEffect(() => {
+    if (selectedPreset && !name) {
+      setName(selectedPreset.label)
+    }
+  }, [selectedPresetId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreate = async () => {
+    if (!selectedPreset || !name.trim()) return
+    setCreating(true)
+    try {
+      await createEmptyDatabase({
+        name: name.trim(),
+        description: t('databases.created_from_preset', { preset: selectedPreset.label }),
+        schemaMapping: selectedPreset.mapping,
+        ddl: selectedPreset.ddl,
+      })
+      onOpenChange(false)
+      setSelectedPresetId('')
+      setName('')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('databases.create_from_preset')}</DialogTitle>
+          <DialogDescription>{t('databases.create_from_preset_description')}</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-2">
+          <div className="space-y-2">
+            <Label>{t('databases.schema_preset')}</Label>
+            <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t('databases.select_preset')} />
+              </SelectTrigger>
+              <SelectContent>
+                {presetsWithDDL.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {presetsWithDDL.length === 0 && (
+              <p className="text-xs text-muted-foreground">{t('databases.no_presets_with_ddl')}</p>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t('databases.database_name')}</Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t('databases.database_name_placeholder')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && name.trim() && selectedPreset) handleCreate()
+              }}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!name.trim() || !selectedPreset || creating}
+          >
+            {t('common.create')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
 
 export function AppDatabasesPage() {
   const { t } = useTranslation()
@@ -29,6 +181,7 @@ export function AppDatabasesPage() {
   const language = useAppStore((s) => s.language)
 
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
@@ -60,10 +213,16 @@ export function AppDatabasesPage() {
               {t('app_warehouse.databases_description', { count: dataSources.length })}
             </p>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus size={16} />
-            {t('databases.add')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => setPresetDialogOpen(true)}>
+              <FileCode size={16} />
+              {t('databases.create_from_preset')}
+            </Button>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus size={16} />
+              {t('databases.add')}
+            </Button>
+          </div>
         </div>
 
       {dataSources.length === 0 ? (
@@ -117,6 +276,11 @@ export function AppDatabasesPage() {
           })}
         </div>
       )}
+
+      <CreateFromPresetDialog
+        open={presetDialogOpen}
+        onOpenChange={setPresetDialogOpen}
+      />
 
       <AddDatabaseDialog
         open={dialogOpen || !!sourceToEdit}

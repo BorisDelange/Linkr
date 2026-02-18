@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Database,
@@ -12,6 +12,7 @@ import {
   Eye,
   Download,
   Upload,
+  Code,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -39,6 +40,10 @@ import {
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
+
+const LazyCodeEditor = lazy(() =>
+  import('@/components/editor/CodeEditor').then((m) => ({ default: m.CodeEditor }))
+)
 import type {
   SchemaMapping,
   ConceptDictionary,
@@ -644,6 +649,10 @@ function PresetFullscreenDialog({
             <TabsList>
               <TabsTrigger value="erd">{t('settings.schema_preset_tab_erd')}</TabsTrigger>
               <TabsTrigger value="detail">{t('settings.schema_preset_tab_detail')}</TabsTrigger>
+              <TabsTrigger value="ddl" className="gap-1.5">
+                <Code size={12} />
+                DDL
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -656,6 +665,30 @@ function PresetFullscreenDialog({
               <PresetEditor mapping={editMapping} onChange={onEditMappingChange} />
             ) : (
               <PresetDetail mapping={displayMapping} />
+            )}
+          </TabsContent>
+
+          <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
+            {isEditing && editMapping && onEditMappingChange ? (
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+                <LazyCodeEditor
+                  value={editMapping.ddl ?? ''}
+                  language="sql"
+                  onChange={(v) => onEditMappingChange({ ...editMapping, ddl: v ?? '' })}
+                />
+              </Suspense>
+            ) : displayMapping.ddl ? (
+              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+                <LazyCodeEditor
+                  value={displayMapping.ddl}
+                  language="sql"
+                  readOnly
+                />
+              </Suspense>
+            ) : (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                {t('settings.schema_preset_no_ddl')}
+              </div>
             )}
           </TabsContent>
         </Tabs>
@@ -721,6 +754,7 @@ function PresetCard({
                     tableCount > 0 ? `${tableCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
                     dictCount > 0 ? `${dictCount} ${t('settings.schema_preset_concept_dictionaries').toLowerCase()}` : null,
                     eventCount > 0 ? `${eventCount} ${t('settings.schema_preset_event_tables').toLowerCase()}` : null,
+                    mapping.ddl ? 'DDL' : null,
                   ].filter(Boolean).join(', ')
                 : t('settings.schema_preset_no_mapping')}
             </p>

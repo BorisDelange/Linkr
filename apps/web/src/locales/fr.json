@@ -367,7 +367,15 @@
     "size_warning_hint": "Utilisez Chrome ou Edge pour un accès direct sans copie.",
     "size_warning_blocked": "Import bloqué : fichiers trop volumineux pour le navigateur. Utilisez Chrome ou Edge pour un accès direct.",
     "import_mode_direct": "Accès direct — aucune donnée copiée dans le navigateur",
-    "reconnect": "Reconnecter"
+    "reconnect": "Reconnecter",
+    "create_from_preset": "Créer depuis un preset",
+    "create_from_preset_description": "Créer une base de données vide avec la structure de tables définie par un preset de schéma (DDL).",
+    "schema_preset": "Preset de schéma",
+    "select_preset": "Sélectionner un preset...",
+    "no_presets_with_ddl": "Aucun preset avec DDL disponible. Ajoutez un DDL à un preset dans la page Presets de schéma.",
+    "database_name": "Nom de la base",
+    "database_name_placeholder": "ex. OMOP CDM (vide)",
+    "created_from_preset": "Créée depuis le preset {{preset}} (vide)"
   },
   "reports": {
     "title": "Rapports",
@@ -1111,6 +1119,7 @@
     "schema_preset_value_string": "Valeur (texte)",
     "schema_preset_tab_erd": "Schéma",
     "schema_preset_tab_detail": "Détail",
+    "schema_preset_no_ddl": "Aucun DDL défini pour ce preset.",
     "schema_preset_new": "Nouveau preset",
     "schema_preset_new_name": "Nouveau modèle de schéma",
     "schema_preset_new_description": "Entrez un nom pour le nouveau preset de schéma.",
@@ -1382,7 +1391,8 @@
     "select_all": "Tout",
     "select_none": "Aucun",
     "none": "Aucun",
-    "rename": "Renommer"
+    "rename": "Renommer",
+    "refresh": "Actualiser"
   },
   "user_menu": {
     "profile": "Profil",

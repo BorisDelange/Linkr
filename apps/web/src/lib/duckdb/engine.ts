@@ -149,6 +149,40 @@ export async function unmountDataSource(dataSourceId: string): Promise<void> {
   }
 }
 
+/**
+ * Create an empty schema from DDL statements.
+ * Used to create empty databases from schema presets (e.g., empty OMOP for ETL target).
+ */
+export async function mountEmptyFromDDL(
+  dataSourceId: string,
+  ddl: string,
+): Promise<void> {
+  const db = await getDuckDB()
+  const conn = await db.connect()
+  const schema = schemaName(dataSourceId)
+
+  try {
+    // Clean up any leftover schema
+    await safeDropSchema(conn, dataSourceId)
+
+    // Create schema + set search path so CREATE TABLE goes into it
+    await conn.query(`CREATE SCHEMA "${schema}"`)
+    await conn.query(`SET search_path TO "${schema}"`)
+
+    // Execute DDL (may contain multiple statements)
+    await conn.query(ddl)
+
+    // Reset search path
+    await conn.query(`SET search_path TO main`)
+  } catch (err) {
+    // Reset search path even on error
+    try { await conn.query(`SET search_path TO main`) } catch {}
+    throw err
+  } finally {
+    await conn.close()
+  }
+}
+
 // --- Query ---
 
 /** Discover table names in a mounted data source. */
