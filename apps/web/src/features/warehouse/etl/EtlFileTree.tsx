@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
@@ -36,13 +36,9 @@ function getFileColor(file: EtlFile): string {
   return 'text-muted-foreground'
 }
 
-interface Props {
-  onRename?: (file: EtlFile) => void
-}
-
-export function EtlFileTree({ onRename }: Props) {
+export function EtlFileTree() {
   const { t } = useTranslation()
-  const { files, selectedFileId, selectFile, deleteFile } = useEtlStore()
+  const { files, selectedFileId, selectFile, deleteFile, updateFile } = useEtlStore()
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
 
   const toggleFolder = (id: string) => {
@@ -58,67 +54,6 @@ export function EtlFileTree({ onRename }: Props) {
   const getChildren = (parentId: string) =>
     files.filter((f) => f.parentId === parentId).sort((a, b) => a.order - b.order)
 
-  const renderItem = (file: EtlFile, depth: number) => {
-    const isActive = file.id === selectedFileId
-    const isFolder = file.type === 'folder'
-    const isExpanded = expandedFolders.has(file.id)
-
-    return (
-      <div key={file.id}>
-        <ContextMenu>
-          <ContextMenuTrigger asChild>
-            <button
-              onClick={() => {
-                if (isFolder) toggleFolder(file.id)
-                else selectFile(file.id)
-              }}
-              className={cn(
-                'flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
-                isActive && !isFolder && 'bg-accent text-accent-foreground',
-              )}
-              style={{ paddingLeft: `${depth * 16 + 8}px` }}
-            >
-              {isFolder ? (
-                <>
-                  {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                  {isExpanded ? (
-                    <FolderOpen size={14} className="text-blue-400" />
-                  ) : (
-                    <Folder size={14} className="text-blue-400" />
-                  )}
-                </>
-              ) : (
-                <>
-                  <span className="w-3" />
-                  <FileCode size={14} className={getFileColor(file)} />
-                </>
-              )}
-              <span className="truncate">{file.name}</span>
-            </button>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            {onRename && (
-              <ContextMenuItem onClick={() => onRename(file)}>
-                <Pencil size={14} />
-                {t('etl.rename')}
-              </ContextMenuItem>
-            )}
-            {onRename && <ContextMenuSeparator />}
-            <ContextMenuItem
-              variant="destructive"
-              onClick={() => deleteFile(file.id)}
-            >
-              <Trash2 size={14} />
-              {t('etl.delete_file')}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-
-        {isFolder && isExpanded && getChildren(file.id).map((child) => renderItem(child, depth + 1))}
-      </div>
-    )
-  }
-
   if (files.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center p-4 text-center">
@@ -131,8 +66,162 @@ export function EtlFileTree({ onRename }: Props) {
   return (
     <ScrollArea className="flex-1">
       <div className="py-1">
-        {rootFiles.sort((a, b) => a.order - b.order).map((file) => renderItem(file, 0))}
+        {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
+          <EtlFileTreeItem
+            key={file.id}
+            file={file}
+            depth={0}
+            isActive={file.id === selectedFileId}
+            isFolder={file.type === 'folder'}
+            isExpanded={expandedFolders.has(file.id)}
+            onToggleFolder={toggleFolder}
+            onSelect={selectFile}
+            onDelete={deleteFile}
+            onRename={(id, name) => updateFile(id, { name })}
+            getChildren={getChildren}
+            expandedFolders={expandedFolders}
+            selectedFileId={selectedFileId}
+          />
+        ))}
       </div>
     </ScrollArea>
+  )
+}
+
+function EtlFileTreeItem({
+  file,
+  depth,
+  isActive,
+  isFolder,
+  isExpanded,
+  onToggleFolder,
+  onSelect,
+  onDelete,
+  onRename,
+  getChildren,
+  expandedFolders,
+  selectedFileId,
+}: {
+  file: EtlFile
+  depth: number
+  isActive: boolean
+  isFolder: boolean
+  isExpanded: boolean
+  onToggleFolder: (id: string) => void
+  onSelect: (id: string) => void
+  onDelete: (id: string) => void
+  onRename: (id: string, name: string) => void
+  getChildren: (parentId: string) => EtlFile[]
+  expandedFolders: Set<string>
+  selectedFileId: string | null
+}) {
+  const { t } = useTranslation()
+  const [editing, setEditing] = useState(false)
+  const [editName, setEditName] = useState(file.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus()
+      const len = inputRef.current.value.length
+      inputRef.current.setSelectionRange(len, len)
+    }
+  }, [editing])
+
+  const handleRenameSubmit = () => {
+    const trimmed = editName.trim()
+    if (trimmed && trimmed !== file.name) {
+      onRename(file.id, trimmed)
+    }
+    setEditing(false)
+  }
+
+  const handleStartRename = () => {
+    setEditName(file.name)
+    setEditing(true)
+  }
+
+  return (
+    <div>
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <button
+            onClick={() => {
+              if (isFolder) onToggleFolder(file.id)
+              else onSelect(file.id)
+            }}
+            className={cn(
+              'flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              isActive && !isFolder && 'bg-accent text-accent-foreground',
+            )}
+            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          >
+            {isFolder ? (
+              <>
+                {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {isExpanded ? (
+                  <FolderOpen size={14} className="text-blue-400" />
+                ) : (
+                  <Folder size={14} className="text-blue-400" />
+                )}
+              </>
+            ) : (
+              <>
+                <span className="w-3" />
+                <FileCode size={14} className={getFileColor(file)} />
+              </>
+            )}
+            {editing ? (
+              <input
+                ref={inputRef}
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onBlur={handleRenameSubmit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRenameSubmit()
+                  if (e.key === 'Escape') setEditing(false)
+                }}
+                className="ml-0.5 flex-1 bg-transparent text-xs outline-none border-b border-primary"
+                onClick={(e) => e.stopPropagation()}
+              />
+            ) : (
+              <span className="truncate">{file.name}</span>
+            )}
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onClick={handleStartRename}>
+            <Pencil size={14} />
+            {t('etl.rename')}
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => onDelete(file.id)}
+          >
+            <Trash2 size={14} />
+            {t('etl.delete_file')}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+
+      {isFolder && isExpanded && getChildren(file.id).map((child) => (
+        <EtlFileTreeItem
+          key={child.id}
+          file={child}
+          depth={depth + 1}
+          isActive={child.id === selectedFileId}
+          isFolder={child.type === 'folder'}
+          isExpanded={expandedFolders.has(child.id)}
+          onToggleFolder={onToggleFolder}
+          onSelect={onSelect}
+          onDelete={onDelete}
+          onRename={onRename}
+          getChildren={getChildren}
+          expandedFolders={expandedFolders}
+          selectedFileId={selectedFileId}
+        />
+      ))}
+    </div>
   )
 }

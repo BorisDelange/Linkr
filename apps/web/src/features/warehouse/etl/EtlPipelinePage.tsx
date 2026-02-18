@@ -1,11 +1,26 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, Code, Workflow, BarChart3 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, FileOutput } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
+
+const TARGET_PRESETS = [
+  { id: 'omop-5.4', label: 'OMOP CDM 5.4' },
+  { id: 'omop-5.3', label: 'OMOP CDM 5.3' },
+  { id: 'none', label: 'Custom (no preset)' },
+]
 
 type TabId = 'scripts' | 'pipeline' | 'profiling'
 
@@ -22,7 +37,9 @@ interface Props {
 export function EtlPipelinePage({ pipelineId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles } = useEtlStore()
+  const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline } = useEtlStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
 
   const [activeTab, setActiveTab] = useState<TabId>('scripts')
 
@@ -58,6 +75,44 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           <ArrowLeft size={14} />
         </Button>
         <span className="truncate text-sm font-medium">{pipeline.name}</span>
+
+        <Separator orientation="vertical" className="!h-4 mx-1" />
+
+        <Select
+          value={pipeline.sourceDataSourceId}
+          onValueChange={(value) => updatePipeline(pipeline.id, { sourceDataSourceId: value })}
+        >
+          <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+            <Database size={12} className="text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {dbSources.map((ds) => (
+              <SelectItem key={ds.id} value={ds.id}>
+                {ds.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
+
+        <Select
+          value={pipeline.targetSchemaPresetId}
+          onValueChange={(value) => updatePipeline(pipeline.id, { targetSchemaPresetId: value })}
+        >
+          <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+            <FileOutput size={12} className="text-muted-foreground" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TARGET_PRESETS.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         <div className="ml-4 flex items-center gap-0.5">
           {TABS.map((tab) => (

@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useEtlStore } from '@/stores/etl-store'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -85,6 +86,7 @@ export function Header() {
   } = useAppStore()
   const { activeWorkspaceName } = useWorkspaceStore()
   const dashboards = useDashboardStore((s) => s.dashboards)
+  const etlPipelines = useEtlStore((s) => s.etlPipelines)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -126,6 +128,14 @@ export function Header() {
     const wsMatch = location.pathname.match(/^\/workspaces\/[^/]+\/(.+)$/)
     if (wsMatch) {
       const segment = wsMatch[1]
+
+      // ETL pipeline editor: show pipeline name
+      const etlMatch = segment.match(/^warehouse\/etl\/(.+)$/)
+      if (etlMatch) {
+        const pipeline = etlPipelines.find((p) => p.id === etlMatch[1])
+        return pipeline?.name ?? t('app_warehouse.nav_etl')
+      }
+
       const key = workspaceSegmentTitleKeys[segment]
       return key ? t(key) : segment
     }

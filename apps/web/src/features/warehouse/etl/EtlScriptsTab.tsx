@@ -14,6 +14,8 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Table2,
+  Keyboard,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,15 +39,29 @@ import {
 } from '@/components/ui/context-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
-import { TableIcon, FileText, Copy, Code, Check } from 'lucide-react'
+import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useEtlStore, type EtlOutputTab, type EtlExecutionResult } from '@/stores/etl-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlFileTree } from './EtlFileTree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import type { EtlFile } from '@/types'
+
+const ETL_FILE_TYPES = [
+  { id: 'sql', label: 'SQL', ext: '.sql', lang: 'sql' as const, icon: Database, iconColor: 'text-blue-500' },
+  { id: 'py', label: 'Python', ext: '.py', lang: 'python' as const, icon: FileCode, iconColor: 'text-yellow-500' },
+  { id: 'r', label: 'R', ext: '.R', lang: 'r' as const, icon: FileCode, iconColor: 'text-sky-500' },
+]
 
 function getTabIcon(type: string) {
   switch (type) {
@@ -92,8 +108,11 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [newFileName, setNewFileName] = useState('')
+  const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // Tab scroll refs
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
@@ -109,6 +128,17 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
+
+  // Ensure source data source is mounted in DuckDB when pipeline loads
+  const ensureSourceMounted = useCallback(async () => {
+    if (!pipeline?.sourceDataSourceId) return
+    const { testConnection } = useDataSourceStore.getState()
+    await testConnection(pipeline.sourceDataSourceId)
+  }, [pipeline?.sourceDataSourceId])
+
+  useEffect(() => {
+    ensureSourceMounted()
+  }, [ensureSourceMounted])
 
   // Infer language from file name
   const inferLanguage = (name: string): 'sql' | 'python' | 'r' | undefined => {
@@ -127,9 +157,12 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   // Create new file
   const handleCreateFile = async () => {
-    const name = newFileName.trim()
+    let name = newFileName.trim()
     if (!name) return
-    const lang = inferLanguage(name)
+    const selectedType = ETL_FILE_TYPES.find((ft) => ft.id === newFileType) ?? ETL_FILE_TYPES[0]
+    // Auto-add extension if the name doesn't already have one
+    if (!name.includes('.')) name = `${name}${selectedType.ext}`
+    const lang = inferLanguage(name) ?? selectedType.lang
     const now = new Date().toISOString()
     const file: EtlFile = {
       id: crypto.randomUUID(),
@@ -146,6 +179,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     selectFile(file.id)
     setCreateFileOpen(false)
     setNewFileName('')
+    setNewFileType('sql')
   }
 
   // Execute SQL against source data source
@@ -259,6 +293,18 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     handleSaveFile()
   }, [handleSaveFile])
 
+  // Keyboard shortcut: Cmd+Shift+Enter = Run All
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault()
+        handleRunAll()
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [handleRunAll])
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full overflow-hidden">
@@ -334,7 +380,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           <Play size={14} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('etl.run_file')}</TooltipContent>
+                      <TooltipContent>{t('etl.run_file')} (⇧↵)</TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -347,7 +393,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           <PlayCircle size={14} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('etl.run_all')}</TooltipContent>
+                      <TooltipContent>{t('etl.run_all')} (⌘⇧↵)</TooltipContent>
                     </Tooltip>
                     {isRunning && (
                       <Tooltip>
@@ -363,6 +409,31 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setSchemaDialogOpen(true)}
+                        disabled={!pipeline?.sourceDataSourceId}
+                      >
+                        <Table2 size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('etl.browse_schema')}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setShortcutsOpen(true)}
+                      >
+                        <Keyboard size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('files.shortcuts')}</TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -543,7 +614,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
               {/* Editor + Output */}
               <div className="flex-1 overflow-hidden">
-                <Allotment>
+                <Allotment proportionalLayout={false}>
                   {/* Editor pane */}
                   <Allotment.Pane minSize={150} visible={editorVisible}>
                     {selectedFile ? (
@@ -566,7 +637,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                   </Allotment.Pane>
 
                   {/* Output pane */}
-                  <Allotment.Pane minSize={200} visible={outputVisible && hasOutput}>
+                  <Allotment.Pane minSize={200} preferredSize={500} visible={outputVisible && hasOutput}>
                     <div className="flex h-full flex-col border-l">
                       <EtlOutputContent
                         activeOutputTab={activeOutputTab}
@@ -588,16 +659,43 @@ export function EtlScriptsTab({ pipelineId }: Props) {
           <DialogHeader>
             <DialogTitle>{t('etl.new_file')}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 py-2">
-            <Label>{t('etl.file_name')}</Label>
-            <Input
-              value={newFileName}
-              onChange={(e) => setNewFileName(e.target.value)}
-              placeholder="01_person.sql"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreateFile()
-              }}
-            />
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>{t('files.file_type')}</Label>
+              <Select value={newFileType} onValueChange={setNewFileType}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ETL_FILE_TYPES.map((ft) => {
+                    const Icon = ft.icon
+                    return (
+                      <SelectItem key={ft.id} value={ft.id}>
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} className={ft.iconColor} />
+                          <span>
+                            {ft.label}{' '}
+                            <span className="text-muted-foreground">({ft.ext})</span>
+                          </span>
+                        </div>
+                      </SelectItem>
+                    )
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>{t('etl.file_name')}</Label>
+              <Input
+                value={newFileName}
+                onChange={(e) => setNewFileName(e.target.value)}
+                placeholder={`01_person${ETL_FILE_TYPES.find((ft) => ft.id === newFileType)?.ext ?? '.sql'}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleCreateFile()
+                }}
+                autoFocus
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
@@ -632,7 +730,190 @@ export function EtlScriptsTab({ pipelineId }: Props) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Database schema browser */}
+      {pipeline?.sourceDataSourceId && (
+        <SchemaInspectorDialog
+          open={schemaDialogOpen}
+          onOpenChange={setSchemaDialogOpen}
+          dataSourceId={pipeline.sourceDataSourceId}
+        />
+      )}
+
+      {/* Keyboard shortcuts dialog */}
+      <EtlShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </TooltipProvider>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SchemaInspectorDialog — browse source database tables and columns
+// ---------------------------------------------------------------------------
+
+interface ColumnInfo {
+  column_name: string
+  data_type: string
+  is_nullable: string
+}
+
+function SchemaInspectorDialog({
+  open,
+  onOpenChange,
+  dataSourceId,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  dataSourceId: string
+}) {
+  const { t } = useTranslation()
+  const [tables, setTables] = useState<string[]>([])
+  const [selectedTable, setSelectedTable] = useState<string | null>(null)
+  const [columns, setColumns] = useState<ColumnInfo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // Load tables when dialog opens
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    setLoading(true)
+    duckdbEngine.discoverTables(dataSourceId).then((result) => {
+      if (cancelled) return
+      setTables(result)
+      setSelectedTable(result[0] ?? null)
+      setLoading(false)
+    }).catch(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [open, dataSourceId])
+
+  // Load columns when selected table changes
+  useEffect(() => {
+    if (!selectedTable || !open) {
+      setColumns([])
+      return
+    }
+    setCopied(false)
+    let cancelled = false
+    duckdbEngine
+      .queryDataSource(
+        dataSourceId,
+        `SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_name = '${selectedTable}' ORDER BY ordinal_position`,
+      )
+      .then((rows) => {
+        if (cancelled) return
+        setColumns(
+          rows.map((r) => ({
+            column_name: String(r.column_name),
+            data_type: String(r.data_type),
+            is_nullable: String(r.is_nullable),
+          })),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setColumns([])
+      })
+    return () => { cancelled = true }
+  }, [selectedTable, open, dataSourceId])
+
+  const handleCopySelect = useCallback(() => {
+    if (!selectedTable || columns.length === 0) return
+    const cols = columns.map((c) => `  ${c.column_name}`).join(',\n')
+    const sql = `SELECT\n${cols}\nFROM ${selectedTable}\nLIMIT 100;`
+    navigator.clipboard.writeText(sql).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    })
+  }, [selectedTable, columns])
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{t('etl.browse_schema')}</DialogTitle>
+        </DialogHeader>
+        <div className="flex h-[560px] gap-0 overflow-hidden rounded-md border">
+          {/* Table list */}
+          <div className="w-48 shrink-0 overflow-y-auto border-r bg-muted/30">
+            {loading && (
+              <p className="p-3 text-xs text-muted-foreground">{t('common.loading')}…</p>
+            )}
+            {!loading && tables.length === 0 && (
+              <p className="p-3 text-xs text-muted-foreground">{t('etl.no_tables')}</p>
+            )}
+            {tables.map((table) => (
+              <button
+                key={table}
+                onClick={() => setSelectedTable(table)}
+                className={cn(
+                  'flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs transition-colors',
+                  selectedTable === table
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                )}
+              >
+                <Table2 size={12} className="shrink-0 text-blue-500" />
+                <span className="truncate">{table}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Column list */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {selectedTable && columns.length > 0 && (
+              <>
+                {/* Toolbar */}
+                <div className="flex items-center justify-between border-b px-3 py-1.5">
+                  <span className="text-xs font-medium">{selectedTable}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={handleCopySelect}
+                        className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                        {t('etl.copy_select')}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('etl.copy_select_tooltip')}</TooltipContent>
+                  </Tooltip>
+                </div>
+                {/* Table */}
+                <div className="flex-1 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-muted/50">
+                      <tr className="border-b">
+                        <th className="px-3 py-2 text-left font-medium">{t('etl.column_name')}</th>
+                        <th className="px-3 py-2 text-left font-medium">{t('etl.data_type')}</th>
+                        <th className="px-3 py-2 text-left font-medium">{t('etl.nullable')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {columns.map((col) => (
+                        <tr key={col.column_name} className="border-b last:border-0 hover:bg-accent/30">
+                          <td className="px-3 py-1.5 font-mono">{col.column_name}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{col.data_type}</td>
+                          <td className="px-3 py-1.5 text-muted-foreground">{col.is_nullable === 'YES' ? '✓' : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
+            {selectedTable && columns.length === 0 && !loading && (
+              <p className="p-4 text-xs text-muted-foreground">{t('etl.no_columns')}</p>
+            )}
+            {!selectedTable && (
+              <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                {t('etl.select_table')}
+              </div>
+            )}
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -777,5 +1058,66 @@ function EtlResultCard({ result }: { result: EtlExecutionResult }) {
       </div>
       <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">{displayText}</pre>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// EtlShortcutsDialog — simple read-only keyboard shortcuts reference
+// ---------------------------------------------------------------------------
+
+const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
+
+const ETL_SHORTCUTS = [
+  { labelKey: 'etl.shortcut_save', keys: isMac ? ['⌘', 'S'] : ['Ctrl', 'S'] },
+  { labelKey: 'etl.shortcut_run_file', keys: ['⇧', '↵'] },
+  { labelKey: 'etl.shortcut_run_all', keys: isMac ? ['⌘', '⇧', '↵'] : ['Ctrl', '⇧', '↵'] },
+  { labelKey: 'etl.shortcut_find', keys: isMac ? ['⌘', 'F'] : ['Ctrl', 'F'] },
+  { labelKey: 'etl.shortcut_replace', keys: isMac ? ['⌘', 'H'] : ['Ctrl', 'H'] },
+  { labelKey: 'etl.shortcut_comment', keys: isMac ? ['⌘', '/'] : ['Ctrl', '/'] },
+]
+
+function Kbd({ children }: { children: string }) {
+  return (
+    <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+      {children}
+    </kbd>
+  )
+}
+
+function EtlShortcutsDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{t('files.shortcuts')}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1">
+          {ETL_SHORTCUTS.map((shortcut) => (
+            <div
+              key={shortcut.labelKey}
+              className="flex items-center justify-between rounded-md px-2 py-1.5"
+            >
+              <span className="text-sm">{t(shortcut.labelKey)}</span>
+              <div className="flex items-center gap-0.5">
+                {shortcut.keys.map((key, i) => (
+                  <span key={i} className="flex items-center gap-0.5">
+                    {i > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
+                    <Kbd>{key}</Kbd>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
