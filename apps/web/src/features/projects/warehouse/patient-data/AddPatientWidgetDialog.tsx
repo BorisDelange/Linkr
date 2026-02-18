@@ -16,6 +16,7 @@ import {
   User,
   Pill,
   Stethoscope,
+  FileText,
 } from 'lucide-react'
 
 interface AddPatientWidgetDialogProps {
@@ -61,6 +62,12 @@ const widgetTypes: WidgetTypeOption[] = [
     nameKey: 'patient_data.widget_diagnoses',
     descriptionKey: 'patient_data.widget_diagnoses_desc',
     icon: <Stethoscope size={20} className="text-red-500" />,
+  },
+  {
+    type: 'notes',
+    nameKey: 'patient_data.widget_notes',
+    descriptionKey: 'patient_data.widget_notes_desc',
+    icon: <FileText size={20} className="text-cyan-500" />,
   },
 ]
 

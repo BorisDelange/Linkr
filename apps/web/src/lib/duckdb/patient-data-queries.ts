@@ -340,6 +340,43 @@ export function getDiagnosisEventLabel(mapping: SchemaMapping): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Notes (clinical documents)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for clinical notes — finds the note table from schema mapping.
+ * Returns: note_id, note_date, note_title, note_text, note_type, visit_id.
+ */
+export function buildNotesQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+  visitId: string | null,
+): string | null {
+  const nt = mapping.noteTable
+  if (!nt) return null
+
+  const titleCol = nt.titleColumn
+    ? `, "${nt.titleColumn}" AS note_title`
+    : ", '' AS note_title"
+  const typeCol = nt.typeColumn
+    ? `, "${nt.typeColumn}" AS note_type`
+    : ", '' AS note_type"
+  const visitCol = nt.visitIdColumn
+    ? `, "${nt.visitIdColumn}" AS visit_id`
+    : ', NULL AS visit_id'
+  const visitFilter = visitId && nt.visitIdColumn
+    ? `\n  AND "${nt.visitIdColumn}" = '${visitId}'`
+    : ''
+
+  return `SELECT "${nt.idColumn}" AS note_id,
+  "${nt.dateColumn}" AS note_date${titleCol},
+  "${nt.textColumn}" AS note_text${typeCol}${visitCol}
+FROM "${nt.table}"
+WHERE "${nt.patientIdColumn}" = '${patientId}'${visitFilter}
+ORDER BY "${nt.dateColumn}" DESC`
+}
+
+// ---------------------------------------------------------------------------
 // Helpers (private)
 // ---------------------------------------------------------------------------
 

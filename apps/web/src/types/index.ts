@@ -631,6 +631,7 @@ export interface EtlFile {
   content?: string
   language?: 'sql' | 'python' | 'r'
   order: number
+  dataSourceId?: string  // override: run against this DB instead of pipeline default
   createdAt: string
 }
 

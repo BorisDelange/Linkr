@@ -128,6 +128,21 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const { updateFile } = useEtlStore()
+
+  // Resolve which data source a file should run against
+  const resolveFileDataSourceId = useCallback(
+    (file: EtlFile | undefined): string | undefined => {
+      if (file?.dataSourceId) return file.dataSourceId
+      return pipeline?.sourceDataSourceId
+    },
+    [pipeline?.sourceDataSourceId],
+  )
+
+  const selectedFileDataSourceId = resolveFileDataSourceId(selectedFile)
+  const selectedFileDs = dataSources.find((ds) => ds.id === selectedFileDataSourceId)
 
   // Ensure source data source is mounted in DuckDB when pipeline loads
   const ensureSourceMounted = useCallback(async () => {
@@ -182,13 +197,17 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     setNewFileType('sql')
   }
 
-  // Execute SQL against source data source
+  // Execute SQL against a data source (per-file override or pipeline default)
   const executeSql = useCallback(
-    async (sql: string, label: string) => {
-      if (!pipeline?.sourceDataSourceId) return
+    async (sql: string, label: string, dataSourceId?: string) => {
+      const dsId = dataSourceId ?? pipeline?.sourceDataSourceId
+      if (!dsId) return
+      // Ensure the target data source is mounted
+      const { testConnection } = useDataSourceStore.getState()
+      await testConnection(dsId)
       const start = Date.now()
       try {
-        const rows = await duckdbEngine.queryDataSource(pipeline.sourceDataSourceId, sql)
+        const rows = await duckdbEngine.queryDataSource(dsId, sql)
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,
@@ -234,11 +253,11 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     if (!selectedFile?.content) return
     setIsRunning(true)
     try {
-      await executeSql(selectedFile.content, selectedFile.name)
+      await executeSql(selectedFile.content, selectedFile.name, resolveFileDataSourceId(selectedFile))
     } finally {
       setIsRunning(false)
     }
-  }, [selectedFile, executeSql])
+  }, [selectedFile, executeSql, resolveFileDataSourceId])
 
   // Run all files sequentially
   const handleRunAll = useCallback(async () => {
@@ -250,12 +269,12 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     try {
       for (const file of sqlFiles) {
         if (!file.content) continue
-        await executeSql(file.content, file.name)
+        await executeSql(file.content, file.name, resolveFileDataSourceId(file))
       }
     } finally {
       setIsRunning(false)
     }
-  }, [files, executeSql])
+  }, [files, executeSql, resolveFileDataSourceId])
 
   // Save file
   const handleSaveFile = useCallback(() => {
@@ -405,6 +424,35 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                         <TooltipContent>{t('etl.stop')}</TooltipContent>
                       </Tooltip>
                     )}
+
+                    {/* Per-file database selector */}
+                    <div className="mx-1 h-4 w-px bg-border" />
+                    <Select
+                      value={selectedFile.dataSourceId ?? '__default__'}
+                      onValueChange={(value) => {
+                        updateFile(selectedFile.id, { dataSourceId: value === '__default__' ? undefined : value })
+                      }}
+                    >
+                      <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-1.5 text-[11px] shadow-none hover:bg-accent/50">
+                        <Database size={11} className={selectedFile.dataSourceId ? 'text-amber-500' : 'text-muted-foreground'} />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__">
+                          <span className="flex items-center gap-1.5">
+                            {pipeline?.sourceDataSourceId
+                              ? dataSources.find((ds) => ds.id === pipeline.sourceDataSourceId)?.name ?? t('etl.source')
+                              : t('etl.source')}
+                            <span className="text-[10px] text-muted-foreground">({t('etl.script_db_default')})</span>
+                          </span>
+                        </SelectItem>
+                        {dbSources.map((ds) => (
+                          <SelectItem key={ds.id} value={ds.id}>
+                            {ds.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </>
                 )}
 

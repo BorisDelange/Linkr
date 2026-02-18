@@ -30,6 +30,22 @@ export interface SchemaMapping {
   }
 
   /**
+   * Optional note/text table: clinical documents (discharge summaries, progress notes, etc.).
+   * OMOP CDM: note. MIMIC-III: noteevents.
+   */
+  noteTable?: {
+    table: string
+    idColumn: string
+    patientIdColumn: string
+    visitIdColumn?: string
+    dateColumn: string
+    titleColumn?: string
+    textColumn: string
+    /** Column describing the type/class of note (e.g. note_source_value, category). */
+    typeColumn?: string
+  }
+
+  /**
    * Optional visit detail table: sub-visits within a hospitalization.
    * OMOP CDM: visit_detail (unit stays within a visit_occurrence).
    * MIMIC-III: icustays / transfers within an admission.

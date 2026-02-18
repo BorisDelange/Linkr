@@ -1,24 +1,21 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import {
   BarChart3,
   PanelRight,
+  PanelLeft,
   RefreshCw,
   Loader2,
+  Table2,
+  Search,
+  ArrowUpDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Tooltip,
   TooltipContent,
@@ -97,11 +94,15 @@ export function EtlProfilingTab({ pipelineId }: Props) {
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null)
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
+  const [tablesVisible, setTablesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(true)
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)
   const [columnNullCounts, setColumnNullCounts] = useState<Map<string, { nullCount: number; total: number; distinct: number }>>(new Map())
+  const [tableRowCounts, setTableRowCounts] = useState<Map<string, number>>(new Map())
+  const [tableSearch, setTableSearch] = useState('')
+  const [tableSortBy, setTableSortBy] = useState<'name' | 'rows'>('name')
 
   const sourceId = pipeline?.sourceDataSourceId
 
@@ -120,6 +121,21 @@ export function EtlProfilingTab({ pipelineId }: Props) {
       const result = await duckdbEngine.discoverTables(sourceId)
       setTables(result)
       if (result.length > 0 && !selectedTable) setSelectedTable(result[0])
+
+      // Get row counts for each table (for the sidebar)
+      if (result.length > 0) {
+        try {
+          const countParts = result.map((t) => `SELECT '${t}' as tbl, COUNT(*) as cnt FROM "${t}"`)
+          const countRows = await duckdbEngine.queryDataSource(sourceId, countParts.join(' UNION ALL '))
+          const map = new Map<string, number>()
+          for (const row of countRows) {
+            map.set(String(row.tbl), Number(row.cnt))
+          }
+          setTableRowCounts(map)
+        } catch {
+          // Row count is optional
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -318,16 +334,22 @@ export function EtlProfilingTab({ pipelineId }: Props) {
       <div className="flex h-full flex-col">
         {/* Toolbar */}
         <div className="flex items-center gap-2 border-b px-3 py-1.5">
-          <Select value={selectedTable ?? ''} onValueChange={setSelectedTable}>
-            <SelectTrigger className="h-7 w-auto max-w-[240px] gap-1.5 text-xs">
-              <SelectValue placeholder={t('etl.select_table')} />
-            </SelectTrigger>
-            <SelectContent>
-              {tables.map((table) => (
-                <SelectItem key={table} value={table}>{table}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={tablesVisible ? 'secondary' : 'ghost'}
+                size="icon-xs"
+                onClick={() => setTablesVisible(!tablesVisible)}
+              >
+                <PanelLeft size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t('etl.profiling_toggle_tables')}</TooltipContent>
+          </Tooltip>
+
+          {selectedTable && (
+            <span className="text-xs font-medium">{selectedTable}</span>
+          )}
 
           {rowCount != null && (
             <span className="text-xs text-muted-foreground">
@@ -360,9 +382,93 @@ export function EtlProfilingTab({ pipelineId }: Props) {
           </div>
         </div>
 
-        {/* Content: columns table + stats sidebar */}
+        {/* Content: table sidebar + columns table + stats sidebar */}
         <div className="min-h-0 flex-1">
           <Allotment proportionalLayout={false}>
+            {/* Table list sidebar */}
+            <Allotment.Pane preferredSize={200} minSize={140} maxSize={320} visible={tablesVisible}>
+              <div className="flex h-full flex-col border-r">
+                <div className="flex items-center gap-1.5 border-b px-3 py-2">
+                  <Table2 size={12} className="text-muted-foreground" />
+                  <span className="flex-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('etl.profiling_tables')} ({tables.length})
+                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => setTableSortBy(tableSortBy === 'name' ? 'rows' : 'name')}
+                        className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+                      >
+                        <ArrowUpDown size={10} />
+                        {tableSortBy === 'name' ? 'A-Z' : '#'}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('etl.profiling_sort_tables')}</TooltipContent>
+                  </Tooltip>
+                </div>
+                <div className="border-b px-2 py-1.5">
+                  <div className="relative">
+                    <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={tableSearch}
+                      onChange={(e) => setTableSearch(e.target.value)}
+                      placeholder={t('etl.profiling_filter_tables')}
+                      className="h-7 w-full rounded-md border bg-transparent pl-7 pr-2 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                </div>
+                <ScrollArea className="flex-1">
+                  <div className="py-1">
+                    {(() => {
+                      const filtered = tables.filter((t) =>
+                        !tableSearch || t.toLowerCase().includes(tableSearch.toLowerCase())
+                      )
+                      const sorted = [...filtered].sort((a, b) => {
+                        if (tableSortBy === 'rows') {
+                          return (tableRowCounts.get(b) ?? 0) - (tableRowCounts.get(a) ?? 0)
+                        }
+                        return a.localeCompare(b)
+                      })
+                      if (sorted.length === 0 && !loading) {
+                        return (
+                          <p className="px-3 py-4 text-center text-[10px] text-muted-foreground">
+                            {tableSearch ? t('etl.profiling_no_match') : t('etl.no_tables')}
+                          </p>
+                        )
+                      }
+                      return sorted.map((table) => {
+                        const count = tableRowCounts.get(table)
+                        const isActive = table === selectedTable
+                        return (
+                          <button
+                            key={table}
+                            onClick={() => setSelectedTable(table)}
+                            className={cn(
+                              'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+                              isActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
+                            )}
+                          >
+                            <span className="truncate font-mono">{table}</span>
+                            {count != null && (
+                              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                                {count.toLocaleString()}
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })
+                    })()}
+                    {loading && tables.length === 0 && (
+                      <div className="flex items-center justify-center py-6">
+                        <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </Allotment.Pane>
+
             {/* Column overview table */}
             <Allotment.Pane minSize={300}>
               <ScrollArea className="h-full">

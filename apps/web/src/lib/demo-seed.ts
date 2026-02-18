@@ -40,6 +40,7 @@ const PARQUET_FILES = [
   'fact_relationship',
   'location',
   'measurement',
+  'note',
   'observation',
   'observation_period',
   'payer_plan_period',

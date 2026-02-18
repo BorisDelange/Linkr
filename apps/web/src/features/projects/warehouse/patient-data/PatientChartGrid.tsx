@@ -13,6 +13,7 @@ import { TimelineWidget } from './widgets/TimelineWidget'
 import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
 import { MedicationWidget } from './widgets/MedicationWidget'
 import { DiagnosisWidget } from './widgets/DiagnosisWidget'
+import { NotesWidget } from './widgets/NotesWidget'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import {
   AlertDialog,
@@ -49,6 +50,8 @@ function renderWidgetContent(
       return <MedicationWidget />
     case 'diagnoses':
       return <DiagnosisWidget />
+    case 'notes':
+      return <NotesWidget widgetId={widget.id} />
     default:
       return (
         <div className="text-xs text-muted-foreground">Unknown widget</div>

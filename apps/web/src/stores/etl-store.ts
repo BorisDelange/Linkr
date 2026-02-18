@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { EtlPipeline, EtlFile } from '@/types'
+import type { EtlPipeline, EtlFile, EtlRunLog } from '@/types'
 
 // --- Output tab types (mirrors useFileStore pattern) ---
 
@@ -57,6 +57,16 @@ interface EtlState {
   isFileDirty: (id: string) => boolean
   saveFile: (id: string) => Promise<void>
   revertFile: (id: string) => void
+
+  // Pipeline run state
+  pipelineRunning: boolean
+  pipelineRunAbort: AbortController | null
+  scriptStatuses: Map<string, EtlRunLog>
+  runHistory: { id: string; startedAt: string; completedAt?: string; status: 'running' | 'success' | 'error'; scripts: EtlRunLog[] }[]
+  startPipelineRun: () => void
+  stopPipelineRun: () => void
+  setScriptStatus: (fileId: string, log: EtlRunLog) => void
+  finishPipelineRun: (status: 'success' | 'error') => void
 
   // Output tabs
   outputTabs: EtlOutputTab[]
@@ -323,4 +333,62 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   },
 
   setOutputVisible: (visible) => set({ outputVisible: visible }),
+
+  // --- Pipeline run state ---
+  pipelineRunning: false,
+  pipelineRunAbort: null,
+  scriptStatuses: new Map(),
+  runHistory: [],
+
+  startPipelineRun: () => {
+    const abort = new AbortController()
+    const runId = `run-${Date.now()}`
+    set((s) => ({
+      pipelineRunning: true,
+      pipelineRunAbort: abort,
+      scriptStatuses: new Map(),
+      runHistory: [
+        { id: runId, startedAt: new Date().toISOString(), status: 'running' as const, scripts: [] },
+        ...s.runHistory,
+      ].slice(0, 50),
+    }))
+  },
+
+  stopPipelineRun: () => {
+    const { pipelineRunAbort } = get()
+    pipelineRunAbort?.abort()
+    set((s) => {
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].status === 'running') {
+        history[0] = { ...history[0], status: 'error', completedAt: new Date().toISOString() }
+      }
+      return { pipelineRunning: false, pipelineRunAbort: null, runHistory: history }
+    })
+  },
+
+  setScriptStatus: (fileId, log) => {
+    set((s) => {
+      const newStatuses = new Map(s.scriptStatuses)
+      newStatuses.set(fileId, log)
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].status === 'running') {
+        const existing = history[0].scripts.findIndex((l) => l.fileId === fileId)
+        const scripts = [...history[0].scripts]
+        if (existing >= 0) scripts[existing] = log
+        else scripts.push(log)
+        history[0] = { ...history[0], scripts }
+      }
+      return { scriptStatuses: newStatuses, runHistory: history }
+    })
+  },
+
+  finishPipelineRun: (status) => {
+    set((s) => {
+      const history = [...s.runHistory]
+      if (history.length > 0 && history[0].status === 'running') {
+        history[0] = { ...history[0], status, completedAt: new Date().toISOString() }
+      }
+      return { pipelineRunning: false, pipelineRunAbort: null, runHistory: history }
+    })
+  },
 }))

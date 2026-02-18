@@ -17,6 +17,7 @@ export type PatientWidgetType =
   | 'patient_summary'
   | 'medications'
   | 'diagnoses'
+  | 'notes'
 
 export interface TimelineConfig {
   conceptIds: number[]
@@ -27,9 +28,15 @@ export interface ClinicalTableConfig {
   orientation: 'concepts-as-rows' | 'concepts-as-columns'
 }
 
+export interface NotesConfig {
+  /** Saved search word sets: { label: string, words: string[] }[] */
+  wordSets?: Array<{ label: string; words: string[] }>
+}
+
 export type PatientWidgetConfig =
   | TimelineConfig
   | ClinicalTableConfig
+  | NotesConfig
   | Record<string, unknown>
 
 export interface PatientChartWidget {
@@ -99,6 +106,7 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
   patient_summary: { w: 8, h: 5 },
   medications: { w: 12, h: 6 },
   diagnoses: { w: 12, h: 6 },
+  notes: { w: 24, h: 10 },
 }
 
 // ---------------------------------------------------------------------------

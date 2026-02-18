@@ -23,6 +23,16 @@ const omop54: SchemaMapping = {
     startDateColumn: 'visit_start_datetime',
     endDateColumn: 'visit_end_datetime',
   },
+  noteTable: {
+    table: 'note',
+    idColumn: 'note_id',
+    patientIdColumn: 'person_id',
+    visitIdColumn: 'visit_occurrence_id',
+    dateColumn: 'note_datetime',
+    titleColumn: 'note_title',
+    textColumn: 'note_text',
+    typeColumn: 'note_source_value',
+  },
   visitDetailTable: {
     table: 'visit_detail',
     idColumn: 'visit_detail_id',
@@ -105,6 +115,10 @@ const omop53: SchemaMapping = {
   ...omop54,
   presetId: 'omop-5.3',
   presetLabel: 'OMOP CDM 5.3',
+  noteTable: {
+    ...omop54.noteTable!,
+    dateColumn: 'note_date',
+  },
   patientTable: {
     ...omop54.patientTable!,
     birthDateColumn: undefined,
@@ -172,6 +186,16 @@ const mimicIII: SchemaMapping = {
     patientIdColumn: 'subject_id',
     startDateColumn: 'admittime',
     endDateColumn: 'dischtime',
+  },
+  noteTable: {
+    table: 'noteevents',
+    idColumn: 'row_id',
+    patientIdColumn: 'subject_id',
+    visitIdColumn: 'hadm_id',
+    dateColumn: 'chartdate',
+    titleColumn: 'description',
+    textColumn: 'text',
+    typeColumn: 'category',
   },
   visitDetailTable: {
     table: 'icustays',

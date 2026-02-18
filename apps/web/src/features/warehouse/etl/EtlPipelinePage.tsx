@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database } from 'lucide-react'
@@ -15,14 +15,15 @@ import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
+import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlProfilingTab } from './EtlProfilingTab'
 
 type TabId = 'scripts' | 'pipeline' | 'profiling'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'profiling', labelKey: 'etl.tab_profiling', icon: BarChart3 },
   { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
-  { id: 'profiling', labelKey: 'etl.tab_profiling', icon: BarChart3 },
 ]
 
 interface Props {
@@ -36,7 +37,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
 
-  const [activeTab, setActiveTab] = useState<TabId>('scripts')
+  const [activeTab, setActiveTab] = useState<TabId>('profiling')
 
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()
@@ -61,6 +62,13 @@ export function EtlPipelinePage({ pipelineId }: Props) {
       </div>
     )
   }
+
+  // When clicking a script node in the pipeline DAG, switch to scripts tab and select the file
+  const handleSelectFile = useCallback((fileId: string) => {
+    const { selectFile } = useEtlStore.getState()
+    selectFile(fileId)
+    setActiveTab('scripts')
+  }, [])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -132,9 +140,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'scripts' && <EtlScriptsTab pipelineId={pipelineId} />}
         {activeTab === 'pipeline' && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {t('etl.pipeline_tab_coming_soon')}
-          </div>
+          <EtlPipelineTab pipelineId={pipelineId} onSelectFile={handleSelectFile} />
         )}
         {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipelineId} />}
       </div>
