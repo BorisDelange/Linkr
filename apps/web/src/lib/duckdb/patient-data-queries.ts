@@ -74,12 +74,15 @@ export function buildVisitListQuery(
   const endCol = vt.endDateColumn
     ? `, "${vt.endDateColumn}" AS end_date`
     : ''
+  const typeCol = vt.typeColumn
+    ? `, "${vt.typeColumn}" AS visit_type`
+    : ''
 
   return `SELECT "${vt.idColumn}" AS visit_id,
-  "${vt.startDateColumn}" AS start_date${endCol}
+  "${vt.startDateColumn}" AS start_date${endCol}${typeCol}
 FROM "${vt.table}"
 WHERE "${vt.patientIdColumn}" = '${patientId}'
-ORDER BY "${vt.startDateColumn}" DESC`
+ORDER BY "${vt.startDateColumn}"`
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +92,7 @@ ORDER BY "${vt.startDateColumn}" DESC`
 /**
  * Build query to list visit details (sub-stays) for a given visit.
  * Returns: visit_detail_id, start_date, end_date, unit.
+ * When unitNameTable is configured, joins to resolve unit IDs to names.
  */
 export function buildVisitDetailListQuery(
   mapping: SchemaMapping,
@@ -98,17 +102,25 @@ export function buildVisitDetailListQuery(
   if (!vdt) return null
 
   const endCol = vdt.endDateColumn
-    ? `, "${vdt.endDateColumn}" AS end_date`
-    : ''
-  const unitCol = vdt.unitColumn
-    ? `, "${vdt.unitColumn}" AS unit`
+    ? `, vd."${vdt.endDateColumn}" AS end_date`
     : ''
 
-  return `SELECT "${vdt.idColumn}" AS visit_detail_id,
-  "${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
-FROM "${vdt.table}"
-WHERE "${vdt.visitIdColumn}" = '${visitId}'
-ORDER BY "${vdt.startDateColumn}"`
+  // Resolve unit name via lookup table if configured, otherwise use raw column
+  const hasUnitJoin = vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
+  const unitCol = hasUnitJoin
+    ? `, un."${vdt.unitNameColumn}" AS unit`
+    : vdt.unitColumn
+      ? `, vd."${vdt.unitColumn}" AS unit`
+      : ''
+  const unitJoin = hasUnitJoin
+    ? `\nLEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+    : ''
+
+  return `SELECT vd."${vdt.idColumn}" AS visit_detail_id,
+  vd."${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
+FROM "${vdt.table}" vd${unitJoin}
+WHERE vd."${vdt.visitIdColumn}" = '${visitId}'
+ORDER BY vd."${vdt.startDateColumn}"`
 }
 
 /**
@@ -121,6 +133,15 @@ export function buildVisitUnitsQuery(
 ): string | null {
   const vdt = mapping.visitDetailTable
   if (!vdt || !vdt.unitColumn) return null
+
+  const hasUnitJoin = vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
+  if (hasUnitJoin) {
+    return `SELECT DISTINCT un."${vdt.unitNameColumn}" AS unit
+FROM "${vdt.table}" vd
+LEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"
+WHERE vd."${vdt.visitIdColumn}" = '${visitId}'
+ORDER BY unit`
+  }
 
   return `SELECT DISTINCT "${vdt.unitColumn}" AS unit
 FROM "${vdt.table}"

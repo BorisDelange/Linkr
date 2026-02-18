@@ -243,13 +243,23 @@ export async function queryDataSource(
   try {
     await conn.query(`SET search_path TO "${schema}"`)
     const result = await conn.query(sql)
-    return result.toArray() as Record<string, unknown>[]
+    return (result.toArray() as Record<string, unknown>[]).map(coerceBigInts)
   } finally {
     await conn.close()
   }
 }
 
 // --- Helpers ---
+
+/** Convert BigInt values in a row to Number (safe for JSON serialization). */
+function coerceBigInts(row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const key in row) {
+    const v = row[key]
+    out[key] = typeof v === 'bigint' ? Number(v) : v
+  }
+  return out
+}
 
 /** Drop a schema (or DETACH) if it already exists, ignoring errors. */
 async function safeDropSchema(

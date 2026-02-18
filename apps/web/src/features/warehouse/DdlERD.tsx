@@ -143,7 +143,7 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
         <span className="ml-auto text-[10px] text-muted-foreground">{data.columns.length}</span>
       </div>
       {/* Columns */}
-      <div className="px-2 py-1.5 space-y-px max-h-[300px] overflow-y-auto">
+      <div className="px-2 py-1.5 space-y-px">
         {data.columns.map((col) => {
           const isPk = col.isPk
           const isFk = fkColumnSet.has(col.name)
@@ -198,7 +198,7 @@ function buildDdlGraph(tables: ParsedTable[]): { nodes: Node<DdlNodeData>[]; edg
   const NODE_GAP_Y = 30
 
   // Estimate node height
-  const estimateHeight = (colCount: number) => 36 + Math.min(colCount, 15) * 18 + 12
+  const estimateHeight = (colCount: number) => 36 + colCount * 18 + 12
 
   // Grid layout: arrange in columns
   const cols = Math.max(1, Math.ceil(Math.sqrt(tables.length)))
@@ -285,7 +285,7 @@ function DdlCanvas({ tables }: { tables: ParsedTable[] }) {
       minZoom={0.1}
       maxZoom={3}
       proOptions={{ hideAttribution: true }}
-      nodesDraggable={true}
+      nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}
     >

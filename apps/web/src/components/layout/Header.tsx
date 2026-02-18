@@ -59,7 +59,6 @@ const projectSegmentTitleKeys: Record<string, string> = {
   'ide': 'project_nav.ide',
   'warehouse/databases': 'project_nav.databases',
   'warehouse/concepts': 'project_nav.concepts',
-  'warehouse/data-quality': 'project_nav.data_quality',
   'warehouse/cohorts': 'project_nav.cohorts',
   'warehouse/patient-data': 'project_nav.patient_data',
   'lab/datasets': 'project_nav.datasets',

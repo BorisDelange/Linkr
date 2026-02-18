@@ -30,7 +30,7 @@ export function PatientDataPage() {
   const dataSourceId = mappedSource?.id
   const schemaMapping = mappedSource?.schemaMapping
 
-  const { tabs, widgets, activeTabId, showWidgetTitles, ensureDefaults } = usePatientChartStore()
+  const { tabs, widgets, activeTabId, showWidgetTitles, allowWidgetScroll, ensureDefaults } = usePatientChartStore()
 
   // Ensure default tabs+widgets exist for this project on first visit
   useEffect(() => {
@@ -150,13 +150,23 @@ export function PatientDataPage() {
           <Allotment>
             <Allotment.Pane minSize={500}>
               {tabWidgets.length > 0 ? (
-                <ScrollArea className="h-full">
-                  <PatientChartGrid
-                    widgets={tabWidgets}
-                    editMode={editMode}
-                    hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
-                  />
-                </ScrollArea>
+                (allowWidgetScroll[projectUid] ?? true) ? (
+                  <ScrollArea className="h-full">
+                    <PatientChartGrid
+                      widgets={tabWidgets}
+                      editMode={editMode}
+                      hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
+                    />
+                  </ScrollArea>
+                ) : (
+                  <div className="h-full overflow-hidden">
+                    <PatientChartGrid
+                      widgets={tabWidgets}
+                      editMode={editMode}
+                      hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
+                    />
+                  </div>
+                )
               ) : (
                 <div className="flex h-full items-center justify-center p-8">
                   <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">

@@ -676,6 +676,40 @@ export interface EtlSourceProfile {
   totalColumns: number
 }
 
+// --- Data Quality Types ---
+
+export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
+
+export interface DqRuleSet {
+  id: string
+  workspaceId: string
+  name: string
+  description: string
+  /** Database to run checks against */
+  dataSourceId: string
+  status: DqRuleSetStatus
+  lastRunAt?: string
+  lastRunDurationMs?: number
+  /** Score 0-100, percentage of passing checks */
+  lastScore?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DqCustomCheck {
+  id: string
+  ruleSetId: string
+  name: string
+  description: string
+  category: 'completeness' | 'validity' | 'uniqueness' | 'consistency' | 'plausibility'
+  severity: 'error' | 'warning' | 'notice'
+  threshold: number
+  sql: string
+  order: number
+  createdAt: string
+  updatedAt: string
+}
+
 // --- User Plugin Types ---
 
 export interface UserPlugin {

@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -230,6 +230,26 @@ export interface EtlFileStorage {
   deleteByPipeline(pipelineId: string): Promise<void>
 }
 
+/** Storage interface for DQ rule set persistence. */
+export interface DqRuleSetStorage {
+  getAll(): Promise<DqRuleSet[]>
+  getByWorkspace(workspaceId: string): Promise<DqRuleSet[]>
+  getById(id: string): Promise<DqRuleSet | undefined>
+  create(ruleSet: DqRuleSet): Promise<void>
+  update(id: string, changes: Partial<DqRuleSet>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for DQ custom check persistence. */
+export interface DqCustomCheckStorage {
+  getByRuleSet(ruleSetId: string): Promise<DqCustomCheck[]>
+  getById(id: string): Promise<DqCustomCheck | undefined>
+  create(check: DqCustomCheck): Promise<void>
+  update(id: string, changes: Partial<DqCustomCheck>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByRuleSet(ruleSetId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -257,6 +277,8 @@ export interface Storage {
   wikiAttachments: WikiAttachmentStorage
   etlPipelines: EtlPipelineStorage
   etlFiles: EtlFileStorage
+  dqRuleSets: DqRuleSetStorage
+  dqCustomChecks: DqCustomCheckStorage
 }
 
 let _storage: Storage | null = null

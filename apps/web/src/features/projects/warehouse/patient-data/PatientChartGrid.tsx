@@ -65,7 +65,7 @@ export function PatientChartGrid({
   hideTitleBars,
 }: PatientChartGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, updateWidgetConfig } =
+  const { updateWidgetLayout, removeWidget, renameWidget, updateWidgetConfig } =
     usePatientChartStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
@@ -98,8 +98,8 @@ export function PatientChartGrid({
         y: w.layout.y,
         w: w.layout.w,
         h: w.layout.h,
-        minW: 2,
-        minH: 2,
+        minW: 4,
+        minH: 4,
       })),
     [widgets],
   )
@@ -143,10 +143,10 @@ export function PatientChartGrid({
         layout={layout}
         width={containerWidth}
         gridConfig={{
-          cols: 24,
-          rowHeight: 40,
-          margin: [12, 12] as [number, number],
-          containerPadding: [16, 16] as [number, number],
+          cols: 48,
+          rowHeight: 20,
+          margin: [8, 8] as [number, number],
+          containerPadding: [12, 12] as [number, number],
         }}
         dragConfig={{
           enabled: editMode,
@@ -162,6 +162,7 @@ export function PatientChartGrid({
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
+              onRename={(name) => renameWidget(widget.id, name)}
               onEdit={
                 CONCEPT_WIDGET_TYPES.has(widget.type)
                   ? () => setEditingWidgetId(widget.id)

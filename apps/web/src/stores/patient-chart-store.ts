@@ -66,6 +66,7 @@ interface PatientChartState {
 
   // Display settings (keyed by projectUid)
   showWidgetTitles: Record<string, boolean>
+  allowWidgetScroll: Record<string, boolean>
 
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
@@ -82,10 +83,12 @@ interface PatientChartState {
 
   // Display settings
   setShowWidgetTitles: (projectUid: string, show: boolean) => void
+  setAllowWidgetScroll: (projectUid: string, allow: boolean) => void
 
   // Widget CRUD
   addWidget: (tabId: string, type: PatientWidgetType, name: string) => void
   removeWidget: (widgetId: string) => void
+  renameWidget: (widgetId: string, name: string) => void
   updateWidgetLayout: (
     widgetId: string,
     layout: { x: number; y: number; w: number; h: number },
@@ -101,12 +104,12 @@ interface PatientChartState {
 // ---------------------------------------------------------------------------
 
 const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
-  timeline: { w: 16, h: 7 },
-  clinical_table: { w: 24, h: 8 },
-  patient_summary: { w: 8, h: 5 },
-  medications: { w: 12, h: 6 },
-  diagnoses: { w: 12, h: 6 },
-  notes: { w: 24, h: 10 },
+  timeline: { w: 32, h: 14 },
+  clinical_table: { w: 48, h: 16 },
+  patient_summary: { w: 16, h: 10 },
+  medications: { w: 24, h: 12 },
+  diagnoses: { w: 24, h: 12 },
+  notes: { w: 48, h: 20 },
 }
 
 // ---------------------------------------------------------------------------
@@ -138,6 +141,7 @@ interface PersistedState {
   widgets: PatientChartWidget[]
   activeTabId: Record<string, string>
   showWidgetTitles: Record<string, boolean>
+  allowWidgetScroll: Record<string, boolean>
   tabCounter: number
   widgetCounter: number
 }
@@ -175,6 +179,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   widgets: persisted.widgets ?? [],
   activeTabId: persisted.activeTabId ?? {},
   showWidgetTitles: persisted.showWidgetTitles ?? {},
+  allowWidgetScroll: persisted.allowWidgetScroll ?? {},
 
   // --- Selection (cascade resets) ---
 
@@ -270,11 +275,16 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
       showWidgetTitles: { ...s.showWidgetTitles, [projectUid]: show },
     })),
 
+  setAllowWidgetScroll: (projectUid, allow) =>
+    set((s) => ({
+      allowWidgetScroll: { ...s.allowWidgetScroll, [projectUid]: allow },
+    })),
+
   // --- Widget CRUD ---
 
   addWidget: (tabId, type, name) => {
     const id = `pcw-${widgetCounter++}`
-    const defaultLayout = defaultWidgetLayouts[type] ?? { w: 8, h: 5 }
+    const defaultLayout = defaultWidgetLayouts[type] ?? { w: 16, h: 10 }
     set((s) => ({
       widgets: [
         ...s.widgets,
@@ -293,6 +303,13 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   removeWidget: (widgetId) =>
     set((s) => ({
       widgets: s.widgets.filter((w) => w.id !== widgetId),
+    })),
+
+  renameWidget: (widgetId, name) =>
+    set((s) => ({
+      widgets: s.widgets.map((w) =>
+        w.id === widgetId ? { ...w, name } : w,
+      ),
     })),
 
   updateWidgetLayout: (widgetId, layout) =>
@@ -327,7 +344,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           tabId: summaryTabId,
           type: 'patient_summary',
           name: 'Patient Summary',
-          layout: { x: 0, y: 0, w: 12, h: 5 },
+          layout: { x: 0, y: 0, w: 24, h: 10 },
           config: {},
         },
         {
@@ -335,7 +352,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           tabId: haemoTabId,
           type: 'timeline',
           name: 'Timeline',
-          layout: { x: 0, y: 0, w: 24, h: 5 },
+          layout: { x: 0, y: 0, w: 48, h: 10 },
           config: { conceptIds: [3027018] } as TimelineConfig,
         },
       ]
@@ -356,6 +373,7 @@ usePatientChartStore.subscribe((state) => {
       widgets: state.widgets,
       activeTabId: state.activeTabId,
       showWidgetTitles: state.showWidgetTitles,
+      allowWidgetScroll: state.allowWidgetScroll,
       tabCounter,
       widgetCounter,
     }

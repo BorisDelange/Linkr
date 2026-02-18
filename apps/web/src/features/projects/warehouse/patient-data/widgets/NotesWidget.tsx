@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileText, Search, X, Plus, Trash2, ChevronDown } from 'lucide-react'
+import { Allotment } from 'allotment'
+import { FileText, Search, X, Plus, Trash2, ChevronDown, ArrowDownUp } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -33,10 +34,47 @@ interface WordSet {
 }
 
 // ---------------------------------------------------------------------------
+// Highlight color palette (for word sets)
+// ---------------------------------------------------------------------------
+
+/** Each word set gets a distinct highlight color. Index by set position. */
+const WORD_SET_COLORS = [
+  { bg: 'bg-yellow-200 dark:bg-yellow-500/30', css: 'background:rgb(254 240 138);', cssDark: 'background:rgba(234 179 8 / 0.3);' },
+  { bg: 'bg-cyan-200 dark:bg-cyan-500/30', css: 'background:rgb(165 243 252);', cssDark: 'background:rgba(6 182 212 / 0.3);' },
+  { bg: 'bg-pink-200 dark:bg-pink-500/30', css: 'background:rgb(251 207 232);', cssDark: 'background:rgba(236 72 153 / 0.3);' },
+  { bg: 'bg-lime-200 dark:bg-lime-500/30', css: 'background:rgb(217 249 157);', cssDark: 'background:rgba(132 204 22 / 0.3);' },
+  { bg: 'bg-orange-200 dark:bg-orange-500/30', css: 'background:rgb(254 215 170);', cssDark: 'background:rgba(249 115 22 / 0.3);' },
+  { bg: 'bg-violet-200 dark:bg-violet-500/30', css: 'background:rgb(221 214 254);', cssDark: 'background:rgba(139 92 246 / 0.3);' },
+]
+
+/** Text search always uses the first color (yellow). */
+const SEARCH_COLOR_INDEX = 0
+
+function getWordSetColorIndex(setIndex: number): number {
+  // Offset by 1 so text search (yellow) and first word set don't collide
+  return (setIndex + 1) % WORD_SET_COLORS.length
+}
+
+// ---------------------------------------------------------------------------
+// Badge color palette (auto-assigned to distinct note types)
+// ---------------------------------------------------------------------------
+
+const BADGE_PALETTE = [
+  'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+  'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
+  'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+  'bg-violet-500/15 text-violet-700 dark:text-violet-400',
+  'bg-pink-500/15 text-pink-700 dark:text-pink-400',
+  'bg-red-500/15 text-red-700 dark:text-red-400',
+  'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400',
+  'bg-orange-500/15 text-orange-700 dark:text-orange-400',
+  'bg-gray-500/15 text-gray-700 dark:text-gray-400',
+]
+
+// ---------------------------------------------------------------------------
 // Fuzzy-ish matching helper
 // ---------------------------------------------------------------------------
 
-/** Simple case-insensitive substring match — returns true if all query tokens appear in text. */
 function fuzzyMatch(text: string, query: string): boolean {
   if (!query.trim()) return true
   const lower = text.toLowerCase()
@@ -47,68 +85,65 @@ function fuzzyMatch(text: string, query: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Highlight helper
+// Colored highlight helpers
 // ---------------------------------------------------------------------------
 
-/** Split text around matches and return segments for rendering. */
-function highlightSegments(
+interface ColoredWord {
+  word: string
+  colorIndex: number
+}
+
+/** Split text around matches, returning segments with optional color index. */
+function coloredHighlightSegments(
   text: string,
-  words: string[],
-): Array<{ text: string; highlight: boolean }> {
-  if (words.length === 0) return [{ text, highlight: false }]
+  coloredWords: ColoredWord[],
+): Array<{ text: string; colorIndex: number | null }> {
+  if (coloredWords.length === 0) return [{ text, colorIndex: null }]
 
-  // Build a single regex for all words
-  const escaped = words
-    .filter((w) => w.trim())
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-  if (escaped.length === 0) return [{ text, highlight: false }]
+  const escaped = coloredWords
+    .filter((cw) => cw.word.trim())
+    .map((cw) => ({
+      ...cw,
+      pattern: cw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    }))
+  if (escaped.length === 0) return [{ text, colorIndex: null }]
 
-  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
-  const parts: Array<{ text: string; highlight: boolean }> = []
+  const regex = new RegExp(`(${escaped.map((e) => e.pattern).join('|')})`, 'gi')
+  const parts: Array<{ text: string; colorIndex: number | null }> = []
   let lastIndex = 0
   let match: RegExpExecArray | null
 
+  // Build a quick lookup: lowercase word → colorIndex
+  const wordColorMap = new Map<string, number>()
+  for (const cw of coloredWords) {
+    wordColorMap.set(cw.word.toLowerCase(), cw.colorIndex)
+  }
+
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
-      parts.push({ text: text.slice(lastIndex, match.index), highlight: false })
+      parts.push({ text: text.slice(lastIndex, match.index), colorIndex: null })
     }
-    parts.push({ text: match[0], highlight: true })
+    const matchedLower = match[0].toLowerCase()
+    const ci = wordColorMap.get(matchedLower) ?? coloredWords[0]?.colorIndex ?? 0
+    parts.push({ text: match[0], colorIndex: ci })
     lastIndex = regex.lastIndex
   }
   if (lastIndex < text.length) {
-    parts.push({ text: text.slice(lastIndex), highlight: false })
+    parts.push({ text: text.slice(lastIndex), colorIndex: null })
   }
 
-  return parts.length > 0 ? parts : [{ text, highlight: false }]
-}
-
-// ---------------------------------------------------------------------------
-// Type badge colors
-// ---------------------------------------------------------------------------
-
-const TYPE_COLORS: Record<string, string> = {
-  'Admission note': 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  'Discharge summary': 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400',
-  'Progress note': 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
-  'Nursing note': 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
-  'Consultation note': 'bg-pink-500/15 text-pink-700 dark:text-pink-400',
-  'Operative note': 'bg-red-500/15 text-red-700 dark:text-red-400',
-  'Death note': 'bg-gray-500/15 text-gray-700 dark:text-gray-400',
-}
-
-function getTypeBadgeClass(type: string): string {
-  return TYPE_COLORS[type] ?? 'bg-muted text-muted-foreground'
+  return parts.length > 0 ? parts : [{ text, colorIndex: null }]
 }
 
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function NoteTypeBadge({ type }: { type: string }) {
+function NoteTypeBadge({ type, colorClass }: { type: string; colorClass: string }) {
   if (!type) return null
   return (
     <span
-      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${getTypeBadgeClass(type)}`}
+      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight ${colorClass}`}
     >
       {type}
     </span>
@@ -128,7 +163,7 @@ function WordSetsPopover({
 }: {
   wordSets: WordSet[]
   activeWords: Set<string>
-  onToggleWord: (word: string) => void
+  onToggleWord: (word: string, setIndex: number) => void
   onAddSet: (label: string, words: string[]) => void
   onRemoveSet: (index: number) => void
 }) {
@@ -162,37 +197,43 @@ function WordSetsPopover({
         <div className="space-y-3">
           <p className="text-xs font-medium">{t('patient_data.notes_word_sets')}</p>
 
-          {/* Existing sets */}
-          {wordSets.map((ws, i) => (
-            <div key={i} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium">{ws.label}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-5 w-5 p-0"
-                  onClick={() => onRemoveSet(i)}
-                >
-                  <Trash2 size={10} />
-                </Button>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {ws.words.map((word) => (
-                  <button
-                    key={word}
-                    onClick={() => onToggleWord(word)}
-                    className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
-                      activeWords.has(word.toLowerCase())
-                        ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-400'
-                        : 'bg-muted text-muted-foreground hover:bg-muted/80'
-                    }`}
+          {wordSets.map((ws, i) => {
+            const ci = getWordSetColorIndex(i)
+            const colorCls = WORD_SET_COLORS[ci].bg
+            return (
+              <div key={i} className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-sm ${colorCls}`} />
+                    <span className="text-xs font-medium">{ws.label}</span>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 w-5 p-0"
+                    onClick={() => onRemoveSet(i)}
                   >
-                    {word}
-                  </button>
-                ))}
+                    <Trash2 size={10} />
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {ws.words.map((word) => (
+                    <button
+                      key={word}
+                      onClick={() => onToggleWord(word, i)}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                        activeWords.has(word.toLowerCase())
+                          ? `${colorCls} text-foreground`
+                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                      }`}
+                    >
+                      {word}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Add new set */}
           <div className="space-y-1.5 border-t pt-2">
@@ -225,7 +266,7 @@ function WordSetsPopover({
 // ---------------------------------------------------------------------------
 
 export function NotesWidget({ widgetId }: { widgetId: string }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const { selectedPatientId, selectedVisitId, widgets, updateWidgetConfig } =
     usePatientChartStore()
@@ -240,10 +281,22 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null)
   const [nameFilter, setNameFilter] = useState('')
   const [textSearch, setTextSearch] = useState('')
-  const [activeHighlightWords, setActiveHighlightWords] = useState<Set<string>>(
-    new Set(),
-  )
+  const [sortNewestFirst, setSortNewestFirst] = useState(false)
+  // Map: lowercase word → { setIndex } for color tracking
+  const [activeHighlightWords, setActiveHighlightWords] = useState<
+    Map<string, { setIndex: number }>
+  >(new Map())
   const contentRef = useRef<HTMLDivElement>(null)
+
+  // Dynamic badge color map: type string → palette class
+  const badgeColorMap = useMemo(() => {
+    const types = [...new Set(notes.map((n) => n.note_type).filter(Boolean))].sort()
+    const map = new Map<string, string>()
+    types.forEach((type, i) => {
+      map.set(type, BADGE_PALETTE[i % BADGE_PALETTE.length])
+    })
+    return map
+  }, [notes])
 
   // Load notes
   useEffect(() => {
@@ -265,9 +318,8 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
     queryDataSource(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
-          const noteRows = (rows as NoteRow[]) ?? []
+          const noteRows = (rows as unknown as NoteRow[]) ?? []
           setNotes(noteRows)
-          // Auto-select first note
           if (noteRows.length > 0) {
             setSelectedNoteId(noteRows[0].note_id)
           }
@@ -302,38 +354,52 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
     )
   }, [notes, nameFilter])
 
-  // Text search — further filter notes that contain the search text
+  // Text search — further filter notes that contain the search text, then sort
   const displayNotes = useMemo(() => {
-    if (!textSearch.trim()) return filteredNotes
-    return filteredNotes.filter((n) => fuzzyMatch(n.note_text, textSearch))
-  }, [filteredNotes, textSearch])
+    let result = filteredNotes
+    if (textSearch.trim()) {
+      result = result.filter((n) => fuzzyMatch(n.note_text, textSearch))
+    }
+    // The SQL returns DESC by default; reverse if user wants oldest first
+    return sortNewestFirst ? result : [...result].reverse()
+  }, [filteredNotes, textSearch, sortNewestFirst])
 
   const selectedNote = notes.find((n) => n.note_id === selectedNoteId) ?? null
 
-  // All highlight words: text search tokens + active word set words
-  const allHighlightWords = useMemo(() => {
-    const words: string[] = []
+  // Build colored word list for highlighting
+  const coloredWords = useMemo<ColoredWord[]>(() => {
+    const words: ColoredWord[] = []
+    // Text search tokens → yellow (index 0)
     if (textSearch.trim()) {
-      words.push(...textSearch.trim().split(/\s+/))
+      for (const token of textSearch.trim().split(/\s+/)) {
+        if (token) words.push({ word: token, colorIndex: SEARCH_COLOR_INDEX })
+      }
     }
-    for (const w of activeHighlightWords) {
-      words.push(w)
+    // Active word set words → their set color
+    for (const [word, { setIndex }] of activeHighlightWords) {
+      words.push({ word, colorIndex: getWordSetColorIndex(setIndex) })
     }
-    return words.filter(Boolean)
+    return words
   }, [textSearch, activeHighlightWords])
 
-  const handleToggleWord = useCallback((word: string) => {
+  const handleToggleWord = useCallback((word: string, setIndex: number) => {
     setActiveHighlightWords((prev) => {
-      const next = new Set(prev)
+      const next = new Map(prev)
       const lower = word.toLowerCase()
       if (next.has(lower)) {
         next.delete(lower)
       } else {
-        next.add(lower)
+        next.set(lower, { setIndex })
       }
       return next
     })
   }, [])
+
+  // For the popover: build a Set<string> of active lowercase words
+  const activeWordsSet = useMemo(
+    () => new Set(activeHighlightWords.keys()),
+    [activeHighlightWords],
+  )
 
   const handleAddWordSet = useCallback(
     (label: string, words: string[]) => {
@@ -349,11 +415,10 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
   const handleRemoveWordSet = useCallback(
     (index: number) => {
       const current = config.wordSets ?? []
-      // Also remove active highlight words from this set
       const removed = current[index]
       if (removed) {
         setActiveHighlightWords((prev) => {
-          const next = new Set(prev)
+          const next = new Map(prev)
           for (const w of removed.words) {
             next.delete(w.toLowerCase())
           }
@@ -370,7 +435,14 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
 
   const formatDate = (d: string) => {
     try {
-      return new Date(d).toLocaleDateString()
+      const dt = new Date(d)
+      if (i18n.language === 'fr') {
+        return dt.toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+      }
+      const y = dt.getFullYear()
+      const m = String(dt.getMonth() + 1).padStart(2, '0')
+      const dd = String(dt.getDate()).padStart(2, '0')
+      return `${y}-${m}-${dd}`
     } catch {
       return d
     }
@@ -444,6 +516,14 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
             </button>
           )}
         </div>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          onClick={() => setSortNewestFirst(!sortNewestFirst)}
+          title={sortNewestFirst ? t('patient_data.notes_sort_oldest') : t('patient_data.notes_sort_newest')}
+        >
+          <ArrowDownUp size={12} />
+        </Button>
         <div className="relative flex-1">
           <Search
             size={12}
@@ -466,7 +546,7 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
         </div>
         <WordSetsPopover
           wordSets={config.wordSets ?? []}
-          activeWords={activeHighlightWords}
+          activeWords={activeWordsSet}
           onToggleWord={handleToggleWord}
           onAddSet={handleAddWordSet}
           onRemoveSet={handleRemoveWordSet}
@@ -476,106 +556,113 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
         </span>
       </div>
 
-      {/* Content: sidebar + viewer */}
-      <div className="flex min-h-0 flex-1">
-        {/* Sidebar */}
-        <ScrollArea className="w-56 shrink-0 border-r">
-          <div className="p-1">
-            {displayNotes.map((note) => (
-              <button
-                key={note.note_id}
-                onClick={() => setSelectedNoteId(note.note_id)}
-                className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors ${
-                  selectedNoteId === note.note_id
-                    ? 'bg-accent'
-                    : 'hover:bg-muted/50'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <FileText size={10} className="shrink-0 text-cyan-500" />
-                  <span className="flex-1 truncate text-xs font-medium">
-                    {note.note_title || t('patient_data.notes_untitled')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5 pl-4">
-                  <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {formatDate(note.note_date)}
-                  </span>
-                  <NoteTypeBadge type={note.note_type} />
-                </div>
-              </button>
-            ))}
-          </div>
-        </ScrollArea>
+      {/* Content: resizable sidebar + viewer */}
+      <div className="min-h-0 flex-1">
+        <Allotment defaultSizes={[220, 780]} separator>
+          {/* Sidebar */}
+          <Allotment.Pane minSize={120} maxSize={400}>
+            <ScrollArea className="h-full">
+              <div className="p-1">
+                {displayNotes.map((note) => (
+                  <button
+                    key={note.note_id}
+                    onClick={() => setSelectedNoteId(note.note_id)}
+                    className={`flex w-full flex-col gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors ${
+                      selectedNoteId === note.note_id
+                        ? 'bg-accent'
+                        : 'hover:bg-muted/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <FileText size={10} className="shrink-0 text-cyan-500" />
+                      <span className="flex-1 truncate text-xs font-medium">
+                        {note.note_title || t('patient_data.notes_untitled')}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 pl-4">
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {formatDate(note.note_date)}
+                      </span>
+                      <NoteTypeBadge
+                        type={note.note_type}
+                        colorClass={badgeColorMap.get(note.note_type) ?? 'bg-muted text-muted-foreground'}
+                      />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollArea>
+          </Allotment.Pane>
 
-        {/* Document viewer */}
-        <div ref={contentRef} className="flex-1 overflow-auto p-4">
-          {selectedNote ? (
-            <div>
-              {/* Header */}
-              <div className="mb-3 space-y-1">
-                <h3 className="text-sm font-semibold">
-                  {selectedNote.note_title || t('patient_data.notes_untitled')}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">
-                    {formatDate(selectedNote.note_date)}
-                  </span>
-                  <NoteTypeBadge type={selectedNote.note_type} />
-                  {selectedNote.visit_id && (
-                    <span className="text-[10px] text-muted-foreground">
-                      Visit {selectedNote.visit_id}
-                    </span>
-                  )}
+          {/* Document viewer */}
+          <Allotment.Pane>
+            <div ref={contentRef} className="h-full overflow-auto p-4">
+              {selectedNote ? (
+                <div>
+                  <div className="mb-3 space-y-1">
+                    <h3 className="text-sm font-semibold">
+                      {selectedNote.note_title || t('patient_data.notes_untitled')}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-muted-foreground">
+                        {formatDate(selectedNote.note_date)}
+                      </span>
+                      <NoteTypeBadge
+                        type={selectedNote.note_type}
+                        colorClass={badgeColorMap.get(selectedNote.note_type) ?? 'bg-muted text-muted-foreground'}
+                      />
+                      {selectedNote.visit_id && (
+                        <span className="text-[10px] text-muted-foreground">
+                          Visit {selectedNote.visit_id}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="prose prose-sm dark:prose-invert max-w-none">
+                    <NoteTextRenderer
+                      text={selectedNote.note_text}
+                      coloredWords={coloredWords}
+                    />
+                  </div>
                 </div>
-              </div>
-              {/* Note text */}
-              <div className="prose prose-sm dark:prose-invert max-w-none">
-                <NoteTextRenderer
-                  text={selectedNote.note_text}
-                  highlightWords={allHighlightWords}
-                />
-              </div>
+              ) : (
+                <div className="flex h-full items-center justify-center">
+                  <p className="text-xs text-muted-foreground">
+                    {t('patient_data.notes_select_document')}
+                  </p>
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-xs text-muted-foreground">
-                {t('patient_data.notes_select_document')}
-              </p>
-            </div>
-          )}
-        </div>
+          </Allotment.Pane>
+        </Allotment>
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Note text renderer — handles plain text and HTML, with highlighting
+// Note text renderer — handles plain text and HTML, with colored highlighting
 // ---------------------------------------------------------------------------
 
 function NoteTextRenderer({
   text,
-  highlightWords,
+  coloredWords,
 }: {
   text: string
-  highlightWords: string[]
+  coloredWords: ColoredWord[]
 }) {
-  // Check if text looks like HTML
   const isHtml = /<[a-z][\s\S]*>/i.test(text)
 
-  if (isHtml && highlightWords.length === 0) {
-    // Render HTML directly (trusted content from our own generated notes)
+  if (isHtml && coloredWords.length === 0) {
     return <div dangerouslySetInnerHTML={{ __html: text }} />
   }
 
-  if (isHtml && highlightWords.length > 0) {
-    // For HTML with highlights, we inject <mark> tags into the HTML
-    const highlighted = highlightInHtml(text, highlightWords)
+  if (isHtml && coloredWords.length > 0) {
+    const highlighted = highlightInHtml(text, coloredWords)
     return <div dangerouslySetInnerHTML={{ __html: highlighted }} />
   }
 
-  // Plain text — split into paragraphs and highlight
+  // Plain text
   const paragraphs = text.split(/\n{2,}/)
 
   return (
@@ -586,12 +673,12 @@ function NoteTextRenderer({
           <div key={i}>
             {lines.map((line, j) => (
               <p key={j} className="text-xs leading-relaxed whitespace-pre-wrap">
-                {highlightWords.length > 0
-                  ? highlightSegments(line, highlightWords).map((seg, k) =>
-                      seg.highlight ? (
+                {coloredWords.length > 0
+                  ? coloredHighlightSegments(line, coloredWords).map((seg, k) =>
+                      seg.colorIndex !== null ? (
                         <mark
                           key={k}
-                          className="bg-yellow-200 dark:bg-yellow-500/30 rounded-sm px-0.5"
+                          className={`${WORD_SET_COLORS[seg.colorIndex]?.bg ?? 'bg-yellow-200 dark:bg-yellow-500/30'} rounded-sm px-0.5`}
                         >
                           {seg.text}
                         </mark>
@@ -609,26 +696,37 @@ function NoteTextRenderer({
   )
 }
 
-/** Highlight words inside HTML by injecting <mark> tags (only in text nodes, not in tags). */
-function highlightInHtml(html: string, words: string[]): string {
-  if (words.length === 0) return html
+/** Highlight words inside HTML with per-word colors. */
+function highlightInHtml(html: string, coloredWords: ColoredWord[]): string {
+  if (coloredWords.length === 0) return html
 
-  const escaped = words
-    .filter((w) => w.trim())
-    .map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const escaped = coloredWords
+    .filter((cw) => cw.word.trim())
+    .map((cw) => ({
+      ...cw,
+      pattern: cw.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+    }))
   if (escaped.length === 0) return html
 
-  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
+  // Build a lookup for matched word → color
+  const wordColorMap = new Map<string, number>()
+  for (const cw of coloredWords) {
+    wordColorMap.set(cw.word.toLowerCase(), cw.colorIndex)
+  }
 
-  // Split on HTML tags to only process text parts
+  const regex = new RegExp(`(${escaped.map((e) => e.pattern).join('|')})`, 'gi')
+  const isDark = document.documentElement.classList.contains('dark')
+
   const parts = html.split(/(<[^>]*>)/)
   return parts
     .map((part) => {
-      if (part.startsWith('<')) return part // HTML tag — leave as-is
-      return part.replace(
-        regex,
-        '<mark class="bg-yellow-200 dark:bg-yellow-500/30 rounded-sm px-0.5">$1</mark>',
-      )
+      if (part.startsWith('<')) return part
+      return part.replace(regex, (match) => {
+        const ci = wordColorMap.get(match.toLowerCase()) ?? 0
+        const color = WORD_SET_COLORS[ci]
+        const style = isDark ? color?.cssDark : color?.css
+        return `<mark style="${style ?? ''}border-radius:2px;padding:0 2px;">${match}</mark>`
+      })
     })
     .join('')
 }

@@ -303,7 +303,7 @@ function ERDCanvas({ mapping }: { mapping: SchemaMapping }) {
       minZoom={0.2}
       maxZoom={3}
       proOptions={{ hideAttribution: true }}
-      nodesDraggable={true}
+      nodesDraggable={false}
       nodesConnectable={false}
       elementsSelectable={false}
     >

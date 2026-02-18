@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, DqRuleSetStorage, DqCustomCheckStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -163,10 +163,24 @@ interface LinkrDB extends DBSchema {
       'by-pipeline': string
     }
   }
+  dq_rule_sets: {
+    key: string
+    value: DqRuleSet
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  dq_custom_checks: {
+    key: string
+    value: DqCustomCheck
+    indexes: {
+      'by-rule-set': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 20
+const DB_VERSION = 22
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -381,6 +395,26 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         etlPipelineStore.createIndex('by-workspace', 'workspaceId')
         const etlFileStore = db.createObjectStore('etl_files', { keyPath: 'id' })
         etlFileStore.createIndex('by-pipeline', 'pipelineId')
+      }
+      // Version 21: Data Quality rule sets and custom checks
+      if (oldVersion < 21) {
+        const dqRuleSetStore = db.createObjectStore('dq_rule_sets', { keyPath: 'id' })
+        dqRuleSetStore.createIndex('by-workspace', 'workspaceId')
+        const dqCheckStore = db.createObjectStore('dq_custom_checks', { keyPath: 'id' })
+        dqCheckStore.createIndex('by-rule-set', 'ruleSetId')
+      }
+      // Version 22: Rename dq_suites → dq_rule_sets (if upgrading from 21)
+      if (oldVersion === 21) {
+        if (db.objectStoreNames.contains('dq_suites')) {
+          db.deleteObjectStore('dq_suites')
+        }
+        if (db.objectStoreNames.contains('dq_custom_checks')) {
+          db.deleteObjectStore('dq_custom_checks')
+        }
+        const dqRuleSetStore = db.createObjectStore('dq_rule_sets', { keyPath: 'id' })
+        dqRuleSetStore.createIndex('by-workspace', 'workspaceId')
+        const dqCheckStore = db.createObjectStore('dq_custom_checks', { keyPath: 'id' })
+        dqCheckStore.createIndex('by-rule-set', 'ruleSetId')
       }
     },
   })
@@ -1187,6 +1221,79 @@ class IDBEtlFileStorage implements EtlFileStorage {
   }
 }
 
+class IDBDqRuleSetStorage implements DqRuleSetStorage {
+  async getAll(): Promise<DqRuleSet[]> {
+    const db = await getDB()
+    return db.getAll('dq_rule_sets')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<DqRuleSet[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dq_rule_sets', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<DqRuleSet | undefined> {
+    const db = await getDB()
+    return db.get('dq_rule_sets', id)
+  }
+
+  async create(ruleSet: DqRuleSet): Promise<void> {
+    const db = await getDB()
+    await db.add('dq_rule_sets', ruleSet)
+  }
+
+  async update(id: string, changes: Partial<DqRuleSet>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dq_rule_sets', id)
+    if (!existing) return
+    await db.put('dq_rule_sets', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dq_rule_sets', id)
+  }
+}
+
+class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
+  async getByRuleSet(ruleSetId: string): Promise<DqCustomCheck[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('dq_custom_checks', 'by-rule-set', ruleSetId)
+  }
+
+  async getById(id: string): Promise<DqCustomCheck | undefined> {
+    const db = await getDB()
+    return db.get('dq_custom_checks', id)
+  }
+
+  async create(check: DqCustomCheck): Promise<void> {
+    const db = await getDB()
+    await db.add('dq_custom_checks', check)
+  }
+
+  async update(id: string, changes: Partial<DqCustomCheck>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('dq_custom_checks', id)
+    if (!existing) return
+    await db.put('dq_custom_checks', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('dq_custom_checks', id)
+  }
+
+  async deleteByRuleSet(ruleSetId: string): Promise<void> {
+    const db = await getDB()
+    const checks = await db.getAllFromIndex('dq_custom_checks', 'by-rule-set', ruleSetId)
+    const tx = db.transaction('dq_custom_checks', 'readwrite')
+    for (const check of checks) {
+      tx.store.delete(check.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -1214,5 +1321,7 @@ export function createIDBStorage(): Storage {
     wikiAttachments: new IDBWikiAttachmentStorage(),
     etlPipelines: new IDBEtlPipelineStorage(),
     etlFiles: new IDBEtlFileStorage(),
+    dqRuleSets: new IDBDqRuleSetStorage(),
+    dqCustomChecks: new IDBDqCustomCheckStorage(),
   }
 }

@@ -25,19 +25,21 @@ export function PatientDataSettingsDialog({
   projectUid,
 }: PatientDataSettingsDialogProps) {
   const { t } = useTranslation()
-  const { showWidgetTitles, setShowWidgetTitles } = usePatientChartStore()
+  const { showWidgetTitles, setShowWidgetTitles, allowWidgetScroll, setAllowWidgetScroll } = usePatientChartStore()
 
-  const currentValue = showWidgetTitles[projectUid] ?? true
-  const [localShowTitles, setLocalShowTitles] = useState(currentValue)
+  const [localShowTitles, setLocalShowTitles] = useState(showWidgetTitles[projectUid] ?? true)
+  const [localAllowScroll, setLocalAllowScroll] = useState(allowWidgetScroll[projectUid] ?? true)
 
   useEffect(() => {
     if (open) {
       setLocalShowTitles(showWidgetTitles[projectUid] ?? true)
+      setLocalAllowScroll(allowWidgetScroll[projectUid] ?? true)
     }
-  }, [open, showWidgetTitles, projectUid])
+  }, [open, showWidgetTitles, allowWidgetScroll, projectUid])
 
   const handleSave = () => {
     setShowWidgetTitles(projectUid, localShowTitles)
+    setAllowWidgetScroll(projectUid, localAllowScroll)
     onOpenChange(false)
   }
 
@@ -56,6 +58,13 @@ export function PatientDataSettingsDialog({
               <p className="text-[11px] text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
             </div>
             <Switch checked={localShowTitles} onCheckedChange={setLocalShowTitles} />
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">{t('patient_data.allow_scroll')}</Label>
+              <p className="text-[11px] text-muted-foreground">{t('patient_data.allow_scroll_hint')}</p>
+            </div>
+            <Switch checked={localAllowScroll} onCheckedChange={setLocalAllowScroll} />
           </div>
         </div>
 
