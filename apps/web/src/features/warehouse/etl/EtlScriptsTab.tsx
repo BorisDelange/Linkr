@@ -446,7 +446,9 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                             <span className="text-[10px] text-muted-foreground">({t('etl.script_db_default')})</span>
                           </span>
                         </SelectItem>
-                        {dbSources.map((ds) => (
+                        {dbSources
+                          .filter((ds) => ds.id !== pipeline?.sourceDataSourceId)
+                          .map((ds) => (
                           <SelectItem key={ds.id} value={ds.id}>
                             {ds.name}
                           </SelectItem>

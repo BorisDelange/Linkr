@@ -1,10 +1,16 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Workflow, Plus, Trash2, Pencil, Database, ArrowRight } from 'lucide-react'
+import { Workflow, Plus, Trash2, Pencil, Database, ArrowRight, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,40 +39,18 @@ export function EtlListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines, updatePipeline, deletePipeline } = useEtlStore()
+  const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines, deletePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [pipelineToDelete, setPipelineToDelete] = useState<EtlPipeline | null>(null)
-  const [renamingId, setRenamingId] = useState<string | null>(null)
-  const [renameDraft, setRenameDraft] = useState('')
-  const renameInputRef = useRef<HTMLInputElement>(null)
+  const [pipelineToEdit, setPipelineToEdit] = useState<EtlPipeline | null>(null)
 
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()
   }, [etlPipelinesLoaded, loadEtlPipelines])
 
   const pipelines = activeWorkspaceId ? getWorkspacePipelines(activeWorkspaceId) : []
-
-  const handleStartRename = useCallback((pipeline: EtlPipeline) => {
-    setRenamingId(pipeline.id)
-    setRenameDraft(pipeline.name)
-    requestAnimationFrame(() => {
-      if (renameInputRef.current) {
-        renameInputRef.current.focus()
-        const len = renameInputRef.current.value.length
-        renameInputRef.current.setSelectionRange(len, len)
-      }
-    })
-  }, [])
-
-  const handleFinishRename = useCallback(() => {
-    const trimmed = renameDraft.trim()
-    if (renamingId && trimmed && trimmed !== pipelines.find((p) => p.id === renamingId)?.name) {
-      updatePipeline(renamingId, { name: trimmed })
-    }
-    setRenamingId(null)
-  }, [renamingId, renameDraft, pipelines, updatePipeline])
 
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
@@ -117,39 +101,18 @@ export function EtlListPage() {
               return (
                 <Card
                   key={pipeline.id}
-                  className="group cursor-pointer transition-colors hover:bg-accent/50"
+                  className="cursor-pointer transition-colors hover:bg-accent/50"
                   onClick={() => navigate(pipeline.id)}
                 >
-                  <div className="flex items-center gap-4 p-4">
+                  <div className="flex items-start gap-4 p-4">
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
                       <Workflow size={20} className="text-teal-500" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        {renamingId === pipeline.id ? (
-                          <input
-                            ref={renameInputRef}
-                            value={renameDraft}
-                            onChange={(e) => setRenameDraft(e.target.value)}
-                            onBlur={handleFinishRename}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleFinishRename()
-                              if (e.key === 'Escape') setRenamingId(null)
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="truncate bg-transparent text-sm font-medium outline-none border-b border-primary"
-                          />
-                        ) : (
-                          <span
-                            className="truncate text-sm font-medium"
-                            onDoubleClick={(e) => {
-                              e.stopPropagation()
-                              handleStartRename(pipeline)
-                            }}
-                          >
-                            {pipeline.name}
-                          </span>
-                        )}
+                        <span className="truncate text-sm font-medium">
+                          {pipeline.name}
+                        </span>
                         <Badge variant={statusInfo.variant} className="text-[10px]">
                           {t(statusInfo.label)}
                         </Badge>
@@ -171,28 +134,30 @@ export function EtlListPage() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleStartRename(pipeline)
-                        }}
-                      >
-                        <Pencil size={14} />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setPipelineToDelete(pipeline)
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreHorizontal size={14} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setPipelineToEdit(pipeline) }}>
+                          <Pencil size={14} />
+                          {t('common.edit')}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={(e) => { e.stopPropagation(); setPipelineToDelete(pipeline) }}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 size={14} />
+                          {t('common.delete')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </Card>
               )
@@ -205,6 +170,12 @@ export function EtlListPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onCreated={handleCreated}
+      />
+
+      <CreateEtlDialog
+        open={!!pipelineToEdit}
+        onOpenChange={(open) => { if (!open) setPipelineToEdit(null) }}
+        editingPipeline={pipelineToEdit}
       />
 
       <AlertDialog open={!!pipelineToDelete} onOpenChange={(open) => { if (!open) setPipelineToDelete(null) }}>

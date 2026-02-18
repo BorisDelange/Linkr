@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
@@ -24,6 +24,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -210,32 +216,32 @@ export function PluginsTab() {
               key={plugin.id}
               type="button"
               onClick={() => openPlugin(plugin.id)}
-              className="group relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
+              className="relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
             >
-              {/* Action buttons — top-right, visible on hover */}
-              <div className="absolute right-2 top-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => handleExport(plugin.id, e)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleExport(plugin.id, e as unknown as React.MouseEvent) }}
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  title={t('plugins.export')}
-                >
-                  <Download size={12} />
-                </span>
-                <span
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); setDeleteId(plugin.id) } }}
-                  className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash2 size={12} />
-                </span>
+              {/* Action menu — top-right, always visible */}
+              <div className="absolute right-2 top-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                      <MoreHorizontal size={14} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={(e) => handleExport(plugin.id, e as unknown as React.MouseEvent)}>
+                      <Download size={14} />
+                      {t('plugins.export')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={(e) => { e.stopPropagation(); setDeleteId(plugin.id) }}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <Trash2 size={14} />
+                      {t('common.delete')}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 pr-6">
                 <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
                 <span className="text-sm font-medium truncate">
                   {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}

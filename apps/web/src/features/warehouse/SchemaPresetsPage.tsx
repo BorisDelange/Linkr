@@ -1,20 +1,21 @@
-import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense, lazy, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useParams, useNavigate } from 'react-router'
 import {
   Database,
-  Lock,
   Copy,
   Trash2,
-  Pencil,
   Plus,
   X,
   Check,
-  Eye,
   Download,
   Upload,
   Code,
+  ArrowLeft,
+  RotateCcw,
+  Pencil,
+  MoreHorizontal,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -37,9 +38,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
+import { DdlERD } from './DdlERD'
 
 const LazyCodeEditor = lazy(() =>
   import('@/components/editor/CodeEditor').then((m) => ({ default: m.CodeEditor }))
@@ -473,7 +481,7 @@ function PresetEditor({
     <div className="space-y-4">
       {/* Preset label */}
       <div className="space-y-1.5">
-        <Label className="text-xs">Preset name</Label>
+        <Label className="text-xs">Schema name</Label>
         <Input
           value={mapping.presetLabel}
           onChange={(e) => onChange({ ...mapping, presetLabel: e.target.value })}
@@ -556,162 +564,20 @@ function PresetEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Fullscreen preset dialog with ERD / Detail tabs
+// Schema card (compact — click to navigate)
 // ---------------------------------------------------------------------------
 
-function PresetFullscreenDialog({
-  open,
-  onOpenChange,
+function SchemaCard({
   mapping,
-  isBuiltin,
-  isEditing,
-  editMapping,
-  onEditMappingChange,
+  onNavigate,
   onEdit,
-  onSave,
-  onCancel,
-  defaultTab,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  mapping: SchemaMapping
-  isBuiltin: boolean
-  isEditing: boolean
-  editMapping?: SchemaMapping
-  onEditMappingChange?: (m: SchemaMapping) => void
-  onEdit?: () => void
-  onSave?: () => void
-  onCancel?: () => void
-  defaultTab?: 'erd' | 'detail'
-}) {
-  const { t } = useTranslation()
-  const displayMapping = isEditing && editMapping ? editMapping : mapping
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent
-        showCloseButton={false}
-        className="sm:max-w-[95vw] w-[95vw] h-[90vh] flex flex-col p-0 gap-0"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
-              <Database size={14} className="text-primary" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold text-foreground">{displayMapping.presetLabel}</h3>
-                {isBuiltin ? (
-                  <Badge variant="outline" className="text-[10px] gap-1">
-                    <Lock size={9} />
-                    {t('settings.schema_preset_builtin')}
-                  </Badge>
-                ) : (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {t('settings.schema_preset_custom')}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            {isEditing ? (
-              <>
-                <Button variant="ghost" size="sm" onClick={onCancel} className="gap-1.5 text-xs">
-                  <X size={13} />
-                  Cancel
-                </Button>
-                <Button variant="default" size="sm" onClick={onSave} className="gap-1.5 text-xs">
-                  <Check size={13} />
-                  Save
-                </Button>
-              </>
-            ) : (
-              <>
-                {!isBuiltin && onEdit && (
-                  <Button variant="outline" size="sm" onClick={onEdit} className="gap-1.5 text-xs">
-                    <Pencil size={12} />
-                    Edit
-                  </Button>
-                )}
-              </>
-            )}
-            <Button variant="ghost" size="icon-sm" onClick={() => onOpenChange(false)}>
-              <X size={14} />
-            </Button>
-          </div>
-        </div>
-
-        {/* Tabbed content */}
-        <Tabs defaultValue={defaultTab ?? 'erd'} className="flex-1 flex flex-col min-h-0">
-          <div className="px-5 pt-2 shrink-0">
-            <TabsList>
-              <TabsTrigger value="erd">{t('settings.schema_preset_tab_erd')}</TabsTrigger>
-              <TabsTrigger value="detail">{t('settings.schema_preset_tab_detail')}</TabsTrigger>
-              <TabsTrigger value="ddl" className="gap-1.5">
-                <Code size={12} />
-                DDL
-              </TabsTrigger>
-            </TabsList>
-          </div>
-
-          <TabsContent value="erd" className="flex-1 min-h-0 m-0 p-0">
-            <SchemaERD mapping={displayMapping} fullscreen />
-          </TabsContent>
-
-          <TabsContent value="detail" className="flex-1 min-h-0 m-0 overflow-auto px-5 py-4">
-            {isEditing && editMapping && onEditMappingChange ? (
-              <PresetEditor mapping={editMapping} onChange={onEditMappingChange} />
-            ) : (
-              <PresetDetail mapping={displayMapping} />
-            )}
-          </TabsContent>
-
-          <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
-            {isEditing && editMapping && onEditMappingChange ? (
-              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
-                <LazyCodeEditor
-                  value={editMapping.ddl ?? ''}
-                  language="sql"
-                  onChange={(v) => onEditMappingChange({ ...editMapping, ddl: v ?? '' })}
-                />
-              </Suspense>
-            ) : displayMapping.ddl ? (
-              <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
-                <LazyCodeEditor
-                  value={displayMapping.ddl}
-                  language="sql"
-                  readOnly
-                />
-              </Suspense>
-            ) : (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                {t('settings.schema_preset_no_ddl')}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Preset card (compact — click to open fullscreen)
-// ---------------------------------------------------------------------------
-
-function PresetCard({
-  mapping,
-  isBuiltin,
-  onOpen,
   onDuplicate,
   onExport,
   onDelete,
 }: {
   mapping: SchemaMapping
-  isBuiltin: boolean
-  onOpen: () => void
+  onNavigate: () => void
+  onEdit: () => void
   onDuplicate: () => void
   onExport: () => void
   onDelete?: () => void
@@ -727,7 +593,7 @@ function PresetCard({
       <div className="flex w-full items-center gap-3 px-4 py-3">
         <button
           type="button"
-          onClick={onOpen}
+          onClick={onNavigate}
           className="flex flex-1 items-center gap-3 text-left hover:opacity-80 transition-opacity"
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
@@ -735,19 +601,7 @@ function PresetCard({
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-foreground">{mapping.presetLabel}</span>
-              {isBuiltin ? (
-                <Badge variant="outline" className="text-[10px] gap-1">
-                  <Lock size={9} />
-                  {t('settings.schema_preset_builtin')}
-                </Badge>
-              ) : (
-                <Badge variant="secondary" className="text-[10px]">
-                  {t('settings.schema_preset_custom')}
-                </Badge>
-              )}
-            </div>
+            <span className="text-sm font-medium text-foreground">{mapping.presetLabel}</span>
             <p className="text-xs text-muted-foreground mt-0.5">
               {tableCount > 0 || dictCount > 0 || eventCount > 0
                 ? [
@@ -762,40 +616,302 @@ function PresetCard({
         </button>
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon-sm" onClick={onOpen} title="View">
-            <Eye size={13} />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onExport} title={t('settings.schema_preset_export')}>
-            <Download size={13} />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onDuplicate} title={t('settings.schema_preset_duplicate')}>
-            <Copy size={13} />
-          </Button>
-          {!isBuiltin && onDelete && (
-            <Button variant="ghost" size="icon-sm" onClick={onDelete} title={t('settings.schema_preset_delete')} className="text-destructive">
-              <Trash2 size={13} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal size={14} />
             </Button>
-          )}
-        </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onEdit}>
+              <Pencil size={14} />
+              {t('common.edit')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onExport}>
+              <Download size={14} />
+              {t('settings.schema_preset_export')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDuplicate}>
+              <Copy size={14} />
+              {t('settings.schema_preset_duplicate')}
+            </DropdownMenuItem>
+            {onDelete && (
+              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                <Trash2 size={14} />
+                {t('settings.schema_preset_delete')}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Schema detail page (full page with 4 tabs)
+// ---------------------------------------------------------------------------
+
+function SchemaDetailView({
+  schemaId,
+  customPresets,
+  onSave,
+  onDelete,
+  onBack,
+}: {
+  schemaId: string
+  customPresets: CustomSchemaPreset[]
+  onSave: (presetId: string, mapping: SchemaMapping) => Promise<void>
+  onDelete: (presetId: string) => Promise<void>
+  onBack: () => void
+}) {
+  const { t } = useTranslation()
+  const isBuiltin = BUILTIN_PRESET_IDS.includes(schemaId)
+
+  // Resolve mapping: IDB override > built-in > custom
+  const baseMapping = useMemo(() => {
+    // Check custom/overrides first (IDB)
+    const custom = customPresets.find((p) => p.presetId === schemaId)
+    if (custom) return custom.mapping
+    // Fallback to built-in
+    const builtin = SCHEMA_PRESETS[schemaId]
+    if (builtin) return builtin
+    return null
+  }, [schemaId, customPresets])
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+
+  // Check if built-in has been customized (override exists in IDB)
+  const hasCustomOverride = isBuiltin && customPresets.some((p) => p.presetId === schemaId)
+
+  if (!baseMapping) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center">
+        <Database size={32} className="text-muted-foreground/50" />
+        <p className="mt-3 text-sm text-muted-foreground">Schema not found</p>
+        <Button variant="outline" size="sm" onClick={onBack} className="mt-4 gap-1.5">
+          <ArrowLeft size={14} />
+          {t('common.back')}
+        </Button>
+      </div>
+    )
+  }
+
+  const displayMapping = isEditing && editMapping ? editMapping : baseMapping
+
+  const startEdit = () => {
+    setIsEditing(true)
+    setEditMapping(structuredClone(baseMapping))
+  }
+
+  const cancelEdit = () => {
+    setIsEditing(false)
+    setEditMapping(null)
+  }
+
+  const handleSave = async () => {
+    if (!editMapping) return
+    await onSave(schemaId, editMapping)
+    setIsEditing(false)
+    setEditMapping(null)
+  }
+
+  const handleDelete = async () => {
+    await onDelete(schemaId)
+    onBack()
+  }
+
+  const handleReset = async () => {
+    // Delete the IDB override → falls back to built-in
+    await getStorage().schemaPresets.delete(schemaId)
+    setShowResetConfirm(false)
+    setIsEditing(false)
+    setEditMapping(null)
+  }
+
+  const exportMapping = () => {
+    const exportData = structuredClone(displayMapping)
+    delete (exportData as { knownTables?: string[] }).knownTables
+    const json = JSON.stringify(exportData, null, 2)
+    const blob = new Blob([json], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `linkr-schema-${displayMapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b px-6 py-3 shrink-0">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon-sm" onClick={onBack}>
+            <ArrowLeft size={16} />
+          </Button>
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
+            <Database size={14} className="text-primary" />
+          </div>
+          <h2 className="text-sm font-semibold text-foreground">{displayMapping.presetLabel}</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          {isEditing ? (
+            <>
+              <Button variant="ghost" size="sm" onClick={cancelEdit} className="gap-1.5 text-xs">
+                <X size={13} />
+                {t('common.cancel')}
+              </Button>
+              <Button variant="default" size="sm" onClick={handleSave} className="gap-1.5 text-xs">
+                <Check size={13} />
+                {t('common.save')}
+              </Button>
+            </>
+          ) : (
+            <>
+              {isBuiltin && hasCustomOverride && (
+                <Button variant="ghost" size="sm" onClick={() => setShowResetConfirm(true)} className="gap-1.5 text-xs">
+                  <RotateCcw size={12} />
+                  {t('schemas.reset_to_default')}
+                </Button>
+              )}
+              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+                <Pencil size={12} />
+                {t('common.edit')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
+                <Download size={12} />
+                {t('settings.schema_preset_export')}
+              </Button>
+              {!isBuiltin && (
+                <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
+                  <Trash2 size={12} />
+                  {t('common.delete')}
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <Tabs defaultValue="erd-ddl" className="flex-1 flex flex-col min-h-0">
+        <div className="px-6 pt-2 shrink-0">
+          <TabsList>
+            <TabsTrigger value="erd-ddl">{t('schemas.tab_schema_ddl')}</TabsTrigger>
+            <TabsTrigger value="ddl" className="gap-1.5">
+              <Code size={12} />
+              DDL
+            </TabsTrigger>
+            <TabsTrigger value="mapping">{t('schemas.tab_mapping')}</TabsTrigger>
+            <TabsTrigger value="erd-mapping">{t('schemas.tab_schema_mapping')}</TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Tab 1: ERD from DDL */}
+        <TabsContent value="erd-ddl" className="flex-1 min-h-0 m-0 p-0">
+          {displayMapping.ddl ? (
+            <DdlERD ddl={displayMapping.ddl} />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('settings.schema_preset_no_ddl')}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab 2: DDL editor */}
+        <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
+          {isEditing && editMapping ? (
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+              <LazyCodeEditor
+                value={editMapping.ddl ?? ''}
+                language="sql"
+                onChange={(v) => setEditMapping({ ...editMapping, ddl: v ?? '' })}
+              />
+            </Suspense>
+          ) : displayMapping.ddl ? (
+            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+              <LazyCodeEditor
+                value={displayMapping.ddl}
+                language="sql"
+                readOnly
+              />
+            </Suspense>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('settings.schema_preset_no_ddl')}
+            </div>
+          )}
+        </TabsContent>
+
+        {/* Tab 3: Mapping config */}
+        <TabsContent value="mapping" className="flex-1 min-h-0 m-0 overflow-auto px-6 py-4">
+          {isEditing && editMapping ? (
+            <PresetEditor mapping={editMapping} onChange={setEditMapping} />
+          ) : (
+            <PresetDetail mapping={displayMapping} />
+          )}
+        </TabsContent>
+
+        {/* Tab 4: ERD from mapping */}
+        <TabsContent value="erd-mapping" className="flex-1 min-h-0 m-0 p-0">
+          <SchemaERD mapping={displayMapping} fullscreen />
+        </TabsContent>
+      </Tabs>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('settings.schema_preset_delete_confirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Reset confirmation */}
+      <AlertDialog open={showResetConfirm} onOpenChange={setShowResetConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('schemas.reset_to_default')}</AlertDialogTitle>
+            <AlertDialogDescription>{t('schemas.reset_confirm')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReset}>
+              {t('schemas.reset_to_default')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}
+
+
+// ---------------------------------------------------------------------------
+// Main component — router for list vs detail
 // ---------------------------------------------------------------------------
 
 export function SchemaPresetsPage() {
   const { t } = useTranslation()
+  const { schemaId, wsUid } = useParams()
+  const navigate = useNavigate()
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
-  const [openPresetId, setOpenPresetId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
+  const [editingSchema, setEditingSchema] = useState<{ id: string; name: string } | null>(null)
+  const [editName, setEditName] = useState('')
 
   const loadCustomPresets = useCallback(async () => {
     try {
@@ -810,17 +926,23 @@ export function SchemaPresetsPage() {
     loadCustomPresets()
   }, [loadCustomPresets])
 
-  // Resolve the mapping for the currently open preset
-  const getOpenMapping = (): SchemaMapping | null => {
-    if (!openPresetId) return null
-    const builtin = SCHEMA_PRESETS[openPresetId]
-    if (builtin) return builtin
-    const custom = customPresets.find((p) => p.presetId === openPresetId)
-    return custom?.mapping ?? null
-  }
-
-  const openMapping = getOpenMapping()
-  const isOpenBuiltin = openPresetId ? BUILTIN_PRESET_IDS.includes(openPresetId) : false
+  // Collect all schemas: built-in (possibly overridden by IDB) + custom-only
+  const allSchemas = useMemo(() => {
+    const result: { id: string; mapping: SchemaMapping }[] = []
+    // Built-in presets (use IDB override if available)
+    for (const presetId of BUILTIN_PRESET_IDS) {
+      const override = customPresets.find((p) => p.presetId === presetId)
+      const mapping = override ? override.mapping : SCHEMA_PRESETS[presetId]
+      if (mapping) result.push({ id: presetId, mapping })
+    }
+    // Custom-only presets (not overrides of built-in)
+    for (const cp of customPresets) {
+      if (!BUILTIN_PRESET_IDS.includes(cp.presetId)) {
+        result.push({ id: cp.presetId, mapping: cp.mapping })
+      }
+    }
+    return result
+  }, [customPresets])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
@@ -844,43 +966,24 @@ export function SchemaPresetsPage() {
   const deletePreset = async (presetId: string) => {
     await getStorage().schemaPresets.delete(presetId)
     await loadCustomPresets()
-    if (openPresetId === presetId) setOpenPresetId(null)
-    if (editingId === presetId) {
-      setEditingId(null)
-      setEditMapping(null)
+  }
+
+  const savePreset = async (presetId: string, mapping: SchemaMapping) => {
+    const now = new Date().toISOString()
+    const existing = customPresets.find((p) => p.presetId === presetId)
+    const preset: CustomSchemaPreset = {
+      presetId,
+      mapping: { ...mapping, presetId },
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
     }
-  }
-
-  const startEdit = () => {
-    if (!openPresetId || !openMapping) return
-    setEditingId(openPresetId)
-    setEditMapping(structuredClone(openMapping))
-  }
-
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditMapping(null)
-  }
-
-  const saveEdit = async () => {
-    if (!editingId || !editMapping) return
-    const existing = customPresets.find((p) => p.presetId === editingId)
-    if (!existing) return
-    const updated: CustomSchemaPreset = {
-      ...existing,
-      mapping: { ...editMapping, presetId: editingId },
-      updatedAt: new Date().toISOString(),
-    }
-    await getStorage().schemaPresets.save(updated)
+    await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
-    setEditingId(null)
-    setEditMapping(null)
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const exportPreset = (mapping: SchemaMapping) => {
-    // Export only the mapping (no internal IDs)
     const exportData = structuredClone(mapping)
     delete (exportData as { knownTables?: string[] }).knownTables
     const json = JSON.stringify(exportData, null, 2)
@@ -911,7 +1014,7 @@ export function SchemaPresetsPage() {
       }
       await getStorage().schemaPresets.save(preset)
       await loadCustomPresets()
-      setOpenPresetId(presetId)
+      navigate(presetId)
     } catch {
       // Invalid JSON — silently ignore
     }
@@ -940,145 +1043,157 @@ export function SchemaPresetsPage() {
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
     setShowCreateDialog(false)
-    setOpenPresetId(presetId)
-    setEditingId(presetId)
-    setEditMapping(newMapping)
+    navigate(presetId)
   }
 
-  const handleDialogClose = (open: boolean) => {
-    if (!open) {
-      if (editingId) {
-        cancelEdit()
-      }
-      setOpenPresetId(null)
-    }
+  const openEditDialog = (id: string, name: string) => {
+    setEditingSchema({ id, name })
+    setEditName(name)
   }
 
+  const confirmRenameSchema = async () => {
+    if (!editingSchema || !editName.trim()) return
+    const schema = allSchemas.find((s) => s.id === editingSchema.id)
+    if (!schema) return
+    await savePreset(editingSchema.id, { ...schema.mapping, presetLabel: editName.trim() })
+    setEditingSchema(null)
+  }
+
+  const navigateToSchema = (presetId: string) => {
+    navigate(presetId)
+  }
+
+  const navigateToList = () => {
+    navigate(`/workspaces/${wsUid}/warehouse/schemas`)
+  }
+
+  // ── If schemaId is in URL, show detail page ──
+  if (schemaId) {
+    return (
+      <SchemaDetailView
+        schemaId={schemaId}
+        customPresets={customPresets}
+        onSave={savePreset}
+        onDelete={deletePreset}
+        onBack={navigateToList}
+      />
+    )
+  }
+
+  // ── Otherwise, show list ──
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-3xl px-6 py-10">
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-medium text-foreground">{t('settings.schema_presets_title')}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.schema_presets_description')}</p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">{t('schemas.title')}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">{t('schemas.description')}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) importPreset(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                <Upload size={14} />
+                {t('settings.schema_preset_import')}
+              </Button>
+              <Button size="sm" onClick={openCreateDialog}>
+                <Plus size={14} />
+                {t('schemas.new_schema')}
+              </Button>
+            </div>
+          </div>
+
+          {/* All schemas — no built-in/custom distinction */}
+          <div className="space-y-2">
+            {allSchemas.map(({ id, mapping }) => {
+              const isBuiltinOnly = BUILTIN_PRESET_IDS.includes(id) && !customPresets.some((p) => p.presetId === id)
+              return (
+                <SchemaCard
+                  key={id}
+                  mapping={mapping}
+                  onNavigate={() => navigateToSchema(id)}
+                  onEdit={() => openEditDialog(id, mapping.presetLabel)}
+                  onDuplicate={() => duplicatePreset(mapping)}
+                  onExport={() => exportPreset(mapping)}
+                  onDelete={
+                    // Can delete custom-only presets. Built-in can only be "reset" from detail view.
+                    !BUILTIN_PRESET_IDS.includes(id)
+                      ? () => setDeleteConfirmId(id)
+                      : isBuiltinOnly ? undefined : () => setDeleteConfirmId(id)
+                  }
+                />
+              )
+            })}
+          </div>
+
+          {/* Create schema dialog */}
+          <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t('schemas.new_schema')}</DialogTitle>
+                <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
+              </DialogHeader>
+              <Input
+                value={newPresetName}
+                onChange={(e) => setNewPresetName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmCreatePreset() }}
+                autoFocus
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
+                <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim()}>{t('common.create')}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Rename schema dialog */}
+          <Dialog open={!!editingSchema} onOpenChange={(open) => { if (!open) setEditingSchema(null) }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>{t('common.edit')}</DialogTitle>
+                <DialogDescription>{t('schemas.edit_description')}</DialogDescription>
+              </DialogHeader>
+              <Input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') confirmRenameSchema() }}
+                autoFocus
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setEditingSchema(null)}>{t('common.cancel')}</Button>
+                <Button onClick={confirmRenameSchema} disabled={!editName.trim()}>{t('common.save')}</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete confirmation dialog */}
+          <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {t('settings.schema_preset_delete_confirm')}
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => { if (deleteConfirmId) deletePreset(deleteConfirmId); setDeleteConfirmId(null) }}>
+                  {t('common.delete')}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) importPreset(file)
-              e.target.value = ''
-            }}
-          />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload size={14} />
-            {t('settings.schema_preset_import')}
-          </Button>
-          <Button size="sm" onClick={openCreateDialog}>
-            <Plus size={14} />
-            {t('settings.schema_preset_new')}
-          </Button>
-        </div>
-      </div>
-
-      {/* Built-in presets */}
-      <div className="space-y-2">
-        {BUILTIN_PRESET_IDS.map((presetId) => {
-          const preset = SCHEMA_PRESETS[presetId]
-          if (!preset) return null
-          return (
-            <PresetCard
-              key={presetId}
-              mapping={preset}
-              isBuiltin={true}
-              onOpen={() => setOpenPresetId(presetId)}
-              onDuplicate={() => duplicatePreset(preset)}
-              onExport={() => exportPreset(preset)}
-            />
-          )
-        })}
-      </div>
-
-      {/* Custom presets */}
-      {customPresets.length > 0 && (
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {t('settings.schema_preset_custom')}
-          </h4>
-          {customPresets.map((cp) => (
-            <PresetCard
-              key={cp.presetId}
-              mapping={cp.mapping}
-              isBuiltin={false}
-              onOpen={() => setOpenPresetId(cp.presetId)}
-              onDuplicate={() => duplicatePreset(cp.mapping)}
-              onExport={() => exportPreset(cp.mapping)}
-              onDelete={() => setDeleteConfirmId(cp.presetId)}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Create preset dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t('settings.schema_preset_new')}</DialogTitle>
-            <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
-          </DialogHeader>
-          <Input
-            value={newPresetName}
-            onChange={(e) => setNewPresetName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') confirmCreatePreset() }}
-            autoFocus
-          />
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
-            <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim()}>{t('common.create')}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirmation dialog */}
-      <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('settings.schema_preset_delete')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('settings.schema_preset_delete_confirm')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => { if (deleteConfirmId) deletePreset(deleteConfirmId); setDeleteConfirmId(null) }}>
-              {t('settings.schema_preset_delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Fullscreen dialog */}
-      {openMapping && openPresetId && (
-        <PresetFullscreenDialog
-          open={true}
-          onOpenChange={handleDialogClose}
-          mapping={openMapping}
-          isBuiltin={isOpenBuiltin}
-          isEditing={editingId === openPresetId}
-          editMapping={editingId === openPresetId ? editMapping ?? undefined : undefined}
-          onEditMappingChange={editingId === openPresetId ? setEditMapping : undefined}
-          onEdit={!isOpenBuiltin ? startEdit : undefined}
-          onSave={saveEdit}
-          onCancel={cancelEdit}
-          defaultTab={editingId === openPresetId ? 'detail' : 'erd'}
-        />
-      )}
-    </div>
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -27,45 +27,71 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated?: (pipelineId: string) => void
+  /** Pass a pipeline to edit it instead of creating a new one */
+  editingPipeline?: EtlPipeline | null
 }
 
-export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
+export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline }: Props) {
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createPipeline } = useEtlStore()
+  const { createPipeline, updatePipeline } = useEtlStore()
 
   const [name, setName] = useState('')
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
-  const [creating, setCreating] = useState(false)
+  const [saving, setSaving] = useState(false)
 
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const isEditing = !!editingPipeline
 
-  const handleCreate = async () => {
-    if (!name.trim() || !sourceId || !activeWorkspaceId) return
-    setCreating(true)
-    try {
-      const now = new Date().toISOString()
-      const pipeline: EtlPipeline = {
-        id: crypto.randomUUID(),
-        workspaceId: activeWorkspaceId,
-        name: name.trim(),
-        description: '',
-        sourceDataSourceId: sourceId,
-        targetDataSourceId: targetId || undefined,
-        status: 'draft',
-        createdAt: now,
-        updatedAt: now,
-      }
-      await createPipeline(pipeline)
-      onOpenChange(false)
+  // Populate fields when opening in edit mode
+  useEffect(() => {
+    if (open && editingPipeline) {
+      setName(editingPipeline.name)
+      setSourceId(editingPipeline.sourceDataSourceId)
+      setTargetId(editingPipeline.targetDataSourceId ?? '')
+    } else if (open && !editingPipeline) {
       setName('')
       setSourceId('')
       setTargetId('')
-      onCreated?.(pipeline.id)
+    }
+  }, [open, editingPipeline])
+
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+
+  const handleSubmit = async () => {
+    if (!name.trim() || !sourceId || !activeWorkspaceId) return
+    setSaving(true)
+    try {
+      if (isEditing && editingPipeline) {
+        await updatePipeline(editingPipeline.id, {
+          name: name.trim(),
+          sourceDataSourceId: sourceId,
+          targetDataSourceId: targetId || undefined,
+        })
+        onOpenChange(false)
+      } else {
+        const now = new Date().toISOString()
+        const pipeline: EtlPipeline = {
+          id: crypto.randomUUID(),
+          workspaceId: activeWorkspaceId,
+          name: name.trim(),
+          description: '',
+          sourceDataSourceId: sourceId,
+          targetDataSourceId: targetId || undefined,
+          status: 'draft',
+          createdAt: now,
+          updatedAt: now,
+        }
+        await createPipeline(pipeline)
+        onOpenChange(false)
+        setName('')
+        setSourceId('')
+        setTargetId('')
+        onCreated?.(pipeline.id)
+      }
     } finally {
-      setCreating(false)
+      setSaving(false)
     }
   }
 
@@ -73,8 +99,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('etl.create_title')}</DialogTitle>
-          <DialogDescription>{t('etl.create_description')}</DialogDescription>
+          <DialogTitle>{isEditing ? t('etl.edit_title') : t('etl.create_title')}</DialogTitle>
+          <DialogDescription>{isEditing ? t('etl.edit_description') : t('etl.create_description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -85,7 +111,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
               onChange={(e) => setName(e.target.value)}
               placeholder={t('etl.pipeline_name_placeholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && sourceId) handleCreate()
+                if (e.key === 'Enter' && name.trim() && sourceId) handleSubmit()
               }}
             />
           </div>
@@ -132,10 +158,10 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
             {t('common.cancel')}
           </Button>
           <Button
-            onClick={handleCreate}
-            disabled={!name.trim() || !sourceId || creating}
+            onClick={handleSubmit}
+            disabled={!name.trim() || !sourceId || saving}
           >
-            {t('common.create')}
+            {isEditing ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

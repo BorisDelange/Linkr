@@ -17,9 +17,10 @@ import type {
 interface DatabaseStatsDashboardProps {
   dataSourceId: string
   schemaMapping: SchemaMapping
+  sourceStatus?: string
 }
 
-export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping) {
+export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const autoRefreshed = useRef(false)
@@ -45,20 +46,22 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   }, [dataSourceId, schemaMapping])
 
   // Auto-compute if no cache or cache is from an older schema (missing genderDistribution)
+  // Wait until the source is connected before querying to avoid getting zeros from unmounted schemas
   useEffect(() => {
     if (isLoading || autoRefreshed.current) return
+    if (sourceStatus && sourceStatus !== 'connected') return
     if (!cache || !cache.genderDistribution) {
       autoRefreshed.current = true
       refresh()
     }
-  }, [cache, isLoading, refresh])
+  }, [cache, isLoading, refresh, sourceStatus])
 
   return { cache, isLoading, refresh }
 }
 
-export function DatabaseStatsDashboard({ dataSourceId, schemaMapping }: DatabaseStatsDashboardProps) {
+export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStatus }: DatabaseStatsDashboardProps) {
   const { t, i18n } = useTranslation()
-  const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping)
+  const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleString(i18n.language, {

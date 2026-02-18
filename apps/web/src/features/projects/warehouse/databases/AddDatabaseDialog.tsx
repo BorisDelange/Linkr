@@ -131,7 +131,7 @@ export function AddDatabaseDialog({
         const config = editingSource.connectionConfig as FhirConnectionConfig
         setFhirBaseUrl(config.baseUrl)
       }
-      setSchemaPresetId(editingSource.schemaMapping?.presetId as SchemaPresetId ?? 'none')
+      setSchemaPresetId(editingSource.schemaMapping?.presetId as SchemaPresetId ?? '__none__')
     }
   }, [open, editingSource])
 
@@ -340,8 +340,9 @@ export function AddDatabaseDialog({
     (selectedType !== 'fhir' || fhirBaseUrl.trim()) &&
     !isSizeBlocked
 
-  // Resolve schema mapping: built-in or custom
+  // Resolve schema mapping: built-in, custom, or none
   const resolveMapping = () => {
+    if (schemaPresetId === '__none__') return undefined
     const builtin = getSchemaPreset(schemaPresetId)
     if (builtin) return builtin
     const custom = customPresets.find((p) => p.presetId === schemaPresetId)
@@ -470,12 +471,15 @@ export function AddDatabaseDialog({
 
                 {/* Schema preset */}
                 <div className="space-y-2">
-                  <Label>{t('databases.field_schema_preset')}</Label>
+                  <Label>{t('databases.schema_preset')}</Label>
                   <Select value={schemaPresetId} onValueChange={(v) => setSchemaPresetId(v as SchemaPresetId)}>
                     <SelectTrigger className="w-full">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value="__none__">
+                        {t('databases.no_schema')}
+                      </SelectItem>
                       {BUILTIN_PRESET_IDS.map((id) => {
                         const preset = SCHEMA_PRESETS[id]
                         if (!preset) return null
@@ -485,18 +489,11 @@ export function AddDatabaseDialog({
                           </SelectItem>
                         )
                       })}
-                      {customPresets.length > 0 && (
-                        <>
-                          <div className="px-2 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                            {t('databases.schema_preset_group_custom')}
-                          </div>
-                          {customPresets.map((cp) => (
-                            <SelectItem key={cp.presetId} value={cp.presetId}>
-                              {cp.mapping.presetLabel}
-                            </SelectItem>
-                          ))}
-                        </>
-                      )}
+                      {customPresets.map((cp) => (
+                        <SelectItem key={cp.presetId} value={cp.presetId}>
+                          {cp.mapping.presetLabel}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>

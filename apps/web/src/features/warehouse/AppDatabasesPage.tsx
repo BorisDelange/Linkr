@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -116,8 +122,8 @@ function CreateFromPresetDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('databases.create_from_preset')}</DialogTitle>
-          <DialogDescription>{t('databases.create_from_preset_description')}</DialogDescription>
+          <DialogTitle>{t('databases.create_from_schema')}</DialogTitle>
+          <DialogDescription>{t('databases.create_from_schema_description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -176,7 +182,7 @@ function CreateFromPresetDialog({
 export function AppDatabasesPage() {
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const { testConnection, removeDataSource, reconnectDataSource } = useDataSourceStore()
+  const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource } = useDataSourceStore()
   const projects = useAppStore((s) => s._projectsRaw)
   const language = useAppStore((s) => s.language)
 
@@ -185,6 +191,16 @@ export function AppDatabasesPage() {
   const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Fuzzy search: every word in query must appear in name OR description (case-insensitive)
+  const filteredSources = searchQuery.trim()
+    ? dataSources.filter((ds) => {
+        const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+        const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
+        return words.every((w) => haystack.includes(w))
+      })
+    : dataSources
 
   const currentSelectedSource = selectedSource
     ? dataSources.find((ds) => ds.id === selectedSource.id) ?? null
@@ -213,19 +229,41 @@ export function AppDatabasesPage() {
               {t('app_warehouse.databases_description', { count: dataSources.length })}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" onClick={() => setPresetDialogOpen(true)}>
-              <FileCode size={16} />
-              {t('databases.create_from_preset')}
-            </Button>
-            <Button onClick={() => setDialogOpen(true)}>
-              <Plus size={16} />
-              {t('databases.add')}
-            </Button>
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button>
+                <Plus size={16} />
+                {t('databases.add_database')}
+                <ChevronDown size={14} className="ml-1 opacity-60" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => setDialogOpen(true)}>
+                <Plug size={14} />
+                {t('databases.add_connection')}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setPresetDialogOpen(true)}>
+                <FileCode size={14} />
+                {t('databases.create_from_schema')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
-      {dataSources.length === 0 ? (
+        {/* Search bar */}
+        {dataSources.length > 0 && (
+          <div className="relative mt-4">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={t('databases.search_placeholder')}
+              className="pl-9"
+            />
+          </div>
+        )}
+
+      {filteredSources.length === 0 && dataSources.length === 0 ? (
         <Card className="mt-4">
           <div className="flex flex-col items-center py-12">
             <Database size={40} className="text-muted-foreground" />
@@ -237,9 +275,14 @@ export function AppDatabasesPage() {
             </p>
           </div>
         </Card>
+      ) : filteredSources.length === 0 ? (
+        <div className="mt-4 flex flex-col items-center py-8">
+          <Search size={24} className="text-muted-foreground/50" />
+          <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
+        </div>
       ) : (
         <div className="mt-4 space-y-3">
-          {dataSources.map((ds) => {
+          {filteredSources.map((ds) => {
             const linkedProjects = getLinkedProjects(ds.id)
             return (
               <div key={ds.id} className="space-y-1">
@@ -247,6 +290,7 @@ export function AppDatabasesPage() {
                   source={ds}
                   onClick={() => setSelectedSource(ds)}
                   onTestConnection={() => testConnection(ds.id)}
+                  onDisconnect={() => disconnectDataSource(ds.id)}
                   onReconnect={() => reconnectDataSource(ds.id)}
                   onEdit={() => setSourceToEdit(ds)}
                   onRemove={() => setSourceToRemove(ds)}

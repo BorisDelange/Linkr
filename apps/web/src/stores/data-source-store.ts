@@ -60,6 +60,8 @@ interface DataSourceState {
   updateDataSource: (id: string, changes: Partial<DataSource>) => void
   removeDataSource: (id: string) => Promise<void>
   testConnection: (id: string) => Promise<void>
+  /** Unmount a data source from DuckDB and set status to 'disconnected'. */
+  disconnectDataSource: (id: string) => Promise<void>
   mountProjectSources: (projectUid: string) => Promise<void>
   /** Re-request File System Access permissions for a disconnected data source. */
   reconnectDataSource: (id: string) => Promise<void>
@@ -411,6 +413,26 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     } finally {
       busySources.delete(id)
     }
+  },
+
+  disconnectDataSource: async (id) => {
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds || ds.status === 'disconnected') return
+
+    try {
+      await engine.unmountDataSource(id)
+    } catch {
+      // Ignore — may already be unmounted
+    }
+    mountedSources.delete(id)
+
+    const updated: Partial<DataSource> = { status: 'disconnected' }
+    await getStorage().dataSources.update(id, updated)
+    set((s) => ({
+      dataSources: s.dataSources.map((d) =>
+        d.id === id ? { ...d, ...updated } : d,
+      ),
+    }))
   },
 
   mountProjectSources: async (projectUid: string) => {

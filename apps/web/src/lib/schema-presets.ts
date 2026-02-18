@@ -255,27 +255,17 @@ const mimicIII: SchemaMapping = {
 }
 
 // ---------------------------------------------------------------------------
-// None (raw SQL access)
-// ---------------------------------------------------------------------------
-
-const none: SchemaMapping = {
-  presetId: 'none',
-  presetLabel: 'None (raw SQL access)',
-}
-
-// ---------------------------------------------------------------------------
 // Built-in presets registry
 // ---------------------------------------------------------------------------
 
 /** Built-in preset IDs in display order. */
-export const BUILTIN_PRESET_IDS: SchemaPresetId[] = ['omop-5.4', 'omop-5.3', 'mimic-iii', 'none']
+export const BUILTIN_PRESET_IDS: SchemaPresetId[] = ['omop-5.4', 'omop-5.3', 'mimic-iii']
 
 /** Built-in presets keyed by ID. */
 export const SCHEMA_PRESETS: Record<string, SchemaMapping> = {
   'omop-5.4': omop54,
   'omop-5.3': omop53,
   'mimic-iii': mimicIII,
-  'none': none,
 }
 
 /** Get a built-in preset by ID. Returns undefined if not found. */

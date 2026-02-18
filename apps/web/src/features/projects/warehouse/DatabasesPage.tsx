@@ -29,6 +29,7 @@ export function DatabasesPage() {
     getActiveSource,
     setActiveDataSource,
     testConnection,
+    disconnectDataSource,
     mountProjectSources,
     reconnectDataSource,
   } = useDataSourceStore()
@@ -109,6 +110,7 @@ export function DatabasesPage() {
                 onClick={() => setSelectedSource(ds)}
                 onSetActive={() => uid && setActiveDataSource(uid, ds.id)}
                 onTestConnection={() => testConnection(ds.id)}
+                onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
                 onRemove={() => setSourceToUnlink(ds)}
               />

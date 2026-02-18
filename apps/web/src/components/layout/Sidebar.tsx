@@ -119,8 +119,9 @@ const workspaceNavItems: SegmentNavEntry[] = [
     defaultOpen: false,
     children: [
       { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/schema-presets', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schema_presets', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: 'text-teal-500' },
       { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
       { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
     ],
   },

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { Plus, FolderOpen } from 'lucide-react'
+import { Plus, FolderOpen, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 
@@ -17,6 +18,7 @@ export function ProjectsPage() {
   const { _projectsRaw, projects, getWorkspaceProjects, openProject } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -27,6 +29,15 @@ export function ProjectsPage() {
 
   // Filter projects by workspace if we're inside one
   const displayProjects = wsUid ? getWorkspaceProjects(wsUid) : projects
+
+  const filteredProjects = useMemo(() => {
+    if (!searchQuery.trim()) return displayProjects
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    return displayProjects.filter((p) => {
+      const text = `${p.name} ${p.description ?? ''}`.toLowerCase()
+      return words.every((w) => text.includes(w))
+    })
+  }, [displayProjects, searchQuery])
 
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
@@ -50,6 +61,18 @@ export function ProjectsPage() {
           </Button>
         </div>
 
+        {displayProjects.length > 0 && (
+          <div className="relative mt-4">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder={t('projects.search_placeholder')}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        )}
+
         {displayProjects.length === 0 ? (
           <Card className="mt-6">
             <div className="flex flex-col items-center py-12">
@@ -66,9 +89,14 @@ export function ProjectsPage() {
               </Button>
             </div>
           </Card>
+        ) : filteredProjects.length === 0 ? (
+          <div className="flex flex-col items-center py-12 text-center">
+            <Search size={32} className="text-muted-foreground/30" />
+            <p className="mt-2 text-sm text-muted-foreground">{t('projects.no_results')}</p>
+          </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {displayProjects.map((project) => {
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {filteredProjects.map((project) => {
               const raw = _projectsRaw.find((p) => p.uid === project.uid)
               const badges = raw?.badges ?? []
               const status = raw?.status ?? 'active'
@@ -86,7 +114,7 @@ export function ProjectsPage() {
                         </div>
                         <span className="truncate text-sm font-medium text-card-foreground">{project.name}</span>
                       </div>
-                      <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStatusClasses(status)}`}>
+                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${getStatusClasses(status)}`}>
                         <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(status)}`} />
                         {t(`project_settings.status_${status}`)}
                       </span>

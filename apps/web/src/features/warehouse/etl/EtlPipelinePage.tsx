@@ -81,43 +81,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
         <Separator orientation="vertical" className="!h-4 mx-1" />
 
-        <Select
-          value={pipeline.sourceDataSourceId}
-          onValueChange={(value) => updatePipeline(pipeline.id, { sourceDataSourceId: value })}
-        >
-          <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-            <Database size={12} className="text-muted-foreground" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {dbSources.map((ds) => (
-              <SelectItem key={ds.id} value={ds.id}>
-                {ds.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
-
-        <Select
-          value={pipeline.targetDataSourceId ?? ''}
-          onValueChange={(value) => updatePipeline(pipeline.id, { targetDataSourceId: value || undefined })}
-        >
-          <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-            <Database size={12} className="text-muted-foreground" />
-            <SelectValue placeholder={t('etl.select_target')} />
-          </SelectTrigger>
-          <SelectContent>
-            {dbSources.map((ds) => (
-              <SelectItem key={ds.id} value={ds.id}>
-                {ds.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <div className="ml-4 flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5">
           {TABS.map((tab) => (
             <button
               key={tab.id}
@@ -133,6 +97,44 @@ export function EtlPipelinePage({ pipelineId }: Props) {
               {t(tab.labelKey)}
             </button>
           ))}
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <Select
+            value={pipeline.sourceDataSourceId}
+            onValueChange={(value) => updatePipeline(pipeline.id, { sourceDataSourceId: value })}
+          >
+            <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+              <Database size={12} className="text-muted-foreground" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {dbSources.map((ds) => (
+                <SelectItem key={ds.id} value={ds.id}>
+                  {ds.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
+
+          <Select
+            value={pipeline.targetDataSourceId ?? ''}
+            onValueChange={(value) => updatePipeline(pipeline.id, { targetDataSourceId: value || undefined })}
+          >
+            <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+              <Database size={12} className="text-muted-foreground" />
+              <SelectValue placeholder={t('etl.select_target')} />
+            </SelectTrigger>
+            <SelectContent>
+              {dbSources.map((ds) => (
+                <SelectItem key={ds.id} value={ds.id}>
+                  {ds.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

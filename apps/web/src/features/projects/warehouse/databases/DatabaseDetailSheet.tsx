@@ -92,7 +92,7 @@ export function DatabaseDetailSheet({
 
             {hasMappedSchema && source.schemaMapping && (
               <TabsContent value="statistics" className="mt-0 px-6 pb-6">
-                <DatabaseStatsDashboard dataSourceId={source.id} schemaMapping={source.schemaMapping} />
+                <DatabaseStatsDashboard dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
               </TabsContent>
             )}
           </ScrollArea>
@@ -170,7 +170,7 @@ function OverviewTab({
       {/* Summary counts for mapped schemas */}
       {hasMappedSchema && source.schemaMapping && (
         <>
-          <MappedSummaryCounts dataSourceId={source.id} schemaMapping={source.schemaMapping} />
+          <MappedSummaryCounts dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
           <Separator />
         </>
       )}
@@ -189,7 +189,7 @@ function OverviewTab({
 
       {/* Table counts for mapped schemas */}
       {hasMappedSchema && source.schemaMapping && (
-        <TableCountsSection dataSourceId={source.id} schemaMapping={source.schemaMapping} />
+        <TableCountsSection dataSourceId={source.id} schemaMapping={source.schemaMapping} sourceStatus={source.status} />
       )}
 
       {/* Timestamps */}
@@ -210,9 +210,9 @@ function OverviewTab({
 }
 
 /** Summary count cards using cached database stats. */
-function MappedSummaryCounts({ dataSourceId, schemaMapping }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping }) {
+function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping; sourceStatus?: string }) {
   const { t } = useTranslation()
-  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping)
+  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -239,9 +239,9 @@ function MappedSummaryCounts({ dataSourceId, schemaMapping }: { dataSourceId: st
 }
 
 /** Table counts section using cached database stats. */
-function TableCountsSection({ dataSourceId, schemaMapping }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping }) {
+function TableCountsSection({ dataSourceId, schemaMapping, sourceStatus }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping; sourceStatus?: string }) {
   const { t } = useTranslation()
-  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping)
+  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   return (
     <div>

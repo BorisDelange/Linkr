@@ -3,6 +3,7 @@ import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import {
   Database,
   Plug,
+  Unplug,
   RefreshCw,
   Pencil,
   MoreHorizontal,
@@ -24,6 +25,7 @@ interface DatabaseCardProps {
   onClick?: () => void
   onSetActive?: () => void
   onTestConnection: () => void
+  onDisconnect?: () => void
   onReconnect?: () => void
   onEdit?: () => void
   onRemove: () => void
@@ -37,7 +39,7 @@ function getSourceSummary(source: DataSource): string {
   const parts: string[] = []
 
   if (config.engine) parts.push(config.engine.charAt(0).toUpperCase() + config.engine.slice(1))
-  if (mapping?.presetLabel && mapping.presetId !== 'none') parts.push(mapping.presetLabel)
+  if (mapping?.presetLabel) parts.push(mapping.presetLabel)
 
   return parts.join(' / ') || 'Database'
 }
@@ -75,6 +77,7 @@ export function DatabaseCard({
   onClick,
   onSetActive,
   onTestConnection,
+  onDisconnect,
   onReconnect,
   onEdit,
   onRemove,
@@ -114,7 +117,7 @@ export function DatabaseCard({
               </div>
             </div>
 
-            {/* Status badge */}
+            {/* Status badge + menu */}
             <div className="flex items-center gap-1.5">
               <span
                 className={`h-2 w-2 rounded-full ${statusColors[source.status] ?? statusColors.disconnected}`}
@@ -122,6 +125,47 @@ export function DatabaseCard({
               <span className="text-xs text-muted-foreground">
                 {t(`databases.status_${source.status}`)}
               </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                    <MoreHorizontal size={14} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onEdit && (
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit() }}>
+                      <Pencil size={14} />
+                      {t('common.edit')}
+                    </DropdownMenuItem>
+                  )}
+                  {source.status === 'connected' && onDisconnect && (
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDisconnect() }}>
+                      <Unplug size={14} />
+                      {t('databases.disconnect')}
+                    </DropdownMenuItem>
+                  )}
+                  {source.status !== 'connected' && (
+                    needsReconnect && onReconnect ? (
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onReconnect() }}>
+                        <RefreshCw size={14} />
+                        {t('databases.reconnect')}
+                      </DropdownMenuItem>
+                    ) : (
+                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onTestConnection() }}>
+                        <Plug size={14} />
+                        {t('databases.connect')}
+                      </DropdownMenuItem>
+                    )
+                  )}
+                  <DropdownMenuItem
+                    onClick={(e) => { e.stopPropagation(); onRemove() }}
+                    className="text-destructive focus:text-destructive"
+                  >
+                    <Trash2 size={14} />
+                    {t('databases.remove')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
 
@@ -152,74 +196,26 @@ export function DatabaseCard({
         </div>
 
         {/* Actions */}
-        <div className="mt-4 flex items-center gap-2">
-          {isActive ? (
-            <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
-              <Check size={12} />
-              {t('databases.active_badge')}
-            </span>
-          ) : onSetActive && source.status === 'connected' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onSetActive}
-              className="gap-1.5 text-xs"
-            >
-              <Check size={12} />
-              {t('databases.use_database')}
-            </Button>
-          ) : null}
-          {needsReconnect && onReconnect ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onReconnect}
-              className="gap-1.5 text-xs"
-            >
-              <RefreshCw size={12} />
-              {t('databases.reconnect')}
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onTestConnection}
-              disabled={source.status === 'configuring'}
-              className="gap-1.5 text-xs"
-            >
-              <Plug size={12} />
-              {t('databases.test_connection')}
-            </Button>
-          )}
-          {onEdit && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onEdit}
-              className="gap-1.5 text-xs"
-            >
-              <Pencil size={12} />
-              {t('databases.edit')}
-            </Button>
-          )}
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal size={14} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onClick={onRemove}
-                className="text-destructive focus:text-destructive"
+        {(isActive || (onSetActive && source.status === 'connected')) && (
+          <div className="mt-4 flex items-center gap-2">
+            {isActive ? (
+              <span className="inline-flex items-center gap-1 rounded-md bg-green-100 px-2 py-1 text-xs font-medium text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                <Check size={12} />
+                {t('databases.active_badge')}
+              </span>
+            ) : onSetActive && source.status === 'connected' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onSetActive}
+                className="gap-1.5 text-xs"
               >
-                <Trash2 size={14} />
-                {t('databases.remove')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+                <Check size={12} />
+                {t('databases.use_database')}
+              </Button>
+            ) : null}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

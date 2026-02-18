@@ -39,6 +39,7 @@ import { AppDatabasesPage } from '@/features/warehouse/AppDatabasesPage'
 import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
+import { AppDataQualityPage } from '@/features/warehouse/AppDataQualityPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
 import { WorkspacesPage } from '@/features/workspaces/WorkspacesPage'
 import { WorkspaceHomePage } from '@/features/workspaces/WorkspaceHomePage'
@@ -114,8 +115,11 @@ export function App() {
             <Route path="/workspaces/:wsUid/plugins" element={<WorkspaceGuard><PluginsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse" element={<WorkspaceGuard><Navigate to="databases" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/databases" element={<WorkspaceGuard><AppDatabasesPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/schemas" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><AppDataQualityPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
