@@ -614,38 +614,41 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
               {/* Editor + Output */}
               <div className="flex-1 overflow-hidden">
-                <Allotment proportionalLayout={false}>
-                  {/* Editor pane */}
-                  <Allotment.Pane minSize={150} visible={editorVisible}>
-                    {selectedFile ? (
-                      <CodeEditor
-                        key={selectedFileId}
-                        value={selectedFile.content ?? ''}
-                        language={editorLanguage}
-                        onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
-                        onSave={handleEditorSave}
-                        onRunFile={handleRunFile}
-                      />
-                    ) : (
-                      <div className="flex h-full items-center justify-center">
-                        <div className="text-center">
-                          <FileCode size={32} className="mx-auto text-muted-foreground/50" />
-                          <p className="mt-3 text-sm text-muted-foreground">{t('files.select_file')}</p>
+                {/* key forces remount so defaultSizes are re-applied on toggle */}
+                <Allotment key={`eo-${editorVisible}-${outputVisible && hasOutput}`}>
+                  {editorVisible && (
+                    <Allotment.Pane minSize={150}>
+                      {selectedFile ? (
+                        <CodeEditor
+                          key={selectedFileId}
+                          value={selectedFile.content ?? ''}
+                          language={editorLanguage}
+                          onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
+                          onSave={handleEditorSave}
+                          onRunFile={handleRunFile}
+                        />
+                      ) : (
+                        <div className="flex h-full items-center justify-center">
+                          <div className="text-center">
+                            <FileCode size={32} className="mx-auto text-muted-foreground/50" />
+                            <p className="mt-3 text-sm text-muted-foreground">{t('files.select_file')}</p>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </Allotment.Pane>
+                      )}
+                    </Allotment.Pane>
+                  )}
 
-                  {/* Output pane */}
-                  <Allotment.Pane minSize={200} preferredSize={500} visible={outputVisible && hasOutput}>
-                    <div className="flex h-full flex-col border-l">
-                      <EtlOutputContent
-                        activeOutputTab={activeOutputTab}
-                        outputTabs={outputTabs}
-                        executionResults={executionResults}
-                      />
-                    </div>
-                  </Allotment.Pane>
+                  {outputVisible && hasOutput && (
+                    <Allotment.Pane minSize={200}>
+                      <div className="flex h-full flex-col border-l">
+                        <EtlOutputContent
+                          activeOutputTab={activeOutputTab}
+                          outputTabs={outputTabs}
+                          executionResults={executionResults}
+                        />
+                      </div>
+                    </Allotment.Pane>
+                  )}
                 </Allotment>
               </div>
             </div>

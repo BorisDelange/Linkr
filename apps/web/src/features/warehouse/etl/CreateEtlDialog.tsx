@@ -23,12 +23,6 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
 import type { EtlPipeline } from '@/types'
 
-const TARGET_PRESETS = [
-  { id: 'omop-5.4', label: 'OMOP CDM 5.4' },
-  { id: 'omop-5.3', label: 'OMOP CDM 5.3' },
-  { id: 'none', label: 'Custom (no preset)' },
-]
-
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -43,7 +37,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
 
   const [name, setName] = useState('')
   const [sourceId, setSourceId] = useState('')
-  const [targetPresetId, setTargetPresetId] = useState('omop-5.4')
+  const [targetId, setTargetId] = useState('')
   const [creating, setCreating] = useState(false)
 
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
@@ -59,8 +53,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
         name: name.trim(),
         description: '',
         sourceDataSourceId: sourceId,
-        targetSchemaPresetId: targetPresetId,
-        targetConfig: { mode: 'parquet-local' },
+        targetDataSourceId: targetId || undefined,
         status: 'draft',
         createdAt: now,
         updatedAt: now,
@@ -69,7 +62,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
       onOpenChange(false)
       setName('')
       setSourceId('')
-      setTargetPresetId('omop-5.4')
+      setTargetId('')
       onCreated?.(pipeline.id)
     } finally {
       setCreating(false)
@@ -117,19 +110,20 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label>{t('etl.target_schema')}</Label>
-            <Select value={targetPresetId} onValueChange={setTargetPresetId}>
+            <Label>{t('etl.target_database')}</Label>
+            <Select value={targetId} onValueChange={setTargetId}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder={t('etl.select_target')} />
               </SelectTrigger>
               <SelectContent>
-                {TARGET_PRESETS.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.label}
+                {dbSources.map((ds) => (
+                  <SelectItem key={ds.id} value={ds.id}>
+                    {ds.name}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
+            <p className="text-xs text-muted-foreground">{t('etl.target_database_hint')}</p>
           </div>
         </div>
 

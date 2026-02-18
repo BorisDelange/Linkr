@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, FileOutput } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -15,12 +15,7 @@ import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
-
-const TARGET_PRESETS = [
-  { id: 'omop-5.4', label: 'OMOP CDM 5.4' },
-  { id: 'omop-5.3', label: 'OMOP CDM 5.3' },
-  { id: 'none', label: 'Custom (no preset)' },
-]
+import { EtlProfilingTab } from './EtlProfilingTab'
 
 type TabId = 'scripts' | 'pipeline' | 'profiling'
 
@@ -98,17 +93,17 @@ export function EtlPipelinePage({ pipelineId }: Props) {
         <ArrowRight size={12} className="shrink-0 text-muted-foreground" />
 
         <Select
-          value={pipeline.targetSchemaPresetId}
-          onValueChange={(value) => updatePipeline(pipeline.id, { targetSchemaPresetId: value })}
+          value={pipeline.targetDataSourceId ?? ''}
+          onValueChange={(value) => updatePipeline(pipeline.id, { targetDataSourceId: value || undefined })}
         >
           <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
-            <FileOutput size={12} className="text-muted-foreground" />
-            <SelectValue />
+            <Database size={12} className="text-muted-foreground" />
+            <SelectValue placeholder={t('etl.select_target')} />
           </SelectTrigger>
           <SelectContent>
-            {TARGET_PRESETS.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.label}
+            {dbSources.map((ds) => (
+              <SelectItem key={ds.id} value={ds.id}>
+                {ds.name}
               </SelectItem>
             ))}
           </SelectContent>
@@ -141,11 +136,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
             {t('etl.pipeline_tab_coming_soon')}
           </div>
         )}
-        {activeTab === 'profiling' && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            {t('etl.profiling_tab_coming_soon')}
-          </div>
-        )}
+        {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipelineId} />}
       </div>
     </div>
   )

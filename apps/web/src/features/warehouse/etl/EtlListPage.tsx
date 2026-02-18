@@ -157,8 +157,12 @@ export function EtlListPage() {
                       <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                         <Database size={12} />
                         <span>{getSourceName(pipeline.sourceDataSourceId)}</span>
-                        <ArrowRight size={10} />
-                        <span>{pipeline.targetSchemaPresetId}</span>
+                        {pipeline.targetDataSourceId && (
+                          <>
+                            <ArrowRight size={10} />
+                            <span>{getSourceName(pipeline.targetDataSourceId)}</span>
+                          </>
+                        )}
                       </div>
                       {pipeline.lastRunAt && (
                         <p className="mt-0.5 text-[10px] text-muted-foreground">

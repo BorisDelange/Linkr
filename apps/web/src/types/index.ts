@@ -612,18 +612,12 @@ export interface EtlPipeline {
   name: string
   description: string
   sourceDataSourceId: string
-  targetSchemaPresetId: string
-  targetConfig: EtlTargetConfig
+  targetDataSourceId?: string
   status: EtlPipelineStatus
   lastRunAt?: string
   lastRunDurationMs?: number
   createdAt: string
   updatedAt: string
-}
-
-export interface EtlTargetConfig {
-  mode: 'parquet-local'
-  outputDataSourceName?: string
 }
 
 export interface EtlFile {
