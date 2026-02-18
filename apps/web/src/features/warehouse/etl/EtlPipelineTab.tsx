@@ -54,6 +54,9 @@ import {
   GripVertical,
   List,
   FileCode,
+  Users,
+  Activity,
+  Table2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -67,8 +70,9 @@ import { cn } from '@/lib/utils'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import { etlNodeTypes, type EtlSourceNodeData, type EtlScriptNodeData, type EtlTargetNodeData } from './etl-nodes'
-import type { EtlFile } from '@/types'
+import type { EtlFile, DatabaseStatsCache } from '@/types'
 
 // ---------------------------------------------------------------------------
 // Serial layout (vertical chain, alphabetical order by default)
@@ -587,32 +591,12 @@ function NodeDetailSidebar({ info, onViewCode }: { info: NodeInfo | null; onView
   }
 
   if (info.type === 'source' || info.type === 'target') {
-    const ds = info.ds
     return (
-      <div className="flex h-full flex-col">
-        <div className="border-b px-3 py-2.5">
-          <div className="flex items-center gap-2">
-            <Database size={14} className={info.type === 'source' ? 'text-teal-500' : 'text-emerald-500'} />
-            <h3 className="text-xs font-medium">{t(info.type === 'source' ? 'etl.source' : 'etl.target')}</h3>
-          </div>
-        </div>
-        <ScrollArea className="flex-1">
-          <div className="space-y-3 p-3 text-xs">
-            {ds ? (
-              <>
-                <DetailRow label={t('etl.pipeline_db_name')} value={ds.name} />
-                <DetailRow label={t('etl.pipeline_db_engine')} value={ds.engine ?? '—'} />
-                {ds.schemaMapping?.presetLabel && (
-                  <DetailRow label={t('etl.pipeline_db_schema')} value={ds.schemaMapping.presetLabel} />
-                )}
-                <DetailRow label={t('etl.pipeline_db_type')} value={ds.sourceType ?? '—'} />
-              </>
-            ) : (
-              <p className="text-muted-foreground">{t('etl.pipeline_no_db_selected')}</p>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
+      <DatabaseSidebarDetail
+        ds={info.ds}
+        label={t(info.type === 'source' ? 'etl.source' : 'etl.target')}
+        accentColor={info.type === 'source' ? 'text-teal-500' : 'text-emerald-500'}
+      />
     )
   }
 
@@ -688,6 +672,230 @@ function DetailRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start justify-between gap-2">
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="text-right">{value}</span>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Database sidebar detail — rich stats for source/target nodes
+// ---------------------------------------------------------------------------
+
+function DatabaseSidebarDetail({
+  ds,
+  label,
+  accentColor,
+}: {
+  ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  label: string
+  accentColor: string
+}) {
+  const { t } = useTranslation()
+  const [stats, setStats] = useState<DatabaseStatsCache | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!ds?.id || !ds.schemaMapping) {
+      setStats(null)
+      return
+    }
+    let cancelled = false
+    setLoading(true)
+    computeDatabaseStats(ds.id, ds.schemaMapping).then((result) => {
+      if (!cancelled) {
+        setStats(result)
+        setLoading(false)
+      }
+    }).catch(() => {
+      if (!cancelled) setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [ds?.id, ds?.schemaMapping])
+
+  if (!ds) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="border-b px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <Database size={14} className={accentColor} />
+            <h3 className="text-xs font-medium">{label}</h3>
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center p-6">
+          <p className="text-xs text-muted-foreground">{t('etl.pipeline_no_db_selected')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-3 py-2.5">
+        <div className="flex items-center gap-2">
+          <Database size={14} className={accentColor} />
+          <h3 className="text-xs font-medium">{label}</h3>
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="space-y-4 p-3">
+          {/* Basic info */}
+          <div className="space-y-2 text-xs">
+            <DetailRow label={t('etl.pipeline_db_name')} value={ds.name} />
+            <DetailRow label={t('etl.pipeline_db_engine')} value={ds.connectionConfig?.engine ?? '—'} />
+            {ds.schemaMapping?.presetLabel && (
+              <DetailRow label={t('etl.pipeline_db_schema')} value={ds.schemaMapping.presetLabel} />
+            )}
+            <DetailRow label={t('etl.pipeline_db_type')} value={ds.sourceType ?? '—'} />
+          </div>
+
+          {/* Loading state */}
+          {loading && (
+            <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+              <Loader2 size={12} className="animate-spin" />
+              {t('common.loading')}…
+            </div>
+          )}
+
+          {/* Overview stats */}
+          {stats && (
+            <>
+              <div className="border-t pt-3">
+                <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {t('etl.sidebar_overview')}
+                </h4>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="rounded-md border p-2 text-center">
+                    <Users size={14} className="mx-auto mb-1 text-blue-500" />
+                    <div className="text-sm font-semibold tabular-nums">{stats.summary.patientCount.toLocaleString()}</div>
+                    <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_patients')}</div>
+                  </div>
+                  <div className="rounded-md border p-2 text-center">
+                    <Activity size={14} className="mx-auto mb-1 text-emerald-500" />
+                    <div className="text-sm font-semibold tabular-nums">{stats.summary.visitCount.toLocaleString()}</div>
+                    <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_visits')}</div>
+                  </div>
+                  <div className="rounded-md border p-2 text-center">
+                    <Table2 size={14} className="mx-auto mb-1 text-amber-500" />
+                    <div className="text-sm font-semibold tabular-nums">{stats.summary.tableCount}</div>
+                    <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_tables')}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Gender distribution */}
+              {(stats.genderDistribution.male > 0 || stats.genderDistribution.female > 0) && (
+                <div className="border-t pt-3">
+                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('etl.sidebar_gender')}
+                  </h4>
+                  <GenderBar distribution={stats.genderDistribution} />
+                </div>
+              )}
+
+              {/* Descriptive stats */}
+              {stats.descriptiveStats.ageMean != null && (
+                <div className="border-t pt-3">
+                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('etl.sidebar_age_stats')}
+                  </h4>
+                  <div className="space-y-1.5 text-xs">
+                    {stats.descriptiveStats.ageMean != null && (
+                      <DetailRow label={t('etl.sidebar_mean')} value={String(stats.descriptiveStats.ageMean)} />
+                    )}
+                    {stats.descriptiveStats.ageMedian != null && (
+                      <DetailRow label={t('etl.sidebar_median')} value={String(stats.descriptiveStats.ageMedian)} />
+                    )}
+                    {stats.descriptiveStats.ageMin != null && stats.descriptiveStats.ageMax != null && (
+                      <DetailRow label={t('etl.sidebar_range')} value={`${stats.descriptiveStats.ageMin} – ${stats.descriptiveStats.ageMax}`} />
+                    )}
+                    {stats.descriptiveStats.ageQ1 != null && stats.descriptiveStats.ageQ3 != null && (
+                      <DetailRow label="IQR" value={`${stats.descriptiveStats.ageQ1} – ${stats.descriptiveStats.ageQ3}`} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Visit stats */}
+              {stats.descriptiveStats.losMean != null && (
+                <div className="border-t pt-3">
+                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('etl.sidebar_visit_stats')}
+                  </h4>
+                  <div className="space-y-1.5 text-xs">
+                    {stats.descriptiveStats.admissionDateMin && stats.descriptiveStats.admissionDateMax && (
+                      <DetailRow
+                        label={t('etl.sidebar_date_range')}
+                        value={`${stats.descriptiveStats.admissionDateMin.slice(0, 10)} → ${stats.descriptiveStats.admissionDateMax.slice(0, 10)}`}
+                      />
+                    )}
+                    {stats.descriptiveStats.losMean != null && (
+                      <DetailRow label={`${t('etl.sidebar_los')} (${t('etl.sidebar_mean')})`} value={`${stats.descriptiveStats.losMean} j`} />
+                    )}
+                    {stats.descriptiveStats.losMedian != null && (
+                      <DetailRow label={`${t('etl.sidebar_los')} (${t('etl.sidebar_median')})`} value={`${stats.descriptiveStats.losMedian} j`} />
+                    )}
+                    {stats.descriptiveStats.visitsPerPatientMean != null && (
+                      <DetailRow label={t('etl.sidebar_visits_per_patient')} value={`${stats.descriptiveStats.visitsPerPatientMean} (${t('etl.sidebar_mean')})`} />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Table list with row counts */}
+              {stats.tableCounts.length > 0 && (
+                <div className="border-t pt-3">
+                  <h4 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('etl.sidebar_tables')} ({stats.tableCounts.length})
+                  </h4>
+                  <div className="space-y-0.5">
+                    {stats.tableCounts.map((tc) => (
+                      <div key={tc.tableName} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent/30">
+                        <Table2 size={10} className="shrink-0 text-blue-500/60" />
+                        <span className="min-w-0 flex-1 truncate font-mono text-[11px]" title={tc.tableName}>{tc.tableName}</span>
+                        <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  )
+}
+
+// Simple gender distribution bar
+function GenderBar({ distribution }: { distribution: { male: number; female: number; other: number } }) {
+  const total = distribution.male + distribution.female + distribution.other
+  if (total === 0) return null
+  const malePct = Math.round((distribution.male / total) * 100)
+  const femalePct = Math.round((distribution.female / total) * 100)
+  const otherPct = 100 - malePct - femalePct
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex h-2 overflow-hidden rounded-full">
+        {malePct > 0 && <div className="bg-blue-500" style={{ width: `${malePct}%` }} />}
+        {femalePct > 0 && <div className="bg-pink-500" style={{ width: `${femalePct}%` }} />}
+        {otherPct > 0 && <div className="bg-gray-400" style={{ width: `${otherPct}%` }} />}
+      </div>
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-full bg-blue-500" />
+          {distribution.male.toLocaleString()} ({malePct}%)
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-full bg-pink-500" />
+          {distribution.female.toLocaleString()} ({femalePct}%)
+        </span>
+        {distribution.other > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-gray-400" />
+            {distribution.other.toLocaleString()} ({otherPct}%)
+          </span>
+        )}
+      </div>
     </div>
   )
 }

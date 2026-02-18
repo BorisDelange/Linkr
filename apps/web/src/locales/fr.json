@@ -1604,7 +1604,20 @@
     "script_db_default": "défaut",
     "script_db_label": "Base de données",
     "script_db_override": "modifié",
-    "pipeline_list_view": "Vue liste"
+    "pipeline_list_view": "Vue liste",
+    "sidebar_overview": "Vue d'ensemble",
+    "sidebar_patients": "Patients",
+    "sidebar_visits": "Visites",
+    "sidebar_tables": "Tables",
+    "sidebar_gender": "Répartition par genre",
+    "sidebar_age_stats": "Âge à la première visite",
+    "sidebar_mean": "Moyenne",
+    "sidebar_median": "Médiane",
+    "sidebar_range": "Étendue",
+    "sidebar_visit_stats": "Visites & hospitalisations",
+    "sidebar_date_range": "Période",
+    "sidebar_los": "DMS",
+    "sidebar_visits_per_patient": "Visites/patient"
   },
   "app_versioning": {
     "title": "Versioning",

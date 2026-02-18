@@ -1603,7 +1603,20 @@
     "script_db_default": "default",
     "script_db_label": "Database",
     "script_db_override": "override",
-    "pipeline_list_view": "List view"
+    "pipeline_list_view": "List view",
+    "sidebar_overview": "Overview",
+    "sidebar_patients": "Patients",
+    "sidebar_visits": "Visits",
+    "sidebar_tables": "Tables",
+    "sidebar_gender": "Gender distribution",
+    "sidebar_age_stats": "Age at first visit",
+    "sidebar_mean": "Mean",
+    "sidebar_median": "Median",
+    "sidebar_range": "Range",
+    "sidebar_visit_stats": "Visits & hospitalizations",
+    "sidebar_date_range": "Date range",
+    "sidebar_los": "LOS",
+    "sidebar_visits_per_patient": "Visits/patient"
   },
   "app_versioning": {
     "title": "Versioning",
