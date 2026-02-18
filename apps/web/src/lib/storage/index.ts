@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -210,6 +210,26 @@ export interface WikiAttachmentStorage {
   deleteByWorkspace(workspaceId: string): Promise<void>
 }
 
+/** Storage interface for ETL pipeline persistence. */
+export interface EtlPipelineStorage {
+  getAll(): Promise<EtlPipeline[]>
+  getByWorkspace(workspaceId: string): Promise<EtlPipeline[]>
+  getById(id: string): Promise<EtlPipeline | undefined>
+  create(pipeline: EtlPipeline): Promise<void>
+  update(id: string, changes: Partial<EtlPipeline>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for ETL file persistence. */
+export interface EtlFileStorage {
+  getByPipeline(pipelineId: string): Promise<EtlFile[]>
+  getById(id: string): Promise<EtlFile | undefined>
+  create(file: EtlFile): Promise<void>
+  update(id: string, changes: Partial<EtlFile>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByPipeline(pipelineId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -235,6 +255,8 @@ export interface Storage {
   dashboardWidgets: DashboardWidgetStorage
   wikiPages: WikiPageStorage
   wikiAttachments: WikiAttachmentStorage
+  etlPipelines: EtlPipelineStorage
+  etlFiles: EtlFileStorage
 }
 
 let _storage: Storage | null = null

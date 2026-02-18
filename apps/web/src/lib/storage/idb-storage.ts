@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -149,10 +149,24 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
+  etl_pipelines: {
+    key: string
+    value: EtlPipeline
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  etl_files: {
+    key: string
+    value: EtlFile
+    indexes: {
+      'by-pipeline': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 19
+const DB_VERSION = 20
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -360,6 +374,13 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       // Version 19: Raw source files for dataset re-import
       if (oldVersion < 19) {
         db.createObjectStore('dataset_raw_files', { keyPath: 'datasetFileId' })
+      }
+      // Version 20: ETL pipelines and files
+      if (oldVersion < 20) {
+        const etlPipelineStore = db.createObjectStore('etl_pipelines', { keyPath: 'id' })
+        etlPipelineStore.createIndex('by-workspace', 'workspaceId')
+        const etlFileStore = db.createObjectStore('etl_files', { keyPath: 'id' })
+        etlFileStore.createIndex('by-pipeline', 'pipelineId')
       }
     },
   })
@@ -1093,6 +1114,79 @@ class IDBWikiAttachmentStorage implements WikiAttachmentStorage {
   }
 }
 
+class IDBEtlPipelineStorage implements EtlPipelineStorage {
+  async getAll(): Promise<EtlPipeline[]> {
+    const db = await getDB()
+    return db.getAll('etl_pipelines')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<EtlPipeline[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('etl_pipelines', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<EtlPipeline | undefined> {
+    const db = await getDB()
+    return db.get('etl_pipelines', id)
+  }
+
+  async create(pipeline: EtlPipeline): Promise<void> {
+    const db = await getDB()
+    await db.add('etl_pipelines', pipeline)
+  }
+
+  async update(id: string, changes: Partial<EtlPipeline>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('etl_pipelines', id)
+    if (!existing) return
+    await db.put('etl_pipelines', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('etl_pipelines', id)
+  }
+}
+
+class IDBEtlFileStorage implements EtlFileStorage {
+  async getByPipeline(pipelineId: string): Promise<EtlFile[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('etl_files', 'by-pipeline', pipelineId)
+  }
+
+  async getById(id: string): Promise<EtlFile | undefined> {
+    const db = await getDB()
+    return db.get('etl_files', id)
+  }
+
+  async create(file: EtlFile): Promise<void> {
+    const db = await getDB()
+    await db.add('etl_files', file)
+  }
+
+  async update(id: string, changes: Partial<EtlFile>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('etl_files', id)
+    if (!existing) return
+    await db.put('etl_files', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('etl_files', id)
+  }
+
+  async deleteByPipeline(pipelineId: string): Promise<void> {
+    const db = await getDB()
+    const files = await db.getAllFromIndex('etl_files', 'by-pipeline', pipelineId)
+    const tx = db.transaction('etl_files', 'readwrite')
+    for (const file of files) {
+      tx.store.delete(file.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -1118,5 +1212,7 @@ export function createIDBStorage(): Storage {
     dashboardWidgets: new IDBDashboardWidgetStorage(),
     wikiPages: new IDBWikiPageStorage(),
     wikiAttachments: new IDBWikiAttachmentStorage(),
+    etlPipelines: new IDBEtlPipelineStorage(),
+    etlFiles: new IDBEtlFileStorage(),
   }
 }

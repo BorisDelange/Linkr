@@ -602,6 +602,83 @@ export interface ColumnStats {
   distribution?: { bucket: string; count: number }[]
 }
 
+// --- ETL Pipeline Types ---
+
+export type EtlPipelineStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
+
+export interface EtlPipeline {
+  id: string
+  workspaceId: string
+  name: string
+  description: string
+  sourceDataSourceId: string
+  targetSchemaPresetId: string
+  targetConfig: EtlTargetConfig
+  status: EtlPipelineStatus
+  lastRunAt?: string
+  lastRunDurationMs?: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EtlTargetConfig {
+  mode: 'parquet-local'
+  outputDataSourceName?: string
+}
+
+export interface EtlFile {
+  id: string
+  pipelineId: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  content?: string
+  language?: 'sql' | 'python' | 'r'
+  order: number
+  createdAt: string
+}
+
+export interface EtlRunLog {
+  id: string
+  pipelineId: string
+  fileId: string
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped'
+  startedAt?: string
+  completedAt?: string
+  durationMs?: number
+  rowsAffected?: number
+  error?: string
+  output?: string
+}
+
+export interface EtlColumnProfile {
+  tableName: string
+  columnName: string
+  columnType: string
+  rowCount: number
+  nullCount: number
+  distinctCount: number
+  topValues: { value: string; count: number }[]
+  minValue?: string
+  maxValue?: string
+}
+
+export interface EtlTableProfile {
+  tableName: string
+  rowCount: number
+  columnCount: number
+  columns: EtlColumnProfile[]
+  completeness: number
+}
+
+export interface EtlSourceProfile {
+  dataSourceId: string
+  computedAt: string
+  tables: EtlTableProfile[]
+  totalTables: number
+  totalColumns: number
+}
+
 // --- User Plugin Types ---
 
 export interface UserPlugin {

@@ -117,6 +117,7 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/settings" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
 
