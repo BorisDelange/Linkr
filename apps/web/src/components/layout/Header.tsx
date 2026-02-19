@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useEtlStore } from '@/stores/etl-store'
+import { useCatalogStore } from '@/stores/catalog-store'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,9 +47,12 @@ const workspaceSegmentTitleKeys: Record<string, string> = {
   'wiki': 'workspace_nav.wiki',
   'plugins': 'workspace_nav.plugins',
   'warehouse/databases': 'app_warehouse.nav_databases',
+  'warehouse/schemas': 'app_warehouse.nav_schemas',
   'warehouse/schema-presets': 'app_warehouse.nav_schema_presets',
   'warehouse/concept-mapping': 'app_warehouse.nav_concept_mapping',
+  'warehouse/data-quality': 'app_warehouse.nav_data_quality',
   'warehouse/etl': 'app_warehouse.nav_etl',
+  'warehouse/catalog': 'app_warehouse.nav_catalog',
   'versioning': 'workspace_nav.versioning',
   'settings': 'workspace_nav.settings',
 }
@@ -86,6 +90,7 @@ export function Header() {
   const { activeWorkspaceName } = useWorkspaceStore()
   const dashboards = useDashboardStore((s) => s.dashboards)
   const etlPipelines = useEtlStore((s) => s.etlPipelines)
+  const catalogs = useCatalogStore((s) => s.catalogs)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -133,6 +138,13 @@ export function Header() {
       if (etlMatch) {
         const pipeline = etlPipelines.find((p) => p.id === etlMatch[1])
         return pipeline?.name ?? t('app_warehouse.nav_etl')
+      }
+
+      // Catalog detail: show catalog name
+      const catalogMatch = segment.match(/^warehouse\/catalog\/(.+)$/)
+      if (catalogMatch) {
+        const catalog = catalogs.find((c) => c.id === catalogMatch[1])
+        return catalog?.name ?? t('app_warehouse.nav_catalog')
       }
 
       const key = workspaceSegmentTitleKeys[segment]

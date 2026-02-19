@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -250,6 +250,64 @@ export interface DqCustomCheckStorage {
   deleteByRuleSet(ruleSetId: string): Promise<void>
 }
 
+/** Storage interface for OHDSI concept set persistence. */
+export interface ConceptSetStorage {
+  getAll(): Promise<ConceptSet[]>
+  getByWorkspace(workspaceId: string): Promise<ConceptSet[]>
+  getById(id: string): Promise<ConceptSet | undefined>
+  create(conceptSet: ConceptSet): Promise<void>
+  update(id: string, changes: Partial<ConceptSet>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for mapping project persistence. */
+export interface MappingProjectStorage {
+  getAll(): Promise<MappingProject[]>
+  getByWorkspace(workspaceId: string): Promise<MappingProject[]>
+  getById(id: string): Promise<MappingProject | undefined>
+  create(project: MappingProject): Promise<void>
+  update(id: string, changes: Partial<MappingProject>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for concept mapping persistence. */
+export interface ConceptMappingStorage {
+  getByProject(projectId: string): Promise<ConceptMapping[]>
+  getById(id: string): Promise<ConceptMapping | undefined>
+  create(mapping: ConceptMapping): Promise<void>
+  createBatch(mappings: ConceptMapping[]): Promise<void>
+  update(id: string, changes: Partial<ConceptMapping>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByProject(projectId: string): Promise<void>
+}
+
+/** Storage interface for data catalog persistence. */
+export interface DataCatalogStorage {
+  getAll(): Promise<DataCatalog[]>
+  getByWorkspace(workspaceId: string): Promise<DataCatalog[]>
+  getById(id: string): Promise<DataCatalog | undefined>
+  create(catalog: DataCatalog): Promise<void>
+  update(id: string, changes: Partial<DataCatalog>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage for computed catalog results (heavy, can be recomputed). */
+export interface CatalogResultStorage {
+  get(catalogId: string): Promise<CatalogResultCache | undefined>
+  save(cache: CatalogResultCache): Promise<void>
+  delete(catalogId: string): Promise<void>
+}
+
+/** Storage interface for service mapping persistence. */
+export interface ServiceMappingStorage {
+  getAll(): Promise<ServiceMapping[]>
+  getByWorkspace(workspaceId: string): Promise<ServiceMapping[]>
+  getById(id: string): Promise<ServiceMapping | undefined>
+  create(mapping: ServiceMapping): Promise<void>
+  update(id: string, changes: Partial<ServiceMapping>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -279,6 +337,12 @@ export interface Storage {
   etlFiles: EtlFileStorage
   dqRuleSets: DqRuleSetStorage
   dqCustomChecks: DqCustomCheckStorage
+  conceptSets: ConceptSetStorage
+  mappingProjects: MappingProjectStorage
+  conceptMappings: ConceptMappingStorage
+  dataCatalogs: DataCatalogStorage
+  catalogResults: CatalogResultStorage
+  serviceMappings: ServiceMappingStorage
 }
 
 let _storage: Storage | null = null

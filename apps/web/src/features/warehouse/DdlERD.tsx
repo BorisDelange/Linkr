@@ -89,7 +89,7 @@ function parseDdl(ddl: string): ParsedTable[] {
       if (/^(CONSTRAINT|UNIQUE|CHECK|INDEX)/i.test(trimmed)) continue
 
       // Column definition
-      const colMatch = trimmed.match(/^"?(\w+)"?\s+(\w[\w() ,]*?)(\s+NOT\s+NULL)?(\s+NULL)?(\s+PRIMARY\s+KEY)?/i)
+      const colMatch = trimmed.match(/^"?(\w+)"?\s+(\w+(?:\s*\([^)]*\))?)\s*(NOT\s+NULL\s*)?(NULL\s*)?(PRIMARY\s+KEY)?/i)
       if (colMatch) {
         const colName = colMatch[1]
         const colType = colMatch[2].trim()
@@ -107,6 +107,41 @@ function parseDdl(ddl: string): ParsedTable[] {
     }
 
     tables.push({ name: tableName, columns, pkColumns, fks })
+  }
+
+  // Build lookup for ALTER TABLE statements
+  const tableMap = new Map<string, ParsedTable>()
+  for (const t of tables) tableMap.set(t.name.toLowerCase(), t)
+
+  // Parse ALTER TABLE ... ADD CONSTRAINT ... PRIMARY KEY (col1, col2)
+  const alterPkRegex = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+\w+\s+PRIMARY\s+KEY\s*\(([^)]+)\)/gi
+  while ((match = alterPkRegex.exec(ddl)) !== null) {
+    const tName = (match[2] || match[1])?.toLowerCase()
+    if (!tName) continue
+    const table = tableMap.get(tName)
+    if (!table) continue
+    for (const raw of match[3].split(',')) {
+      const col = raw.trim().replace(/"/g, '')
+      if (col && !table.pkColumns.includes(col)) table.pkColumns.push(col)
+      const colDef = table.columns.find((c) => c.name.toLowerCase() === col.toLowerCase())
+      if (colDef) colDef.isPk = true
+    }
+  }
+
+  // Parse ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY (col) REFERENCES refTable (refCol)
+  const alterFkRegex = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+\w+\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?(?:"?(\w+)"?)\s*\(([^)]+)\)/gi
+  while ((match = alterFkRegex.exec(ddl)) !== null) {
+    const tName = (match[2] || match[1])?.toLowerCase()
+    if (!tName) continue
+    const table = tableMap.get(tName)
+    if (!table) continue
+    const refTable = match[5] || match[4]
+    if (!refTable) continue
+    table.fks.push({
+      columns: match[3].split(',').map((c) => c.trim().replace(/"/g, '')),
+      refTable: refTable.toLowerCase(),
+      refColumns: match[6].split(',').map((c) => c.trim().replace(/"/g, '')),
+    })
   }
 
   return tables
@@ -231,22 +266,24 @@ function buildDdlGraph(tables: ParsedTable[]): { nodes: Node<DdlNodeData>[]; edg
     }
   }
 
-  // Build a lookup for table existence
-  const tableSet = new Set(tables.map((t) => t.name))
+  // Build a case-insensitive lookup: lowercase name → actual node id
+  const tableNameToId = new Map<string, string>()
+  for (const t of tables) tableNameToId.set(t.name.toLowerCase(), t.name)
 
   // Build FK edges
   for (const t of tables) {
     for (const fk of t.fks) {
-      if (!tableSet.has(fk.refTable)) continue
+      const targetId = tableNameToId.get(fk.refTable.toLowerCase())
+      if (!targetId) continue
       for (let i = 0; i < fk.columns.length; i++) {
         const srcCol = fk.columns[i]
         const tgtCol = fk.refColumns[i]
         if (srcCol && tgtCol) {
           edges.push({
-            id: `fk-${t.name}-${srcCol}-${fk.refTable}-${tgtCol}`,
+            id: `fk-${t.name}-${srcCol}-${targetId}-${tgtCol}`,
             source: t.name,
             sourceHandle: `fk-${srcCol}`,
-            target: fk.refTable,
+            target: targetId,
             targetHandle: `pk-${tgtCol}`,
             type: 'smoothstep',
             animated: true,

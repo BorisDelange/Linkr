@@ -153,6 +153,7 @@ const PARQUET_FILES_RAW = [
   'd_labitems',
   'datetimeevents',
   'demo_subject_id',
+  'discharge',
   'diagnoses_icd',
   'drgcodes',
   'emar',

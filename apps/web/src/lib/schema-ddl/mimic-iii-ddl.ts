@@ -1,14 +1,14 @@
 /**
- * MIMIC-III v1.4 DDL for DuckDB.
- * Source: https://github.com/MIT-LCP/mimic-code/blob/main/mimic-iii/buildmimic/postgres/postgres_create_tables.sql
+ * MIMIC-III v1.4 complete DDL for DuckDB.
+ * Sources:
+ *   - Tables: https://github.com/MIT-LCP/mimic-code/blob/main/mimic-iii/buildmimic/postgres/postgres_create_tables.sql
+ *   - Constraints: https://github.com/MIT-LCP/mimic-code/blob/main/mimic-iii/buildmimic/postgres/postgres_add_constraints.sql
  *
- * - DROP TABLE statements removed
- * - Partition tables and triggers removed (chartevents_1..17, trigger function)
- * - CONSTRAINT clauses removed (DuckDB supports them but they are not needed for read-only data)
- * - TIMESTAMP(0) simplified to TIMESTAMP
- * - DOUBLE PRECISION changed to DOUBLE
- * - CHAR(n) changed to VARCHAR
- * - Table names lowercased to match convention
+ * Includes: CREATE TABLE, FOREIGN KEY constraints.
+ * MIMIC-III uses row_id as surrogate PK for most tables (not declared as PK in official DDL).
+ * Schema prefixes removed. DROP CONSTRAINT IF EXISTS removed.
+ * TIMESTAMP(0) simplified to TIMESTAMP. DOUBLE PRECISION changed to DOUBLE. CHAR(n) changed to VARCHAR.
+ * Table names lowercased to match convention.
  */
 export const MIMIC_III_DDL = `-- MIMIC-III v1.4 DDL (DuckDB)
 -- https://physionet.org/content/mimiciii-demo/1.4/
@@ -426,4 +426,107 @@ CREATE TABLE transfers (
   outtime TIMESTAMP,
   los DOUBLE
 );
+
+-- ============================================================
+-- Foreign Key Constraints
+-- ============================================================
+
+-- admissions
+ALTER TABLE admissions ADD CONSTRAINT admissions_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+
+-- callout
+ALTER TABLE callout ADD CONSTRAINT callout_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE callout ADD CONSTRAINT callout_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- chartevents
+ALTER TABLE chartevents ADD CONSTRAINT chartevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE chartevents ADD CONSTRAINT chartevents_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+ALTER TABLE chartevents ADD CONSTRAINT chartevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE chartevents ADD CONSTRAINT chartevents_fk_itemid FOREIGN KEY (itemid) REFERENCES d_items (itemid);
+ALTER TABLE chartevents ADD CONSTRAINT chartevents_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+
+-- cptevents
+ALTER TABLE cptevents ADD CONSTRAINT cptevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE cptevents ADD CONSTRAINT cptevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- datetimeevents
+ALTER TABLE datetimeevents ADD CONSTRAINT datetimeevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE datetimeevents ADD CONSTRAINT datetimeevents_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+ALTER TABLE datetimeevents ADD CONSTRAINT datetimeevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE datetimeevents ADD CONSTRAINT datetimeevents_fk_itemid FOREIGN KEY (itemid) REFERENCES d_items (itemid);
+ALTER TABLE datetimeevents ADD CONSTRAINT datetimeevents_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+
+-- diagnoses_icd
+ALTER TABLE diagnoses_icd ADD CONSTRAINT diagnoses_icd_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE diagnoses_icd ADD CONSTRAINT diagnoses_icd_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- drgcodes
+ALTER TABLE drgcodes ADD CONSTRAINT drgcodes_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE drgcodes ADD CONSTRAINT drgcodes_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- icustays
+ALTER TABLE icustays ADD CONSTRAINT icustays_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE icustays ADD CONSTRAINT icustays_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- inputevents_cv
+ALTER TABLE inputevents_cv ADD CONSTRAINT inputevents_cv_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE inputevents_cv ADD CONSTRAINT inputevents_cv_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE inputevents_cv ADD CONSTRAINT inputevents_cv_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+ALTER TABLE inputevents_cv ADD CONSTRAINT inputevents_cv_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+
+-- inputevents_mv
+ALTER TABLE inputevents_mv ADD CONSTRAINT inputevents_mv_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE inputevents_mv ADD CONSTRAINT inputevents_mv_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE inputevents_mv ADD CONSTRAINT inputevents_mv_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+ALTER TABLE inputevents_mv ADD CONSTRAINT inputevents_mv_fk_itemid FOREIGN KEY (itemid) REFERENCES d_items (itemid);
+ALTER TABLE inputevents_mv ADD CONSTRAINT inputevents_mv_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+
+-- labevents
+ALTER TABLE labevents ADD CONSTRAINT labevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE labevents ADD CONSTRAINT labevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE labevents ADD CONSTRAINT labevents_fk_itemid FOREIGN KEY (itemid) REFERENCES d_labitems (itemid);
+
+-- microbiologyevents
+ALTER TABLE microbiologyevents ADD CONSTRAINT microbiologyevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE microbiologyevents ADD CONSTRAINT microbiologyevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE microbiologyevents ADD CONSTRAINT microbiologyevents_fk_spec_itemid FOREIGN KEY (spec_itemid) REFERENCES d_items (itemid);
+ALTER TABLE microbiologyevents ADD CONSTRAINT microbiologyevents_fk_org_itemid FOREIGN KEY (org_itemid) REFERENCES d_items (itemid);
+ALTER TABLE microbiologyevents ADD CONSTRAINT microbiologyevents_fk_ab_itemid FOREIGN KEY (ab_itemid) REFERENCES d_items (itemid);
+
+-- noteevents
+ALTER TABLE noteevents ADD CONSTRAINT noteevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE noteevents ADD CONSTRAINT noteevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE noteevents ADD CONSTRAINT noteevents_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+
+-- outputevents
+ALTER TABLE outputevents ADD CONSTRAINT outputevents_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE outputevents ADD CONSTRAINT outputevents_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE outputevents ADD CONSTRAINT outputevents_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+ALTER TABLE outputevents ADD CONSTRAINT outputevents_fk_itemid FOREIGN KEY (itemid) REFERENCES d_items (itemid);
+ALTER TABLE outputevents ADD CONSTRAINT outputevents_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+
+-- prescriptions
+ALTER TABLE prescriptions ADD CONSTRAINT prescriptions_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE prescriptions ADD CONSTRAINT prescriptions_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE prescriptions ADD CONSTRAINT prescriptions_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+
+-- procedureevents_mv
+ALTER TABLE procedureevents_mv ADD CONSTRAINT procedureevents_mv_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE procedureevents_mv ADD CONSTRAINT procedureevents_mv_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE procedureevents_mv ADD CONSTRAINT procedureevents_mv_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
+ALTER TABLE procedureevents_mv ADD CONSTRAINT procedureevents_mv_fk_itemid FOREIGN KEY (itemid) REFERENCES d_items (itemid);
+ALTER TABLE procedureevents_mv ADD CONSTRAINT procedureevents_mv_fk_cgid FOREIGN KEY (cgid) REFERENCES caregivers (cgid);
+
+-- procedures_icd
+ALTER TABLE procedures_icd ADD CONSTRAINT procedures_icd_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE procedures_icd ADD CONSTRAINT procedures_icd_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- services
+ALTER TABLE services ADD CONSTRAINT services_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE services ADD CONSTRAINT services_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+
+-- transfers
+ALTER TABLE transfers ADD CONSTRAINT transfers_fk_subject_id FOREIGN KEY (subject_id) REFERENCES patients (subject_id);
+ALTER TABLE transfers ADD CONSTRAINT transfers_fk_hadm_id FOREIGN KEY (hadm_id) REFERENCES admissions (hadm_id);
+ALTER TABLE transfers ADD CONSTRAINT transfers_fk_icustay_id FOREIGN KEY (icustay_id) REFERENCES icustays (icustay_id);
 `

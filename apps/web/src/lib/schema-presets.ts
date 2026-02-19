@@ -274,7 +274,7 @@ const MIMIC_IV_TABLES = [
   'emar', 'emar_detail', 'pharmacy', 'poe', 'poe_detail',
   'drgcodes', 'omr', 'provider', 'caregiver',
   'd_items', 'd_labitems', 'd_hcpcs', 'd_icd_diagnoses', 'd_icd_procedures',
-  'demo_subject_id',
+  'discharge', 'demo_subject_id',
 ]
 
 const mimicIV: SchemaMapping = {
@@ -292,6 +292,16 @@ const mimicIV: SchemaMapping = {
     startDateColumn: 'admittime',
     endDateColumn: 'dischtime',
     typeColumn: 'admission_type',
+  },
+  noteTable: {
+    table: 'discharge',
+    idColumn: 'note_id',
+    patientIdColumn: 'subject_id',
+    visitIdColumn: 'hadm_id',
+    dateColumn: 'charttime',
+    titleColumn: 'note_type',
+    textColumn: 'text',
+    typeColumn: 'note_type',
   },
   visitDetailTable: {
     table: 'icustays',

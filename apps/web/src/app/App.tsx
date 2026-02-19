@@ -7,6 +7,7 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
+import { useCatalogStore } from '@/stores/catalog-store'
 import { seedDemoDatabase, seedMimicIVRawDatabase } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
@@ -39,6 +40,7 @@ import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
 import { DqPage } from '@/features/warehouse/DqPage'
+import { DataCatalogPage } from '@/features/warehouse/DataCatalogPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
 import { WorkspacesPage } from '@/features/workspaces/WorkspacesPage'
 import { WorkspaceHomePage } from '@/features/workspaces/WorkspaceHomePage'
@@ -51,6 +53,7 @@ export function App() {
   const { dataSourcesLoaded, loadDataSources, mountProjectSources } = useDataSourceStore()
   const { cohortsLoaded, loadCohorts } = useCohortStore()
   const { pipelinesLoaded, loadPipelines } = usePipelineStore()
+  const { catalogsLoaded, loadCatalogs, serviceMappingsLoaded, loadServiceMappings } = useCatalogStore()
   const { i18n } = useTranslation()
 
   useEffect(() => {
@@ -60,7 +63,9 @@ export function App() {
     loadDataSources()
     loadCohorts()
     loadPipelines()
-  }, [loadOrganizations, loadWorkspaces, loadProjects, loadDataSources, loadCohorts, loadPipelines])
+    loadCatalogs()
+    loadServiceMappings()
+  }, [loadOrganizations, loadWorkspaces, loadProjects, loadDataSources, loadCohorts, loadPipelines, loadCatalogs, loadServiceMappings])
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', darkMode)
@@ -90,7 +95,7 @@ export function App() {
     }
   }, [activeProjectUid, dataSourcesLoaded, mountProjectSources])
 
-  if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded) {
+  if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {
     return null
   }
 
@@ -120,10 +125,13 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/concept-mapping/:mappingProjectId" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/data-quality/:ruleSetId" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/catalog" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/catalog/:catalogId" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/settings" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
 

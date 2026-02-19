@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, DqRuleSetStorage, DqCustomCheckStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -177,10 +177,49 @@ interface LinkrDB extends DBSchema {
       'by-rule-set': string
     }
   }
+  concept_sets: {
+    key: string
+    value: ConceptSet
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  mapping_projects: {
+    key: string
+    value: MappingProject
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  concept_mappings: {
+    key: string
+    value: ConceptMapping
+    indexes: {
+      'by-project': string
+    }
+  }
+  data_catalogs: {
+    key: string
+    value: DataCatalog
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  catalog_results: {
+    key: string
+    value: CatalogResultCache
+  }
+  service_mappings: {
+    key: string
+    value: ServiceMapping
+    indexes: {
+      'by-workspace': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 22
+const DB_VERSION = 24
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -415,6 +454,23 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         dqRuleSetStore.createIndex('by-workspace', 'workspaceId')
         const dqCheckStore = db.createObjectStore('dq_custom_checks', { keyPath: 'id' })
         dqCheckStore.createIndex('by-rule-set', 'ruleSetId')
+      }
+      // Version 23: Concept mapping (concept sets, mapping projects, concept mappings)
+      if (oldVersion < 23) {
+        const csStore = db.createObjectStore('concept_sets', { keyPath: 'id' })
+        csStore.createIndex('by-workspace', 'workspaceId')
+        const mpStore = db.createObjectStore('mapping_projects', { keyPath: 'id' })
+        mpStore.createIndex('by-workspace', 'workspaceId')
+        const cmStore = db.createObjectStore('concept_mappings', { keyPath: 'id' })
+        cmStore.createIndex('by-project', 'projectId')
+      }
+      // Version 24: Data catalogs, catalog results, service mappings
+      if (oldVersion < 24) {
+        const dcStore = db.createObjectStore('data_catalogs', { keyPath: 'id' })
+        dcStore.createIndex('by-workspace', 'workspaceId')
+        db.createObjectStore('catalog_results', { keyPath: 'catalogId' })
+        const smStore = db.createObjectStore('service_mappings', { keyPath: 'id' })
+        smStore.createIndex('by-workspace', 'workspaceId')
       }
     },
   })
@@ -1294,6 +1350,207 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
   }
 }
 
+class IDBConceptSetStorage implements ConceptSetStorage {
+  async getAll(): Promise<ConceptSet[]> {
+    const db = await getDB()
+    return db.getAll('concept_sets')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<ConceptSet[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('concept_sets', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<ConceptSet | undefined> {
+    const db = await getDB()
+    return db.get('concept_sets', id)
+  }
+
+  async create(conceptSet: ConceptSet): Promise<void> {
+    const db = await getDB()
+    await db.add('concept_sets', conceptSet)
+  }
+
+  async update(id: string, changes: Partial<ConceptSet>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('concept_sets', id)
+    if (!existing) return
+    await db.put('concept_sets', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('concept_sets', id)
+  }
+}
+
+class IDBMappingProjectStorage implements MappingProjectStorage {
+  async getAll(): Promise<MappingProject[]> {
+    const db = await getDB()
+    return db.getAll('mapping_projects')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<MappingProject[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('mapping_projects', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<MappingProject | undefined> {
+    const db = await getDB()
+    return db.get('mapping_projects', id)
+  }
+
+  async create(project: MappingProject): Promise<void> {
+    const db = await getDB()
+    await db.add('mapping_projects', project)
+  }
+
+  async update(id: string, changes: Partial<MappingProject>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('mapping_projects', id)
+    if (!existing) return
+    await db.put('mapping_projects', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('mapping_projects', id)
+  }
+}
+
+class IDBConceptMappingStorage implements ConceptMappingStorage {
+  async getByProject(projectId: string): Promise<ConceptMapping[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('concept_mappings', 'by-project', projectId)
+  }
+
+  async getById(id: string): Promise<ConceptMapping | undefined> {
+    const db = await getDB()
+    return db.get('concept_mappings', id)
+  }
+
+  async create(mapping: ConceptMapping): Promise<void> {
+    const db = await getDB()
+    await db.add('concept_mappings', mapping)
+  }
+
+  async createBatch(mappings: ConceptMapping[]): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction('concept_mappings', 'readwrite')
+    for (const mapping of mappings) {
+      tx.store.add(mapping)
+    }
+    await tx.done
+  }
+
+  async update(id: string, changes: Partial<ConceptMapping>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('concept_mappings', id)
+    if (!existing) return
+    await db.put('concept_mappings', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('concept_mappings', id)
+  }
+
+  async deleteByProject(projectId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('concept_mappings', 'by-project', projectId)
+    const tx = db.transaction('concept_mappings', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBDataCatalogStorage implements DataCatalogStorage {
+  async getAll(): Promise<DataCatalog[]> {
+    const db = await getDB()
+    return db.getAll('data_catalogs')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<DataCatalog[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('data_catalogs', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<DataCatalog | undefined> {
+    const db = await getDB()
+    return db.get('data_catalogs', id)
+  }
+
+  async create(catalog: DataCatalog): Promise<void> {
+    const db = await getDB()
+    await db.add('data_catalogs', catalog)
+  }
+
+  async update(id: string, changes: Partial<DataCatalog>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('data_catalogs', id)
+    if (!existing) return
+    await db.put('data_catalogs', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('data_catalogs', id)
+  }
+}
+
+class IDBCatalogResultStorage implements CatalogResultStorage {
+  async get(catalogId: string): Promise<CatalogResultCache | undefined> {
+    const db = await getDB()
+    return db.get('catalog_results', catalogId)
+  }
+
+  async save(cache: CatalogResultCache): Promise<void> {
+    const db = await getDB()
+    await db.put('catalog_results', cache)
+  }
+
+  async delete(catalogId: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('catalog_results', catalogId)
+  }
+}
+
+class IDBServiceMappingStorage implements ServiceMappingStorage {
+  async getAll(): Promise<ServiceMapping[]> {
+    const db = await getDB()
+    return db.getAll('service_mappings')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<ServiceMapping[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('service_mappings', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<ServiceMapping | undefined> {
+    const db = await getDB()
+    return db.get('service_mappings', id)
+  }
+
+  async create(mapping: ServiceMapping): Promise<void> {
+    const db = await getDB()
+    await db.add('service_mappings', mapping)
+  }
+
+  async update(id: string, changes: Partial<ServiceMapping>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('service_mappings', id)
+    if (!existing) return
+    await db.put('service_mappings', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('service_mappings', id)
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -1323,5 +1580,11 @@ export function createIDBStorage(): Storage {
     etlFiles: new IDBEtlFileStorage(),
     dqRuleSets: new IDBDqRuleSetStorage(),
     dqCustomChecks: new IDBDqCustomCheckStorage(),
+    conceptSets: new IDBConceptSetStorage(),
+    mappingProjects: new IDBMappingProjectStorage(),
+    conceptMappings: new IDBConceptMappingStorage(),
+    dataCatalogs: new IDBDataCatalogStorage(),
+    catalogResults: new IDBCatalogResultStorage(),
+    serviceMappings: new IDBServiceMappingStorage(),
   }
 }

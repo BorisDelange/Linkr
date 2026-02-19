@@ -1,5 +1,8 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset } from './schema-mapping'
+export type { ConceptSet, ConceptSetItem, MappingProject, MappingProjectStats, ConceptMapping, MappingStatus, MappingEquivalence, MappingType } from './concept-mapping'
+export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, ServiceMapping, ServiceMappingRule, CatalogResultRow, CatalogResultCache } from './catalog'
+export { getDefaultDimensions } from './catalog'
 
 export interface User {
   id: number
