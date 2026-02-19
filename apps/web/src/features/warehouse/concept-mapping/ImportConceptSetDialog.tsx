@@ -53,19 +53,21 @@ interface ParsedConceptSet {
 }
 
 /** Extract metadata (category, subcategory, provenance) from INDICATE-style JSON. */
-function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string } {
+export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string } {
   const meta = obj.metadata as Record<string, unknown> | undefined
   if (!meta) return {}
 
   const translations = meta.translations as Record<string, Record<string, string>> | undefined
   const tr = translations?.[lang] ?? translations?.en ?? {}
 
+  // Prefer organization.name (upcoming field), fall back to createdByDetails.affiliation
+  const org = meta.organization as Record<string, string> | undefined
   const createdBy = meta.createdByDetails as Record<string, string> | undefined
 
   return {
     category: tr.category || undefined,
     subcategory: tr.subcategory || undefined,
-    provenance: createdBy?.affiliation || undefined,
+    provenance: org?.name || createdBy?.affiliation || undefined,
   }
 }
 
@@ -204,6 +206,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
       setCatalogProgress({ done: 0, total: jsonFiles.length })
 
       // 2. Fetch and import each concept set in batches
+      const batchId = crypto.randomUUID()
       const newIds: string[] = []
       const batchSize = 20
 
@@ -236,6 +239,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
             category: parsed.category,
             subcategory: parsed.subcategory,
             provenance: parsed.provenance,
+            importBatchId: batchId,
             createdAt: now,
             updatedAt: now,
           })
@@ -246,8 +250,16 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
       }
 
       if (newIds.length > 0) {
+        const importBatch = {
+          id: batchId,
+          sourceName: catalog.name,
+          sourceUrl: catalog.rawBase,
+          count: newIds.length,
+          importedAt: new Date().toISOString(),
+        }
         await updateMappingProject(project.id, {
           conceptSetIds: [...project.conceptSetIds, ...newIds],
+          importBatches: [...(project.importBatches ?? []), importBatch],
         })
       }
 

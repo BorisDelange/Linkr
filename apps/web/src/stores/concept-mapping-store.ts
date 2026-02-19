@@ -11,6 +11,7 @@ interface ConceptMappingState {
   createConceptSet: (cs: ConceptSet) => Promise<void>
   updateConceptSet: (id: string, changes: Partial<ConceptSet>) => Promise<void>
   deleteConceptSet: (id: string) => Promise<void>
+  deleteConceptSetsBatch: (ids: string[]) => Promise<void>
 
   // --- Mapping Projects ---
   mappingProjects: MappingProject[]
@@ -78,6 +79,13 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   deleteConceptSet: async (id) => {
     await getStorage().conceptSets.delete(id)
     set((s) => ({ conceptSets: s.conceptSets.filter((cs) => cs.id !== id) }))
+  },
+
+  deleteConceptSetsBatch: async (ids) => {
+    if (ids.length === 0) return
+    await getStorage().conceptSets.deleteBatch(ids)
+    const idSet = new Set(ids)
+    set((s) => ({ conceptSets: s.conceptSets.filter((cs) => !idSet.has(cs.id)) }))
   },
 
   // --- Mapping Projects ---

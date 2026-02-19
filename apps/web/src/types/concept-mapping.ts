@@ -44,6 +44,8 @@ export interface ConceptSet {
   subcategory?: string
   /** Provenance: name of the organization that created the concept set. */
   provenance?: string
+  /** Batch ID grouping concept sets imported together from a catalog. */
+  importBatchId?: string
   createdAt: string
   updatedAt: string
 }
@@ -73,8 +75,34 @@ export interface MappingProject {
   conceptSetIds: string[]
   /** Cached progress stats. */
   stats?: MappingProjectStats
+  /** History of bulk catalog imports. */
+  importBatches?: ConceptSetImportBatch[]
   createdAt: string
   updatedAt: string
+}
+
+// --- Import Batch ---
+
+/** Record of a bulk catalog import (stored on MappingProject). */
+export interface ConceptSetImportBatch {
+  id: string
+  sourceName: string
+  sourceUrl?: string
+  count: number
+  importedAt: string
+}
+
+// --- Resolved Concept ---
+
+/** A fully resolved concept (from concept_sets_resolved). */
+export interface ResolvedConcept {
+  conceptId: number
+  conceptName: string
+  vocabularyId: string
+  domainId: string
+  conceptClassId: string
+  conceptCode: string
+  standardConcept: string | null
 }
 
 // --- Concept Mapping ---

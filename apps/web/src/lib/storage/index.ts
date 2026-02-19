@@ -258,6 +258,7 @@ export interface ConceptSetStorage {
   create(conceptSet: ConceptSet): Promise<void>
   update(id: string, changes: Partial<ConceptSet>): Promise<void>
   delete(id: string): Promise<void>
+  deleteBatch(ids: string[]): Promise<void>
 }
 
 /** Storage interface for mapping project persistence. */

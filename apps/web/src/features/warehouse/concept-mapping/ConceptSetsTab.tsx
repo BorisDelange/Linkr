@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, BookOpen, Trash2, RefreshCw, Globe, Upload, Search, Loader2 } from 'lucide-react'
+import { Plus, BookOpen, Trash2, RefreshCw, Globe, Upload, Search, Loader2, Eye, Check, CheckCheck, X, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,8 +23,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { ImportConceptSetDialog } from './ImportConceptSetDialog'
+import { ImportConceptSetDialog, extractMetadata } from './ImportConceptSetDialog'
+import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet } from '@/types'
 
 interface ConceptSetsTabProps {
@@ -34,11 +40,25 @@ interface ConceptSetsTabProps {
 
 export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t } = useTranslation()
-  const { conceptSets, deleteConceptSet, updateMappingProject, updateConceptSet } = useConceptMappingStore()
+  const { conceptSets, deleteConceptSet, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
   const [setToDelete, setSetToDelete] = useState<ConceptSet | null>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
+
+  // Detail sheet
+  const [detailConceptSet, setDetailConceptSet] = useState<ConceptSet | null>(null)
+
+  // Bulk selection
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
+
+  // Batch delete
+  const [batchToDelete, setBatchToDelete] = useState<string | null>(null)
+
+  // Import history
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Filters
   const [searchText, setSearchText] = useState('')
@@ -65,16 +85,28 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     }
   }, [linkedSets])
 
+  // Fuzzy match: all query characters appear in order in the target
+  const fuzzyMatch = (target: string, query: string): boolean => {
+    let qi = 0
+    for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+      if (target[ti] === query[qi]) qi++
+    }
+    return qi === query.length
+  }
+
+  const textMatch = (text: string, query: string): boolean =>
+    text.includes(query) || fuzzyMatch(text, query)
+
   // Apply filters
   const filteredSets = useMemo(() => {
     return linkedSets.filter((cs) => {
       if (searchText) {
         const q = searchText.toLowerCase()
         const matches =
-          cs.name.toLowerCase().includes(q) ||
-          (cs.category?.toLowerCase().includes(q) ?? false) ||
-          (cs.subcategory?.toLowerCase().includes(q) ?? false) ||
-          (cs.provenance?.toLowerCase().includes(q) ?? false)
+          textMatch(cs.name.toLowerCase(), q) ||
+          (cs.category ? textMatch(cs.category.toLowerCase(), q) : false) ||
+          (cs.subcategory ? textMatch(cs.subcategory.toLowerCase(), q) : false) ||
+          (cs.provenance ? textMatch(cs.provenance.toLowerCase(), q) : false)
         if (!matches) return false
       }
       if (filterCategory !== '__all__' && cs.category !== filterCategory) return false
@@ -82,6 +114,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       if (filterProvenance !== '__all__' && cs.provenance !== filterProvenance) return false
       return true
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkedSets, searchText, filterCategory, filterSubcategory, filterProvenance])
 
   const handleDelete = async () => {
@@ -93,6 +126,59 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     setSetToDelete(null)
   }
 
+  const handleBulkDelete = async () => {
+    if (selectedIds.size === 0) return
+    const ids = [...selectedIds]
+    await updateMappingProject(project.id, {
+      conceptSetIds: project.conceptSetIds.filter((id) => !selectedIds.has(id)),
+    })
+    await deleteConceptSetsBatch(ids)
+    setSelectedIds(new Set())
+    setSelectionMode(false)
+    setBulkDeleteOpen(false)
+  }
+
+  const handleDeleteBatch = async () => {
+    if (!batchToDelete) return
+    const batchCsIds = linkedSets.filter((cs) => cs.importBatchId === batchToDelete).map((cs) => cs.id)
+    if (batchCsIds.length > 0) {
+      const batchIdSet = new Set(batchCsIds)
+      await updateMappingProject(project.id, {
+        conceptSetIds: project.conceptSetIds.filter((id) => !batchIdSet.has(id)),
+        importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
+      })
+      await deleteConceptSetsBatch(batchCsIds)
+    } else {
+      // No concept sets left but batch record exists — just remove the batch record
+      await updateMappingProject(project.id, {
+        importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
+      })
+    }
+    setBatchToDelete(null)
+  }
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredSets.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredSets.map((cs) => cs.id)))
+    }
+  }
+
+  const exitSelectionMode = () => {
+    setSelectionMode(false)
+    setSelectedIds(new Set())
+  }
+
   /** Update a concept set from its remote source URL. */
   const handleUpdateFromRemote = async (cs: ConceptSet) => {
     if (!cs.sourceUrl) return
@@ -102,26 +188,24 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const json = await resp.json()
 
-      // Re-parse the JSON
       const obj = json as Record<string, unknown>
       if (!obj.expression || typeof obj.expression !== 'object') return
       const expr = obj.expression as Record<string, unknown>
       if (!Array.isArray(expr.items)) return
 
-      // Extract translated name
       const lang = document.documentElement.lang?.substring(0, 2) ?? 'en'
       const meta = obj.metadata as Record<string, unknown> | undefined
       const translations = meta?.translations as Record<string, Record<string, string>> | undefined
       const tr = translations?.[lang] ?? translations?.en
-      const createdBy = meta?.createdByDetails as Record<string, string> | undefined
+      const md = extractMetadata(obj, lang)
 
       await updateConceptSet(cs.id, {
         name: tr?.name ?? String(obj.name ?? cs.name),
         description: obj.description ? String(obj.description) : cs.description,
         expression: { items: expr.items as ConceptSet['expression']['items'] },
-        category: tr?.category ?? cs.category,
-        subcategory: tr?.subcategory ?? cs.subcategory,
-        provenance: createdBy?.affiliation ?? cs.provenance,
+        category: md.category ?? cs.category,
+        subcategory: md.subcategory ?? cs.subcategory,
+        provenance: md.provenance ?? cs.provenance,
         updatedAt: new Date().toISOString(),
       })
     } catch (err) {
@@ -142,6 +226,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       .slice(0, 3)
   }
 
+  const formatDate = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    } catch {
+      return iso
+    }
+  }
+
+  const importBatches = project.importBatches ?? []
+
   return (
     <div className="h-full overflow-auto p-4">
       <Tabs defaultValue="project-sets">
@@ -158,15 +252,67 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         {/* Sub-tab 1: Concept Sets */}
         <TabsContent value="project-sets">
           <div className="mx-auto max-w-3xl">
+            {/* Toolbar */}
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
                 {t('concept_mapping.cs_description')}
               </p>
-              <Button size="sm" onClick={() => setImportOpen(true)}>
-                <Plus size={14} />
-                {t('concept_mapping.cs_add')}
-              </Button>
+              <div className="flex gap-2">
+                {linkedSets.length > 0 && (
+                  selectionMode ? (
+                    <Button size="sm" variant="outline" onClick={exitSelectionMode}>
+                      <X size={14} />
+                      {t('concept_mapping.cs_exit_selection')}
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
+                      <CheckCheck size={14} />
+                      {t('concept_mapping.cs_select')}
+                    </Button>
+                  )
+                )}
+                <Button size="sm" onClick={() => setImportOpen(true)}>
+                  <Plus size={14} />
+                  {t('concept_mapping.cs_add')}
+                </Button>
+              </div>
             </div>
+
+            {/* Import History */}
+            {importBatches.length > 0 && (
+              <Collapsible open={historyOpen} onOpenChange={setHistoryOpen} className="mb-4">
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs text-muted-foreground">
+                    <History size={12} />
+                    {t('concept_mapping.cs_import_history')} ({importBatches.length})
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 space-y-2">
+                  {importBatches.map((batch) => (
+                    <div key={batch.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium">{batch.sourceName}</span>
+                          <Badge variant="secondary" className="text-[10px]">
+                            {batch.count} {t('concept_mapping.cs_concepts')}
+                          </Badge>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">{formatDate(batch.importedAt)}</p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-destructive hover:text-destructive"
+                        title={t('concept_mapping.cs_delete_batch')}
+                        onClick={() => setBatchToDelete(batch.id)}
+                      >
+                        <Trash2 size={14} />
+                      </Button>
+                    </div>
+                  ))}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
             {/* Filters */}
             {linkedSets.length > 0 && (
@@ -216,6 +362,29 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               </div>
             )}
 
+            {/* Selection mode toolbar */}
+            {selectionMode && filteredSets.length > 0 && (
+              <div className="mb-3 flex items-center gap-3">
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={toggleSelectAll}>
+                  {selectedIds.size === filteredSets.length
+                    ? t('concept_mapping.cs_deselect_all')
+                    : t('concept_mapping.cs_select_all')}
+                </Button>
+                {selectedIds.size > 0 && (
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setBulkDeleteOpen(true)}
+                  >
+                    <Trash2 size={12} />
+                    {t('concept_mapping.cs_delete_selected', { count: selectedIds.size })}
+                  </Button>
+                )}
+              </div>
+            )}
+
+            {/* Content */}
             {linkedSets.length === 0 ? (
               <Card>
                 <div className="flex flex-col items-center py-10">
@@ -242,9 +411,21 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                 {filteredSets.map((cs) => {
                   const domainSummary = getDomainSummary(cs)
                   const isUpdating = updatingId === cs.id
+                  const isSelected = selectedIds.has(cs.id)
                   return (
-                    <Card key={cs.id} className="p-4">
-                      <div className="flex items-start justify-between gap-3">
+                    <Card
+                      key={cs.id}
+                      className={`p-4 ${selectionMode ? 'cursor-pointer' : ''} ${isSelected ? 'ring-2 ring-primary' : ''}`}
+                      onClick={selectionMode ? () => toggleSelection(cs.id) : undefined}
+                    >
+                      <div className="flex items-start gap-3">
+                        {selectionMode && (
+                          <div
+                            className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}
+                          >
+                            {isSelected && <Check size={12} />}
+                          </div>
+                        )}
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <span className="truncate text-sm font-medium">{cs.name}</span>
@@ -286,31 +467,41 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-1">
-                          {cs.sourceUrl && (
+                        {!selectionMode && (
+                          <div className="flex gap-1">
                             <Button
                               variant="ghost"
                               size="icon-sm"
-                              title={t('concept_mapping.cs_update_remote')}
-                              disabled={isUpdating}
-                              onClick={() => handleUpdateFromRemote(cs)}
+                              title={t('concept_mapping.cs_view_detail')}
+                              onClick={() => setDetailConceptSet(cs)}
                             >
-                              {isUpdating ? (
-                                <Loader2 size={14} className="animate-spin" />
-                              ) : (
-                                <RefreshCw size={14} />
-                              )}
+                              <Eye size={14} />
                             </Button>
-                          )}
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            onClick={() => setSetToDelete(cs)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </div>
+                            {cs.sourceUrl && (
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                title={t('concept_mapping.cs_update_remote')}
+                                disabled={isUpdating}
+                                onClick={() => handleUpdateFromRemote(cs)}
+                              >
+                                {isUpdating ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : (
+                                  <RefreshCw size={14} />
+                                )}
+                              </Button>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() => setSetToDelete(cs)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </Card>
                   )
@@ -361,6 +552,13 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         project={project}
       />
 
+      <ConceptSetDetailSheet
+        conceptSet={detailConceptSet}
+        open={!!detailConceptSet}
+        onOpenChange={(open) => { if (!open) setDetailConceptSet(null) }}
+      />
+
+      {/* Single delete dialog */}
       <AlertDialog open={!!setToDelete} onOpenChange={(open) => { if (!open) setSetToDelete(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -372,6 +570,38 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk delete dialog */}
+      <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.cs_bulk_delete_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.cs_bulk_delete_description', { count: selectedIds.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleBulkDelete}>{t('common.delete')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Batch delete dialog */}
+      <AlertDialog open={!!batchToDelete} onOpenChange={(open) => { if (!open) setBatchToDelete(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.cs_batch_delete_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.cs_batch_delete_description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteBatch}>{t('common.delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
