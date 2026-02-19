@@ -18,6 +18,7 @@ interface SourceConceptTableProps {
   page: number
   pageSize: number
   loading: boolean
+  queryError?: string | null
   filters: SourceConceptFilters
   sorting: SourceConceptSorting | null
   filterOptions: Record<string, string[]>
@@ -43,6 +44,7 @@ export function SourceConceptTable({
   page,
   pageSize,
   loading,
+  queryError,
   filters,
   sorting,
   filterOptions,
@@ -140,6 +142,11 @@ export function SourceConceptTable({
         {loading ? (
           <div className="flex h-32 items-center justify-center">
             <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+          </div>
+        ) : queryError ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-1 px-4">
+            <p className="text-xs text-destructive">{t('concept_mapping.query_error')}</p>
+            <p className="max-w-sm text-center text-[10px] text-muted-foreground">{queryError}</p>
           </div>
         ) : rows.length === 0 ? (
           <div className="flex h-32 items-center justify-center">

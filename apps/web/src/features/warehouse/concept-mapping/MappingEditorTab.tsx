@@ -41,6 +41,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [queryError, setQueryError] = useState<string | null>(null)
   const [filters, setFilters] = useState<SourceConceptFilters>({})
   const [sorting, setSorting] = useState<SourceConceptSorting | null>({ columnId: 'record_count', desc: true })
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
@@ -76,6 +77,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     setLoading(true)
 
     try {
+      setQueryError(null)
       const mapping = dataSource.schemaMapping
       const countSql = buildSourceConceptsCountQuery(dataSource.id, mapping, filters)
       if (!countSql) { setLoading(false); loadingRef.current = false; return }
@@ -90,6 +92,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       setRows(result as unknown as SourceConceptRow[])
     } catch (err) {
       console.error('Failed to load source concepts:', err)
+      setQueryError(err instanceof Error ? err.message : String(err))
       setRows([])
     } finally {
       setLoading(false)
@@ -152,6 +155,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             page={page}
             pageSize={PAGE_SIZE}
             loading={loading}
+            queryError={queryError}
             filters={filters}
             sorting={sorting}
             filterOptions={filterOptions}

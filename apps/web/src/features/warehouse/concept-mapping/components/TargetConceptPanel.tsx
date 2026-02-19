@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -34,9 +35,11 @@ interface SearchResult {
   domain_id?: string
 }
 
+type BrowseMode = 'concept_set' | 'vocabulary'
+
 export function TargetConceptPanel({ project, dataSource, sourceConcept }: TargetConceptPanelProps) {
   const { t } = useTranslation()
-  const { mappings, createMapping, updateMapping, deleteMapping } = useConceptMappingStore()
+  const { mappings, conceptSets, createMapping, updateMapping, deleteMapping } = useConceptMappingStore()
 
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
@@ -45,6 +48,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   const [mappingType, setMappingType] = useState<MappingType>('maps_to')
   const [equivalence, setEquivalence] = useState<MappingEquivalence>('equivalent')
   const [comment, setComment] = useState('')
+
+  // Browse mode (when no source concept selected)
+  const [browseMode, setBrowseMode] = useState<BrowseMode>('concept_set')
+  const [selectedConceptSetId, setSelectedConceptSetId] = useState<string>('__none__')
+  const [browseSearch, setBrowseSearch] = useState('')
+
+  // Linked concept sets
+  const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
 
   // Existing mappings for selected source concept
   const existingMappings = sourceConcept
@@ -100,10 +111,116 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     setSearchResults([])
   }
 
+  // Browse concept set items with fuzzy search
+  const getBrowseItems = (): { concept_id: number; concept_name: string; vocabulary_id: string; domain_id: string }[] => {
+    if (browseMode !== 'concept_set' || selectedConceptSetId === '__none__') return []
+    const cs = linkedSets.find((s) => s.id === selectedConceptSetId)
+    if (!cs) return []
+
+    const items = cs.expression.items.map((item) => ({
+      concept_id: item.concept.conceptId,
+      concept_name: item.concept.conceptName,
+      vocabulary_id: item.concept.vocabularyId,
+      domain_id: item.concept.domainId,
+    }))
+
+    if (!browseSearch.trim()) return items
+    const q = browseSearch.toLowerCase()
+    return items.filter((item) =>
+      item.concept_name.toLowerCase().includes(q) ||
+      String(item.concept_id).includes(q) ||
+      item.vocabulary_id.toLowerCase().includes(q),
+    )
+  }
+
+  // When no source concept is selected, show browse panel
   if (!sourceConcept) {
+    const browseItems = getBrowseItems()
+
     return (
-      <div className="flex h-full items-center justify-center p-4">
-        <p className="text-sm text-muted-foreground">{t('concept_mapping.select_source')}</p>
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="border-b px-4 py-3">
+          <p className="text-xs text-muted-foreground">{t('concept_mapping.browse_target_hint')}</p>
+          <div className="mt-2">
+            <Select value={browseMode} onValueChange={(v) => setBrowseMode(v as BrowseMode)}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="concept_set">{t('concept_mapping.browse_by_concept_set')}</SelectItem>
+                <SelectItem value="vocabulary" disabled={!project.vocabularyDataSourceId}>
+                  {t('concept_mapping.browse_by_vocabulary')}
+                  {!project.vocabularyDataSourceId && (
+                    <span className="ml-1 text-muted-foreground">({t('common.coming_soon')})</span>
+                  )}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {browseMode === 'concept_set' && (
+            <div className="mt-2">
+              <Select value={selectedConceptSetId} onValueChange={setSelectedConceptSetId}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder={t('concept_mapping.browse_select_cs')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t('concept_mapping.browse_select_cs')}</SelectItem>
+                  {linkedSets.map((cs) => (
+                    <SelectItem key={cs.id} value={cs.id}>
+                      {cs.name} ({cs.expression.items.length})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {browseMode === 'concept_set' && selectedConceptSetId !== '__none__' && (
+            <div className="relative mt-2">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-8 pl-8 text-xs"
+                placeholder={t('concept_mapping.browse_search_cs')}
+                value={browseSearch}
+                onChange={(e) => setBrowseSearch(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
+        <ScrollArea className="flex-1">
+          {browseMode === 'concept_set' && selectedConceptSetId === '__none__' ? (
+            <div className="flex h-32 items-center justify-center">
+              <p className="text-xs text-muted-foreground">{t('concept_mapping.browse_pick_cs')}</p>
+            </div>
+          ) : browseItems.length === 0 ? (
+            <div className="flex h-32 items-center justify-center">
+              <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
+            </div>
+          ) : (
+            <div>
+              <p className="px-3 py-1.5 text-[10px] text-muted-foreground">
+                {browseItems.length} {t('concept_mapping.cs_concepts')}
+              </p>
+              {browseItems.map((item) => (
+                <div
+                  key={item.concept_id}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-xs transition-colors hover:bg-accent/50"
+                >
+                  <div className="min-w-0 flex-1">
+                    <span className="text-muted-foreground">{item.concept_id}</span>{' '}
+                    <span>{item.concept_name}</span>
+                  </div>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">{item.vocabulary_id}</span>
+                  {item.domain_id && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">{item.domain_id}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
       </div>
     )
   }
