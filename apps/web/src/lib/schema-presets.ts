@@ -1,8 +1,66 @@
-import type { SchemaMapping, SchemaPresetId } from '@/types/schema-mapping'
+import type { SchemaMapping, SchemaPresetId, ErdGroup } from '@/types/schema-mapping'
 import { ALL_OMOP_TABLES } from '@/lib/duckdb/omop-tables'
 import { OMOP_54_DDL } from '@/lib/schema-ddl/omop-5.4-ddl'
 import { MIMIC_III_DDL } from '@/lib/schema-ddl/mimic-iii-ddl'
 import { MIMIC_IV_DDL } from '@/lib/schema-ddl/mimic-iv-ddl'
+
+// ---------------------------------------------------------------------------
+// OMOP CDM 5.4 — ERD Groups
+// ---------------------------------------------------------------------------
+
+const OMOP_ERD_GROUPS: ErdGroup[] = [
+  {
+    id: 'clinical-data',
+    label: 'Clinical Data',
+    color: 'blue',
+    tables: [
+      'person', 'observation_period', 'death', 'visit_occurrence', 'visit_detail',
+      'condition_occurrence', 'drug_exposure', 'procedure_occurrence', 'device_exposure',
+      'measurement', 'observation', 'note', 'note_nlp', 'episode', 'episode_event',
+      'specimen', 'fact_relationship',
+    ],
+  },
+  {
+    id: 'health-system',
+    label: 'Health System',
+    color: 'green',
+    tables: ['location', 'care_site', 'provider'],
+  },
+  {
+    id: 'vocabularies',
+    label: 'Vocabularies',
+    color: 'orange',
+    tables: [
+      'concept', 'vocabulary', 'domain', 'concept_class', 'concept_synonym',
+      'concept_relationship', 'relationship', 'concept_ancestor',
+      'source_to_concept_map', 'drug_strength',
+    ],
+  },
+  {
+    id: 'health-economics',
+    label: 'Health Economics',
+    color: 'purple',
+    tables: ['cost', 'payer_plan_period'],
+  },
+  {
+    id: 'derived-elements',
+    label: 'Derived Elements',
+    color: 'teal',
+    tables: ['condition_era', 'drug_era', 'dose_era'],
+  },
+  {
+    id: 'results',
+    label: 'Results Schema',
+    color: 'red',
+    tables: ['cohort', 'cohort_definition'],
+  },
+  {
+    id: 'metadata',
+    label: 'Metadata',
+    color: 'slate',
+    tables: ['cdm_source', 'metadata'],
+  },
+]
 
 // ---------------------------------------------------------------------------
 // OMOP CDM 5.4
@@ -110,6 +168,7 @@ const omop54: SchemaMapping = {
   },
   knownTables: [...ALL_OMOP_TABLES],
   ddl: OMOP_54_DDL,
+  erdGroups: OMOP_ERD_GROUPS,
 }
 
 // ---------------------------------------------------------------------------

@@ -12,11 +12,11 @@ function esc(value: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Build a SQL CASE expression for age groups.
- * E.g. step=10 → '00-09', '10-19', …, '90+'
+ * Build a SQL CASE expression for age groups from custom brackets.
+ * E.g. brackets=[0, 18, 25, 65, 80] → "0–17", "18–24", "25–64", "65–79", "80+"
  */
 function buildAgeGroupExpr(
-  step: 1 | 5 | 10,
+  brackets: number[],
   mapping: SchemaMapping,
 ): string | null {
   const pt = mapping.patientTable
@@ -30,18 +30,26 @@ function buildAgeGroupExpr(
       : null
   if (!birthExpr) return null
 
-  if (step === 1) {
-    return `CAST(FLOOR(${birthExpr}) AS INTEGER)::VARCHAR`
+  if (brackets.length === 0) return `CAST(FLOOR(${birthExpr}) AS INTEGER)::VARCHAR`
+
+  const sorted = [...brackets].sort((a, b) => a - b)
+  const cases: string[] = []
+
+  for (let i = 0; i < sorted.length; i++) {
+    const lo = sorted[i]
+    if (i < sorted.length - 1) {
+      const hi = sorted[i + 1]
+      const label = `'[${lo};${hi}['`
+      cases.push(`WHEN ${birthExpr} >= ${lo} AND ${birthExpr} < ${hi} THEN ${label}`)
+    } else {
+      cases.push(`WHEN ${birthExpr} >= ${lo} THEN '[${lo};+∞['`)
+    }
   }
 
-  // Build CASE WHEN for bucketed groups
-  const cases: string[] = []
-  for (let lo = 0; lo < 100; lo += step) {
-    const hi = lo + step - 1
-    const label = `'${String(lo).padStart(2, '0')}-${String(hi).padStart(2, '0')}'`
-    cases.push(`WHEN ${birthExpr} >= ${lo} AND ${birthExpr} < ${lo + step} THEN ${label}`)
+  // Handle ages below the first bracket
+  if (sorted[0] > 0) {
+    cases.unshift(`WHEN ${birthExpr} < ${sorted[0]} THEN '[0;${sorted[0]}['`)
   }
-  cases.push(`ELSE '${100}+'`)
 
   return `CASE ${cases.join(' ')} END`
 }
@@ -186,7 +194,7 @@ export function buildCatalogAggregationQuery(
 
   for (const dim of enabledDims) {
     if (dim.type === 'age_group') {
-      const expr = buildAgeGroupExpr(dim.ageGroup?.step ?? 10, mapping)
+      const expr = buildAgeGroupExpr(dim.ageGroup?.brackets ?? [10, 20, 30, 40, 50, 60, 70, 80, 90], mapping)
       if (expr) {
         dimSelectExprs.push(`${expr} AS dim_age_group`)
         dimGroupByAliases.push('dim_age_group')

@@ -7,7 +7,21 @@ export type CatalogStatus = 'draft' | 'computing' | 'ready' | 'error'
 export type DimensionType = 'age_group' | 'sex' | 'admission_date' | 'care_site'
 
 export interface AgeGroupConfig {
-  step: 1 | 5 | 10
+  /**
+   * Age bracket boundaries (sorted ascending).
+   * E.g. [0, 18, 25, 35, 50, 65, 80] → "0–17", "18–24", "25–34", …, "80+"
+   * The last bracket is open-ended (80+).
+   */
+  brackets: number[]
+}
+
+/** Common age bracket presets. */
+export const AGE_BRACKET_PRESETS: Record<string, number[]> = {
+  '5y': [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95],
+  '10y': [10, 20, 30, 40, 50, 60, 70, 80, 90],
+  '20y': [20, 40, 60, 80],
+  'pediatric': [1, 2, 6, 12, 18, 25, 35, 50, 65, 80],
+  'clinical': [2, 18, 25, 35, 45, 55, 65, 75, 85],
 }
 
 export interface AdmissionDateConfig {
@@ -78,6 +92,7 @@ export interface DataCatalog {
    */
   subcategoryColumn?: string
   status: CatalogStatus
+  lastError?: string
   lastComputedAt?: string
   lastComputeDurationMs?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
@@ -118,7 +133,7 @@ export function getDefaultDimensions(): DimensionConfig[] {
       type: 'age_group',
       label: 'Age group',
       enabled: true,
-      ageGroup: { step: 10 },
+      ageGroup: { brackets: [10, 20, 30, 40, 50, 60, 70, 80, 90] },
     },
     {
       id: 'sex',

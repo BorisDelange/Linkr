@@ -65,7 +65,6 @@ export async function computeCatalog(
 
   // Compute totals
   const uniqueConcepts = new Set(catalogRows.map((r) => r.conceptId))
-  const uniquePatients = new Set<number | string>()
   // Total patients is an approximation — the best we can do without a separate query
   // We use the max patient_count across all rows for the same concept as a rough total
   const conceptPatientMax = new Map<number | string, number>()

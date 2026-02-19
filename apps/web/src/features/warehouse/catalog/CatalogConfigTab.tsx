@@ -1,5 +1,7 @@
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Play, Loader2, Users, Calendar, MapPin, Clock, Tag } from 'lucide-react'
+import { Play, Loader2, Users, Calendar, MapPin, Clock, Tag, X } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -16,6 +18,7 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeCatalog } from '@/lib/duckdb/catalog-compute'
 import type { DataCatalog, DimensionConfig } from '@/types'
+import { AGE_BRACKET_PRESETS } from '@/types/catalog'
 
 interface Props {
   catalog: DataCatalog
@@ -32,8 +35,48 @@ export function CatalogConfigTab({ catalog }: Props) {
   const { t } = useTranslation()
   const { updateCatalog, computeRunning, startCompute, finishCompute, failCompute, serviceMappings } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const [thresholdInput, setThresholdInput] = useState(String(catalog.anonymization.threshold))
 
   const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId)
+
+  const ageDim = catalog.dimensions.find((d) => d.type === 'age_group')
+  const currentBrackets = ageDim?.ageGroup?.brackets ?? [10, 20, 30, 40, 50, 60, 70, 80, 90]
+  const [bracketInput, setBracketInput] = useState('')
+
+  // Detect which preset matches current brackets (if any)
+  const activePreset = useMemo(() => {
+    const json = JSON.stringify(currentBrackets)
+    for (const [key, brackets] of Object.entries(AGE_BRACKET_PRESETS)) {
+      if (JSON.stringify(brackets) === json) return key
+    }
+    return null
+  }, [currentBrackets])
+
+  const handlePresetChange = async (presetKey: string) => {
+    if (presetKey === '__custom__') return
+    const brackets = AGE_BRACKET_PRESETS[presetKey]
+    if (!brackets || !ageDim) return
+    await handleDimensionConfigChange(ageDim.id, { ageGroup: { brackets } })
+  }
+
+  const handleAddBracket = async () => {
+    const value = parseInt(bracketInput)
+    if (isNaN(value) || value <= 0 || !ageDim) return
+    if (currentBrackets.includes(value)) {
+      setBracketInput('')
+      return
+    }
+    const newBrackets = [...currentBrackets, value].sort((a, b) => a - b)
+    setBracketInput('')
+    await handleDimensionConfigChange(ageDim.id, { ageGroup: { brackets: newBrackets } })
+  }
+
+  const handleRemoveBracket = async (value: number) => {
+    if (!ageDim) return
+    const newBrackets = currentBrackets.filter((b) => b !== value)
+    await handleDimensionConfigChange(ageDim.id, { ageGroup: { brackets: newBrackets } })
+  }
 
   // Collect available extraColumn keys across all concept dictionaries
   const availableExtraColumns: string[] = (() => {
@@ -74,6 +117,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   }
 
   const handleThresholdChange = async (value: string) => {
+    setThresholdInput(value)
     const threshold = Math.max(0, parseInt(value) || 0)
     await updateCatalog(catalog.id, { anonymization: { ...catalog.anonymization, threshold } })
   }
@@ -83,6 +127,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     startCompute()
     try {
       await updateCatalog(catalog.id, { status: 'computing' })
+      await ensureMounted(catalog.dataSourceId)
       const cache = await computeCatalog(
         catalog,
         catalog.dataSourceId,
@@ -91,6 +136,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       )
       await updateCatalog(catalog.id, {
         status: 'ready',
+        lastError: undefined,
         lastComputedAt: cache.computedAt,
         lastComputeDurationMs: cache.durationMs,
       })
@@ -98,178 +144,244 @@ export function CatalogConfigTab({ catalog }: Props) {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       console.error('Catalog compute failed:', message)
-      await updateCatalog(catalog.id, { status: 'error' })
+      await updateCatalog(catalog.id, { status: 'error', lastError: message })
       failCompute()
     }
   }
 
   return (
-    <div className="space-y-6">
-      {/* Dimensions */}
+    <div className="space-y-4">
+      {/* Dimensions — 2-column grid */}
       <Card className="p-4">
         <h3 className="text-sm font-semibold">{t('data_catalog.dimensions_title')}</h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t('data_catalog.dimensions_description')}</p>
-
-        <div className="mt-4 space-y-3">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {catalog.dimensions.map((dim) => {
             const Icon = DIMENSION_ICONS[dim.type] ?? Users
             return (
               <div
                 key={dim.id}
-                className="flex items-start gap-3 rounded-lg border p-3"
+                className="flex items-center gap-2.5 rounded-lg border px-3 py-2"
               >
-                <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted">
-                  <Icon size={16} className="text-muted-foreground" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">{t(`data_catalog.dim_${dim.type}`)}</span>
-                    <Switch
-                      checked={dim.enabled}
-                      onCheckedChange={(v) => handleDimensionToggle(dim.id, v)}
-                    />
-                  </div>
+                <Icon size={14} className="shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 text-sm">{t(`data_catalog.dim_${dim.type}`)}</span>
 
-                  {/* Per-type config */}
-                  {dim.enabled && dim.type === 'age_group' && (
-                    <div className="mt-2">
-                      <Label className="text-xs text-muted-foreground">{t('data_catalog.age_step')}</Label>
-                      <Select
-                        value={String(dim.ageGroup?.step ?? 10)}
-                        onValueChange={(v) =>
-                          handleDimensionConfigChange(dim.id, { ageGroup: { step: Number(v) as 1 | 5 | 10 } })
-                        }
-                      >
-                        <SelectTrigger className="mt-1 w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1">1 {t('data_catalog.years')}</SelectItem>
-                          <SelectItem value="5">5 {t('data_catalog.years')}</SelectItem>
-                          <SelectItem value="10">10 {t('data_catalog.years')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                {/* Inline config for non-age dimensions */}
+                {dim.enabled && dim.type === 'admission_date' && (
+                  <Select
+                    value={dim.admissionDate?.step ?? 'month'}
+                    onValueChange={(v) =>
+                      handleDimensionConfigChange(dim.id, {
+                        admissionDate: { step: v as 'day' | 'month' | 'year' },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-20 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="day">{t('data_catalog.step_day')}</SelectItem>
+                      <SelectItem value="month">{t('data_catalog.step_month')}</SelectItem>
+                      <SelectItem value="year">{t('data_catalog.step_year')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
 
-                  {dim.enabled && dim.type === 'admission_date' && (
-                    <div className="mt-2">
-                      <Label className="text-xs text-muted-foreground">{t('data_catalog.date_step')}</Label>
-                      <Select
-                        value={dim.admissionDate?.step ?? 'month'}
-                        onValueChange={(v) =>
-                          handleDimensionConfigChange(dim.id, {
-                            admissionDate: { step: v as 'day' | 'month' | 'year' },
-                          })
-                        }
-                      >
-                        <SelectTrigger className="mt-1 w-32">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="day">{t('data_catalog.step_day')}</SelectItem>
-                          <SelectItem value="month">{t('data_catalog.step_month')}</SelectItem>
-                          <SelectItem value="year">{t('data_catalog.step_year')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+                {dim.enabled && dim.type === 'care_site' && (
+                  <Select
+                    value={dim.careSite?.level ?? 'visit_detail'}
+                    onValueChange={(v) =>
+                      handleDimensionConfigChange(dim.id, {
+                        careSite: { ...dim.careSite, level: v as 'visit' | 'visit_detail' },
+                      })
+                    }
+                  >
+                    <SelectTrigger className="h-7 w-44 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="visit">{t('data_catalog.level_visit')}</SelectItem>
+                      <SelectItem value="visit_detail">{t('data_catalog.level_visit_detail')}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
 
-                  {dim.enabled && dim.type === 'care_site' && (
-                    <div className="mt-2">
-                      <Label className="text-xs text-muted-foreground">{t('data_catalog.care_site_level')}</Label>
-                      <Select
-                        value={dim.careSite?.level ?? 'visit_detail'}
-                        onValueChange={(v) =>
-                          handleDimensionConfigChange(dim.id, {
-                            careSite: { ...dim.careSite, level: v as 'visit' | 'visit_detail' },
-                          })
-                        }
-                      >
-                        <SelectTrigger className="mt-1 w-48">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="visit">{t('data_catalog.level_visit')}</SelectItem>
-                          <SelectItem value="visit_detail">{t('data_catalog.level_visit_detail')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
-                </div>
+                <Switch
+                  checked={dim.enabled}
+                  onCheckedChange={(v) => handleDimensionToggle(dim.id, v)}
+                />
               </div>
             )
           })}
         </div>
-      </Card>
 
-      {/* Concept classification */}
-      {availableExtraColumns.length > 0 && (
-        <Card className="p-4">
-          <div className="flex items-center gap-2">
-            <Tag size={16} className="text-muted-foreground" />
-            <h3 className="text-sm font-semibold">{t('data_catalog.classification_title')}</h3>
-          </div>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('data_catalog.classification_description')}</p>
-
-          <div className="mt-4 flex flex-wrap gap-4">
-            <div>
-              <Label className="text-xs text-muted-foreground">{t('data_catalog.category_column')}</Label>
-              <Select
-                value={catalog.categoryColumn ?? '__none__'}
-                onValueChange={handleCategoryChange}
-              >
-                <SelectTrigger className="mt-1 w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
-                  {availableExtraColumns.map((key) => (
-                    <SelectItem key={key} value={key}>{key}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+        {/* Age bracket editor — shown when age_group is enabled */}
+        {ageDim?.enabled && (
+          <div className="mt-3 grid grid-cols-[auto_1fr] gap-x-6 rounded-lg border p-4">
+            {/* Left column: preset + add */}
+            <div className="space-y-3">
+              <div>
+                <Label className="text-xs text-muted-foreground">{t('data_catalog.age_preset')}</Label>
+                <Select
+                  value={activePreset ?? '__custom__'}
+                  onValueChange={handlePresetChange}
+                >
+                  <SelectTrigger className="mt-1 h-8 w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.keys(AGE_BRACKET_PRESETS).map((key) => (
+                      <SelectItem key={key} value={key}>
+                        {t(`data_catalog.age_preset_${key}`)}
+                      </SelectItem>
+                    ))}
+                    {!activePreset && (
+                      <SelectItem value="__custom__">{t('data_catalog.age_preset_custom')}</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t('data_catalog.age_add_bracket')}</Label>
+                <div className="mt-1 flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={bracketInput}
+                    onChange={(e) => setBracketInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddBracket() }}
+                    placeholder="e.g. 18"
+                    className="h-8 w-28"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8"
+                    onClick={handleAddBracket}
+                    disabled={!bracketInput || isNaN(parseInt(bracketInput)) || parseInt(bracketInput) <= 0}
+                  >
+                    {t('common.add')}
+                  </Button>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <Label className="text-xs text-muted-foreground">{t('data_catalog.subcategory_column')}</Label>
-              <Select
-                value={catalog.subcategoryColumn ?? '__none__'}
-                onValueChange={handleSubcategoryChange}
-              >
-                <SelectTrigger className="mt-1 w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
-                  {availableExtraColumns
-                    .filter((key) => key !== catalog.categoryColumn)
-                    .map((key) => (
+            {/* Right column: badges on top, vertical lines, intervals below */}
+            <div className="min-w-0 overflow-x-auto">
+              <Label className="text-xs text-muted-foreground">{t('data_catalog.age_brackets')}</Label>
+              {/* Row 1: badges */}
+              {/* Row 2: vertical connectors + horizontal line */}
+              {/* Row 3: interval labels */}
+              {/* Badges with interval labels between them */}
+              {(() => {
+                const sorted = [...currentBrackets].sort((a, b) => a - b)
+                const hasImplicitZero = sorted.length > 0 && sorted[0] > 0
+                return (
+                  <div className="mt-1.5 flex flex-wrap items-center">
+                    {/* Implicit [0;first[ before first badge */}
+                    {hasImplicitZero && (
+                      <div className="flex items-center">
+                        <span className="whitespace-nowrap px-1 text-[10px] text-muted-foreground">
+                          [0;{sorted[0]}[
+                        </span>
+                        <div className="h-px w-2 bg-border" />
+                      </div>
+                    )}
+                    {sorted.map((b, i) => (
+                      <div key={b} className="flex items-center">
+                        <Badge
+                          variant="secondary"
+                          className="group cursor-pointer gap-1 pr-1.5 text-xs hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => handleRemoveBracket(b)}
+                        >
+                          {b}
+                          <X size={12} className="text-muted-foreground/50 group-hover:text-destructive" />
+                        </Badge>
+                        {/* Interval after this badge */}
+                        <div className="flex items-center">
+                          <div className="h-px w-2 bg-border" />
+                          <span className="whitespace-nowrap px-1 text-[10px] text-muted-foreground">
+                            {i < sorted.length - 1
+                              ? `[${b};${sorted[i + 1]}[`
+                              : `[${b};+∞[`}
+                          </span>
+                          {i < sorted.length - 1 && <div className="h-px w-2 bg-border" />}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {/* Classification + Anonymization — side by side */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Concept classification */}
+        {availableExtraColumns.length > 0 && (
+          <Card className="p-4">
+            <div className="flex items-center gap-2">
+              <Tag size={14} className="text-muted-foreground" />
+              <h3 className="text-sm font-semibold">{t('data_catalog.classification_title')}</h3>
+            </div>
+            <div className="mt-3 space-y-2">
+              <div>
+                <Label className="text-xs text-muted-foreground">{t('data_catalog.category_column')}</Label>
+                <Select
+                  value={catalog.categoryColumn ?? '__none__'}
+                  onValueChange={handleCategoryChange}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
+                    {availableExtraColumns.map((key) => (
                       <SelectItem key={key} value={key}>{key}</SelectItem>
                     ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">{t('data_catalog.subcategory_column')}</Label>
+                <Select
+                  value={catalog.subcategoryColumn ?? '__none__'}
+                  onValueChange={handleSubcategoryChange}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
+                    {availableExtraColumns
+                      .filter((key) => key !== catalog.categoryColumn)
+                      .map((key) => (
+                        <SelectItem key={key} value={key}>{key}</SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+          </Card>
+        )}
+
+        {/* Anonymization */}
+        <Card className="p-4">
+          <h3 className="text-sm font-semibold">{t('data_catalog.anonymization_title')}</h3>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t('data_catalog.anonymization_description')}</p>
+          <div className="mt-3 flex items-center gap-3">
+            <Label className="text-xs">{t('data_catalog.threshold')}</Label>
+            <Input
+              type="number"
+              min={0}
+              value={thresholdInput}
+              onChange={(e) => handleThresholdChange(e.target.value)}
+              className="w-24"
+            />
           </div>
         </Card>
-      )}
-
-      {/* Anonymization */}
-      <Card className="p-4">
-        <h3 className="text-sm font-semibold">{t('data_catalog.anonymization_title')}</h3>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t('data_catalog.anonymization_description')}</p>
-        <div className="mt-3 flex items-center gap-3">
-          <Label className="text-xs">{t('data_catalog.threshold')}</Label>
-          <Input
-            type="number"
-            min={0}
-            value={catalog.anonymization.threshold}
-            onChange={(e) => handleThresholdChange(e.target.value)}
-            className="w-24"
-          />
-          <span className="text-xs text-muted-foreground">{t('data_catalog.threshold_hint')}</span>
-        </div>
-      </Card>
+      </div>
 
       {/* Compute button */}
       <div className="flex items-center gap-3">

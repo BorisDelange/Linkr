@@ -66,6 +66,8 @@ interface DataSourceState {
   mountProjectSources: (projectUid: string) => Promise<void>
   /** Re-request File System Access permissions for a disconnected data source. */
   reconnectDataSource: (id: string) => Promise<void>
+  /** Ensure a data source is mounted in DuckDB (mount if needed). */
+  ensureMounted: (id: string) => Promise<void>
 
   /**
    * Create an empty database from a schema preset's DDL.
@@ -546,5 +548,24 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     } finally {
       busySources.delete(id)
     }
+  },
+
+  ensureMounted: async (id) => {
+    if (mountedSources.has(id)) return
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds) throw new Error(`Data source ${id} not found`)
+    const config = ds.connectionConfig as DatabaseConnectionConfig
+    if (config.inMemory && ds.schemaMapping?.ddl) {
+      await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+    } else if (config.useFileHandles) {
+      const handles = await getStorage().fileHandles.getByDataSource(id)
+      const granted = await engine.requestHandlePermissions(handles)
+      if (!granted) throw new Error('File access permission denied')
+      await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
+    } else {
+      const files = await getStorage().files.getByDataSource(id)
+      await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
+    }
+    mountedSources.add(id)
   },
 }))

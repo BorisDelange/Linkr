@@ -4,6 +4,16 @@
  */
 export type SchemaPresetId = 'omop-5.4' | 'omop-5.3' | 'mimic-iv' | 'mimic-iii' | 'none' | (string & {})
 
+/** A named, colored group of tables displayed on the DDL ERD. */
+export interface ErdGroup {
+  id: string
+  label: string
+  /** Tailwind color name: blue | green | orange | purple | teal | red | slate */
+  color: string
+  /** Table names belonging to this group (case-insensitive matching). */
+  tables: string[]
+}
+
 /**
  * Mapping that tells the app how to interpret a database schema.
  * Stored per DataSource. Designed to work across OMOP, MIMIC-III, CoDOC, eHOP,
@@ -106,6 +116,19 @@ export interface SchemaMapping {
    * The DDL should use DuckDB-compatible SQL syntax.
    */
   ddl?: string
+
+  /**
+   * ERD group definitions for the DDL diagram.
+   * Each group is a colored region that contains related tables.
+   * Built-in presets (OMOP) provide default groups; users can override.
+   */
+  erdGroups?: ErdGroup[]
+
+  /**
+   * ERD layout: persisted table positions (table name → { x, y }).
+   * When absent, auto-layout is computed from groups.
+   */
+  erdLayout?: Record<string, { x: number; y: number }>
 }
 
 /**

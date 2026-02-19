@@ -703,11 +703,6 @@ function SchemaDetailView({
 
   const displayMapping = isEditing && editMapping ? editMapping : baseMapping
 
-  const startEdit = () => {
-    setIsEditing(true)
-    setEditMapping(structuredClone(baseMapping))
-  }
-
   const cancelEdit = () => {
     setIsEditing(false)
     setEditMapping(null)
@@ -779,11 +774,7 @@ function SchemaDetailView({
                   {t('schemas.reset_to_default')}
                 </Button>
               )}
-              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
-                <Pencil size={12} />
-                {t('common.edit')}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
+<Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
                 <Download size={12} />
                 {t('settings.schema_preset_export')}
               </Button>
@@ -815,7 +806,20 @@ function SchemaDetailView({
         {/* Tab 1: ERD from DDL */}
         <TabsContent value="erd-ddl" className="flex-1 min-h-0 m-0 p-0">
           {displayMapping.ddl ? (
-            <DdlERD ddl={displayMapping.ddl} />
+            <DdlERD
+              ddl={displayMapping.ddl}
+              erdGroups={baseMapping.erdGroups}
+              erdLayout={baseMapping.erdLayout}
+              editable
+              onLayoutChange={(layout) => {
+                const updated = { ...baseMapping, erdLayout: Object.keys(layout).length > 0 ? layout : undefined }
+                onSave(schemaId, updated)
+              }}
+              onGroupsChange={(groups) => {
+                const updated = { ...baseMapping, erdGroups: groups }
+                onSave(schemaId, updated)
+              }}
+            />
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               {t('settings.schema_preset_no_ddl')}

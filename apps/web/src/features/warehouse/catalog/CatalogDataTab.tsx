@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, ArrowUpDown } from 'lucide-react'
+import { Search, ArrowUpDown, ChevronDown, X, Check } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Table,
   TableBody,
@@ -21,12 +23,127 @@ interface Props {
 
 type SortKey = 'conceptName' | 'patientCount' | 'recordCount' | string
 
+/** Simple fuzzy match: all query tokens must appear (in any order) in the target string. */
+function fuzzyMatch(target: string, query: string): boolean {
+  const lower = target.toLowerCase()
+  const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
+  return tokens.every((tok) => lower.includes(tok))
+}
+
+// ── Multi-select filter dropdown ─────────────────────────────────
+
+interface FilterDropdownProps {
+  label: string
+  values: string[]
+  selected: Set<string>
+  onToggle: (value: string) => void
+  onClear: () => void
+}
+
+function FilterDropdown({ label, values, selected, onToggle, onClear }: FilterDropdownProps) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+
+  const filtered = search.trim()
+    ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
+    : values
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant={selected.size > 0 ? 'secondary' : 'outline'}
+          size="sm"
+          className="h-8 gap-1 text-xs"
+        >
+          {label}
+          {selected.size > 0 && (
+            <Badge variant="default" className="ml-0.5 h-4 min-w-4 px-1 text-[9px]">
+              {selected.size}
+            </Badge>
+          )}
+          <ChevronDown size={12} className="opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-0" onCloseAutoFocus={(e) => e.preventDefault()}>
+        {/* Search within values */}
+        <div className="border-b p-2">
+          <div className="relative">
+            <Search size={12} className="absolute left-2 top-2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('data_catalog.search_filter_values')}
+              className="h-8 pl-7 text-xs"
+            />
+          </div>
+        </div>
+
+        {/* Scrollable checkbox list */}
+        <div className="max-h-72 overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <p className="px-2 py-3 text-center text-xs text-muted-foreground">
+              {t('data_catalog.no_results')}
+            </p>
+          ) : (
+            filtered.map((val) => {
+              const isSelected = selected.has(val)
+              return (
+                <button
+                  key={val}
+                  onClick={() => onToggle(val)}
+                  className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-xs hover:bg-accent"
+                >
+                  <div
+                    className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${
+                      isSelected
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-muted-foreground/30'
+                    }`}
+                  >
+                    {isSelected && <Check size={9} />}
+                  </div>
+                  <span className="min-w-0 truncate">{val}</span>
+                </button>
+              )
+            })
+          )}
+        </div>
+
+        {/* Footer: clear */}
+        {selected.size > 0 && (
+          <div className="border-t p-1.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full text-xs"
+              onClick={onClear}
+            >
+              {t('data_catalog.clear_filter')}
+            </Button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+// ── Main component ───────────────────────────────────────────────
+
+/** Filterable column definition */
+interface FilterColumn {
+  key: string
+  label: string
+  getValue: (row: CatalogResultRow) => string | null | undefined
+}
+
 export function CatalogDataTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('patientCount')
   const [sortDesc, setSortDesc] = useState(true)
   const [page, setPage] = useState(0)
+  const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({})
   const pageSize = 50
 
   const enabledDims = useMemo(
@@ -37,18 +154,80 @@ export function CatalogDataTab({ catalog, cache }: Props) {
   const hasCategory = !!catalog.categoryColumn
   const hasSubcategory = !!catalog.subcategoryColumn
 
+  // Build list of filterable columns dynamically
+  const filterColumns = useMemo<FilterColumn[]>(() => {
+    const cols: FilterColumn[] = []
+    if (hasCategory) {
+      cols.push({
+        key: 'category',
+        label: t('data_catalog.col_category'),
+        getValue: (r) => r.category,
+      })
+    }
+    if (hasSubcategory) {
+      cols.push({
+        key: 'subcategory',
+        label: t('data_catalog.col_subcategory'),
+        getValue: (r) => r.subcategory,
+      })
+    }
+    for (const dim of enabledDims) {
+      cols.push({
+        key: dim.id,
+        label: t(`data_catalog.dim_${dim.type}`),
+        getValue: (r) => {
+          const v = r.dimensions[dim.id]
+          return v != null ? String(v) : null
+        },
+      })
+    }
+    return cols
+  }, [hasCategory, hasSubcategory, enabledDims, t])
+
+  // Precompute distinct values per filter column
+  // Subcategory values are scoped to the active category selection
+  const distinctValues = useMemo(() => {
+    const result: Record<string, string[]> = {}
+    const categorySelection = hasCategory ? activeFilters['category'] : undefined
+    const hasCategoryFilter = categorySelection && categorySelection.size > 0
+
+    for (const col of filterColumns) {
+      const valSet = new Set<string>()
+      // For subcategory: only consider rows matching the active category filter
+      const sourceRows = (col.key === 'subcategory' && hasCategoryFilter)
+        ? cache.rows.filter((r) => r.category != null && categorySelection!.has(r.category))
+        : cache.rows
+      for (const row of sourceRows) {
+        const v = col.getValue(row)
+        if (v != null && v !== '') valSet.add(v)
+      }
+      result[col.key] = Array.from(valSet).sort((a, b) => a.localeCompare(b))
+    }
+    return result
+  }, [cache.rows, filterColumns, hasCategory, activeFilters])
+
   // Filter + sort rows
   const filteredRows = useMemo(() => {
     let rows = cache.rows
+
+    // Fuzzy text search on concept name + ID
     if (search.trim()) {
-      const q = search.toLowerCase()
       rows = rows.filter(
         (r) =>
-          r.conceptName.toLowerCase().includes(q) ||
-          String(r.conceptId).includes(q) ||
-          (r.category && r.category.toLowerCase().includes(q)) ||
-          (r.subcategory && r.subcategory.toLowerCase().includes(q)),
+          fuzzyMatch(r.conceptName, search) ||
+          fuzzyMatch(String(r.conceptId), search),
       )
+    }
+
+    // Multi-select column filters
+    for (const col of filterColumns) {
+      const selected = activeFilters[col.key]
+      if (selected && selected.size > 0) {
+        rows = rows.filter((r) => {
+          const v = col.getValue(r)
+          return v != null && selected.has(v)
+        })
+      }
     }
 
     // Sort
@@ -89,7 +268,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
     })
 
     return rows
-  }, [cache.rows, search, sortKey, sortDesc])
+  }, [cache.rows, search, sortKey, sortDesc, activeFilters, filterColumns])
 
   const totalPages = Math.ceil(filteredRows.length / pageSize)
   const pageRows = filteredRows.slice(page * pageSize, (page + 1) * pageSize)
@@ -103,6 +282,43 @@ export function CatalogDataTab({ catalog, cache }: Props) {
     }
     setPage(0)
   }
+
+  const toggleFilterValue = useCallback((colKey: string, value: string) => {
+    setActiveFilters((prev) => {
+      const current = new Set(prev[colKey] ?? [])
+      if (current.has(value)) {
+        current.delete(value)
+      } else {
+        current.add(value)
+      }
+      const next = { ...prev, [colKey]: current }
+      // When category changes, clear subcategory selections that may no longer be valid
+      if (colKey === 'category' && prev['subcategory']?.size) {
+        next['subcategory'] = new Set<string>()
+      }
+      return next
+    })
+    setPage(0)
+  }, [])
+
+  const clearFilter = useCallback((colKey: string) => {
+    setActiveFilters((prev) => {
+      const next = { ...prev }
+      delete next[colKey]
+      return next
+    })
+    setPage(0)
+  }, [])
+
+  const clearAllFilters = useCallback(() => {
+    setActiveFilters({})
+    setPage(0)
+  }, [])
+
+  const activeFilterCount = Object.values(activeFilters).reduce(
+    (sum, s) => sum + (s.size > 0 ? 1 : 0),
+    0,
+  )
 
   const SortButton = ({ colKey, children }: { colKey: SortKey; children: React.ReactNode }) => (
     <Button
@@ -134,15 +350,42 @@ export function CatalogDataTab({ catalog, cache }: Props) {
         </Card>
       </div>
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search size={14} className="absolute left-2.5 top-2.5 text-muted-foreground" />
-        <Input
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(0) }}
-          placeholder={t('data_catalog.search_concepts')}
-          className="pl-8"
-        />
+      {/* Search + Filter dropdowns */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative w-64">
+          <Search size={14} className="absolute left-2.5 top-2.5 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+            placeholder={t('data_catalog.search_concepts')}
+            className="h-8 pl-8 text-xs"
+          />
+        </div>
+
+        {/* One dropdown per filterable column */}
+        {filterColumns.map((col) => (
+          <FilterDropdown
+            key={col.key}
+            label={col.label}
+            values={distinctValues[col.key] ?? []}
+            selected={activeFilters[col.key] ?? new Set()}
+            onToggle={(val) => toggleFilterValue(col.key, val)}
+            onClear={() => clearFilter(col.key)}
+          />
+        ))}
+
+        {/* Clear all filters */}
+        {activeFilterCount > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1 text-xs text-muted-foreground"
+            onClick={clearAllFilters}
+          >
+            <X size={12} />
+            {t('data_catalog.clear_all')}
+          </Button>
+        )}
       </div>
 
       {/* Table */}
