@@ -7,6 +7,16 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import type { MappingProject, MappingStatus } from '@/types'
 
@@ -46,6 +56,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [page, setPage] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   const projectMappings = mappings.filter((m) => m.projectId === project.id)
 
@@ -132,7 +143,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
         </div>
         <div className="ml-auto flex items-center gap-1">
           {editMode && selected.size > 0 && (
-            <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={handleDeleteSelected}>
+            <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />
               {t('concept_mapping.delete_selected', { count: selected.size })}
             </Button>
@@ -202,7 +213,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               {/* Target */}
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
-                {m.comment && <MessageSquare size={10} className="shrink-0 text-muted-foreground" title={m.comment} />}
+                {m.comment && <span title={m.comment}><MessageSquare size={10} className="shrink-0 text-muted-foreground" /></span>}
               </span>
               <span className="text-muted-foreground">{m.targetConceptId}</span>
               <span className="truncate text-muted-foreground">{m.targetVocabularyId}</span>
@@ -276,6 +287,27 @@ export function MappingsTab({ project }: MappingsTabProps) {
           </Button>
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.delete_confirm_desc', { count: selected.size })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleDeleteSelected}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

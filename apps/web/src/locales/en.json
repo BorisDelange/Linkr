@@ -1898,6 +1898,7 @@
     "prog_flagged": "Flagged",
     "prog_status_distribution": "Status distribution",
     "prog_domain_breakdown": "Domain breakdown",
+    "prog_domain_unknown": "No domain",
     "prog_concept_set_progress": "Concept set progress",
     "prog_recent_activity": "Recent activity",
     "prog_no_data": "No data yet",
@@ -1960,6 +1961,8 @@
     "edit_mode": "Edit",
     "done_editing": "Done",
     "delete_selected": "Delete ({{count}})",
+    "delete_confirm_title": "Delete mappings",
+    "delete_confirm_desc": "Are you sure you want to delete {{count}} mapping(s)? This action cannot be undone.",
     "col_review": "Review"
   },
   "data_catalog": {

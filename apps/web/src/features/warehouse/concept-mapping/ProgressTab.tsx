@@ -51,7 +51,7 @@ export function ProgressTab({ project }: ProgressTabProps) {
     // Domain breakdown
     const domainMapped = new Map<string, Set<number>>()
     for (const m of mappings) {
-      const domain = m.sourceDomainId || 'Unknown'
+      const domain = m.sourceDomainId || t('concept_mapping.prog_domain_unknown')
       if (!domainMapped.has(domain)) domainMapped.set(domain, new Set())
       domainMapped.get(domain)!.add(m.sourceConceptId)
     }
@@ -74,7 +74,7 @@ export function ProgressTab({ project }: ProgressTabProps) {
       })).sort((a, b) => b.count - a.count),
       recent,
     }
-  }, [mappings])
+  }, [mappings, t])
 
   const pieData = Object.entries(stats.sourceStatusCounts).map(([status, count]) => ({
     name: t(`concept_mapping.status_${status}`),

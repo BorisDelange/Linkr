@@ -1899,6 +1899,7 @@
     "prog_flagged": "Signalés",
     "prog_status_distribution": "Distribution des statuts",
     "prog_domain_breakdown": "Répartition par domaine",
+    "prog_domain_unknown": "Aucun domaine",
     "prog_concept_set_progress": "Progression par concept set",
     "prog_recent_activity": "Activité récente",
     "prog_no_data": "Pas encore de données",
@@ -1961,6 +1962,8 @@
     "edit_mode": "Éditer",
     "done_editing": "Terminé",
     "delete_selected": "Supprimer ({{count}})",
+    "delete_confirm_title": "Supprimer des mappings",
+    "delete_confirm_desc": "Voulez-vous vraiment supprimer {{count}} mapping(s) ? Cette action est irréversible.",
     "col_review": "Évaluation"
   },
   "data_catalog": {
@@ -2026,6 +2029,11 @@
     "threshold_hint": "patients minimum par ligne",
     "compute": "Calculer le catalogue",
     "computing": "Calcul en cours...",
+    "step_mounting": "Montage de la source de données…",
+    "step_building": "Construction de la requête SQL…",
+    "step_executing": "Exécution de la requête…",
+    "step_processing": "Traitement des résultats…",
+    "step_saving": "Sauvegarde des résultats…",
     "no_data": "Aucune donnée",
     "no_data_description": "Allez dans l'onglet Configuration et cliquez sur Calculer pour générer les données du catalogue.",
     "total_concepts": "Concepts",
