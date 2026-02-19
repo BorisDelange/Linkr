@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -17,11 +17,13 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { EtlScriptsTab } from './EtlScriptsTab'
 import { EtlPipelineTab } from './EtlPipelineTab'
 import { EtlProfilingTab } from './EtlProfilingTab'
+import { EtlVocabularyTab } from './EtlVocabularyTab'
 
-type TabId = 'scripts' | 'pipeline' | 'profiling'
+type TabId = 'scripts' | 'pipeline' | 'profiling' | 'vocabulary'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'profiling', labelKey: 'etl.tab_profiling', icon: BarChart3 },
+  { id: 'vocabulary', labelKey: 'etl.tab_vocabulary', icon: BookOpen },
   { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
   { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
 ]
@@ -145,6 +147,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           <EtlPipelineTab pipelineId={pipelineId} onSelectFile={handleSelectFile} />
         )}
         {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipelineId} />}
+        {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipelineId} />}
       </div>
     </div>
   )

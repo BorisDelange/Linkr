@@ -86,9 +86,40 @@ export function resetDuckDB(): void {
 
 // --- Schema naming ---
 
-/** Sanitized schema name for a data source. */
-function schemaName(dataSourceId: string): string {
-  return 'ds_' + dataSourceId.replace(/[^a-zA-Z0-9]/g, '_')
+/**
+ * Generate a DuckDB-safe alias (slug) from a human-readable name.
+ * E.g. "MIMIC-IV Demo (raw)" → "mimic_iv_demo_raw"
+ */
+export function generateAlias(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '') || 'db'
+}
+
+/**
+ * Ensure alias is unique among existing aliases by appending _2, _3, etc.
+ */
+export function ensureUniqueAlias(alias: string, existingAliases: string[]): string {
+  if (!existingAliases.includes(alias)) return alias
+  let i = 2
+  while (existingAliases.includes(`${alias}_${i}`)) i++
+  return `${alias}_${i}`
+}
+
+/** Maps dataSourceId → alias for schema naming. Populated by mount calls. */
+const aliasMap = new Map<string, string>()
+
+/** Register (or update) the alias for a data source so schemaName() uses it. */
+export function registerAlias(dataSourceId: string, alias: string): void {
+  aliasMap.set(dataSourceId, alias)
+}
+
+/** Get the DuckDB schema name for a data source (ds_<alias> or ds_<sanitized_id>). */
+export function schemaName(dataSourceId: string): string {
+  const alias = aliasMap.get(dataSourceId)
+  const base = alias ?? dataSourceId
+  return 'ds_' + base.replace(/[^a-zA-Z0-9]/g, '_')
 }
 
 /** Track which data sources are ATTACHed (vs schema-based). */
@@ -104,6 +135,7 @@ export async function mountDataSource(
   dataSource: DataSource,
   files: StoredFile[],
 ): Promise<void> {
+  if (dataSource.alias) registerAlias(dataSource.id, dataSource.alias)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSource.id)
@@ -156,7 +188,9 @@ export async function unmountDataSource(dataSourceId: string): Promise<void> {
 export async function mountEmptyFromDDL(
   dataSourceId: string,
   ddl: string,
+  alias?: string,
 ): Promise<void> {
+  if (alias) registerAlias(dataSourceId, alias)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -169,8 +203,17 @@ export async function mountEmptyFromDDL(
     await conn.query(`CREATE SCHEMA "${schema}"`)
     await conn.query(`SET search_path TO "${schema}"`)
 
-    // Execute DDL (may contain multiple statements)
-    await conn.query(ddl)
+    // Execute DDL statement by statement, skipping unsupported ALTER TABLE constraints
+    const statements = ddl.split(';').map((s) => s.trim()).filter(Boolean)
+    for (const stmt of statements) {
+      // Skip ALTER TABLE ... ADD CONSTRAINT (FK not supported in DuckDB-WASM schemas)
+      if (/^\s*ALTER\s+TABLE\s/i.test(stmt)) continue
+      try {
+        await conn.query(stmt)
+      } catch (e) {
+        console.warn('[mountEmptyFromDDL] Skipping failed statement:', stmt.slice(0, 80), e)
+      }
+    }
 
     // Reset search path
     await conn.query(`SET search_path TO main`)
@@ -475,6 +518,7 @@ export async function mountDataSourceFromHandles(
   dataSource: DataSource,
   handles: StoredFileHandle[],
 ): Promise<void> {
+  if (dataSource.alias) registerAlias(dataSource.id, dataSource.alias)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSource.id)

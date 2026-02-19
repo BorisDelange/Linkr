@@ -1,6 +1,6 @@
 // --- Catalog Status ---
 
-export type CatalogStatus = 'draft' | 'computing' | 'ready' | 'error'
+export type CatalogStatus = 'draft' | 'computing' | 'ready' | 'success' | 'error'
 
 // --- Demographic Dimensions ---
 

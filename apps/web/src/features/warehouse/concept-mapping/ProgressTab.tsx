@@ -1,12 +1,16 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import { Card } from '@/components/ui/card'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { MappingProject, MappingStatus } from '@/types'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { queryDataSource } from '@/lib/duckdb/engine'
+import { buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
 interface ProgressTabProps {
   project: MappingProject
+  dataSource?: DataSource
 }
 
 const STATUS_COLORS: Record<MappingStatus, string> = {
@@ -18,19 +22,36 @@ const STATUS_COLORS: Record<MappingStatus, string> = {
   ignored: '#d1d5db',
 }
 
-export function ProgressTab({ project }: ProgressTabProps) {
+export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+
+  // Total source concept count from the database
+  const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!dataSource?.id || !dataSource.schemaMapping) return
+    let cancelled = false
+
+    const load = async () => {
+      try {
+        await ensureMounted(dataSource.id)
+        const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
+        if (!sql) return
+        const [row] = await queryDataSource(dataSource.id, sql)
+        if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
+      } catch {
+        // silently fail
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
     // Unique source concept IDs
     const allSourceIds = new Set(mappings.map((m) => m.sourceConceptId))
-
-    // Status distribution (by mapping)
-    const statusCounts: Record<string, number> = {}
-    for (const m of mappings) {
-      statusCounts[m.status] = (statusCounts[m.status] ?? 0) + 1
-    }
 
     // Best status per source concept
     const bestStatus = new Map<number, MappingStatus>()
@@ -66,7 +87,6 @@ export function ProgressTab({ project }: ProgressTabProps) {
       uniqueSourceConcepts: allSourceIds.size,
       approvedCount: sourceStatusCounts.approved ?? 0,
       flaggedCount: sourceStatusCounts.flagged ?? 0,
-      statusCounts,
       sourceStatusCounts,
       domainData: Array.from(domainMapped.entries()).map(([domain, ids]) => ({
         domain,
@@ -82,21 +102,44 @@ export function ProgressTab({ project }: ProgressTabProps) {
     color: STATUS_COLORS[status as MappingStatus] ?? '#9ca3af',
   }))
 
+  // Add "unmapped" slice to pie if we know the total
+  if (totalSourceConcepts !== null && totalSourceConcepts > stats.uniqueSourceConcepts) {
+    pieData.push({
+      name: t('concept_mapping.filter_unmapped'),
+      value: totalSourceConcepts - stats.uniqueSourceConcepts,
+      color: '#e5e7eb',
+    })
+  }
+
   return (
     <div className="h-full overflow-auto p-4">
       <div className="mx-auto max-w-4xl space-y-6">
         {/* Big numbers */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Card className="p-4 text-center">
-            <p className="text-2xl font-bold">{stats.totalMappings}</p>
-            <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_total_mappings')}</p>
+            <p className="text-2xl font-bold">{totalSourceConcepts !== null ? totalSourceConcepts.toLocaleString() : '—'}</p>
+            <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_total_source_concepts')}</p>
           </Card>
           <Card className="p-4 text-center">
-            <p className="text-2xl font-bold">{stats.uniqueSourceConcepts}</p>
+            <p className="text-2xl font-bold text-blue-600">
+              {stats.uniqueSourceConcepts}
+              {totalSourceConcepts !== null && totalSourceConcepts > 0 && (
+                <span className="ml-1 text-sm font-normal text-muted-foreground">
+                  ({Math.round((stats.uniqueSourceConcepts / totalSourceConcepts) * 100)}%)
+                </span>
+              )}
+            </p>
             <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_source_concepts')}</p>
           </Card>
           <Card className="p-4 text-center">
-            <p className="text-2xl font-bold text-green-600">{stats.approvedCount}</p>
+            <p className="text-2xl font-bold text-green-600">
+              {stats.approvedCount}
+              {totalSourceConcepts !== null && totalSourceConcepts > 0 && (
+                <span className="ml-1 text-sm font-normal text-muted-foreground">
+                  ({Math.round((stats.approvedCount / totalSourceConcepts) * 100)}%)
+                </span>
+              )}
+            </p>
             <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_approved')}</p>
           </Card>
           <Card className="p-4 text-center">

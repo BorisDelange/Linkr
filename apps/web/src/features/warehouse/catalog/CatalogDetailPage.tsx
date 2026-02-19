@@ -19,8 +19,9 @@ import type { CatalogStatus } from '@/types'
 
 const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
   draft: { variant: 'secondary', label: 'data_catalog.status_draft' },
+  ready: { variant: 'outline', label: 'data_catalog.status_ready' },
   computing: { variant: 'default', label: 'data_catalog.status_computing' },
-  ready: { variant: 'default', label: 'data_catalog.status_ready' },
+  success: { variant: 'default', label: 'data_catalog.status_success' },
   error: { variant: 'destructive', label: 'data_catalog.status_error' },
 }
 

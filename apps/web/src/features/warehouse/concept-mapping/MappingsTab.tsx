@@ -8,13 +8,19 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Search, Check, Flag, X, MessageSquare,
+  Check, Flag, X, MessageSquare,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
-  Settings2,
+  Settings2, ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Table,
   TableBody,
@@ -41,8 +47,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { MappingProject, ConceptMapping, MappingStatus } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -85,42 +97,281 @@ function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
+// ─── Inline column filter helpers ──────────────────────────────────
+
+/** Small dropdown for categorical column filters. */
+function ColumnFilterSelect({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string | null
+  options: string[]
+  placeholder: string
+  onChange: (v: string | null) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <Select
+      value={value ?? '__all__'}
+      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
+    >
+      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
+        {options.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+/** Column filter state for MappingsTab. */
+interface MappingColumnFilters {
+  sourceConceptName?: string
+  sourceConceptId?: string
+  sourceVocabularyId?: string | null
+  sourceDomainId?: string | null
+  targetConceptName?: string
+  targetConceptId?: string
+  targetVocabularyId?: string | null
+  targetDomainId?: string | null
+  status?: string | null
+  equivalence?: string | null
+  mappingType?: string | null
+  mappedBy?: string
+}
+
+const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+/** Fuzzy match: all query characters appear in order in the target. */
+function fuzzyMatch(target: string, query: string): boolean {
+  let qi = 0
+  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
+    if (target[ti] === query[qi]) qi++
+  }
+  return qi === query.length
+}
+
+function textMatch(text: string, query: string): boolean {
+  const t = text.toLowerCase()
+  const q = query.toLowerCase()
+  return t.includes(q) || fuzzyMatch(t, q)
+}
+
+/** Self-contained comment popover — manages its own draft state so the parent
+ *  table never re-renders on keystrokes. */
+function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
+  const { t } = useTranslation()
+  const { mappings, updateMapping } = useConceptMappingStore()
+  const [draft, setDraft] = useState('')
+  const commentCount = (mapping.comments ?? []).length
+
+  const handleAdd = () => {
+    const text = draft.trim()
+    if (!text) return
+    const latest = mappings.find((m) => m.id === mapping.id)
+    if (!latest) return
+    const comment: MappingComment = {
+      id: crypto.randomUUID(),
+      authorId: 'current-user',
+      text,
+      createdAt: new Date().toISOString(),
+    }
+    updateMapping(mapping.id, { comments: [...(latest.comments ?? []), comment] })
+    setDraft('')
+  }
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon-sm"
+          className="relative size-6"
+          title={t('concept_mapping.comments')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MessageSquare size={13} />
+          {commentCount > 0 && (
+            <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+              {commentCount}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 p-3" onClick={(e) => e.stopPropagation()}>
+        <p className="mb-2 text-xs font-medium">{t('concept_mapping.comments')}</p>
+        {commentCount > 0 && (
+          <div className="mb-2 max-h-40 space-y-1.5 overflow-auto">
+            {(mapping.comments ?? []).map((c) => (
+              <div key={c.id} className="rounded-md bg-muted/50 px-2 py-1.5">
+                <p className="text-xs">{c.text}</p>
+                <p className="mt-0.5 text-[9px] text-muted-foreground">
+                  {c.authorId} — {formatDate(c.createdAt)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        <Textarea
+          className="text-xs"
+          rows={2}
+          placeholder={t('concept_mapping.comment_placeholder')}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              handleAdd()
+            }
+          }}
+        />
+        <Button
+          size="sm"
+          className="mt-1.5 h-7 w-full text-xs"
+          disabled={!draft.trim()}
+          onClick={handleAdd}
+        >
+          {t('concept_mapping.add_comment')}
+        </Button>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
 
-  const [filter, setFilter] = useState('')
+  const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
+  const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [page, setPage] = useState(0)
   const [editMode, setEditMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ createdAt: false, mappedBy: false })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
   const projectMappings = mappings.filter((m) => m.projectId === project.id)
 
-  const filtered = filter.trim()
-    ? projectMappings.filter((m) => {
-        const q = filter.toLowerCase()
-        return (
-          m.sourceConceptName.toLowerCase().includes(q) ||
-          m.targetConceptName.toLowerCase().includes(q) ||
-          String(m.sourceConceptId).includes(q) ||
-          String(m.targetConceptId).includes(q) ||
-          m.sourceVocabularyId.toLowerCase().includes(q) ||
-          m.targetVocabularyId.toLowerCase().includes(q) ||
-          m.status.includes(q) ||
-          m.equivalence.includes(q)
-        )
-      })
-    : projectMappings
+  // Compute distinct values for dropdown filters
+  const filterOptions = useMemo(() => {
+    const unique = (fn: (m: ConceptMapping) => string) =>
+      [...new Set(projectMappings.map(fn))].filter(Boolean).sort()
+    return {
+      sourceVocabularyId: unique((m) => m.sourceVocabularyId),
+      sourceDomainId: unique((m) => m.sourceDomainId),
+      targetVocabularyId: unique((m) => m.targetVocabularyId),
+      targetDomainId: unique((m) => m.targetDomainId),
+      status: unique((m) => m.status),
+      equivalence: unique((m) => m.equivalence),
+      mappingType: unique((m) => m.mappingType),
+    }
+  }, [projectMappings])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageItems = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  // Apply column filters (client-side)
+  const filtered = projectMappings.filter((m) => {
+    const f = colFilters
+    if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
+    if (f.sourceConceptId && !String(m.sourceConceptId).includes(f.sourceConceptId)) return false
+    if (f.sourceVocabularyId && m.sourceVocabularyId !== f.sourceVocabularyId) return false
+    if (f.sourceDomainId && m.sourceDomainId !== f.sourceDomainId) return false
+    if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
+    if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
+    if (f.targetVocabularyId && m.targetVocabularyId !== f.targetVocabularyId) return false
+    if (f.targetDomainId && m.targetDomainId !== f.targetDomainId) return false
+    if (f.status && m.status !== f.status) return false
+    if (f.equivalence && m.equivalence !== f.equivalence) return false
+    if (f.mappingType && m.mappingType !== f.mappingType) return false
+    if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
+    return true
+  })
 
-  const handleFilterChange = (value: string) => {
-    setFilter(value)
+  // Apply sorting
+  const sorted = useMemo(() => {
+    if (!sorting) return filtered
+    const { columnId, desc } = sorting
+    const dir = desc ? -1 : 1
+    return [...filtered].sort((a, b) => {
+      const av = (a as unknown as Record<string, unknown>)[columnId]
+      const bv = (b as unknown as Record<string, unknown>)[columnId]
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+      return dir * String(av).localeCompare(String(bv))
+    })
+  }, [filtered, sorting])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const pageItems = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  const handleSort = (columnId: string) => {
+    if (sorting?.columnId === columnId) {
+      if (sorting.desc) setSorting({ columnId, desc: false })
+      else setSorting(null)
+    } else {
+      setSorting({ columnId, desc: true })
+    }
     setPage(0)
+  }
+
+  const updateFilter = (key: keyof MappingColumnFilters, value: string | null) => {
+    setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
+    setPage(0)
+  }
+
+  /** Render inline column filter for a given column. */
+  const renderColumnFilter = (columnId: string) => {
+    // Text inputs
+    if (columnId === 'sourceConceptName') {
+      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
+    }
+    if (columnId === 'sourceConceptId') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={colFilters.sourceConceptId ?? ''} onChange={(e) => updateFilter('sourceConceptId', e.target.value || null)} />
+    }
+    if (columnId === 'targetConceptName') {
+      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.targetConceptName ?? ''} onChange={(e) => updateFilter('targetConceptName', e.target.value || null)} />
+    }
+    if (columnId === 'targetConceptId') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={colFilters.targetConceptId ?? ''} onChange={(e) => updateFilter('targetConceptId', e.target.value || null)} />
+    }
+    if (columnId === 'mappedBy') {
+      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.mappedBy ?? ''} onChange={(e) => updateFilter('mappedBy', e.target.value || null)} />
+    }
+    // Dropdowns
+    if (columnId === 'sourceVocabularyId' && filterOptions.sourceVocabularyId.length > 0) {
+      return <ColumnFilterSelect value={colFilters.sourceVocabularyId ?? null} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('sourceVocabularyId', v)} />
+    }
+    if (columnId === 'sourceDomainId' && filterOptions.sourceDomainId.length > 0) {
+      return <ColumnFilterSelect value={colFilters.sourceDomainId ?? null} options={filterOptions.sourceDomainId} placeholder="Domain" onChange={(v) => updateFilter('sourceDomainId', v)} />
+    }
+    if (columnId === 'targetVocabularyId' && filterOptions.targetVocabularyId.length > 0) {
+      return <ColumnFilterSelect value={colFilters.targetVocabularyId ?? null} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('targetVocabularyId', v)} />
+    }
+    if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
+      return <ColumnFilterSelect value={colFilters.targetDomainId ?? null} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateFilter('targetDomainId', v)} />
+    }
+    if (columnId === 'status' && filterOptions.status.length > 0) {
+      return <ColumnFilterSelect value={colFilters.status ?? null} options={filterOptions.status} placeholder="Status" onChange={(v) => updateFilter('status', v)} />
+    }
+    if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
+      return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={filterOptions.equivalence} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
+    }
+    if (columnId === 'mappingType' && filterOptions.mappingType.length > 0) {
+      return <ColumnFilterSelect value={colFilters.mappingType ?? null} options={filterOptions.mappingType} placeholder="Type" onChange={(v) => updateFilter('mappingType', v)} />
+    }
+    return null
   }
 
   const toggleEditMode = () => {
@@ -310,6 +561,35 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 90,
         minSize: 50,
       },
+      {
+        id: 'createdAt',
+        header: () => t('concept_mapping.col_created_at'),
+        accessorFn: (row) => row.createdAt,
+        cell: ({ row }) => {
+          const d = row.original.createdAt
+          if (!d) return null
+          const date = new Date(d)
+          return (
+            <span className="text-[10px] text-muted-foreground tabular-nums">
+              {date.toLocaleDateString()} {date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )
+        },
+        size: 130,
+        minSize: 90,
+      },
+      {
+        id: 'mappedBy',
+        header: () => t('concept_mapping.col_mapped_by'),
+        accessorFn: (row) => row.mappedBy,
+        cell: ({ row }) => (
+          <span className="text-[10px] text-muted-foreground">
+            {row.original.mappedBy ?? ''}
+          </span>
+        ),
+        size: 100,
+        minSize: 60,
+      },
     )
 
     // Review action buttons (only in review mode)
@@ -320,7 +600,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
         cell: ({ row }) => {
           const m = row.original
           return (
-            <span className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+            <span className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100">
+              <CommentPopover mapping={m} />
               <Button
                 variant={m.status === 'approved' ? 'default' : 'outline'}
                 size="icon-sm"
@@ -351,8 +632,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
             </span>
           )
         },
-        size: 100,
-        minSize: 100,
+        size: 130,
+        minSize: 130,
         enableHiding: false,
         enableResizing: false,
       })
@@ -378,15 +659,9 @@ export function MappingsTab({ project }: MappingsTabProps) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <div className="relative max-w-sm flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 pl-8 text-xs"
-            placeholder={t('concept_mapping.mappings_filter')}
-            value={filter}
-            onChange={(e) => handleFilterChange(e.target.value)}
-          />
-        </div>
+        <span className="text-xs text-muted-foreground">
+          {filtered.length} / {projectMappings.length} {t('concept_mapping.existing_mappings').toLowerCase()}
+        </span>
         <div className="ml-auto flex items-center gap-1">
           {editMode && selected.size > 0 && (
             <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
@@ -435,32 +710,69 @@ export function MappingsTab({ project }: MappingsTabProps) {
       <div className="min-h-0 flex-1 overflow-auto">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
+            {/* Column titles */}
             <TableRow>
+              {table.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => {
+                  const colId = header.column.id
+                  const isSortable = colId !== '_select' && colId !== '_review'
+                  const sortIcon = !sorting || sorting.columnId !== colId
+                    ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                    : sorting.desc
+                      ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                      : <ArrowUp size={10} className="shrink-0 text-primary" />
+                  return (
+                    <TableHead
+                      key={header.id}
+                      className="relative select-none text-xs"
+                      style={{ width: header.getSize() }}
+                    >
+                      {isSortable ? (
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          onClick={() => handleSort(colId)}
+                        >
+                          <span className="truncate">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                          {sortIcon}
+                        </button>
+                      ) : (
+                        <span className="truncate">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
+                      )}
+                      {/* Resize handle */}
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          onDoubleClick={() => header.column.resetSize()}
+                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                        >
+                          <div
+                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                            }`}
+                          />
+                        </div>
+                      )}
+                    </TableHead>
+                  )
+                })
+              )}
+            </TableRow>
+            {/* Inline column filters */}
+            <TableRow className="hover:bg-transparent">
               {table.getHeaderGroups().map((headerGroup) =>
                 headerGroup.headers.map((header) => (
                   <TableHead
-                    key={header.id}
-                    className="relative select-none text-xs"
+                    key={`filter-${header.id}`}
+                    className="px-1 py-1"
                     style={{ width: header.getSize() }}
                   >
-                    <span className="truncate">
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                    </span>
-                    {/* Resize handle */}
-                    {header.column.getCanResize() && (
-                      <div
-                        onMouseDown={header.getResizeHandler()}
-                        onTouchStart={header.getResizeHandler()}
-                        onDoubleClick={() => header.column.resetSize()}
-                        className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                      >
-                        <div
-                          className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                            header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                          }`}
-                        />
-                      </div>
-                    )}
+                    {renderColumnFilter(header.column.id)}
                   </TableHead>
                 ))
               )}
@@ -505,10 +817,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       </div>
 
       {/* Pagination */}
-      <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
-        <span className="text-[10px] text-muted-foreground">
-          {filtered.length} {t('concept_mapping.existing_mappings').toLowerCase()}
-        </span>
+      <div className="flex shrink-0 items-center justify-end border-t px-4 py-1.5">
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
             <ChevronLeft size={14} />

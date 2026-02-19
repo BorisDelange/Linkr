@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
-import { extractTableName } from '@/lib/duckdb/engine'
+import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
 import { getSchemaPreset, BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import type {
@@ -114,6 +114,8 @@ export function AddDatabaseDialog({
   useEffect(() => {
     if (open && editingSource) {
       setName(editingSource.name)
+      setAlias(editingSource.alias ?? '')
+      setAliasManuallyEdited(true)
       setDescription(editingSource.description)
       setSelectedType(editingSource.sourceType)
       setStep(2)
@@ -137,6 +139,8 @@ export function AddDatabaseDialog({
 
   // Common fields
   const [name, setName] = useState('')
+  const [alias, setAlias] = useState('')
+  const [aliasManuallyEdited, setAliasManuallyEdited] = useState(false)
   const [description, setDescription] = useState('')
 
   // Database import mode: 'duckdb' (single .duckdb file) or 'parquet' (folder of parquets)
@@ -168,6 +172,8 @@ export function AddDatabaseDialog({
     setSelectedType(null)
     setUploading(false)
     setName('')
+    setAlias('')
+    setAliasManuallyEdited(false)
     setDescription('')
     setUploadedFiles([])
     setFsHandles([])
@@ -246,6 +252,7 @@ export function AddDatabaseDialog({
               schemaMapping: mapping,
               files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
               fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
+              alias: alias.trim() || undefined,
             })
             if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
           }
@@ -253,6 +260,7 @@ export function AddDatabaseDialog({
           // No new files — update metadata only
           updateDataSource(editingSource.id, {
             name: name.trim(),
+            alias: alias.trim() || editingSource.alias,
             description: description.trim(),
             schemaMapping: mapping,
           })
@@ -287,6 +295,7 @@ export function AddDatabaseDialog({
           schemaMapping: mapping,
           files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
           fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
+          alias: alias.trim() || undefined,
         })
         if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
       } else {
@@ -300,6 +309,7 @@ export function AddDatabaseDialog({
           description: description.trim(),
           sourceType: 'fhir',
           connectionConfig,
+          alias: alias.trim() || undefined,
         })
         if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
       }
@@ -408,10 +418,26 @@ export function AddDatabaseDialog({
               <Label>{t('databases.field_name')}</Label>
               <Input
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value)
+                  if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+                }}
                 placeholder={t('databases.field_name_placeholder')}
                 autoFocus
               />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('databases.field_alias')}</Label>
+              <Input
+                value={alias}
+                onChange={(e) => {
+                  setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                  setAliasManuallyEdited(true)
+                }}
+                placeholder="mimic_iv_raw"
+                className="font-mono text-xs"
+              />
+              <p className="text-[11px] text-muted-foreground">{t('databases.field_alias_hint')}</p>
             </div>
             <div className="space-y-2">
               <Label>{t('databases.field_description')}</Label>

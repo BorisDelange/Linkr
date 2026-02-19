@@ -80,7 +80,6 @@ const HEALTH_CATEGORIES: VocabularyOption[] = [
   { value: 'BIOBANK', labelKey: 'dcat.hcat_biobank' },
   { value: 'IMAGING', labelKey: 'dcat.hcat_imaging' },
   { value: 'ADMINISTRATIVE', labelKey: 'dcat.hcat_administrative' },
-  { value: 'OTHER', labelKey: 'dcat.hcat_other' },
 ]
 
 /** Common health data coding systems. */
@@ -92,7 +91,6 @@ const CODING_SYSTEMS: VocabularyOption[] = [
   { value: 'http://www.nlm.nih.gov/research/umls/rxnorm', labelKey: 'dcat.cs_rxnorm' },
   { value: 'http://www.whocc.no/atc', labelKey: 'dcat.cs_atc' },
   { value: 'https://ohdsi.org/omop', labelKey: 'dcat.cs_omop' },
-  { value: 'other', labelKey: 'dcat.cs_other' },
 ]
 
 /** All 24 EU official languages + Other. EU Publications Office Named Authority List. */
@@ -121,7 +119,6 @@ const LANGUAGES: VocabularyOption[] = [
   { value: 'http://publications.europa.eu/resource/authority/language/SLV', labelKey: 'dcat.lang_sl' },
   { value: 'http://publications.europa.eu/resource/authority/language/SPA', labelKey: 'dcat.lang_es' },
   { value: 'http://publications.europa.eu/resource/authority/language/SWE', labelKey: 'dcat.lang_sv' },
-  { value: 'other', labelKey: 'dcat.lang_other' },
 ]
 
 /** Distribution format. */

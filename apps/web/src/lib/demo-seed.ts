@@ -10,7 +10,7 @@ import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getDefaultDimensions } from '@/types/catalog'
-import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, DataCatalog } from '@/types'
+import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, EtlFile, DataCatalog } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
 const DEMO_DASHBOARD_SEED_KEY = 'linkr-demo-dashboard-seeded'
@@ -95,6 +95,7 @@ export async function seedDemoDatabase(): Promise<void> {
 
     const dataSource: DataSource = {
       id: DEMO_DATASOURCE_ID,
+      alias: 'mimic_iv_omop',
       name: 'MIMIC-IV Demo (OMOP)',
       description: 'Bundled demo dataset — 100 patients from MIMIC-IV in OMOP CDM format.',
       sourceType: 'database',
@@ -221,6 +222,7 @@ export async function seedMimicIVRawDatabase(): Promise<void> {
 
     const dataSource: DataSource = {
       id: DEMO_RAW_DATASOURCE_ID,
+      alias: 'mimic_iv_raw',
       name: 'MIMIC-IV Demo',
       description: 'Bundled demo dataset — 100 patients from MIMIC-IV v2.2 in native format.',
       sourceType: 'database',
@@ -349,6 +351,7 @@ export async function seedOmopVocabulary(): Promise<void> {
 
     const dataSource: DataSource = {
       id: DEMO_VOCAB_DATASOURCE_ID,
+      alias: 'omop_vocab',
       name: 'OMOP Vocabulary (MIMIC-IV Demo)',
       description: 'Bundled OMOP vocabulary reference — 3 249 concepts from MIMIC-IV Demo OMOP. Use as vocabulary reference in concept mapping.',
       sourceType: 'database',
@@ -375,6 +378,77 @@ export async function seedOmopVocabulary(): Promise<void> {
     console.info('[demo-seed] OMOP vocabulary reference seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed OMOP vocabulary:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Empty OMOP ETL target database (no data, just schema)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_ETL_DB = 'linkr-demo-etl-db-seeded'
+const DEMO_ETL_DATASOURCE_ID = '00000000-0000-0000-0000-000000000009'
+
+/**
+ * Seed an empty OMOP CDM database to serve as the ETL target.
+ *
+ * Creates a DataSource with the OMOP 5.4 schema preset but no data files.
+ * The ETL pipeline will populate this database when run.
+ */
+export async function seedEtlTargetDatabase(): Promise<void> {
+  const storage = getStorage()
+  const now = new Date().toISOString()
+  const baseMapping = getSchemaPreset('omop-5.4')!
+
+  // Check if already seeded but needs DDL re-run (migration from empty DDL to real DDL)
+  if (localStorage.getItem(SEED_KEY_ETL_DB)) {
+    try {
+      // Re-mount with real DDL if schema has no tables (previous seed used empty DDL)
+      const tables = await engine.discoverTables(DEMO_ETL_DATASOURCE_ID).catch(() => [])
+      if (tables.length === 0 && baseMapping.ddl) {
+        await engine.mountEmptyFromDDL(DEMO_ETL_DATASOURCE_ID, baseMapping.ddl, 'mimic_iv_etl')
+        // Update the stored schemaMapping to include real DDL
+        await storage.dataSources.update(DEMO_ETL_DATASOURCE_ID, { schemaMapping: baseMapping })
+        console.info('[demo-seed] ETL target database re-mounted with real OMOP DDL')
+      }
+    } catch {
+      // Ignore — will be handled on next testConnection
+    }
+    return
+  }
+
+  try {
+    const schemaMapping: SchemaMapping = {
+      ...baseMapping,
+    }
+    const connectionConfig: DatabaseConnectionConfig = {
+      engine: 'duckdb',
+      fileIds: [],
+      fileNames: [],
+      inMemory: true,
+    }
+
+    const dataSource: DataSource = {
+      id: DEMO_ETL_DATASOURCE_ID,
+      alias: 'mimic_iv_etl',
+      name: 'MIMIC-IV ETL (OMOP)',
+      description: 'Empty OMOP CDM 5.4 target database for the MIMIC-IV ETL pipeline. Will be populated when the ETL is run.',
+      sourceType: 'database',
+      connectionConfig,
+      schemaMapping,
+      status: 'connected',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await storage.dataSources.create(dataSource)
+
+    // Create the DuckDB schema with full OMOP DDL tables
+    await engine.mountEmptyFromDDL(DEMO_ETL_DATASOURCE_ID, schemaMapping.ddl!, 'mimic_iv_etl')
+
+    localStorage.setItem(SEED_KEY_ETL_DB, '1')
+    console.info('[demo-seed] ETL target database seeded successfully')
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed ETL target database:', err)
   }
 }
 
@@ -487,7 +561,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
       name: 'MIMIC-IV → OMOP CDM',
       description: 'ETL pipeline transforming MIMIC-IV native source data into OMOP CDM 5.4 format. Based on OHDSI mimic-iv-demo-omop ETL scripts (Apache 2.0).',
       sourceDataSourceId: DEMO_RAW_DATASOURCE_ID,
-      targetDataSourceId: DEMO_DATASOURCE_ID,
+      targetDataSourceId: DEMO_ETL_DATASOURCE_ID,
       status: 'draft',
       createdAt: now,
       updatedAt: now,
@@ -499,6 +573,63 @@ export async function seedDemoEtlPipeline(): Promise<void> {
     console.info('[demo-seed] Demo ETL pipeline seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed demo ETL pipeline:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo ETL Files (15 DuckDB SQL scripts adapted from OHDSI mimic-iv-demo-omop)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
+
+/** Row from mimic-iv-etl-scripts.json */
+interface EtlScriptRow {
+  folder: string
+  name: string
+  order: number
+  content: string
+}
+
+/**
+ * Seed 17 ETL SQL scripts as EtlFile records in the demo ETL pipeline.
+ *
+ * Each script runs against the ETL target database (search_path = target schema)
+ * and uses fully qualified names to read from the source and vocabulary schemas.
+ * Adapted from OHDSI mimic-iv-demo-omop BigQuery scripts (Apache 2.0).
+ *
+ * Must run after seedDemoEtlPipeline().
+ */
+export async function seedDemoEtlFiles(): Promise<void> {
+  if (localStorage.getItem(SEED_KEY_ETL_FILES)) return
+
+  try {
+    const storage = getStorage()
+    const now = new Date().toISOString()
+
+    const res = await fetch('/data/mimic-iv-etl-scripts.json')
+    if (!res.ok) throw new Error(`Failed to fetch ETL scripts: ${res.status}`)
+    const scripts: EtlScriptRow[] = await res.json()
+
+    for (const script of scripts) {
+      const file: EtlFile = {
+        id: `demo-etl-${script.name.replace('.sql', '')}`,
+        pipelineId: DEMO_ETL_PIPELINE_ID,
+        name: script.name,
+        type: 'file',
+        parentId: null,
+        content: script.content,
+        language: 'sql',
+        order: script.order,
+        dataSourceId: DEMO_ETL_DATASOURCE_ID,
+        createdAt: now,
+      }
+      await storage.etlFiles.create(file)
+    }
+
+    localStorage.setItem(SEED_KEY_ETL_FILES, '1')
+    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully`)
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed ETL files:', err)
   }
 }
 
@@ -538,7 +669,9 @@ export async function seedDemoConceptMappings(): Promise<void> {
     const mappings: ConceptMapping[] = raw.map((m, i) => ({
       id: `demo-mapping-${String(i).padStart(4, '0')}`,
       projectId: DEMO_MAPPING_PROJECT_ID,
-      sourceConceptId: m.si,
+      // Use concept_code (sc) as sourceConceptId when it's numeric (= itemid in d_items/d_labitems),
+      // otherwise fall back to the OMOP custom vocabulary concept_id (si).
+      sourceConceptId: /^\d+$/.test(m.sc) ? Number(m.sc) : m.si,
       sourceConceptName: m.sn,
       sourceVocabularyId: m.sv,
       sourceDomainId: m.sd,

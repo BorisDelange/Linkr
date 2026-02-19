@@ -147,7 +147,7 @@ export function CatalogConfigTab({ catalog }: Props) {
         (progress) => setComputeProgress(progress),
       )
       await updateCatalog(catalog.id, {
-        status: 'ready',
+        status: 'success',
         lastError: undefined,
         lastComputedAt: cache.computedAt,
         lastComputeDurationMs: cache.durationMs,

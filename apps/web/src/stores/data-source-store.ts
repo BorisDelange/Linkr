@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
+import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { useAppStore } from '@/stores/app-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import type {
@@ -58,6 +59,8 @@ interface DataSourceState {
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
     /** Mark as vocabulary reference (hidden from database pages). */
     isVocabularyReference?: boolean
+    /** Override auto-generated alias (slug). */
+    alias?: string
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => void
@@ -81,6 +84,7 @@ interface DataSourceState {
     description: string
     schemaMapping: SchemaMapping
     ddl: string
+    alias?: string
   }) => Promise<string>
 }
 
@@ -123,6 +127,17 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   loadDataSources: async () => {
     const all = await getStorage().dataSources.getAll()
+    // Migrate: assign alias to data sources that don't have one yet
+    const existingAliases = all.filter((ds) => ds.alias).map((ds) => ds.alias)
+    for (const ds of all) {
+      if (!ds.alias) {
+        const base = generateAlias(ds.name)
+        ds.alias = ensureUniqueAlias(base, existingAliases)
+        existingAliases.push(ds.alias)
+        getStorage().dataSources.update(ds.id, { alias: ds.alias })
+      }
+      engine.registerAlias(ds.id, ds.alias)
+    }
     set({ dataSources: all, dataSourcesLoaded: true })
   },
 
@@ -224,8 +239,14 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       }
     }
 
+    // Generate unique alias from name (or use explicit override)
+    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const baseAlias = source.alias ?? generateAlias(source.name)
+    const alias = ensureUniqueAlias(baseAlias, existingAliases)
+
     const newSource: DataSource = {
       id,
+      alias,
       name: source.name,
       description: source.description,
       sourceType: source.sourceType,
@@ -331,8 +352,14 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       inMemory: true,
     }
 
+    // Generate unique alias
+    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const baseAlias = source.alias ?? generateAlias(source.name)
+    const alias = ensureUniqueAlias(baseAlias, existingAliases)
+
     const newSource: DataSource = {
       id,
+      alias,
       name: source.name,
       description: source.description,
       sourceType: 'database',
@@ -347,7 +374,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
 
     try {
-      await withTimeout(engine.mountEmptyFromDDL(id, source.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+      await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
       mountedSources.add(id)
       const stats = await withTimeout(engine.computeStats(id, source.schemaMapping), STATS_TIMEOUT, 'computeStats')
       const updated: Partial<DataSource> = { status: 'connected', stats, errorMessage: undefined }
@@ -389,7 +416,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       if (!mountedSources.has(id)) {
         if (config.inMemory && ds.schemaMapping?.ddl) {
           // In-memory database: remount from DDL
-          await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+          await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
         } else if (config.useFileHandles) {
           const handles = await getStorage().fileHandles.getByDataSource(id)
           const granted = await engine.requestHandlePermissions(handles)

@@ -14,6 +14,8 @@ function esc(value: string): string {
 
 export interface SourceConceptFilters {
   searchText?: string
+  searchId?: string
+  searchCode?: string
   vocabularyId?: string
   domainId?: string
   conceptClassId?: string
@@ -159,11 +161,15 @@ function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
   if (filters.searchText) {
     const term = esc(filters.searchText)
-    conditions.push(`(
-      CAST(concept_id AS VARCHAR) LIKE '${term}%'
-      OR LOWER(concept_name) LIKE LOWER('%${term}%')
-      OR LOWER(concept_code) LIKE LOWER('%${term}%')
-    )`)
+    conditions.push(`LOWER(concept_name) LIKE LOWER('%${term}%')`)
+  }
+  if (filters.searchId) {
+    const term = esc(filters.searchId)
+    conditions.push(`CAST(concept_id AS VARCHAR) LIKE '${term}%'`)
+  }
+  if (filters.searchCode) {
+    const term = esc(filters.searchCode)
+    conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
   }
   if (filters.vocabularyId) conditions.push(`vocabulary_id = '${esc(filters.vocabularyId)}'`)
   if (filters.domainId) conditions.push(`domain_id = '${esc(filters.domainId)}'`)
@@ -176,14 +182,25 @@ function buildWhereClause(filters: SourceConceptFilters): string {
 // Standard concept search (target selection)
 // ---------------------------------------------------------------------------
 
+/** Filters for the standard concept search query. */
+export interface StandardConceptSearchFilters {
+  domainId?: string
+  vocabularyId?: string
+  conceptClassId?: string
+  standardConcept?: string
+  validConcept?: string
+}
+
 /**
  * Search standard concepts in a data source for mapping target selection.
+ * Uses fuzzy matching: each word of the search term must appear (in any order)
+ * in the concept name, concept code, or vocabulary ID.
  */
 export function buildStandardConceptSearchQuery(
   mapping: SchemaMapping,
   searchTerm: string,
-  domainId?: string,
-  limit = 50,
+  filters?: StandardConceptSearchFilters,
+  limit = 200,
 ): string {
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
@@ -195,15 +212,40 @@ export function buildStandardConceptSearchQuery(
   const codeCol = dict.codeColumn ?? 'concept_code'
   const vocabCol = dict.vocabularyColumn ?? 'vocabulary_id'
 
-  const conditions = [`LOWER(d.${nameCol}) LIKE LOWER('%${esc(searchTerm)}%')`]
+  const conditions: string[] = []
 
-  // Filter for standard concepts if the column exists
+  // Fuzzy matching: split search into words, each must appear in name OR code OR vocabulary
+  const words = searchTerm.trim().split(/\s+/).filter(Boolean)
+  for (const word of words) {
+    const w = esc(word)
+    conditions.push(
+      `(LOWER(d.${nameCol}) LIKE LOWER('%${w}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${w}%') OR LOWER(d.${vocabCol}) LIKE LOWER('%${w}%'))`,
+    )
+  }
+
+  // Filter for standard concepts if the column exists (default behavior when no filter override)
   if (dict.extraColumns?.standard_concept) {
-    conditions.push(`d.${dict.extraColumns.standard_concept} = 'S'`)
+    if (filters?.standardConcept) {
+      conditions.push(`d.${dict.extraColumns.standard_concept} = '${esc(filters.standardConcept)}'`)
+    }
   }
-  if (domainId && dict.extraColumns?.domain_id) {
-    conditions.push(`d.${dict.extraColumns.domain_id} = '${esc(domainId)}'`)
+  if (filters?.domainId && dict.extraColumns?.domain_id) {
+    conditions.push(`d.${dict.extraColumns.domain_id} = '${esc(filters.domainId)}'`)
   }
+  if (filters?.vocabularyId) {
+    conditions.push(`d.${vocabCol} = '${esc(filters.vocabularyId)}'`)
+  }
+  if (filters?.conceptClassId && dict.extraColumns?.concept_class_id) {
+    conditions.push(`d.${dict.extraColumns.concept_class_id} = '${esc(filters.conceptClassId)}'`)
+  }
+  if (filters?.validConcept && dict.extraColumns?.valid_start_date) {
+    // valid_end_date > current_date means the concept is still valid
+    if (filters.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
+      conditions.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
+    }
+  }
+
+  if (conditions.length === 0) conditions.push('TRUE')
 
   return `SELECT
     d.${idCol} AS concept_id,
@@ -212,6 +254,7 @@ export function buildStandardConceptSearchQuery(
     d.${vocabCol} AS vocabulary_id
     ${dict.extraColumns?.domain_id ? `, d.${dict.extraColumns.domain_id} AS domain_id` : ''}
     ${dict.extraColumns?.concept_class_id ? `, d.${dict.extraColumns.concept_class_id} AS concept_class_id` : ''}
+    ${dict.extraColumns?.standard_concept ? `, d.${dict.extraColumns.standard_concept} AS standard_concept` : ''}
   FROM ${dict.table} d
   WHERE ${conditions.join(' AND ')}
   ORDER BY d.${nameCol}

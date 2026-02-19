@@ -46,7 +46,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
       const storage = getStorage()
       for (const c of all) {
         if (c.status === 'computing') {
-          const newStatus = c.lastComputedAt ? 'ready' : 'draft'
+          const newStatus = c.lastComputedAt ? 'success' : 'draft'
           c.status = newStatus
           await storage.dataCatalogs.update(c.id, { status: newStatus })
         }

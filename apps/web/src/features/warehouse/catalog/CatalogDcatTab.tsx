@@ -84,8 +84,8 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
 
   const handleFieldChange = async (key: string, value: unknown) => {
     const next = { ...metadata, [key]: value }
-    // Remove empty values
-    if (value === '' || value === undefined || value === null) {
+    // Remove empty values (including empty arrays)
+    if (value === '' || value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
       delete next[key]
     }
     await updateCatalog(catalog.id, { dcatApMetadata: next })
@@ -501,13 +501,15 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             {customValues.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {customValues.map((cv) => (
-                  <Badge key={cv} variant="default" className="gap-1 text-xs">
+                  <Badge key={cv} variant="default" className="gap-1 pr-1 text-xs">
                     {cv}
-                    <X
-                      size={10}
-                      className="cursor-pointer opacity-60 hover:opacity-100"
-                      onClick={() => handleRemoveCustom(cv)}
-                    />
+                    <button
+                      type="button"
+                      className="ml-0.5 rounded-full p-0.5 opacity-60 transition-opacity hover:bg-background/20 hover:opacity-100"
+                      onClick={(e) => { e.stopPropagation(); handleRemoveCustom(cv) }}
+                    >
+                      <X size={10} />
+                    </button>
                   </Badge>
                 ))}
               </div>

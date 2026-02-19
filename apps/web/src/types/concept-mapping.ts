@@ -110,6 +110,16 @@ export interface ResolvedConcept {
   standardConcept: string | null
 }
 
+// --- Mapping Comment ---
+
+/** A single comment on a concept mapping (mapping or review phase). */
+export interface MappingComment {
+  id: string
+  authorId: string
+  text: string
+  createdAt: string
+}
+
 // --- Concept Mapping ---
 
 /** A single source → target concept mapping. */
@@ -136,6 +146,8 @@ export interface ConceptMapping {
   status: MappingStatus
   matchScore?: number
   comment?: string
+  /** Threaded comments (mapping + review). */
+  comments?: MappingComment[]
   // Provenance
   mappedBy?: string
   mappedOn?: string

@@ -113,6 +113,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const [isRunning, setIsRunning] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [copiedRef, setCopiedRef] = useState<string | null>(null)
 
   // Tab scroll refs
   const fileTabScrollRef = useRef<HTMLDivElement>(null)
@@ -129,31 +130,33 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
+  // Only show source + target databases in the per-file dropdown
+  const pipelineDbIds = [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId].filter(Boolean) as string[]
+  const pipelineDbs = dataSources.filter((ds) => pipelineDbIds.includes(ds.id))
   const { updateFile } = useEtlStore()
 
-  // Resolve which data source a file should run against
+  // Resolve which data source a file should run against (default = target)
   const resolveFileDataSourceId = useCallback(
     (file: EtlFile | undefined): string | undefined => {
       if (file?.dataSourceId) return file.dataSourceId
-      return pipeline?.sourceDataSourceId
+      return pipeline?.targetDataSourceId
     },
-    [pipeline?.sourceDataSourceId],
+    [pipeline?.targetDataSourceId],
   )
 
   const selectedFileDataSourceId = resolveFileDataSourceId(selectedFile)
   const selectedFileDs = dataSources.find((ds) => ds.id === selectedFileDataSourceId)
 
-  // Ensure source data source is mounted in DuckDB when pipeline loads
-  const ensureSourceMounted = useCallback(async () => {
-    if (!pipeline?.sourceDataSourceId) return
+  // Ensure source + target data sources are mounted in DuckDB when pipeline loads
+  const ensurePipelineDbsMounted = useCallback(async () => {
     const { testConnection } = useDataSourceStore.getState()
-    await testConnection(pipeline.sourceDataSourceId)
-  }, [pipeline?.sourceDataSourceId])
+    if (pipeline?.sourceDataSourceId) await testConnection(pipeline.sourceDataSourceId)
+    if (pipeline?.targetDataSourceId) await testConnection(pipeline.targetDataSourceId)
+  }, [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId])
 
   useEffect(() => {
-    ensureSourceMounted()
-  }, [ensureSourceMounted])
+    ensurePipelineDbsMounted()
+  }, [ensurePipelineDbsMounted])
 
   // Infer language from file name
   const inferLanguage = (name: string): 'sql' | 'python' | 'r' | undefined => {
@@ -440,14 +443,14 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       <SelectContent>
                         <SelectItem value="__default__">
                           <span className="flex items-center gap-1.5">
-                            {pipeline?.sourceDataSourceId
-                              ? dataSources.find((ds) => ds.id === pipeline.sourceDataSourceId)?.name ?? t('etl.source')
-                              : t('etl.source')}
+                            {pipeline?.targetDataSourceId
+                              ? dataSources.find((ds) => ds.id === pipeline.targetDataSourceId)?.name ?? t('etl.target')
+                              : t('etl.target')}
                             <span className="text-[10px] text-muted-foreground">({t('etl.script_db_default')})</span>
                           </span>
                         </SelectItem>
-                        {dbSources
-                          .filter((ds) => ds.id !== pipeline?.sourceDataSourceId)
+                        {pipelineDbs
+                          .filter((ds) => ds.id !== pipeline?.targetDataSourceId)
                           .map((ds) => (
                           <SelectItem key={ds.id} value={ds.id}>
                             {ds.name}
@@ -455,6 +458,30 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                         ))}
                       </SelectContent>
                     </Select>
+
+                    {/* Copy schema reference button */}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => {
+                            const dsId = selectedFile.dataSourceId ?? pipeline?.sourceDataSourceId
+                            if (!dsId) return
+                            const ds = dataSources.find((d) => d.id === dsId)
+                            const ref = `"ds_${ds?.alias ?? dsId.replace(/[^a-zA-Z0-9]/g, '_')}"`
+                            navigator.clipboard.writeText(ref)
+                            setCopiedRef(ref)
+                            setTimeout(() => setCopiedRef(null), 2000)
+                          }}
+                        >
+                          {copiedRef ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {copiedRef ? `${t('etl.copied')}: ${copiedRef}` : t('etl.copy_schema_ref')}
+                      </TooltipContent>
+                    </Tooltip>
                   </>
                 )}
 

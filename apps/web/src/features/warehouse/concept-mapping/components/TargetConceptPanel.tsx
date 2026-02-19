@@ -7,12 +7,18 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2 } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
 import {
   Table,
   TableBody,
@@ -41,7 +47,7 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import type { MappingProject, DataSource, MappingType, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
+import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
 interface TargetConceptPanelProps {
@@ -56,6 +62,8 @@ interface SearchResult {
   concept_code: string
   vocabulary_id: string
   domain_id?: string
+  concept_class_id?: string
+  standard_concept?: string
 }
 
 /** Derive the resolved concept set URL from the source URL. */
@@ -67,6 +75,37 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 
 const CS_PAGE_SIZE = 50
 const RESOLVED_PAGE_SIZE = 50
+
+/** Small dropdown for categorical column filters. */
+function ColumnFilterSelect({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string | null
+  options: string[]
+  placeholder: string
+  onChange: (v: string | null) => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <Select
+      value={value ?? '__all__'}
+      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
+    >
+      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
+        {options.map((opt) => (
+          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
 
 /** Fuzzy match: all query characters appear in order in the target. */
 function fuzzyMatch(target: string, query: string): boolean {
@@ -93,10 +132,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   const [searchTerm, setSearchTerm] = useState('')
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
-  const [addingTarget, setAddingTarget] = useState<SearchResult | null>(null)
-  const [mappingType, setMappingType] = useState<MappingType>('maps_to')
-  const [equivalence, setEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
-  const [comment, setComment] = useState('')
+
+  // "Map with comment" dialog
+  const [commentDialogOpen, setCommentDialogOpen] = useState(false)
+  const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const [commentText, setCommentText] = useState('')
 
   // Browse mode state
   const [catalogFilter, setCatalogFilter] = useState<string>('__all__')
@@ -266,6 +306,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       if (!sql) { setSearching(false); return }
       const results = await queryDataSource(targetDsId, sql)
       setSearchResults(results as unknown as SearchResult[])
+      setSearchPage(0)
     } catch (err) {
       console.error('Search failed:', err)
       setSearchResults([])
@@ -274,38 +315,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     }
   }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted])
 
-  const handleAddMapping = async () => {
-    if (!addingTarget || !sourceConcept) return
-    const now = new Date().toISOString()
-    await createMapping({
-      id: crypto.randomUUID(),
-      projectId: project.id,
-      sourceConceptId: sourceConcept.concept_id,
-      sourceConceptName: sourceConcept.concept_name,
-      sourceVocabularyId: sourceConcept.vocabulary_id,
-      sourceDomainId: sourceConcept.domain_id ?? '',
-      sourceConceptCode: sourceConcept.concept_code,
-      sourceFrequency: sourceConcept.record_count,
-      targetConceptId: addingTarget.concept_id,
-      targetConceptName: addingTarget.concept_name,
-      targetVocabularyId: addingTarget.vocabulary_id,
-      targetDomainId: addingTarget.domain_id ?? '',
-      targetConceptCode: addingTarget.concept_code,
-      mappingType,
-      equivalence,
-      status: 'unchecked',
-      comment,
-      createdAt: now,
-      updatedAt: now,
-    })
-    setAddingTarget(null)
-    setComment('')
-    setSearchTerm('')
-    setSearchResults([])
-  }
-
-  /** Add mapping from the selected target concept with a given predicate. */
-  const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch') => {
+  /** Add mapping from the selected target concept with a given predicate and optional comment. */
+  const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
     if (!sourceConcept || !selectedTarget) return
     const alreadyMapped = existingMappings.some((m) => m.targetConceptId === selectedTarget.conceptId)
     if (alreadyMapped) return
@@ -328,11 +339,27 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       mappingType: 'maps_to',
       equivalence: predicate,
       status: 'unchecked',
-      comment: '',
+      comment,
+      comments: comment ? [{
+        id: crypto.randomUUID(),
+        authorId: 'current-user',
+        text: comment,
+        createdAt: now,
+      }] : undefined,
+      mappedBy: 'current-user',
+      mappedOn: now,
       createdAt: now,
       updatedAt: now,
     })
     setSelectedTarget(null)
+  }
+
+  /** Submit from the "Map with comment" dialog. */
+  const handleCommentDialogSubmit = () => {
+    handleAddSelectedMapping(commentEquivalence, commentText.trim())
+    setCommentDialogOpen(false)
+    setCommentText('')
+    setCommentEquivalence('skos:exactMatch')
   }
 
   // ─── Concept sets datatable (browse view) ───────────────────────────
@@ -556,8 +583,88 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
   const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({})
   const [searchColSizing, setSearchColSizing] = useState<Record<string, number>>({})
+  const [searchSorting, setSearchSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [searchPage, setSearchPage] = useState(0)
   const SEARCH_PAGE_SIZE = 50
+
+  // Inline column filters for search results (client-side post-filtering)
+  interface SearchColumnFilters {
+    concept_id?: string
+    concept_name?: string
+    concept_code?: string
+    vocabulary_id?: string
+    domain_id?: string
+    concept_class_id?: string
+    standard_concept?: string | null
+  }
+  const [searchColFilters, setSearchColFilters] = useState<SearchColumnFilters>({})
+
+  // Apply inline filters to search results
+  const filteredSearchResults = searchResults.filter((r) => {
+    const f = searchColFilters
+    if (f.concept_id && !String(r.concept_id).includes(f.concept_id)) return false
+    if (f.concept_name && !textMatch(r.concept_name, f.concept_name)) return false
+    if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
+    if (f.vocabulary_id && r.vocabulary_id !== f.vocabulary_id) return false
+    if (f.domain_id && (r.domain_id ?? '') !== f.domain_id) return false
+    if (f.concept_class_id && (r.concept_class_id ?? '') !== f.concept_class_id) return false
+    if (f.standard_concept && (r.standard_concept ?? '') !== f.standard_concept) return false
+    return true
+  })
+
+  const updateSearchFilter = (key: keyof SearchColumnFilters, value: string | null) => {
+    setSearchColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
+    setSearchPage(0)
+  }
+
+  const SEARCH_FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+  // Compute distinct values for dropdown filters from search results
+  const searchFilterOptions = useMemo(() => {
+    const unique = (fn: (r: SearchResult) => string | undefined) =>
+      [...new Set(searchResults.map(fn).filter(Boolean) as string[])].sort()
+    return {
+      vocabulary_id: unique((r) => r.vocabulary_id),
+      domain_id: unique((r) => r.domain_id),
+      concept_class_id: unique((r) => r.concept_class_id),
+    }
+  }, [searchResults])
+
+  const renderSearchColumnFilter = (columnId: string) => {
+    if (columnId === 'concept_id') {
+      return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
+    }
+    if (columnId === 'concept_name') {
+      return <input className={SEARCH_FILTER_INPUT_CLASS} placeholder="..." value={searchColFilters.concept_name ?? ''} onChange={(e) => updateSearchFilter('concept_name', e.target.value || null)} />
+    }
+    if (columnId === 'concept_code') {
+      return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
+    }
+    if (columnId === 'vocabulary_id' && searchFilterOptions.vocabulary_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.vocabulary_id ?? null} options={searchFilterOptions.vocabulary_id} placeholder="Vocab" onChange={(v) => updateSearchFilter('vocabulary_id', v)} />
+    }
+    if (columnId === 'domain_id' && searchFilterOptions.domain_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.domain_id ?? null} options={searchFilterOptions.domain_id} placeholder="Domain" onChange={(v) => updateSearchFilter('domain_id', v)} />
+    }
+    if (columnId === 'concept_class_id' && searchFilterOptions.concept_class_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.concept_class_id ?? null} options={searchFilterOptions.concept_class_id} placeholder="Class" onChange={(v) => updateSearchFilter('concept_class_id', v)} />
+    }
+    if (columnId === 'standard_concept') {
+      return (
+        <Select value={searchColFilters.standard_concept ?? '__all__'} onValueChange={(v) => updateSearchFilter('standard_concept', v === '__all__' ? null : v)}>
+          <SelectTrigger className="h-6 w-full overflow-hidden border-dashed text-[10px] font-normal [&>svg]:hidden">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t('concept_mapping.filter_all')}</SelectItem>
+            <SelectItem value="S" className="text-xs">S</SelectItem>
+            <SelectItem value="C" className="text-xs">C</SelectItem>
+          </SelectContent>
+        </Select>
+      )
+    }
+    return null
+  }
 
   const searchColumns = useMemo<ColumnDef<SearchResult>[]>(() => [
     {
@@ -603,26 +710,70 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       minSize: 50,
     },
     {
-      id: '_add',
+      id: 'concept_class_id',
+      header: () => t('concept_mapping.col_concept_class'),
+      accessorFn: (row) => row.concept_class_id,
+      cell: ({ row }) => row.original.concept_class_id ?? '',
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'standard_concept',
+      header: 'Std',
+      accessorFn: (row) => row.standard_concept,
+      cell: ({ row }) => {
+        const sc = row.original.standard_concept
+        if (sc === 'S') return <Badge variant="default" className="px-1 py-0 text-[8px]">S</Badge>
+        if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
+        return <span className="text-[10px] text-muted-foreground">{sc ?? ''}</span>
+      },
+      size: 40,
+      minSize: 30,
+    },
+    {
+      id: '_check',
       header: '',
-      cell: ({ row }) => (
-        <button
-          className="flex justify-center text-muted-foreground hover:text-foreground"
-          onClick={(e) => { e.stopPropagation(); setAddingTarget(row.original) }}
-          title={t('concept_mapping.add_mapping')}
-        >
-          <Plus size={14} />
-        </button>
-      ),
-      size: 32,
-      minSize: 32,
+      cell: ({ row }) => {
+        const alreadyMapped = sourceConcept
+          ? existingMappings.some((m) => m.targetConceptId === row.original.concept_id)
+          : false
+        return alreadyMapped ? <Check size={12} className="text-green-600" /> : null
+      },
+      size: 28,
+      minSize: 28,
       enableHiding: false,
       enableResizing: false,
     },
-  ], [t])
+  ], [t, sourceConcept, existingMappings])
 
-  const searchPageItems = searchResults.slice(searchPage * SEARCH_PAGE_SIZE, (searchPage + 1) * SEARCH_PAGE_SIZE)
-  const searchTotalPages = Math.max(1, Math.ceil(searchResults.length / SEARCH_PAGE_SIZE))
+  // Apply sorting to filtered search results
+  const sortedSearchResults = useMemo(() => {
+    if (!searchSorting) return filteredSearchResults
+    const { columnId, desc } = searchSorting
+    const dir = desc ? -1 : 1
+    return [...filteredSearchResults].sort((a, b) => {
+      const av = (a as unknown as Record<string, unknown>)[columnId]
+      const bv = (b as unknown as Record<string, unknown>)[columnId]
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+      return dir * String(av).localeCompare(String(bv))
+    })
+  }, [filteredSearchResults, searchSorting])
+
+  const handleSearchSort = (columnId: string) => {
+    if (searchSorting?.columnId === columnId) {
+      if (searchSorting.desc) setSearchSorting({ columnId, desc: false })
+      else setSearchSorting(null)
+    } else {
+      setSearchSorting({ columnId, desc: true })
+    }
+    setSearchPage(0)
+  }
+
+  const searchPageItems = sortedSearchResults.slice(searchPage * SEARCH_PAGE_SIZE, (searchPage + 1) * SEARCH_PAGE_SIZE)
+  const searchTotalPages = Math.max(1, Math.ceil(sortedSearchResults.length / SEARCH_PAGE_SIZE))
 
   const searchTable = useReactTable({
     data: searchPageItems,
@@ -649,202 +800,193 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
   const renderSearchMode = () => (
     <div className="flex h-full flex-col overflow-hidden">
-      {addingTarget ? (
-        <div className="p-3">
-          <Card className="p-3 space-y-3">
-            <div>
-              <p className="text-xs font-medium">{addingTarget.concept_name}</p>
-              <div className="mt-1 flex gap-1">
-                <Badge variant="outline" className="text-[10px]">ID: {addingTarget.concept_id}</Badge>
-                <Badge variant="outline" className="text-[10px]">{addingTarget.vocabulary_id}</Badge>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.mapping_type')}</p>
-                <Select value={mappingType} onValueChange={(v) => setMappingType(v as MappingType)}>
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="maps_to">Maps to</SelectItem>
-                    <SelectItem value="maps_to_value">Maps to value</SelectItem>
-                    <SelectItem value="maps_to_unit">Maps to unit</SelectItem>
-                    <SelectItem value="maps_to_operator">Maps to operator</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.equivalence')}</p>
-                <Select value={equivalence} onValueChange={(v) => setEquivalence(v as MappingEquivalence)}>
-                  <SelectTrigger className="h-7 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
-                    <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
-                    <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
-                    <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
-                    <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <Textarea
-              className="text-xs"
-              rows={2}
-              placeholder={t('concept_mapping.comment_placeholder')}
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleAddMapping}>{t('concept_mapping.save_mapping')}</Button>
-              <Button size="sm" variant="outline" onClick={() => setAddingTarget(null)}>
-                {t('common.cancel')}
-              </Button>
-            </div>
-          </Card>
+      {/* Search bar + columns toggle */}
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 text-xs"
+            placeholder={t('concept_mapping.search_standard')}
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          />
         </div>
-      ) : (
-        <>
-          {/* Search bar + columns toggle */}
-          <div className="flex items-center gap-2 border-b px-3 py-2">
-            <div className="relative min-w-0 flex-1">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-8 pl-8 text-xs"
-                placeholder={t('concept_mapping.search_standard')}
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              />
-            </div>
-            <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
-              {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
+        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
+          {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
+              <Settings2 size={14} />
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
-                  <Settings2 size={14} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-[180px]">
-                <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {searchTable.getAllColumns()
-                  .filter((col) => col.getCanHide())
-                  .map((col) => (
-                    <DropdownMenuCheckboxItem
-                      key={col.id}
-                      checked={col.getIsVisible()}
-                      onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                      onSelect={(e) => e.preventDefault()}
-                      className="text-xs"
-                    >
-                      {getSearchColLabel(col.id)}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[180px]">
+            <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {searchTable.getAllColumns()
+              .filter((col) => col.getCanHide())
+              .map((col) => (
+                <DropdownMenuCheckboxItem
+                  key={col.id}
+                  checked={col.getIsVisible()}
+                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-xs"
+                >
+                  {getSearchColLabel(col.id)}
+                </DropdownMenuCheckboxItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
 
-          {/* Results table */}
-          <div className="min-h-0 flex-1 overflow-auto">
-            {searchResults.length === 0 ? (
-              <div className="flex h-32 items-center justify-center">
-                <p className="text-xs text-muted-foreground">
-                  {searching ? t('common.loading') : t('concept_mapping.search_hint')}
-                </p>
-              </div>
-            ) : (
-              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-                <TableHeader>
-                  <TableRow>
-                    {searchTable.getHeaderGroups().map((hg) =>
-                      hg.headers.map((header) => (
-                        <TableHead
-                          key={header.id}
-                          className="relative select-none text-xs"
-                          style={{ width: header.getSize() }}
+      {/* Results table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        {searchResults.length === 0 ? (
+          <div className="flex h-32 items-center justify-center">
+            <p className="text-xs text-muted-foreground">
+              {searching ? t('common.loading') : t('concept_mapping.search_hint')}
+            </p>
+          </div>
+        ) : (
+          <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <TableHeader>
+              {/* Column titles */}
+              <TableRow>
+                {searchTable.getHeaderGroups().map((hg) =>
+                  hg.headers.map((header) => {
+                    const colId = header.column.id
+                    const isSortable = colId !== '_check'
+                    const sortIcon = !searchSorting || searchSorting.columnId !== colId
+                      ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                      : searchSorting.desc
+                        ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                        : <ArrowUp size={10} className="shrink-0 text-primary" />
+                    return (
+                    <TableHead
+                      key={header.id}
+                      className="relative select-none text-xs"
+                      style={{ width: header.getSize() }}
+                    >
+                      {isSortable ? (
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          onClick={() => handleSearchSort(colId)}
                         >
                           <span className="truncate">
                             {flexRender(header.column.columnDef.header, header.getContext())}
                           </span>
-                          {header.column.getCanResize() && (
-                            <div
-                              onMouseDown={header.getResizeHandler()}
-                              onTouchStart={header.getResizeHandler()}
-                              onDoubleClick={() => header.column.resetSize()}
-                              className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
-                            >
-                              <div
-                                className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-                                  header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
-                                }`}
-                              />
-                            </div>
-                          )}
-                        </TableHead>
-                      ))
-                    )}
+                          {sortIcon}
+                        </button>
+                      ) : (
+                        <span className="truncate">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
+                      )}
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          onDoubleClick={() => header.column.resetSize()}
+                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                        >
+                          <div
+                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                            }`}
+                          />
+                        </div>
+                      )}
+                    </TableHead>
+                    )
+                  })
+                )}
+              </TableRow>
+              {/* Inline column filters */}
+              <TableRow className="hover:bg-transparent">
+                {searchTable.getHeaderGroups().map((hg) =>
+                  hg.headers.map((header) => (
+                    <TableHead
+                      key={`filter-${header.id}`}
+                      className="px-1 py-1"
+                      style={{ width: header.getSize() }}
+                    >
+                      {renderSearchColumnFilter(header.column.id)}
+                    </TableHead>
+                  ))
+                )}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {searchTable.getRowModel().rows.map((row) => {
+                const alreadyMapped = sourceConcept
+                  ? existingMappings.some((m) => m.targetConceptId === row.original.concept_id)
+                  : false
+                const isSelected = selectedTarget?.conceptId === row.original.concept_id
+                return (
+                  <TableRow
+                    key={row.original.concept_id}
+                    className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-50' : ''}`}
+                    onClick={() => {
+                      if (!alreadyMapped && sourceConcept) {
+                        setSelectedTarget(isSelected ? null : {
+                          conceptId: row.original.concept_id,
+                          conceptName: row.original.concept_name,
+                          vocabularyId: row.original.vocabulary_id,
+                          domainId: row.original.domain_id ?? '',
+                          conceptCode: row.original.concept_code,
+                        })
+                      }
+                    }}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                      const raw = cell.getValue()
+                      const title = raw != null ? String(raw) : undefined
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className="overflow-hidden truncate text-xs"
+                          style={{ maxWidth: cell.column.getSize() }}
+                          title={title}
+                        >
+                          {rendered}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {searchTable.getRowModel().rows.map((row) => (
-                    <TableRow key={row.original.concept_id} className="cursor-pointer" onClick={() => setAddingTarget(row.original)}>
-                      {row.getVisibleCells().map((cell) => {
-                        const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
-                        const raw = cell.getValue()
-                        const title = raw != null ? String(raw) : undefined
-                        return (
-                          <TableCell
-                            key={cell.id}
-                            className="overflow-hidden truncate text-xs"
-                            style={{ maxWidth: cell.column.getSize() }}
-                            title={title}
-                          >
-                            {rendered}
-                          </TableCell>
-                        )
-                      })}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </div>
+                )
+              })}
+            </TableBody>
+          </Table>
+        )}
+      </div>
 
-          {/* Pagination */}
-          {searchResults.length > 0 && (
-            <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-              <span className="text-[10px] text-muted-foreground">
-                {searchResults.length} {t('common.results').toLowerCase()}
-              </span>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon-sm" disabled={searchPage === 0} onClick={() => setSearchPage(searchPage - 1)}>
-                  <ChevronLeft size={14} />
-                </Button>
-                <span className="text-[10px] text-muted-foreground">
-                  {searchPage + 1} / {searchTotalPages}
-                </span>
-                <Button variant="ghost" size="icon-sm" disabled={searchPage >= searchTotalPages - 1} onClick={() => setSearchPage(searchPage + 1)}>
-                  <ChevronRight size={14} />
-                </Button>
-              </div>
-            </div>
-          )}
-        </>
+      {/* Pagination */}
+      {searchResults.length > 0 && (
+        <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
+          <span className="text-[10px] text-muted-foreground">
+            {filteredSearchResults.length} / {searchResults.length} {t('common.results').toLowerCase()}
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="icon-sm" disabled={searchPage === 0} onClick={() => setSearchPage(searchPage - 1)}>
+              <ChevronLeft size={14} />
+            </Button>
+            <span className="text-[10px] text-muted-foreground">
+              {searchPage + 1} / {searchTotalPages}
+            </span>
+            <Button variant="ghost" size="icon-sm" disabled={searchPage >= searchTotalPages - 1} onClick={() => setSearchPage(searchPage + 1)}>
+              <ChevronRight size={14} />
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   )
 
-  // ─── When no source concept selected: browse view ───────────────────
-
-  if (!sourceConcept) {
-    return selectedCs ? renderResolvedConcepts() : renderConceptSetsBrowse()
-  }
-
-  // ─── With source concept selected ───────────────────────────────────
+  // ─── Main layout (always show tabs) ──────────────────────────────────
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -873,46 +1015,59 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
           </button>
         </div>
 
-        {/* Split add-mapping button */}
-        <div className="flex items-center">
-          <Button
-            size="sm"
-            className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
-            disabled={!selectedTarget}
-            onClick={() => handleAddSelectedMapping('skos:exactMatch')}
-          >
-            <Plus size={10} />
-            {t('concept_mapping.skos_exact_match_short')}
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="sm"
-                className="h-6 rounded-l-none border-l border-primary-foreground/20 px-1"
-                disabled={!selectedTarget}
-              >
-                <ChevronDown size={10} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-[180px]">
-              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
-                <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
-                <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
-                <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
-                <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
-                <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        {/* Split add-mapping button (only when a source concept is selected) */}
+        {sourceConcept && (
+          <div className="flex items-center">
+            <Button
+              size="sm"
+              className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
+              disabled={!selectedTarget}
+              onClick={() => handleAddSelectedMapping('skos:exactMatch')}
+            >
+              <Plus size={10} />
+              {t('concept_mapping.skos_exact_match_short')}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  className="h-6 rounded-l-none border-l border-primary-foreground/20 px-1"
+                  disabled={!selectedTarget}
+                >
+                  <ChevronDown size={10} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
+                  <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
+                  <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
+                  <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
+                  <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
+                  <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {/* Map with comment button */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[10px]"
+              disabled={!selectedTarget}
+              title={t('concept_mapping.map_with_comment')}
+              onClick={() => setCommentDialogOpen(true)}
+            >
+              <MessageSquare size={10} />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Mode content */}
@@ -923,6 +1078,59 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
           renderSearchMode()
         )}
       </div>
+
+      {/* "Map with comment" dialog */}
+      <Dialog open={commentDialogOpen} onOpenChange={setCommentDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{t('concept_mapping.map_with_comment')}</DialogTitle>
+          </DialogHeader>
+          {selectedTarget && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium">{selectedTarget.conceptName}</p>
+                <div className="mt-1 flex gap-1">
+                  <Badge variant="outline" className="text-[10px]">ID: {selectedTarget.conceptId}</Badge>
+                  <Badge variant="outline" className="text-[10px]">{selectedTarget.vocabularyId}</Badge>
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.equivalence')}</p>
+                <Select value={commentEquivalence} onValueChange={(v) => setCommentEquivalence(v as MappingEquivalence)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
+                    <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
+                    <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
+                    <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
+                    <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.comment_placeholder')}</p>
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  placeholder={t('concept_mapping.comment_placeholder')}
+                  value={commentText}
+                  onChange={(e) => setCommentText(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCommentDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleCommentDialogSubmit}>
+              {t('concept_mapping.save_mapping')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

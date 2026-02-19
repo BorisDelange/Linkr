@@ -291,10 +291,14 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
 
   // Run pipeline — execute scripts sequentially
   const handleRunPipeline = useCallback(async () => {
-    if (!pipeline?.sourceDataSourceId || sqlFiles.length === 0) return
+    if (!pipeline?.targetDataSourceId || sqlFiles.length === 0) return
     startPipelineRun()
     const abort = useEtlStore.getState().pipelineRunAbort
     const { testConnection } = useDataSourceStore.getState()
+
+    // Ensure source + target are mounted
+    if (pipeline.sourceDataSourceId) await testConnection(pipeline.sourceDataSourceId)
+    await testConnection(pipeline.targetDataSourceId)
 
     let hasError = false
     for (const file of sqlFiles) {
@@ -309,8 +313,8 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
         continue
       }
 
-      // Resolve per-file data source or fallback to pipeline source
-      const dsId = file.dataSourceId ?? pipeline.sourceDataSourceId
+      // Resolve per-file data source or fallback to pipeline target
+      const dsId = file.dataSourceId ?? pipeline.targetDataSourceId
 
       setScriptStatus(file.id, {
         id: `log-${file.id}-${Date.now()}`,
@@ -366,7 +370,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     if (selectedNodeId === '__target__') return { type: 'target' as const, ds: targetDs }
     const file = files.find((f) => f.id === selectedNodeId)
     const log = scriptStatuses.get(selectedNodeId)
-    const fileDsId = file?.dataSourceId ?? pipeline?.sourceDataSourceId
+    const fileDsId = file?.dataSourceId ?? pipeline?.targetDataSourceId
     const fileDs = dataSources.find((ds) => ds.id === fileDsId)
     return file ? { type: 'script' as const, file, log, ds: fileDs, isOverride: !!file.dataSourceId } : null
   }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, dataSources, pipeline?.sourceDataSourceId])
@@ -461,7 +465,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
         </div>
 
         {/* Content: canvas + sidebar */}
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <Allotment proportionalLayout={false}>
             {/* Flow canvas, list, or history */}
             <Allotment.Pane minSize={400}>
@@ -498,12 +502,12 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
                     onNodeContextMenu={onNodeContextMenu}
                     onPaneClick={() => setContextMenu(null)}
                     fitView
-                    fitViewOptions={{ padding: 0.3, maxZoom: 1.2 }}
+                    fitViewOptions={{ padding: 0.2, minZoom: 0.15, maxZoom: 1 }}
                     nodesDraggable
                     nodesConnectable={false}
                     elementsSelectable
                     proOptions={{ hideAttribution: true }}
-                    minZoom={0.3}
+                    minZoom={0.1}
                     maxZoom={2}
                   >
                     <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-muted-foreground)" style={{ opacity: 0.15 }} />
@@ -1085,7 +1089,7 @@ function ScriptOrderList({
             <SortableContext items={sqlFiles.map((f) => f.id)} strategy={verticalListSortingStrategy}>
               {sqlFiles.map((file, idx) => {
                 const log = scriptStatuses.get(file.id)
-                const fileDsId = file.dataSourceId ?? pipeline?.sourceDataSourceId
+                const fileDsId = file.dataSourceId ?? pipeline?.targetDataSourceId
                 const fileDs = dataSources.find((ds) => ds.id === fileDsId)
                 return (
                   <SortableScriptRow

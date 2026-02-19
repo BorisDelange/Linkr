@@ -126,8 +126,10 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       await ensureMounted(dataSource.id)
       const mapping = dataSource.schemaMapping
 
-      // When sorting by record_count/patient_count, we load all concepts and sort client-side
+      // When sorting by record_count/patient_count or filtering by mapping status,
+      // we load all concepts and do pagination client-side
       const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+      const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
 
       const countSql = buildSourceConceptsCountQuery(mapping, filters)
       if (!countSql) { setLoading(false); loadingRef.current = false; return }
@@ -136,9 +138,9 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       const total = Number(countResult?.total ?? 0)
       setTotalCount(total)
 
-      if (isSortingByCount) {
-        // Load all concepts (filtered), pagination done client-side after sort
-        const dataSql = buildSourceConceptsQuery(mapping, filters, null, total, 0)
+      if (needAllRows) {
+        // Load all concepts (filtered), pagination done client-side after sort/filter
+        const dataSql = buildSourceConceptsQuery(mapping, filters, isSortingByCount ? null : sorting, total, 0)
         const result = await queryDataSource(dataSource.id, dataSql)
         setRows(result as unknown as SourceConceptRow[])
       } else {
@@ -154,7 +156,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       setLoading(false)
       loadingRef.current = false
     }
-  }, [dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, ensureMounted])
+  }, [dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, mappingStatusFilter, ensureMounted])
 
   useEffect(() => {
     loadConcepts()
@@ -208,8 +210,9 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     sortedRows = [...rowsWithCounts].sort((a, b) => dir * (a[col] - b[col]))
   }
 
-  // Apply pagination client-side when sorting by counts (all rows loaded)
-  const paginatedRows = isSortingByCount
+  // Apply pagination client-side when all rows were loaded (count sorting or status filter)
+  const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
+  const paginatedRows = needAllRows
     ? sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
     : sortedRows
 
@@ -223,28 +226,34 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     else if (!current) mappingStatusMap.set(m.sourceConceptId, 'mapped')
   }
 
-  // Client-side filtering by mapping status
-  const filteredRows = mappingStatusFilter === 'all'
-    ? paginatedRows
-    : paginatedRows.filter((row) => {
+  // Client-side filtering by mapping status — applied BEFORE pagination
+  const statusFilteredRows = mappingStatusFilter === 'all'
+    ? sortedRows
+    : sortedRows.filter((row) => {
         const status = mappingStatusMap.get(row.concept_id)
         if (mappingStatusFilter === 'unmapped') return !status
         if (mappingStatusFilter === 'mapped') return !!status
         return status === mappingStatusFilter
       })
 
+  // Re-paginate after status filter
+  const finalRows = mappingStatusFilter === 'all'
+    ? paginatedRows
+    : statusFilteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
   const filteredTotalCount = mappingStatusFilter === 'all'
     ? totalCount
-    : filteredRows.length
+    : statusFilteredRows.length
 
-  const selectedRow = paginatedRows.find((r) => r.concept_id === selectedSourceConceptId)
+  const selectedRow = (mappingStatusFilter === 'all' ? paginatedRows : finalRows)
+    .find((r) => r.concept_id === selectedSourceConceptId)
 
   return (
     <div className="h-full">
       <Allotment defaultSizes={[55, 45]}>
         <Allotment.Pane minSize={300}>
           <SourceConceptTable
-            rows={filteredRows}
+            rows={finalRows}
             totalCount={filteredTotalCount}
             page={page}
             pageSize={PAGE_SIZE}
