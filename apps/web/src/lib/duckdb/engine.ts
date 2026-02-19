@@ -1,4 +1,5 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
+import { Type as ArrowType } from 'apache-arrow'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping } from '@/types'
 
 // DuckDB WASM assets are served from public/duckdb/ to avoid Vite @fs blocking.
@@ -337,7 +338,19 @@ export async function queryDataSource(
       }
     }
     const result = await conn.query(sql)
-    return (result.toArray() as Record<string, unknown>[]).map(coerceBigInts)
+
+    // Build set of DATE/TIMESTAMP columns from Arrow schema so we can
+    // convert their BigInt epoch values to proper ISO date strings.
+    const dateColumns = new Set<string>()
+    const timestampColumns = new Set<string>()
+    for (const field of result.schema.fields) {
+      const typeId = field.type.typeId
+      if (typeId === ArrowType.Date) dateColumns.add(field.name)
+      else if (typeId === ArrowType.Timestamp) timestampColumns.add(field.name)
+    }
+    return (result.toArray() as Record<string, unknown>[]).map((row) =>
+      coerceRow(row, dateColumns, timestampColumns),
+    )
   } finally {
     await conn.close()
   }
@@ -345,12 +358,26 @@ export async function queryDataSource(
 
 // --- Helpers ---
 
-/** Convert BigInt values in a row to Number (safe for JSON serialization). */
-function coerceBigInts(row: Record<string, unknown>): Record<string, unknown> {
+/** Convert BigInt values in a row to Number, and DATE/TIMESTAMP BigInts to ISO strings. */
+function coerceRow(
+  row: Record<string, unknown>,
+  dateColumns: Set<string>,
+  timestampColumns: Set<string>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const key in row) {
     const v = row[key]
-    out[key] = typeof v === 'bigint' ? Number(v) : v
+    if (dateColumns.has(key) && (typeof v === 'bigint' || typeof v === 'number')) {
+      // Arrow DATE is encoded as milliseconds since epoch
+      out[key] = new Date(Number(v)).toISOString().slice(0, 10)
+    } else if (timestampColumns.has(key) && (typeof v === 'bigint' || typeof v === 'number')) {
+      // Arrow TIMESTAMP from DuckDB is encoded as microseconds since epoch
+      out[key] = new Date(Number(v) / 1000).toISOString()
+    } else if (typeof v === 'bigint') {
+      out[key] = Number(v)
+    } else {
+      out[key] = v
+    }
   }
   return out
 }
