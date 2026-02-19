@@ -1964,7 +1964,17 @@
     "delete_selected": "Supprimer ({{count}})",
     "delete_confirm_title": "Supprimer des mappings",
     "delete_confirm_desc": "Voulez-vous vraiment supprimer {{count}} mapping(s) ? Cette action est irréversible.",
-    "col_review": "Évaluation"
+    "col_review": "Évaluation",
+    "col_concept_class": "Classe",
+    "all_concept_classes": "Toutes les classes",
+    "filter_mapping_status": "Statut du mapping",
+    "filter_all": "Tous",
+    "filter_unmapped": "Non mappés",
+    "filter_mapped": "Mappés",
+    "filter_approved": "Approuvés",
+    "filter_rejected": "Rejetés",
+    "filter_flagged": "Signalés",
+    "filter_reset": "Réinitialiser les filtres"
   },
   "data_catalog": {
     "title": "Catalogue de données",

@@ -11,7 +11,7 @@ import {
   type SourceConceptSorting,
 } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { SourceConceptTable } from './components/SourceConceptTable'
+import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import type { MappingProject, DataSource } from '@/types'
 
@@ -47,6 +47,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
   const [filters, setFilters] = useState<SourceConceptFilters>({})
   const [sorting, setSorting] = useState<SourceConceptSorting | null>({ columnId: 'record_count', desc: true })
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+  const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>('all')
 
   const loadingRef = useRef(false)
 
@@ -147,6 +148,20 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     else if (!current) mappingStatusMap.set(m.sourceConceptId, 'mapped')
   }
 
+  // Client-side filtering by mapping status
+  const filteredRows = mappingStatusFilter === 'all'
+    ? rows
+    : rows.filter((row) => {
+        const status = mappingStatusMap.get(row.concept_id)
+        if (mappingStatusFilter === 'unmapped') return !status
+        if (mappingStatusFilter === 'mapped') return !!status
+        return status === mappingStatusFilter
+      })
+
+  const filteredTotalCount = mappingStatusFilter === 'all'
+    ? totalCount
+    : filteredRows.length
+
   const selectedRow = rows.find((r) => r.concept_id === selectedSourceConceptId)
 
   return (
@@ -154,8 +169,8 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       <Allotment defaultSizes={[55, 45]}>
         <Allotment.Pane minSize={300}>
           <SourceConceptTable
-            rows={rows}
-            totalCount={totalCount}
+            rows={filteredRows}
+            totalCount={filteredTotalCount}
             page={page}
             pageSize={PAGE_SIZE}
             loading={loading}
@@ -164,10 +179,12 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             sorting={sorting}
             filterOptions={filterOptions}
             mappingStatusMap={mappingStatusMap}
+            mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             onPageChange={setPage}
             onFiltersChange={setFilters}
             onSortingChange={setSorting}
+            onMappingStatusFilterChange={setMappingStatusFilter}
             onSelectConcept={setSelectedSourceConcept}
           />
         </Allotment.Pane>

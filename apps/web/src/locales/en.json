@@ -1963,7 +1963,17 @@
     "delete_selected": "Delete ({{count}})",
     "delete_confirm_title": "Delete mappings",
     "delete_confirm_desc": "Are you sure you want to delete {{count}} mapping(s)? This action cannot be undone.",
-    "col_review": "Review"
+    "col_review": "Review",
+    "col_concept_class": "Class",
+    "all_concept_classes": "All classes",
+    "filter_mapping_status": "Mapping status",
+    "filter_all": "All",
+    "filter_unmapped": "Unmapped",
+    "filter_mapped": "Mapped",
+    "filter_approved": "Approved",
+    "filter_rejected": "Rejected",
+    "filter_flagged": "Flagged",
+    "filter_reset": "Reset filters"
   },
   "data_catalog": {
     "title": "Data Catalog",

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Select,
   SelectContent,
@@ -9,8 +11,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import type { SourceConceptRow } from '../MappingEditorTab'
+
+export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'approved' | 'rejected' | 'flagged'
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -23,10 +32,12 @@ interface SourceConceptTableProps {
   sorting: SourceConceptSorting | null
   filterOptions: Record<string, string[]>
   mappingStatusMap: Map<number, string>
+  mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
   onPageChange: (page: number) => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
+  onMappingStatusFilterChange: (filter: MappingStatusFilter) => void
   onSelectConcept: (id: number | null) => void
 }
 
@@ -49,14 +60,25 @@ export function SourceConceptTable({
   sorting,
   filterOptions,
   mappingStatusMap,
+  mappingStatusFilter,
   selectedConceptId,
   onPageChange,
   onFiltersChange,
   onSortingChange,
+  onMappingStatusFilterChange,
   onSelectConcept,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
+  const [filterOpen, setFilterOpen] = useState(false)
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+
+  // Count active filters (excluding search text)
+  const activeFilterCount = [
+    mappingStatusFilter !== 'all',
+    !!filters.vocabularyId,
+    !!filters.domainId,
+    !!filters.conceptClassId,
+  ].filter(Boolean).length
 
   const handleSort = (columnId: string) => {
     if (sorting?.columnId === columnId) {
@@ -75,8 +97,8 @@ export function SourceConceptTable({
   return (
     <div className="flex h-full flex-col border-r">
       {/* Filters bar */}
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
-        <div className="relative flex-1 min-w-[160px]">
+      <div className="flex items-center gap-2 border-b px-3 py-2">
+        <div className="relative min-w-0 flex-1">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-xs"
@@ -85,38 +107,127 @@ export function SourceConceptTable({
             onChange={(e) => onFiltersChange({ ...filters, searchText: e.target.value || undefined })}
           />
         </div>
-        {filterOptions.vocabulary_id && filterOptions.vocabulary_id.length > 0 && (
-          <Select
-            value={filters.vocabularyId ?? '__all__'}
-            onValueChange={(v) => onFiltersChange({ ...filters, vocabularyId: v === '__all__' ? undefined : v })}
-          >
-            <SelectTrigger className="h-8 w-[120px] text-xs">
-              <SelectValue placeholder={t('concept_mapping.all_vocabularies')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('concept_mapping.all_vocabularies')}</SelectItem>
-              {filterOptions.vocabulary_id.map((v) => (
-                <SelectItem key={v} value={v}>{v}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {filterOptions.domain_id && filterOptions.domain_id.length > 0 && (
-          <Select
-            value={filters.domainId ?? '__all__'}
-            onValueChange={(v) => onFiltersChange({ ...filters, domainId: v === '__all__' ? undefined : v })}
-          >
-            <SelectTrigger className="h-8 w-[120px] text-xs">
-              <SelectValue placeholder={t('concept_mapping.all_domains')} />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('concept_mapping.all_domains')}</SelectItem>
-              {filterOptions.domain_id.map((v) => (
-                <SelectItem key={v} value={v}>{v}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
+              <SlidersHorizontal size={14} />
+              {activeFilterCount > 0 && (
+                <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1 text-[9px]">
+                  {activeFilterCount}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-64 space-y-3 p-3">
+            {/* Mapping status */}
+            <div>
+              <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                {t('concept_mapping.filter_mapping_status')}
+              </p>
+              <Select
+                value={mappingStatusFilter}
+                onValueChange={(v) => onMappingStatusFilterChange(v as MappingStatusFilter)}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t('concept_mapping.filter_all')}</SelectItem>
+                  <SelectItem value="unmapped">{t('concept_mapping.filter_unmapped')}</SelectItem>
+                  <SelectItem value="mapped">{t('concept_mapping.filter_mapped')}</SelectItem>
+                  <SelectItem value="approved">{t('concept_mapping.filter_approved')}</SelectItem>
+                  <SelectItem value="rejected">{t('concept_mapping.filter_rejected')}</SelectItem>
+                  <SelectItem value="flagged">{t('concept_mapping.filter_flagged')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Vocabulary */}
+            {filterOptions.vocabulary_id && filterOptions.vocabulary_id.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {t('concept_mapping.col_vocab')}
+                </p>
+                <Select
+                  value={filters.vocabularyId ?? '__all__'}
+                  onValueChange={(v) => onFiltersChange({ ...filters, vocabularyId: v === '__all__' ? undefined : v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">{t('concept_mapping.all_vocabularies')}</SelectItem>
+                    {filterOptions.vocabulary_id.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Domain */}
+            {filterOptions.domain_id && filterOptions.domain_id.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {t('concept_mapping.col_domain')}
+                </p>
+                <Select
+                  value={filters.domainId ?? '__all__'}
+                  onValueChange={(v) => onFiltersChange({ ...filters, domainId: v === '__all__' ? undefined : v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">{t('concept_mapping.all_domains')}</SelectItem>
+                    {filterOptions.domain_id.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Concept class */}
+            {filterOptions.concept_class_id && filterOptions.concept_class_id.length > 0 && (
+              <div>
+                <p className="mb-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                  {t('concept_mapping.col_concept_class')}
+                </p>
+                <Select
+                  value={filters.conceptClassId ?? '__all__'}
+                  onValueChange={(v) => onFiltersChange({ ...filters, conceptClassId: v === '__all__' ? undefined : v })}
+                >
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">{t('concept_mapping.all_concept_classes')}</SelectItem>
+                    {filterOptions.concept_class_id.map((v) => (
+                      <SelectItem key={v} value={v}>{v}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Reset */}
+            {activeFilterCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full text-xs"
+                onClick={() => {
+                  onMappingStatusFilterChange('all')
+                  onFiltersChange({ searchText: filters.searchText })
+                  setFilterOpen(false)
+                }}
+              >
+                {t('concept_mapping.filter_reset')}
+              </Button>
+            )}
+          </PopoverContent>
+        </Popover>
       </div>
 
       {/* Table header */}
