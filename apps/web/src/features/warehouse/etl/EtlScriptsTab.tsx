@@ -203,7 +203,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   // Execute SQL against a data source (per-file override or pipeline default)
   const executeSql = useCallback(
     async (sql: string, label: string, dataSourceId?: string) => {
-      const dsId = dataSourceId ?? pipeline?.sourceDataSourceId
+      const dsId = dataSourceId ?? pipeline?.targetDataSourceId
       if (!dsId) return
       // Ensure the target data source is mounted
       const { testConnection } = useDataSourceStore.getState()
@@ -248,7 +248,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
         })
       }
     },
-    [pipeline?.sourceDataSourceId, addExecutionResult, addOutputTab],
+    [pipeline?.targetDataSourceId, addExecutionResult, addOutputTab],
   )
 
   // Run current file
@@ -466,7 +466,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => {
-                            const dsId = selectedFile.dataSourceId ?? pipeline?.sourceDataSourceId
+                            const dsId = resolveFileDataSourceId(selectedFile)
                             if (!dsId) return
                             const ds = dataSources.find((d) => d.id === dsId)
                             const ref = `"ds_${ds?.alias ?? dsId.replace(/[^a-zA-Z0-9]/g, '_')}"`

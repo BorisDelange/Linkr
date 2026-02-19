@@ -58,6 +58,15 @@ export async function seedDemoDatabase(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dataSources.getById(DEMO_DATASOURCE_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY, '1')
+      console.info('[demo-seed] MIMIC-IV demo database already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     // Fetch all parquet files in parallel
@@ -185,6 +194,15 @@ export async function seedMimicIVRawDatabase(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dataSources.getById(DEMO_RAW_DATASOURCE_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_RAW, '1')
+      console.info('[demo-seed] MIMIC-IV raw demo database already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     // Fetch all parquet files in parallel
@@ -315,6 +333,15 @@ export async function seedOmopVocabulary(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dataSources.getById(DEMO_VOCAB_DATASOURCE_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_VOCAB, '1')
+      console.info('[demo-seed] OMOP vocabulary already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     // Fetch all parquet files in parallel
@@ -396,25 +423,26 @@ const DEMO_ETL_DATASOURCE_ID = '00000000-0000-0000-0000-000000000009'
  */
 export async function seedEtlTargetDatabase(): Promise<void> {
   const storage = getStorage()
-  const now = new Date().toISOString()
-  const baseMapping = getSchemaPreset('omop-5.4')!
 
-  // Check if already seeded but needs DDL re-run (migration from empty DDL to real DDL)
-  if (localStorage.getItem(SEED_KEY_ETL_DB)) {
-    try {
-      // Re-mount with real DDL if schema has no tables (previous seed used empty DDL)
-      const tables = await engine.discoverTables(DEMO_ETL_DATASOURCE_ID).catch(() => [])
-      if (tables.length === 0 && baseMapping.ddl) {
-        await engine.mountEmptyFromDDL(DEMO_ETL_DATASOURCE_ID, baseMapping.ddl, 'mimic_iv_etl')
-        // Update the stored schemaMapping to include real DDL
-        await storage.dataSources.update(DEMO_ETL_DATASOURCE_ID, { schemaMapping: baseMapping })
-        console.info('[demo-seed] ETL target database re-mounted with real OMOP DDL')
-      }
-    } catch {
-      // Ignore — will be handled on next testConnection
+  // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
+  const existing = await storage.dataSources.getById(DEMO_ETL_DATASOURCE_ID)
+  if (existing) {
+    // Also set the localStorage flag if it was missing
+    if (!localStorage.getItem(SEED_KEY_ETL_DB)) {
+      localStorage.setItem(SEED_KEY_ETL_DB, '1')
     }
+    console.info('[demo-seed] ETL target database already exists, skipping seed')
     return
   }
+
+  // Check if already flagged as seeded but DB doesn't exist (shouldn't happen with above check)
+  if (localStorage.getItem(SEED_KEY_ETL_DB)) {
+    // Clear the flag since the DB doesn't exist
+    localStorage.removeItem(SEED_KEY_ETL_DB)
+  }
+
+  const now = new Date().toISOString()
+  const baseMapping = getSchemaPreset('omop-5.4')!
 
   try {
     const schemaMapping: SchemaMapping = {
@@ -471,6 +499,15 @@ export async function seedDemoMappingProject(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the project already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.mappingProjects.getById(DEMO_MAPPING_PROJECT_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_MAPPING, '1')
+      console.info('[demo-seed] Demo mapping project already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const project: MappingProject = {
@@ -511,6 +548,15 @@ export async function seedDemoDqRuleSet(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the rule set already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dqRuleSets.getById(DEMO_DQ_RULESET_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_DQ, '1')
+      console.info('[demo-seed] Demo DQ rule set already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const ruleSet: DqRuleSet = {
@@ -553,6 +599,15 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the pipeline already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.etlPipelines.getById(DEMO_ETL_PIPELINE_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_ETL, '1')
+      console.info('[demo-seed] Demo ETL pipeline already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const pipeline: EtlPipeline = {
@@ -604,6 +659,15 @@ export async function seedDemoEtlFiles(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if ETL files already exist in IndexedDB (guard against localStorage/IDB desync)
+    const existingFiles = await storage.etlFiles.getByPipeline(DEMO_ETL_PIPELINE_ID)
+    if (existingFiles.length > 0) {
+      localStorage.setItem(SEED_KEY_ETL_FILES, '1')
+      console.info('[demo-seed] Demo ETL files already exist, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const res = await fetch('/data/mimic-iv-etl-scripts.json')
@@ -660,6 +724,15 @@ export async function seedDemoConceptMappings(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if concept mappings already exist in IndexedDB (guard against localStorage/IDB desync)
+    const existingMappings = await storage.conceptMappings.getByProject(DEMO_MAPPING_PROJECT_ID)
+    if (existingMappings.length > 0) {
+      localStorage.setItem(SEED_KEY_CONCEPT_MAPPINGS, '1')
+      console.info('[demo-seed] Demo concept mappings already exist, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const res = await fetch('/data/mimic-iv-concept-mappings.json')
@@ -709,9 +782,18 @@ export async function seedDemoDashboard(): Promise<void> {
 
   try {
     const storage = getStorage()
-    const now = new Date().toISOString()
 
     const dashboardId = 'dashboard-demo-1'
+
+    // Check if the dashboard already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dashboards.getById(dashboardId)
+    if (existing) {
+      localStorage.setItem(DEMO_DASHBOARD_SEED_KEY, '1')
+      console.info('[demo-seed] Demo dashboard already exists, skipping seed')
+      return
+    }
+
+    const now = new Date().toISOString()
     const tabId = 'dtab-demo-1'
 
     const dashboard: Dashboard = {
@@ -767,6 +849,15 @@ export async function seedDemoCatalog(): Promise<void> {
 
   try {
     const storage = getStorage()
+
+    // Check if the catalog already exists in IndexedDB (guard against localStorage/IDB desync)
+    const existing = await storage.dataCatalogs.getById(DEMO_CATALOG_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_CATALOG, '1')
+      console.info('[demo-seed] Demo data catalog already exists, skipping seed')
+      return
+    }
+
     const now = new Date().toISOString()
 
     const catalog: DataCatalog = {

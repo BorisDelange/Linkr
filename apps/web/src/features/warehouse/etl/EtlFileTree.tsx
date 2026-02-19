@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   FileCode,
@@ -10,6 +10,16 @@ import {
   Pencil,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -40,6 +50,7 @@ export function EtlFileTree() {
   const { t } = useTranslation()
   const { files, selectedFileId, selectFile, deleteFile, updateFile } = useEtlStore()
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set())
+  const [deleteConfirmFileId, setDeleteConfirmFileId] = useState<string | null>(null)
 
   const toggleFolder = (id: string) => {
     setExpandedFolders((prev) => {
@@ -49,6 +60,19 @@ export function EtlFileTree() {
       return next
     })
   }
+
+  const handleDeleteRequest = useCallback((id: string) => {
+    setDeleteConfirmFileId(id)
+  }, [])
+
+  const handleDeleteConfirm = useCallback(() => {
+    if (deleteConfirmFileId) {
+      deleteFile(deleteConfirmFileId)
+      setDeleteConfirmFileId(null)
+    }
+  }, [deleteConfirmFileId, deleteFile])
+
+  const deleteConfirmFile = deleteConfirmFileId ? files.find((f) => f.id === deleteConfirmFileId) : null
 
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
@@ -64,27 +88,48 @@ export function EtlFileTree() {
   }
 
   return (
-    <ScrollArea className="flex-1">
-      <div className="py-1">
-        {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
-          <EtlFileTreeItem
-            key={file.id}
-            file={file}
-            depth={0}
-            isActive={file.id === selectedFileId}
-            isFolder={file.type === 'folder'}
-            isExpanded={expandedFolders.has(file.id)}
-            onToggleFolder={toggleFolder}
-            onSelect={selectFile}
-            onDelete={deleteFile}
-            onRename={(id, name) => updateFile(id, { name })}
-            getChildren={getChildren}
-            expandedFolders={expandedFolders}
-            selectedFileId={selectedFileId}
-          />
-        ))}
-      </div>
-    </ScrollArea>
+    <>
+      <ScrollArea className="flex-1">
+        <div className="py-1">
+          {rootFiles.sort((a, b) => a.order - b.order).map((file) => (
+            <EtlFileTreeItem
+              key={file.id}
+              file={file}
+              depth={0}
+              isActive={file.id === selectedFileId}
+              isFolder={file.type === 'folder'}
+              isExpanded={expandedFolders.has(file.id)}
+              onToggleFolder={toggleFolder}
+              onSelect={selectFile}
+              onDelete={handleDeleteRequest}
+              onRename={(id, name) => updateFile(id, { name })}
+              getChildren={getChildren}
+              expandedFolders={expandedFolders}
+              selectedFileId={selectedFileId}
+            />
+          ))}
+        </div>
+      </ScrollArea>
+
+      <AlertDialog open={!!deleteConfirmFileId} onOpenChange={(open) => { if (!open) setDeleteConfirmFileId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('etl.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteConfirmFile?.type === 'folder'
+                ? t('etl.delete_confirm_folder', { name: deleteConfirmFile?.name ?? '' })
+                : t('etl.delete_confirm_file', { name: deleteConfirmFile?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {t('etl.delete_file')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
