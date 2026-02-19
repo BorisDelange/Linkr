@@ -250,8 +250,8 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     <div className="font-mono text-[10px] opacity-70">{col.type}{col.nullable ? '' : ' NOT NULL'}</div>
-                    {isPk && <div className="text-yellow-300 text-[10px]">Primary Key</div>}
-                    {isFk && <div className="text-blue-300 text-[10px]">FK &rarr; {fkTarget}</div>}
+                    {isPk && <div className="text-[10px] opacity-80">Primary Key</div>}
+                    {isFk && <div className="text-[10px] opacity-80">FK &rarr; {fkTarget}</div>}
                   </div>
                 </TooltipContent>
               </Tooltip>
