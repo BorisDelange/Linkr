@@ -9,9 +9,9 @@ function esc(value: string): string {
   return value.replace(/'/g, "''")
 }
 
-/** Sanitize a data source ID for use as a DuckDB schema name. */
+/** Sanitize a data source ID for use as a DuckDB schema name. Must match engine.ts schemaName(). */
 function schemaName(dataSourceId: string): string {
-  return `"ds_${dataSourceId.replace(/-/g, '')}"`
+  return `"ds_${dataSourceId.replace(/[^a-zA-Z0-9]/g, '_')}"`
 }
 
 // ---------------------------------------------------------------------------
