@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, Check, Sparkles } from 'lucide-react'
+import { Copy, Check, Sparkles, ExternalLink, Eye } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,10 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useCatalogStore } from '@/stores/catalog-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import {
   DCAT_FIELDS,
   DCAT_VOCABULARIES,
+  HEALTHDCATAP_RELEASE,
+  HEALTHDCATAP_SPEC_URL,
   getFieldsByClass,
   type DcatClass,
   type DcatFieldDef,
@@ -46,7 +55,10 @@ const OBLIGATION_COLORS: Record<string, string> = {
 export function CatalogDcatTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const { updateCatalog } = useCatalogStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const schemaMapping = dataSources.find((ds) => ds.id === catalog.dataSourceId)?.schemaMapping
   const [copied, setCopied] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   // Local metadata state — initialized from persisted catalog
   const metadata: Record<string, unknown> = catalog.dcatApMetadata ?? {}
@@ -92,10 +104,15 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
     await handleFieldChange(key, next.length > 0 ? next : undefined)
   }
 
-  const jsonLd = useMemo(() => buildJsonLd(metadata), [metadata])
+  const jsonLd = useMemo(() => buildJsonLd({
+    metadata,
+    schemaMapping,
+    cache,
+  }), [metadata, schemaMapping, cache])
+  const jsonLdStr = useMemo(() => JSON.stringify(jsonLd, null, 2), [jsonLd])
 
   const handleCopyJsonLd = async () => {
-    await navigator.clipboard.writeText(JSON.stringify(jsonLd, null, 2))
+    await navigator.clipboard.writeText(jsonLdStr)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -104,12 +121,13 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
   const mandatoryFields = DCAT_FIELDS.filter((f) => f.obligation === 'mandatory')
   const filledMandatory = mandatoryFields.filter((f) => {
     const val = metadata[f.key]
+    if (Array.isArray(val)) return val.length > 0
     return val !== undefined && val !== null && val !== ''
   })
 
   return (
     <div className="space-y-4">
-      {/* Header with auto-fill + completion */}
+      {/* Header with release info + auto-fill + completion */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={handleAutoFill}>
@@ -122,11 +140,26 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
               total: mandatoryFields.length,
             })}
           </span>
+          <a
+            href={HEALTHDCATAP_SPEC_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+          >
+            <ExternalLink size={10} />
+            Release {HEALTHDCATAP_RELEASE}
+          </a>
         </div>
-        <Button variant="outline" size="sm" onClick={handleCopyJsonLd}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          {copied ? t('dcat.copied') : t('dcat.copy_jsonld')}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => setPreviewOpen(true)}>
+            <Eye size={14} />
+            {t('dcat.preview')}
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleCopyJsonLd}>
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? t('dcat.copied') : t('dcat.copy_jsonld')}
+          </Button>
+        </div>
       </div>
 
       {/* Field sections by class */}
@@ -135,7 +168,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
         return (
           <Card key={dcatClass} className="p-4">
             <h3 className="text-sm font-semibold">{t(labelKey)}</h3>
-            <div className="mt-3 space-y-3">
+            <div className="mt-3 space-y-2">
               {fields.map((field) => (
                 <FieldEditor
                   key={field.key}
@@ -151,18 +184,23 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
         )
       })}
 
-      {/* JSON-LD preview */}
-      <Card className="p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">{t('dcat.jsonld_preview')}</h3>
-          <Button variant="ghost" size="sm" onClick={handleCopyJsonLd}>
-            {copied ? <Check size={14} /> : <Copy size={14} />}
-          </Button>
-        </div>
-        <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-muted p-3 text-xs">
-          {JSON.stringify(jsonLd, null, 2)}
-        </pre>
-      </Card>
+      {/* JSON-LD preview dialog */}
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-h-[80vh] max-w-3xl overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between pr-6">
+              {t('dcat.jsonld_preview')}
+              <Button variant="outline" size="sm" onClick={handleCopyJsonLd}>
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+                {copied ? t('dcat.copied') : t('dcat.copy_jsonld')}
+              </Button>
+            </DialogTitle>
+          </DialogHeader>
+          <pre className="max-h-[calc(80vh-6rem)] overflow-auto rounded-md bg-muted p-4 text-xs">
+            {jsonLdStr}
+          </pre>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -184,14 +222,14 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
   const arrVal = Array.isArray(value) ? value : []
 
   return (
-    <div className="grid grid-cols-[1fr_2fr] items-start gap-3">
-      <div className="flex items-center gap-2 pt-1.5">
-        <Label className="text-xs">
+    <div className="grid grid-cols-[180px_1fr] items-start gap-x-3">
+      <div className="flex items-center gap-1.5 pt-1.5">
+        <Label className="text-xs leading-tight">
           {t(field.labelKey)}
         </Label>
         <Badge
           variant="secondary"
-          className={`text-[9px] leading-none ${OBLIGATION_COLORS[field.obligation]}`}
+          className={`shrink-0 text-[9px] leading-none ${OBLIGATION_COLORS[field.obligation]}`}
         >
           {t(`dcat.${field.obligation}`)}
         </Badge>
@@ -202,7 +240,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             value={strVal}
             onChange={(e) => onChange(e.target.value)}
             placeholder={t(field.descriptionKey)}
-            className="text-sm"
+            className="h-8 text-sm"
           />
         )}
         {field.type === 'uri' && (
@@ -211,7 +249,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             value={strVal}
             onChange={(e) => onChange(e.target.value)}
             placeholder="https://..."
-            className="text-sm"
+            className="h-8 text-sm"
           />
         )}
         {field.type === 'date' && (
@@ -219,7 +257,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             type="date"
             value={strVal}
             onChange={(e) => onChange(e.target.value)}
-            className="text-sm"
+            className="h-8 text-sm"
           />
         )}
         {field.type === 'number' && (
@@ -229,7 +267,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             value={strVal}
             onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
             placeholder={t(field.descriptionKey)}
-            className="text-sm"
+            className="h-8 text-sm"
           />
         )}
         {field.type === 'localized' && (
@@ -246,7 +284,7 @@ function FieldEditor({ field, value, onChange, onMultiselectToggle, t }: FieldEd
             value={strVal || '__none__'}
             onValueChange={(v) => onChange(v === '__none__' ? undefined : v)}
           >
-            <SelectTrigger className="text-sm">
+            <SelectTrigger className="h-8 text-sm">
               <SelectValue placeholder={t(field.descriptionKey)} />
             </SelectTrigger>
             <SelectContent>

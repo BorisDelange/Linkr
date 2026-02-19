@@ -14,6 +14,7 @@ import { CatalogConfigTab } from './CatalogConfigTab'
 import { CatalogDataTab } from './CatalogDataTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
+import { CatalogExportTab } from './CatalogExportTab'
 import type { CatalogStatus } from '@/types'
 
 const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -115,7 +116,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
             <TabsTrigger value="data">{t('data_catalog.tab_data')}</TabsTrigger>
             <TabsTrigger value="anonymization">{t('data_catalog.tab_anonymization')}</TabsTrigger>
             <TabsTrigger value="dcat">{t('data_catalog.tab_dcat')}</TabsTrigger>
-            <TabsTrigger value="export" disabled>{t('data_catalog.tab_export')}</TabsTrigger>
+            <TabsTrigger value="export">{t('data_catalog.tab_export')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="config" className="mt-4">
@@ -156,6 +157,22 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
           <TabsContent value="dcat" className="mt-4">
             <CatalogDcatTab catalog={catalog} cache={activeResultCache} />
+          </TabsContent>
+
+          <TabsContent value="export" className="mt-4">
+            {activeResultCache ? (
+              <CatalogExportTab catalog={catalog} cache={activeResultCache} />
+            ) : (
+              <Card>
+                <div className="flex flex-col items-center py-12">
+                  <BookOpen size={40} className="text-muted-foreground" />
+                  <p className="mt-4 text-sm font-medium">{t('data_catalog.no_data')}</p>
+                  <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
+                    {t('data_catalog.no_data_description')}
+                  </p>
+                </div>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </div>

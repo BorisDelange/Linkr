@@ -1,15 +1,24 @@
 /**
  * Health-DCAT-AP field schema.
  *
- * Based on Health-DCAT-AP (EHDS extension of DCAT-AP 3.0).
+ * Based on Health-DCAT-AP Release 6 (EHDS Regulation EU 2025/327).
+ * Spec: https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/
+ *
  * Defines mandatory, recommended, and optional fields for:
  * - Catalog (dcat:Catalog)
  * - Dataset (dcat:Dataset)
  * - Distribution (dcat:Distribution)
  * - Agent / Publisher (foaf:Agent)
  *
- * Health-specific properties follow the EHDS framework (Art. 33 categories).
+ * Health-specific properties follow the EHDS framework (Art. 51 categories).
  */
+
+/** Release version this schema is based on. */
+export const HEALTHDCATAP_RELEASE = '6'
+
+/** Spec URL. */
+export const HEALTHDCATAP_SPEC_URL =
+  'https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/'
 
 // ---------------------------------------------------------------------------
 // Field types
@@ -58,20 +67,20 @@ const ACCESS_RIGHTS: VocabularyOption[] = [
   { value: 'http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC', labelKey: 'dcat.access_non_public' },
 ]
 
-/** EHDS Art. 33 — categories of electronic health data for secondary use. */
+/** EHDS Art. 51 — categories of electronic health data for secondary use. */
 const HEALTH_CATEGORIES: VocabularyOption[] = [
-  { value: 'ehr', labelKey: 'dcat.hcat_ehr' },
-  { value: 'claims', labelKey: 'dcat.hcat_claims' },
-  { value: 'registry', labelKey: 'dcat.hcat_registry' },
-  { value: 'genomic', labelKey: 'dcat.hcat_genomic' },
-  { value: 'cohort', labelKey: 'dcat.hcat_cohort' },
-  { value: 'clinical_trial', labelKey: 'dcat.hcat_clinical_trial' },
-  { value: 'medical_device', labelKey: 'dcat.hcat_medical_device' },
-  { value: 'survey', labelKey: 'dcat.hcat_survey' },
-  { value: 'biobank', labelKey: 'dcat.hcat_biobank' },
-  { value: 'imaging', labelKey: 'dcat.hcat_imaging' },
-  { value: 'administrative', labelKey: 'dcat.hcat_administrative' },
-  { value: 'other', labelKey: 'dcat.hcat_other' },
+  { value: 'EHR', labelKey: 'dcat.hcat_ehr' },
+  { value: 'CLAIMS', labelKey: 'dcat.hcat_claims' },
+  { value: 'PHDR', labelKey: 'dcat.hcat_registry' },
+  { value: 'GENOMIC', labelKey: 'dcat.hcat_genomic' },
+  { value: 'COHORT', labelKey: 'dcat.hcat_cohort' },
+  { value: 'CLINICAL_TRIAL', labelKey: 'dcat.hcat_clinical_trial' },
+  { value: 'MEDICAL_DEVICE', labelKey: 'dcat.hcat_medical_device' },
+  { value: 'SURVEY', labelKey: 'dcat.hcat_survey' },
+  { value: 'BIOBANK', labelKey: 'dcat.hcat_biobank' },
+  { value: 'IMAGING', labelKey: 'dcat.hcat_imaging' },
+  { value: 'ADMINISTRATIVE', labelKey: 'dcat.hcat_administrative' },
+  { value: 'OTHER', labelKey: 'dcat.hcat_other' },
 ]
 
 /** Common health data coding systems. */
@@ -127,7 +136,7 @@ export const DCAT_VOCABULARIES: Record<string, VocabularyOption[]> = {
 }
 
 // ---------------------------------------------------------------------------
-// Field definitions
+// Field definitions — aligned with Health-DCAT-AP Release 6
 // ---------------------------------------------------------------------------
 
 export const DCAT_FIELDS: DcatFieldDef[] = [
@@ -157,7 +166,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.catalog_publisher',
     descriptionKey: 'dcat.catalog_publisher_desc',
     type: 'text',
-    obligation: 'mandatory',
+    obligation: 'optional',
   },
   {
     key: 'catalog.language',
@@ -166,7 +175,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.catalog_language',
     descriptionKey: 'dcat.catalog_language_desc',
     type: 'multiselect',
-    obligation: 'recommended',
+    obligation: 'optional',
     vocabularyKey: 'language',
   },
   {
@@ -227,15 +236,6 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     vocabularyKey: 'accessRights',
   },
   {
-    key: 'dataset.publisher',
-    uri: 'dct:publisher',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_publisher',
-    descriptionKey: 'dcat.dataset_publisher_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
     key: 'dataset.healthCategory',
     uri: 'healthdcatap:healthCategory',
     dcatClass: 'dataset',
@@ -246,13 +246,40 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     vocabularyKey: 'healthCategory',
   },
   {
+    key: 'dataset.publisher',
+    uri: 'dct:publisher',
+    dcatClass: 'dataset',
+    labelKey: 'dcat.dataset_publisher',
+    descriptionKey: 'dcat.dataset_publisher_desc',
+    type: 'text',
+    obligation: 'optional',
+  },
+  {
+    key: 'dataset.hdab',
+    uri: 'healthdcatap:hdab',
+    dcatClass: 'dataset',
+    labelKey: 'dcat.dataset_hdab',
+    descriptionKey: 'dcat.dataset_hdab_desc',
+    type: 'text',
+    obligation: 'optional',
+  },
+  {
+    key: 'dataset.custodian',
+    uri: 'geodcatap:custodian',
+    dcatClass: 'dataset',
+    labelKey: 'dcat.dataset_custodian',
+    descriptionKey: 'dcat.dataset_custodian_desc',
+    type: 'text',
+    obligation: 'optional',
+  },
+  {
     key: 'dataset.theme',
     uri: 'dcat:theme',
     dcatClass: 'dataset',
     labelKey: 'dcat.dataset_theme',
     descriptionKey: 'dcat.dataset_theme_desc',
     type: 'text',
-    obligation: 'recommended',
+    obligation: 'optional',
   },
   {
     key: 'dataset.keyword',
@@ -261,7 +288,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_keyword',
     descriptionKey: 'dcat.dataset_keyword_desc',
     type: 'text',
-    obligation: 'recommended',
+    obligation: 'optional',
   },
   {
     key: 'dataset.language',
@@ -270,7 +297,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_language',
     descriptionKey: 'dcat.dataset_language_desc',
     type: 'multiselect',
-    obligation: 'recommended',
+    obligation: 'optional',
     vocabularyKey: 'language',
   },
   {
@@ -280,7 +307,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_temporal',
     descriptionKey: 'dcat.dataset_temporal_desc',
     type: 'text',
-    obligation: 'recommended',
+    obligation: 'optional',
   },
   {
     key: 'dataset.spatial',
@@ -289,7 +316,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_spatial',
     descriptionKey: 'dcat.dataset_spatial_desc',
     type: 'text',
-    obligation: 'recommended',
+    obligation: 'optional',
   },
   {
     key: 'dataset.accrualPeriodicity',
@@ -298,18 +325,18 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_frequency',
     descriptionKey: 'dcat.dataset_frequency_desc',
     type: 'select',
-    obligation: 'recommended',
+    obligation: 'optional',
     vocabularyKey: 'frequency',
   },
-  // Health-specific recommended fields
+  // Health-specific fields
   {
     key: 'dataset.codingSystem',
-    uri: 'healthdcatap:codingSystem',
+    uri: 'dct:conformsTo',
     dcatClass: 'dataset',
     labelKey: 'dcat.dataset_coding_system',
     descriptionKey: 'dcat.dataset_coding_system_desc',
     type: 'multiselect',
-    obligation: 'recommended',
+    obligation: 'optional',
     vocabularyKey: 'codingSystem',
   },
   {
@@ -319,7 +346,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_num_records',
     descriptionKey: 'dcat.dataset_num_records_desc',
     type: 'number',
-    obligation: 'recommended',
+    obligation: 'optional',
     autoFillable: true,
   },
   {
@@ -329,7 +356,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_num_individuals',
     descriptionKey: 'dcat.dataset_num_individuals_desc',
     type: 'number',
-    obligation: 'recommended',
+    obligation: 'optional',
     autoFillable: true,
   },
   {
@@ -339,7 +366,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_min_age',
     descriptionKey: 'dcat.dataset_min_age_desc',
     type: 'number',
-    obligation: 'recommended',
+    obligation: 'optional',
     autoFillable: true,
   },
   {
@@ -349,7 +376,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dataset_max_age',
     descriptionKey: 'dcat.dataset_max_age_desc',
     type: 'number',
-    obligation: 'recommended',
+    obligation: 'optional',
     autoFillable: true,
   },
   {
@@ -362,8 +389,17 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     obligation: 'optional',
   },
   {
+    key: 'dataset.personalData',
+    uri: 'healthdcatap:hasPersonalData',
+    dcatClass: 'dataset',
+    labelKey: 'dcat.dataset_personal_data',
+    descriptionKey: 'dcat.dataset_personal_data_desc',
+    type: 'text',
+    obligation: 'optional',
+  },
+  {
     key: 'dataset.retentionPeriod',
-    uri: 'healthdcatap:retentionPeriod',
+    uri: 'dct:temporal',
     dcatClass: 'dataset',
     labelKey: 'dcat.dataset_retention',
     descriptionKey: 'dcat.dataset_retention_desc',
@@ -388,7 +424,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dist_format',
     descriptionKey: 'dcat.dist_format_desc',
     type: 'select',
-    obligation: 'recommended',
+    obligation: 'optional',
     vocabularyKey: 'format',
   },
   {
@@ -398,7 +434,7 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     labelKey: 'dcat.dist_license',
     descriptionKey: 'dcat.dist_license_desc',
     type: 'uri',
-    obligation: 'recommended',
+    obligation: 'optional',
   },
   {
     key: 'distribution.description',
@@ -430,13 +466,22 @@ export const DCAT_FIELDS: DcatFieldDef[] = [
     obligation: 'optional',
   },
   {
-    key: 'agent.contactPoint',
-    uri: 'dcat:contactPoint',
+    key: 'agent.contactEmail',
+    uri: 'cv:email',
     dcatClass: 'agent',
-    labelKey: 'dcat.agent_contact',
-    descriptionKey: 'dcat.agent_contact_desc',
+    labelKey: 'dcat.agent_email',
+    descriptionKey: 'dcat.agent_email_desc',
     type: 'text',
-    obligation: 'recommended',
+    obligation: 'optional',
+  },
+  {
+    key: 'agent.contactPage',
+    uri: 'cv:contactPage',
+    dcatClass: 'agent',
+    labelKey: 'dcat.agent_contact_page',
+    descriptionKey: 'dcat.agent_contact_page_desc',
+    type: 'uri',
+    obligation: 'optional',
   },
 ]
 
