@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -68,7 +74,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   const [searching, setSearching] = useState(false)
   const [addingTarget, setAddingTarget] = useState<SearchResult | null>(null)
   const [mappingType, setMappingType] = useState<MappingType>('maps_to')
-  const [equivalence, setEquivalence] = useState<MappingEquivalence>('equivalent')
+  const [equivalence, setEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
   const [comment, setComment] = useState('')
 
   // Browse mode state
@@ -88,6 +94,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
   // Browse mode toggle
   const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search'>('concept_sets')
+
+  // Selected target concept (for resolved concepts or search results)
+  const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string } | null>(null)
+
+  // Clear selected target when source concept changes
+  useEffect(() => {
+    setSelectedTarget(null)
+  }, [sourceConcept?.concept_id])
 
   // Linked concept sets
   const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
@@ -263,9 +277,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     setSearchResults([])
   }
 
-  /** Add mapping from a resolved concept directly */
-  const handleAddMappingFromResolved = async (rc: ResolvedConcept) => {
-    if (!sourceConcept) return
+  /** Add mapping from the selected target concept with a given predicate. */
+  const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch') => {
+    if (!sourceConcept || !selectedTarget) return
+    const alreadyMapped = existingMappings.some((m) => m.targetConceptId === selectedTarget.conceptId)
+    if (alreadyMapped) return
     const now = new Date().toISOString()
     await createMapping({
       id: crypto.randomUUID(),
@@ -276,19 +292,20 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       sourceDomainId: sourceConcept.domain_id ?? '',
       sourceConceptCode: sourceConcept.concept_code,
       sourceFrequency: sourceConcept.record_count,
-      targetConceptId: rc.conceptId,
-      targetConceptName: rc.conceptName,
-      targetVocabularyId: rc.vocabularyId,
-      targetDomainId: rc.domainId,
-      targetConceptCode: rc.conceptCode,
+      targetConceptId: selectedTarget.conceptId,
+      targetConceptName: selectedTarget.conceptName,
+      targetVocabularyId: selectedTarget.vocabularyId,
+      targetDomainId: selectedTarget.domainId,
+      targetConceptCode: selectedTarget.conceptCode,
       conceptSetId: selectedCs?.id,
       mappingType: 'maps_to',
-      equivalence: 'equivalent',
+      equivalence: predicate,
       status: 'unchecked',
       comment: '',
       createdAt: now,
       updatedAt: now,
     })
+    setSelectedTarget(null)
   }
 
   // ─── Concept sets datatable (browse view) ───────────────────────────
@@ -454,30 +471,35 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
             const alreadyMapped = sourceConcept
               ? existingMappings.some((m) => m.targetConceptId === rc.conceptId)
               : false
+            const isSelected = selectedTarget?.conceptId === rc.conceptId
             return (
-              <div
+              <button
                 key={rc.conceptId}
-                className="group grid w-full grid-cols-[1fr_60px_70px_70px_20px] items-center gap-1 px-3 py-1.5 text-xs transition-colors hover:bg-accent/50 border-b border-border/40"
+                className={`grid w-full grid-cols-[1fr_60px_70px_70px_20px] items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
+                  isSelected ? 'bg-accent' : 'hover:bg-accent/50'
+                } ${alreadyMapped ? 'opacity-50' : ''}`}
+                onClick={() => {
+                  if (!alreadyMapped && sourceConcept) {
+                    setSelectedTarget(isSelected ? null : {
+                      conceptId: rc.conceptId,
+                      conceptName: rc.conceptName,
+                      vocabularyId: rc.vocabularyId,
+                      domainId: rc.domainId,
+                      conceptCode: rc.conceptCode,
+                    })
+                  }
+                }}
               >
                 <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>
                 <span className="text-muted-foreground">{rc.conceptId}</span>
                 <span className="truncate text-muted-foreground">{rc.vocabularyId}</span>
                 <span className="truncate text-muted-foreground">{rc.domainId}</span>
                 <span className="flex justify-center">
-                  {sourceConcept && !alreadyMapped && (
-                    <button
-                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground"
-                      title={t('concept_mapping.add_mapping')}
-                      onClick={() => handleAddMappingFromResolved(rc)}
-                    >
-                      <Plus size={12} />
-                    </button>
-                  )}
                   {alreadyMapped && (
                     <Check size={12} className="text-green-600" />
                   )}
                 </span>
-              </div>
+              </button>
             )
           })
         )}
@@ -538,11 +560,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="equal">{t('concept_mapping.eq_equal')}</SelectItem>
-                  <SelectItem value="equivalent">{t('concept_mapping.eq_equivalent')}</SelectItem>
-                  <SelectItem value="wider">{t('concept_mapping.eq_wider')}</SelectItem>
-                  <SelectItem value="narrower">{t('concept_mapping.eq_narrower')}</SelectItem>
-                  <SelectItem value="inexact">{t('concept_mapping.eq_inexact')}</SelectItem>
+                  <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
+                  <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
+                  <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
+                  <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
+                  <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -614,8 +636,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Mode toggle */}
-      <div className="flex items-center border-b px-3 py-1">
+      {/* Mode toggle + add mapping button */}
+      <div className="flex items-center justify-between border-b px-3 py-1 gap-2">
         <div className="flex rounded-md bg-muted p-0.5">
           <button
             className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
@@ -623,7 +645,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => setBrowseMode('concept_sets')}
+            onClick={() => { setBrowseMode('concept_sets'); setSelectedTarget(null) }}
           >
             {t('concept_mapping.mode_concept_sets')}
           </button>
@@ -633,10 +655,51 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             }`}
-            onClick={() => setBrowseMode('search')}
+            onClick={() => { setBrowseMode('search'); setSelectedTarget(null) }}
           >
             {t('concept_mapping.mode_search')}
           </button>
+        </div>
+
+        {/* Split add-mapping button */}
+        <div className="flex items-center">
+          <Button
+            size="sm"
+            className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
+            disabled={!selectedTarget}
+            onClick={() => handleAddSelectedMapping('skos:exactMatch')}
+          >
+            <Plus size={10} />
+            {t('concept_mapping.skos_exact_match_short')}
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="sm"
+                className="h-6 rounded-l-none border-l border-primary-foreground/20 px-1"
+                disabled={!selectedTarget}
+              >
+                <ChevronDown size={10} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-[180px]">
+              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
+                <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
+                <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
+                <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
+                <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
+                <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

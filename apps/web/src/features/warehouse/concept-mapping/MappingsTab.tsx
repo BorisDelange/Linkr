@@ -71,7 +71,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       </div>
 
       {/* Column headers */}
-      <div className="grid grid-cols-[1fr_60px_1fr_60px_70px_60px_60px_50px] items-center gap-1 border-b bg-muted/30 px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+      <div className="grid grid-cols-[1fr_60px_1fr_60px_70px_60px_100px_50px] items-center gap-1 border-b bg-muted/30 px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
         <span>{t('concept_mapping.col_source')}</span>
         <span>ID</span>
         <span>{t('concept_mapping.col_target')}</span>
@@ -96,7 +96,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
           pageItems.map((m) => (
             <div
               key={m.id}
-              className="group grid w-full grid-cols-[1fr_60px_1fr_60px_70px_60px_60px_50px] items-center gap-1 border-b border-border/40 px-4 py-1 text-xs hover:bg-accent/30"
+              className="group grid w-full grid-cols-[1fr_60px_1fr_60px_70px_60px_100px_50px] items-center gap-1 border-b border-border/40 px-4 py-1 text-xs hover:bg-accent/30"
             >
               <span className="truncate" title={m.sourceConceptName}>
                 {m.sourceConceptName}
@@ -114,7 +114,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               <span className="text-muted-foreground">{m.targetConceptId}</span>
               <span className="truncate text-muted-foreground">{m.targetVocabularyId}</span>
               <span className="text-[10px]">{m.status}</span>
-              <span className="text-[10px] text-muted-foreground">{m.equivalence}</span>
+              <span className="truncate text-[10px] text-muted-foreground" title={m.equivalence}>{m.equivalence}</span>
               <span className="flex justify-end gap-0.5 opacity-0 group-hover:opacity-100">
                 <button
                   className="text-muted-foreground hover:text-green-600"

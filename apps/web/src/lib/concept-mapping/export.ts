@@ -91,8 +91,11 @@ export function exportToSourceToConceptMap(mappings: ConceptMapping[]): string {
 // SSSOM TSV export
 // ---------------------------------------------------------------------------
 
-/** Map our equivalence values to SKOS predicates. */
+/** Normalize equivalence to SKOS predicate (supports both legacy and new values). */
 function equivalenceToSkosPredicate(equiv: string): string {
+  // New SKOS values: pass through
+  if (equiv.startsWith('skos:')) return equiv
+  // Legacy values: convert
   switch (equiv) {
     case 'equal': return 'skos:exactMatch'
     case 'equivalent': return 'skos:closeMatch'

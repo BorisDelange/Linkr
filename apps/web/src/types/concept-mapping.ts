@@ -3,8 +3,13 @@
 /** Mapping validation status (inspired by OHDSI Usagi). */
 export type MappingStatus = 'unchecked' | 'approved' | 'rejected' | 'flagged' | 'invalid' | 'ignored'
 
-/** Mapping semantic equivalence (inspired by SSSOM / HL7 FHIR). */
-export type MappingEquivalence = 'equal' | 'equivalent' | 'wider' | 'narrower' | 'inexact' | 'unmatched' | 'unreviewed'
+/** SKOS mapping predicate (SSSOM standard). */
+export type MappingEquivalence =
+  | 'skos:exactMatch'
+  | 'skos:closeMatch'
+  | 'skos:broadMatch'
+  | 'skos:narrowMatch'
+  | 'skos:relatedMatch'
 
 /** OMOP mapping type (relationship between source and target). */
 export type MappingType = 'maps_to' | 'maps_to_value' | 'maps_to_unit' | 'maps_to_operator'

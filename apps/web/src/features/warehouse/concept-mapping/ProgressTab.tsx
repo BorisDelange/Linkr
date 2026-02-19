@@ -130,11 +130,13 @@ export function ProgressTab({ project }: ProgressTabProps) {
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'var(--color-popover)',
-                      borderColor: 'var(--color-border)',
+                      border: '1px solid var(--color-border)',
                       borderRadius: 6,
                       fontSize: 12,
                       color: 'var(--color-popover-foreground)',
                     }}
+                    itemStyle={{ color: 'var(--color-popover-foreground)' }}
+                    labelStyle={{ color: 'var(--color-popover-foreground)' }}
                   />
                   <Legend
                     layout="vertical"
@@ -163,11 +165,14 @@ export function ProgressTab({ project }: ProgressTabProps) {
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'var(--color-popover)',
-                      borderColor: 'var(--color-border)',
+                      border: '1px solid var(--color-border)',
                       borderRadius: 6,
                       fontSize: 12,
                       color: 'var(--color-popover-foreground)',
                     }}
+                    itemStyle={{ color: 'var(--color-popover-foreground)' }}
+                    labelStyle={{ color: 'var(--color-popover-foreground)' }}
+                    cursor={{ fill: 'var(--color-accent)' }}
                   />
                   <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
                 </BarChart>
