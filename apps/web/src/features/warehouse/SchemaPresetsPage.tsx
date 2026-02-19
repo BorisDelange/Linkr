@@ -294,15 +294,24 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left column: structural tables + gender */}
+      {/* Left column: known tables, patient, gender, visit, concept dictionaries */}
       <div className="space-y-4">
+        {mapping.knownTables && mapping.knownTables.length > 0 && (
+          <div>
+            <h5 className="text-xs font-medium text-foreground mb-1">
+              {t('settings.schema_preset_known_tables')} ({mapping.knownTables.length})
+            </h5>
+            <div className="rounded-md border bg-muted/30 px-3 py-2">
+              <p className="text-xs font-mono text-muted-foreground leading-relaxed">
+                {mapping.knownTables.join(', ')}
+              </p>
+            </div>
+          </div>
+        )}
+
         <TableSection
           title={t('settings.schema_preset_patient_table')}
           mapping={mapping.patientTable as unknown as Record<string, string | undefined>}
-        />
-        <TableSection
-          title={t('settings.schema_preset_visit_table')}
-          mapping={mapping.visitTable as unknown as Record<string, string | undefined>}
         />
 
         {mapping.genderValues && (
@@ -320,22 +329,11 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
           </div>
         )}
 
-        {mapping.knownTables && mapping.knownTables.length > 0 && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_known_tables')} ({mapping.knownTables.length})
-            </h5>
-            <div className="rounded-md border bg-muted/30 px-3 py-2">
-              <p className="text-xs font-mono text-muted-foreground leading-relaxed">
-                {mapping.knownTables.join(', ')}
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
+        <TableSection
+          title={t('settings.schema_preset_visit_table')}
+          mapping={mapping.visitTable as unknown as Record<string, string | undefined>}
+        />
 
-      {/* Right column: concept dictionaries + event tables */}
-      <div className="space-y-4">
         {mapping.conceptTables && mapping.conceptTables.length > 0 && (
           <div>
             <h5 className="text-xs font-medium text-foreground mb-1">
@@ -348,7 +346,10 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
             </div>
           </div>
         )}
+      </div>
 
+      {/* Right column: event tables */}
+      <div className="space-y-4">
         {mapping.eventTables && Object.keys(mapping.eventTables).length > 0 && (
           <div>
             <h5 className="text-xs font-medium text-foreground mb-1">
@@ -605,16 +606,6 @@ function PresetEditor({
 
   return (
     <div className="space-y-4">
-      {/* Preset label */}
-      <div className="space-y-1.5">
-        <Label className="text-xs">Schema name</Label>
-        <Input
-          value={mapping.presetLabel}
-          onChange={(e) => onChange({ ...mapping, presetLabel: e.target.value })}
-          className="h-8 text-sm"
-        />
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column: structural tables + gender */}
         <div className="space-y-4">
@@ -715,13 +706,15 @@ function SchemaCard({
   const eventCount = mapping.eventTables ? Object.keys(mapping.eventTables).length : 0
 
   return (
-    <div className="rounded-lg border bg-card hover:bg-accent/30 transition-colors">
+    <div
+      className="rounded-lg border bg-card hover:bg-accent/30 transition-colors cursor-pointer"
+      onClick={onNavigate}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
+    >
       <div className="flex w-full items-center gap-3 px-4 py-3">
-        <button
-          type="button"
-          onClick={onNavigate}
-          className="flex flex-1 items-center gap-3 text-left hover:opacity-80 transition-opacity"
-        >
+        <div className="flex flex-1 items-center gap-3 min-w-0">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
             <Database size={14} className="text-primary" />
           </div>
@@ -739,7 +732,7 @@ function SchemaCard({
                 : t('settings.schema_preset_no_mapping')}
             </p>
           </div>
-        </button>
+        </div>
 
         {/* Actions */}
         <DropdownMenu>
@@ -784,12 +777,14 @@ function SchemaDetailView({
   onSave,
   onDelete,
   onBack,
+  onRefresh,
 }: {
   schemaId: string
   customPresets: CustomSchemaPreset[]
   onSave: (presetId: string, mapping: SchemaMapping) => Promise<void>
   onDelete: (presetId: string) => Promise<void>
   onBack: () => void
+  onRefresh: () => Promise<void>
 }) {
   const { t } = useTranslation()
   const isBuiltin = BUILTIN_PRESET_IDS.includes(schemaId)
@@ -829,6 +824,11 @@ function SchemaDetailView({
 
   const displayMapping = isEditing && editMapping ? editMapping : baseMapping
 
+  const startEdit = () => {
+    setIsEditing(true)
+    setEditMapping(structuredClone(baseMapping))
+  }
+
   const cancelEdit = () => {
     setIsEditing(false)
     setEditMapping(null)
@@ -849,6 +849,7 @@ function SchemaDetailView({
   const handleReset = async () => {
     // Delete the IDB override → falls back to built-in
     await getStorage().schemaPresets.delete(schemaId)
+    await onRefresh()
     setShowResetConfirm(false)
     setIsEditing(false)
     setEditMapping(null)
@@ -900,7 +901,11 @@ function SchemaDetailView({
                   {t('schemas.reset_to_default')}
                 </Button>
               )}
-<Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
+              <Button variant="outline" size="sm" onClick={startEdit} className="gap-1.5 text-xs">
+                <Pencil size={12} />
+                {t('common.edit')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={exportMapping} className="gap-1.5 text-xs">
                 <Download size={12} />
                 {t('settings.schema_preset_export')}
               </Button>
@@ -1212,6 +1217,7 @@ export function SchemaPresetsPage() {
         onSave={savePreset}
         onDelete={deletePreset}
         onBack={navigateToList}
+        onRefresh={loadCustomPresets}
       />
     )
   }

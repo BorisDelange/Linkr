@@ -118,12 +118,12 @@ const workspaceNavItems: SegmentNavEntry[] = [
     iconColor: 'text-teal-500',
     defaultOpen: true,
     children: [
-      { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
       { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
       { segment: 'warehouse/catalog', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
     ],
   },
   { segment: 'versioning', icon: GitBranch, labelKey: 'workspace_nav.versioning', iconColor: 'text-orange-400' },
@@ -137,8 +137,6 @@ const workspaceBottomItems: SegmentNavItem[] = [
 
 const projectNavItems: SegmentNavEntry[] = [
   { segment: 'summary', icon: LayoutDashboard, labelKey: 'project_nav.summary', iconColor: 'text-blue-500' },
-  { segment: 'pipeline', icon: Workflow, labelKey: 'project_nav.pipeline', iconColor: 'text-orange-500' },
-  { segment: 'ide', icon: Code, labelKey: 'project_nav.ide', iconColor: 'text-violet-500' },
   {
     type: 'group',
     labelKey: 'project_nav.data_warehouse',
@@ -164,6 +162,8 @@ const projectNavItems: SegmentNavEntry[] = [
       { segment: 'lab/reports', icon: FileText, labelKey: 'project_nav.reports', iconColor: 'text-rose-500' },
     ],
   },
+  { segment: 'ide', icon: Code, labelKey: 'project_nav.ide', iconColor: 'text-violet-500' },
+  { segment: 'pipeline', icon: Workflow, labelKey: 'project_nav.pipeline', iconColor: 'text-orange-500' },
   { segment: 'versioning', icon: GitBranch, labelKey: 'project_nav.versioning', iconColor: 'text-orange-400' },
 ]
 
