@@ -16,6 +16,8 @@ import {
   Pencil,
   MoreHorizontal,
   Search,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -60,7 +62,6 @@ import type {
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
 import type * as Monaco from 'monaco-editor'
-import { ScrollArea } from '@/components/ui/scroll-area'
 
 // ---------------------------------------------------------------------------
 // DDL Table of Contents — sidebar with collapsible sections
@@ -107,7 +108,6 @@ function DdlTableOfContents({
   ddl: string
   editorRef: React.RefObject<Monaco.editor.IStandaloneCodeEditor | null>
 }) {
-  const { t } = useTranslation()
   const [filter, setFilter] = useState('')
   const sections = useMemo(() => parseDdlToc(ddl), [ddl])
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
@@ -132,7 +132,7 @@ function DdlTableOfContents({
           <Input
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder={t('common.filter')}
+            placeholder="Filter…"
             className="h-7 text-xs pl-7"
           />
         </div>
@@ -177,7 +177,7 @@ function DdlTableOfContents({
           )
         })}
         {sections.every((s) => lower && s.entries.every((e) => !e.label.toLowerCase().includes(lower))) && (
-          <p className="px-3 py-3 text-xs text-muted-foreground">{t('common.no_results')}</p>
+          <p className="px-3 py-3 text-xs text-muted-foreground">No results</p>
         )}
       </div>
     </div>
