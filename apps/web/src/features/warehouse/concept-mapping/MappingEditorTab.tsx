@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import {
   buildSourceConceptsQuery,
   buildSourceConceptsCountQuery,
@@ -36,6 +37,7 @@ const PAGE_SIZE = 50
 export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps) {
   const { t } = useTranslation()
   const { selectedSourceConceptId, setSelectedSourceConcept, mappings } = useConceptMappingStore()
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const [rows, setRows] = useState<SourceConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -54,9 +56,10 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     const mapping = dataSource.schemaMapping
 
     const loadOptions = async () => {
+      await ensureMounted(dataSource.id)
       const opts: Record<string, string[]> = {}
       for (const col of ['vocabulary_id', 'domain_id', 'concept_class_id']) {
-        const sql = buildFilterOptionsQuery(dataSource.id, mapping, col)
+        const sql = buildFilterOptionsQuery(mapping, col)
         if (!sql) continue
         try {
           const result = await queryDataSource(dataSource.id, sql)
@@ -68,7 +71,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       setFilterOptions(opts)
     }
     loadOptions()
-  }, [dataSource?.id, dataSource?.schemaMapping])
+  }, [dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   // Load source concepts
   const loadConcepts = useCallback(async () => {
@@ -78,15 +81,16 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
 
     try {
       setQueryError(null)
+      await ensureMounted(dataSource.id)
       const mapping = dataSource.schemaMapping
-      const countSql = buildSourceConceptsCountQuery(dataSource.id, mapping, filters)
+      const countSql = buildSourceConceptsCountQuery(mapping, filters)
       if (!countSql) { setLoading(false); loadingRef.current = false; return }
 
       const [countResult] = await queryDataSource(dataSource.id, countSql)
       setTotalCount(Number(countResult?.total ?? 0))
 
       const dataSql = buildSourceConceptsQuery(
-        dataSource.id, mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE,
+        mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE,
       )
       const result = await queryDataSource(dataSource.id, dataSql)
       setRows(result as unknown as SourceConceptRow[])
@@ -98,7 +102,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       setLoading(false)
       loadingRef.current = false
     }
-  }, [dataSource?.id, dataSource?.schemaMapping, filters, sorting, page])
+  }, [dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, ensureMounted])
 
   useEffect(() => {
     loadConcepts()

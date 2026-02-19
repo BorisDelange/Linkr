@@ -1,14 +1,14 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft, Database } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { ConceptSetsTab } from './ConceptSetsTab'
 import { MappingEditorTab } from './MappingEditorTab'
+import { MappingsTab } from './MappingsTab'
 import { ProgressTab } from './ProgressTab'
 import { ExportTab } from './ExportTab'
 
@@ -52,24 +52,16 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b px-4 py-3">
+      <div className="flex items-center gap-2 border-b px-4 py-2">
         <Button variant="ghost" size="icon-sm" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/concept-mapping`)}>
           <ArrowLeft size={16} />
         </Button>
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-lg font-semibold">{project.name}</h1>
-          {dataSource && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Database size={12} />
-              <span>{dataSource.name}</span>
-              {dataSource.schemaMapping?.presetLabel && (
-                <Badge variant="outline" className="text-[10px]">
-                  {dataSource.schemaMapping.presetLabel}
-                </Badge>
-              )}
-            </div>
-          )}
-        </div>
+        <span className="truncate text-sm font-semibold">{project.name}</span>
+        {dataSource && (
+          <span className="shrink-0 text-xs text-muted-foreground">
+            · {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${dataSource.schemaMapping.presetLabel})` : ''}
+          </span>
+        )}
       </div>
 
       {/* Tabs */}
@@ -77,6 +69,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsList className="mx-4 mt-2 w-fit">
           <TabsTrigger value="concept-sets">{t('concept_mapping.tab_concept_sets')}</TabsTrigger>
           <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
+          <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
           <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
           <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
         </TabsList>
@@ -85,6 +78,9 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
         <TabsContent value="editor" className="flex-1 overflow-hidden">
           <MappingEditorTab project={project} dataSource={dataSource} />
+        </TabsContent>
+        <TabsContent value="mappings" className="flex-1 overflow-hidden">
+          <MappingsTab project={project} />
         </TabsContent>
         <TabsContent value="progress" className="flex-1 overflow-hidden">
           <ProgressTab project={project} />

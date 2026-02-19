@@ -9,11 +9,6 @@ function esc(value: string): string {
   return value.replace(/'/g, "''")
 }
 
-/** Sanitize a data source ID for use as a DuckDB schema name. Must match engine.ts schemaName(). */
-function schemaName(dataSourceId: string): string {
-  return `"ds_${dataSourceId.replace(/[^a-zA-Z0-9]/g, '_')}"`
-}
-
 // ---------------------------------------------------------------------------
 // Source concept filters
 // ---------------------------------------------------------------------------
@@ -37,16 +32,17 @@ export interface SourceConceptSorting {
 /**
  * Build a SQL query to load source concepts from a data source's concept table(s).
  * Includes record_count and patient_count from event tables.
+ *
+ * Tables are referenced without schema prefix — the caller (queryDataSource)
+ * sets the DuckDB search_path before executing.
  */
 export function buildSourceConceptsQuery(
-  dataSourceId: string,
   mapping: SchemaMapping,
   filters: SourceConceptFilters,
   sorting: SourceConceptSorting | null,
   limit: number,
   offset: number,
 ): string {
-  const schema = schemaName(dataSourceId)
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
@@ -72,14 +68,14 @@ export function buildSourceConceptsQuery(
     if (eventTables.length > 0) {
       const countParts = eventTables.map(({ eventTable: et }) => {
         const condition = buildConceptMatchCondition('evt', et, `d.${idCol}`)
-        return `SELECT COUNT(*) FROM ${schema}.${et.table} evt WHERE ${condition}`
+        return `(SELECT COUNT(*) FROM ${et.table} evt WHERE ${condition})`
       })
       countSubquery = `(${countParts.join(' + ')})`
 
       const patientCol = eventTables[0].eventTable.patientIdColumn ?? 'person_id'
       const patientParts = eventTables.map(({ eventTable: et }) => {
         const condition = buildConceptMatchCondition('evt', et, `d.${idCol}`)
-        return `SELECT DISTINCT evt.${patientCol} FROM ${schema}.${et.table} evt WHERE ${condition}`
+        return `SELECT DISTINCT evt.${patientCol} FROM ${et.table} evt WHERE ${condition}`
       })
       patientSubquery = `(SELECT COUNT(*) FROM (${patientParts.join(' UNION ')}))`
     }
@@ -92,7 +88,7 @@ export function buildSourceConceptsQuery(
       ${extraCols.join('')},
       ${countSubquery} AS record_count,
       ${patientSubquery} AS patient_count
-    FROM ${schema}.${dict.table} d`
+    FROM ${dict.table} d`
   })
 
   let sql = unionParts.length === 1
@@ -137,11 +133,9 @@ export function buildSourceConceptsQuery(
  * Count query for pagination.
  */
 export function buildSourceConceptsCountQuery(
-  dataSourceId: string,
   mapping: SchemaMapping,
   filters: SourceConceptFilters,
 ): string {
-  const schema = schemaName(dataSourceId)
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
@@ -164,7 +158,7 @@ export function buildSourceConceptsCountQuery(
       ${codeCol}
       ${vocabCol}
       ${extraCols.join('')}
-    FROM ${schema}.${dict.table} d`
+    FROM ${dict.table} d`
   })
 
   let sql = unionParts.length === 1
@@ -196,16 +190,13 @@ export function buildSourceConceptsCountQuery(
 
 /**
  * Search standard concepts in a data source for mapping target selection.
- * Uses vocabularyDataSourceId when available (ATHENA import), otherwise the source DB.
  */
 export function buildStandardConceptSearchQuery(
-  targetDataSourceId: string,
   mapping: SchemaMapping,
   searchTerm: string,
   domainId?: string,
   limit = 50,
 ): string {
-  const schema = schemaName(targetDataSourceId)
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
@@ -233,7 +224,7 @@ export function buildStandardConceptSearchQuery(
     d.${vocabCol} AS vocabulary_id
     ${dict.extraColumns?.domain_id ? `, d.${dict.extraColumns.domain_id} AS domain_id` : ''}
     ${dict.extraColumns?.concept_class_id ? `, d.${dict.extraColumns.concept_class_id} AS concept_class_id` : ''}
-  FROM ${schema}.${dict.table} d
+  FROM ${dict.table} d
   WHERE ${conditions.join(' AND ')}
   ORDER BY d.${nameCol}
   LIMIT ${limit}`
@@ -248,24 +239,20 @@ export function buildStandardConceptSearchQuery(
  * Requires concept_ancestor and concept_relationship tables in the target database.
  */
 export function buildResolveDescendantsQuery(
-  targetDataSourceId: string,
   conceptIds: number[],
 ): string {
-  const schema = schemaName(targetDataSourceId)
   const idList = conceptIds.join(', ')
   return `SELECT DISTINCT descendant_concept_id AS concept_id
-    FROM ${schema}.concept_ancestor
+    FROM concept_ancestor
     WHERE ancestor_concept_id IN (${idList})`
 }
 
 export function buildResolveMappedQuery(
-  targetDataSourceId: string,
   conceptIds: number[],
 ): string {
-  const schema = schemaName(targetDataSourceId)
   const idList = conceptIds.join(', ')
   return `SELECT DISTINCT concept_id_2 AS concept_id
-    FROM ${schema}.concept_relationship
+    FROM concept_relationship
     WHERE concept_id_1 IN (${idList})
       AND relationship_id IN ('Maps to', 'Mapped from')`
 }
@@ -275,11 +262,9 @@ export function buildResolveMappedQuery(
 // ---------------------------------------------------------------------------
 
 export function buildFilterOptionsQuery(
-  dataSourceId: string,
   mapping: SchemaMapping,
   columnAlias: string,
 ): string {
-  const schema = schemaName(dataSourceId)
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
@@ -288,7 +273,7 @@ export function buildFilterOptionsQuery(
     if (columnAlias === 'vocabulary_id') col = dict.vocabularyColumn
     else if (dict.extraColumns?.[columnAlias]) col = dict.extraColumns[columnAlias]
     if (!col) return null
-    return `SELECT DISTINCT ${col} AS val FROM ${schema}.${dict.table} WHERE ${col} IS NOT NULL`
+    return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${col} IS NOT NULL`
   }).filter(Boolean)
 
   if (unionParts.length === 0) return ''

@@ -1939,7 +1939,22 @@
     "cs_detail_class": "Class",
     "cs_detail_resolved_unavailable": "Resolved concepts are not available for this concept set.",
     "cs_detail_resolved_empty": "No resolved concepts found.",
-    "cs_detail_resolved_count": "resolved concepts"
+    "cs_detail_resolved_count": "resolved concepts",
+    "browse_all_catalogs": "All catalogs",
+    "browse_search_resolved": "Search resolved concepts…",
+    "browse_target_concepts": "Target concepts",
+    "col_category": "Category",
+    "col_subcategory": "Subcategory",
+    "col_concept_set": "Concept Set",
+    "mode_concept_sets": "Concept sets",
+    "mode_search": "Search",
+    "mode_mappings": "Mappings",
+    "mappings_filter": "Filter mappings…",
+    "col_status": "Status",
+    "col_equiv": "Equiv.",
+    "col_source": "Source",
+    "col_target": "Target",
+    "tab_mappings": "Mappings"
   },
   "data_catalog": {
     "title": "Data Catalog",
@@ -2008,12 +2023,14 @@
     "no_data_description": "Go to the Configuration tab and click Compute to generate the catalog data.",
     "total_concepts": "Concepts",
     "total_patients": "Patients",
+    "total_visits": "Visits",
     "total_rows": "Rows",
     "search_concepts": "Search concepts...",
     "col_concept_id": "ID",
     "col_concept_name": "Concept",
     "col_vocabulary": "Vocabulary",
     "col_patients": "Patients",
+    "col_visits": "Visits",
     "col_records": "Records",
     "no_results": "No results",
     "filters": "Filters",
@@ -2191,6 +2208,8 @@
     "freq_quarterly": "Quarterly",
     "freq_monthly": "Monthly",
     "freq_daily": "Daily",
-    "freq_continuous": "Continuous"
+    "freq_continuous": "Continuous",
+    "auto_filling": "Auto-filling…",
+    "custom_value_placeholder": "Add custom value…"
   }
 }

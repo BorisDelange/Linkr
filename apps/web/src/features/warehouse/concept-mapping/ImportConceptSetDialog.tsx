@@ -60,14 +60,12 @@ export function extractMetadata(obj: Record<string, unknown>, lang: string): { c
   const translations = meta.translations as Record<string, Record<string, string>> | undefined
   const tr = translations?.[lang] ?? translations?.en ?? {}
 
-  // Prefer organization.name (upcoming field), fall back to createdByDetails.affiliation
   const org = meta.organization as Record<string, string> | undefined
-  const createdBy = meta.createdByDetails as Record<string, string> | undefined
 
   return {
     category: tr.category || undefined,
     subcategory: tr.subcategory || undefined,
-    provenance: org?.name || createdBy?.affiliation || undefined,
+    provenance: org?.name || undefined,
   }
 }
 

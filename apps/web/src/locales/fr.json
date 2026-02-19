@@ -1940,7 +1940,22 @@
     "cs_detail_class": "Classe",
     "cs_detail_resolved_unavailable": "Les concepts résolus ne sont pas disponibles pour ce concept set.",
     "cs_detail_resolved_empty": "Aucun concept résolu trouvé.",
-    "cs_detail_resolved_count": "concepts résolus"
+    "cs_detail_resolved_count": "concepts résolus",
+    "browse_all_catalogs": "Tous les catalogues",
+    "browse_search_resolved": "Rechercher dans les concepts résolus…",
+    "browse_target_concepts": "Concepts cibles",
+    "col_category": "Catégorie",
+    "col_subcategory": "Sous-catégorie",
+    "col_concept_set": "Concept Set",
+    "mode_concept_sets": "Jeux de concepts",
+    "mode_search": "Rechercher",
+    "mode_mappings": "Mappings",
+    "mappings_filter": "Filtrer les mappings…",
+    "col_status": "Statut",
+    "col_equiv": "Equiv.",
+    "col_source": "Source",
+    "col_target": "Cible",
+    "tab_mappings": "Mappings"
   },
   "data_catalog": {
     "title": "Catalogue de données",
@@ -2009,12 +2024,14 @@
     "no_data_description": "Allez dans l'onglet Configuration et cliquez sur Calculer pour générer les données du catalogue.",
     "total_concepts": "Concepts",
     "total_patients": "Patients",
+    "total_visits": "Séjours",
     "total_rows": "Lignes",
     "search_concepts": "Rechercher des concepts...",
     "col_concept_id": "ID",
     "col_concept_name": "Concept",
     "col_vocabulary": "Terminologie",
     "col_patients": "Patients",
+    "col_visits": "Séjours",
     "col_records": "Enregistrements",
     "no_results": "Aucun résultat",
     "filters": "Filtres",
@@ -2192,6 +2209,8 @@
     "freq_quarterly": "Trimestrielle",
     "freq_monthly": "Mensuelle",
     "freq_daily": "Quotidienne",
-    "freq_continuous": "Continue"
+    "freq_continuous": "Continue",
+    "auto_filling": "Remplissage…",
+    "custom_value_placeholder": "Ajouter une valeur personnalisée…"
   }
 }

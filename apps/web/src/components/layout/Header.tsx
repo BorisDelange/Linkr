@@ -6,6 +6,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -91,6 +92,7 @@ export function Header() {
   const dashboards = useDashboardStore((s) => s.dashboards)
   const etlPipelines = useEtlStore((s) => s.etlPipelines)
   const catalogs = useCatalogStore((s) => s.catalogs)
+  const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -145,6 +147,13 @@ export function Header() {
       if (catalogMatch) {
         const catalog = catalogs.find((c) => c.id === catalogMatch[1])
         return catalog?.name ?? t('app_warehouse.nav_catalog')
+      }
+
+      // Concept mapping project: show project name
+      const cmMatch = segment.match(/^warehouse\/concept-mapping\/(.+)$/)
+      if (cmMatch) {
+        const mp = mappingProjects.find((p) => p.id === cmMatch[1])
+        return mp?.name ?? t('app_warehouse.nav_concept_mapping')
       }
 
       const key = workspaceSegmentTitleKeys[segment]

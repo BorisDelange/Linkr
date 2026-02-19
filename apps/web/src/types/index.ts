@@ -1,7 +1,7 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptSet, ConceptSetItem, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectStats, ConceptMapping, MappingStatus, MappingEquivalence, MappingType } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogResultRow, CatalogResultCache } from './catalog'
+export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogResultRow, CatalogResultCache, CatalogMarginRow, CatalogConceptTotal, CatalogGrandTotal, CatalogMargins } from './catalog'
 export { getDefaultDimensions } from './catalog'
 
 export interface User {

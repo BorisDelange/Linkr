@@ -20,7 +20,7 @@ const STATUS_COLORS: Record<MappingStatus, string> = {
 
 export function ProgressTab({ project }: ProgressTabProps) {
   const { t } = useTranslation()
-  const { mappings, conceptSets } = useConceptMappingStore()
+  const { mappings } = useConceptMappingStore()
 
   const stats = useMemo(() => {
     // Unique source concept IDs
@@ -56,23 +56,6 @@ export function ProgressTab({ project }: ProgressTabProps) {
       domainMapped.get(domain)!.add(m.sourceConceptId)
     }
 
-    // Concept set progress
-    const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
-    const conceptSetProgress = linkedSets.map((cs) => {
-      const csConceptIds = new Set(
-        cs.resolvedConceptIds ?? cs.expression.items.map((i) => i.concept.conceptId),
-      )
-      const mappedInCs = mappings.filter(
-        (m) => m.status === 'approved' && csConceptIds.has(m.targetConceptId),
-      )
-      return {
-        id: cs.id,
-        name: cs.name,
-        total: csConceptIds.size,
-        mapped: new Set(mappedInCs.map((m) => m.sourceConceptId)).size,
-      }
-    })
-
     // Recent activity (last 10)
     const recent = [...mappings]
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -89,10 +72,9 @@ export function ProgressTab({ project }: ProgressTabProps) {
         domain,
         count: ids.size,
       })).sort((a, b) => b.count - a.count),
-      conceptSetProgress,
       recent,
     }
-  }, [mappings, conceptSets, project.conceptSetIds])
+  }, [mappings])
 
   const pieData = Object.entries(stats.sourceStatusCounts).map(([status, count]) => ({
     name: t(`concept_mapping.status_${status}`),
@@ -145,7 +127,15 @@ export function ProgressTab({ project }: ProgressTabProps) {
                       <Cell key={idx} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-popover)',
+                      borderColor: 'var(--color-border)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: 'var(--color-popover-foreground)',
+                    }}
+                  />
                   <Legend
                     layout="vertical"
                     align="right"
@@ -170,7 +160,15 @@ export function ProgressTab({ project }: ProgressTabProps) {
                 <BarChart data={stats.domainData} layout="vertical" margin={{ left: 80 }}>
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={80} />
-                  <Tooltip />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-popover)',
+                      borderColor: 'var(--color-border)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: 'var(--color-popover-foreground)',
+                    }}
+                  />
                   <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -181,34 +179,6 @@ export function ProgressTab({ project }: ProgressTabProps) {
             )}
           </Card>
         </div>
-
-        {/* Concept set progress */}
-        {stats.conceptSetProgress.length > 0 && (
-          <Card className="p-4">
-            <p className="mb-3 text-sm font-medium">{t('concept_mapping.prog_concept_set_progress')}</p>
-            <div className="space-y-3">
-              {stats.conceptSetProgress.map((cs) => {
-                const pct = cs.total > 0 ? Math.round((cs.mapped / cs.total) * 100) : 0
-                return (
-                  <div key={cs.id}>
-                    <div className="mb-1 flex items-center justify-between text-xs">
-                      <span className="font-medium">{cs.name}</span>
-                      <span className="text-muted-foreground">
-                        {cs.mapped}/{cs.total} ({pct}%)
-                      </span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-green-500 transition-all"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </Card>
-        )}
 
         {/* Recent activity */}
         {stats.recent.length > 0 && (
