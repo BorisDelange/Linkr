@@ -95,7 +95,7 @@ export function CatalogExportTab({ catalog, cache }: Props) {
       zip.file('dimensions.csv', buildDimensionsCsv(cache.dimensions, catalog))
 
       // JSON-LD metadata
-      const metadata = catalog.metadata ?? {}
+      const metadata = catalog.dcatApMetadata ?? {}
       const jsonld = buildJsonLd({ metadata, schemaMapping, cache, catalog, fullSchema })
       zip.file('metadata.jsonld', JSON.stringify(jsonld, null, 2))
 

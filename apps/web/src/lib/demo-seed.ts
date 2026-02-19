@@ -9,7 +9,8 @@
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
-import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline } from '@/types'
+import { getDefaultDimensions } from '@/types/catalog'
+import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, DataCatalog } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
 const DEMO_DASHBOARD_SEED_KEY = 'linkr-demo-dashboard-seeded'
@@ -609,5 +610,62 @@ export async function seedDemoDashboard(): Promise<void> {
     console.info('[demo-seed] Demo dashboard seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed demo dashboard:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo Data Catalog (MIMIC-IV Demo OMOP)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_CATALOG = 'linkr-demo-catalog-seeded'
+const DEMO_CATALOG_ID = '00000000-0000-0000-0000-000000000008'
+
+/**
+ * Seed a default data catalog for the MIMIC-IV Demo OMOP database.
+ *
+ * Creates a DataCatalog with default dimensions (age group + sex enabled),
+ * OMOP category/subcategory columns, and pre-filled Health-DCAT-AP metadata.
+ * The catalog is in 'draft' status — the user must click "Compute" to populate results.
+ *
+ * Must run after seedDemoDatabase().
+ */
+export async function seedDemoCatalog(): Promise<void> {
+  if (localStorage.getItem(SEED_KEY_CATALOG)) return
+
+  try {
+    const storage = getStorage()
+    const now = new Date().toISOString()
+
+    const catalog: DataCatalog = {
+      id: DEMO_CATALOG_ID,
+      workspaceId: DEMO_WORKSPACE_ID,
+      name: 'MIMIC-IV Demo',
+      description: 'Concept catalog for the MIMIC-IV Demo OMOP database (100 patients).',
+      dataSourceId: DEMO_DATASOURCE_ID,
+      dimensions: getDefaultDimensions(),
+      anonymization: { threshold: 10, mode: 'replace' },
+      categoryColumn: 'domain_id',
+      subcategoryColumn: 'concept_class_id',
+      status: 'draft',
+      dcatApMetadata: {
+        'catalog.title': 'MIMIC-IV Demo — Concept Catalog',
+        'catalog.description': 'Aggregated clinical concepts catalog from the MIMIC-IV Demo OMOP database.',
+        'dataset.title': 'MIMIC-IV Demo — Concepts Dictionary',
+        'dataset.description': 'Aggregated clinical concepts catalog with demographic breakdowns (age, sex). Generated from the MIMIC-IV Demo OMOP clinical data warehouse (100 patients).',
+        'dataset.identifier': DEMO_CATALOG_ID,
+        'dataset.accessRights': 'http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC',
+        'dataset.personalData': 'false',
+        'dataset.codingSystem': 'https://www.ohdsi.org/omop/',
+      },
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await storage.dataCatalogs.create(catalog)
+
+    localStorage.setItem(SEED_KEY_CATALOG, '1')
+    console.info('[demo-seed] Demo data catalog seeded successfully')
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed demo data catalog:', err)
   }
 }

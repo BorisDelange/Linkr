@@ -8,7 +8,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { seedDemoDatabase, seedMimicIVRawDatabase, seedOmopVocabulary, seedDemoMappingProject, seedDemoConceptMappings, seedDemoEtlPipeline, seedDemoDqRuleSet } from '@/lib/demo-seed'
+import { seedDemoDatabase, seedMimicIVRawDatabase, seedOmopVocabulary, seedDemoMappingProject, seedDemoConceptMappings, seedDemoEtlPipeline, seedDemoDqRuleSet, seedDemoCatalog } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -85,9 +85,11 @@ export function App() {
         .then(() => seedDemoConceptMappings())
         .then(() => seedDemoEtlPipeline())
         .then(() => seedDemoDqRuleSet())
+        .then(() => seedDemoCatalog())
         .then(() => {
           loadProjects()
           loadDataSources()
+          loadCatalogs()
         })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
