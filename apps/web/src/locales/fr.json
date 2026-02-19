@@ -1873,6 +1873,7 @@
     "existing_mappings": "Mappings existants",
     "mapped_by": "Mappé par",
     "approve": "Approuver le mapping",
+    "reject": "Rejeter le mapping",
     "flag": "Signaler pour révision",
     "add_mapping": "Ajouter un mapping",
     "mapping_type": "Type de mapping",
@@ -1956,7 +1957,11 @@
     "col_equiv": "Equiv.",
     "col_source": "Source",
     "col_target": "Cible",
-    "tab_mappings": "Mappings"
+    "tab_mappings": "Mappings",
+    "edit_mode": "Éditer",
+    "done_editing": "Terminé",
+    "delete_selected": "Supprimer ({{count}})",
+    "col_review": "Évaluation"
   },
   "data_catalog": {
     "title": "Catalogue de données",

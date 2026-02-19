@@ -1872,6 +1872,7 @@
     "existing_mappings": "Existing mappings",
     "mapped_by": "Mapped by",
     "approve": "Approve mapping",
+    "reject": "Reject mapping",
     "flag": "Flag for review",
     "add_mapping": "Add mapping",
     "mapping_type": "Mapping type",
@@ -1955,7 +1956,11 @@
     "col_equiv": "Equiv.",
     "col_source": "Source",
     "col_target": "Target",
-    "tab_mappings": "Mappings"
+    "tab_mappings": "Mappings",
+    "edit_mode": "Edit",
+    "done_editing": "Done",
+    "delete_selected": "Delete ({{count}})",
+    "col_review": "Review"
   },
   "data_catalog": {
     "title": "Data Catalog",
@@ -2020,6 +2025,11 @@
     "threshold_hint": "minimum patients per row",
     "compute": "Compute catalog",
     "computing": "Computing...",
+    "step_mounting": "Mounting data source…",
+    "step_building": "Building SQL query…",
+    "step_executing": "Executing query…",
+    "step_processing": "Processing results…",
+    "step_saving": "Saving results…",
     "no_data": "No data yet",
     "no_data_description": "Go to the Configuration tab and click Compute to generate the catalog data.",
     "total_concepts": "Concepts",
