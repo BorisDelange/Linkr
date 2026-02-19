@@ -35,7 +35,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createCatalog, updateCatalog } = useCatalogStore()
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')

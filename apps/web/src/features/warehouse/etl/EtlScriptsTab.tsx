@@ -129,7 +129,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
   const { updateFile } = useEtlStore()
 
   // Resolve which data source a file should run against

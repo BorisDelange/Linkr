@@ -46,7 +46,7 @@ export function DatabasesPage() {
     }
   }, [uid, mountProjectSources])
 
-  const sources = uid ? getProjectSources(uid) : []
+  const sources = uid ? getProjectSources(uid).filter((ds) => !ds.isVocabularyReference) : []
   const activeSource = uid ? getActiveSource(uid) : undefined
 
   // Auto-select first connected mapped source if none is active

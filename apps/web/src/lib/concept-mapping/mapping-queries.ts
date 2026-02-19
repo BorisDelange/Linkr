@@ -1,7 +1,6 @@
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import {
   getEventTablesForDictionary,
-  buildConceptMatchCondition,
 } from '@/lib/schema-helpers'
 
 /** Escape a string value for use in SQL (prevent injection). */
@@ -31,7 +30,7 @@ export interface SourceConceptSorting {
 
 /**
  * Build a SQL query to load source concepts from a data source's concept table(s).
- * Includes record_count and patient_count from event tables.
+ * Does NOT include record/patient counts (those are computed once via buildAllConceptCountsQuery).
  *
  * Tables are referenced without schema prefix — the caller (queryDataSource)
  * sets the DuckDB search_path before executing.
@@ -46,87 +45,64 @@ export function buildSourceConceptsQuery(
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
-  // Build UNION ALL across all concept dictionaries
-  const unionParts = dicts.map((dict) => {
-    const idCol = dict.idColumn ?? 'concept_id'
-    const nameCol = dict.nameColumn ?? 'concept_name'
-    const codeCol = dict.codeColumn ? `, ${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
-    const vocabCol = dict.vocabularyColumn ? `, ${dict.vocabularyColumn} AS vocabulary_id` : ", '' AS vocabulary_id"
-
-    // Extra columns (domain_id, concept_class_id, standard_concept)
-    const extraCols: string[] = []
-    if (dict.extraColumns) {
-      for (const [alias, col] of Object.entries(dict.extraColumns)) {
-        extraCols.push(`, ${col} AS ${alias}`)
-      }
-    }
-
-    // Record count subquery
-    const eventTables = getEventTablesForDictionary(mapping, dict.key)
-    let countSubquery = '0'
-    let patientSubquery = '0'
-    if (eventTables.length > 0) {
-      const countParts = eventTables.map(({ eventTable: et }) => {
-        const condition = buildConceptMatchCondition('evt', et, `d.${idCol}`)
-        return `(SELECT COUNT(*) FROM ${et.table} evt WHERE ${condition})`
-      })
-      countSubquery = `(${countParts.join(' + ')})`
-
-      const patientCol = eventTables[0].eventTable.patientIdColumn ?? 'person_id'
-      const patientParts = eventTables.map(({ eventTable: et }) => {
-        const condition = buildConceptMatchCondition('evt', et, `d.${idCol}`)
-        return `SELECT DISTINCT evt.${patientCol} FROM ${et.table} evt WHERE ${condition}`
-      })
-      patientSubquery = `(SELECT COUNT(*) FROM (${patientParts.join(' UNION ')}))`
-    }
-
-    return `SELECT
-      d.${idCol} AS concept_id,
-      d.${nameCol} AS concept_name
-      ${codeCol}
-      ${vocabCol}
-      ${extraCols.join('')},
-      ${countSubquery} AS record_count,
-      ${patientSubquery} AS patient_count
-    FROM ${dict.table} d`
-  })
+  const unionParts = buildConceptUnionParts(dicts)
 
   let sql = unionParts.length === 1
     ? `SELECT * FROM (${unionParts[0]}) AS src`
     : `SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS src`
 
-  // WHERE clause
-  const conditions: string[] = []
-  if (filters.searchText) {
-    const term = esc(filters.searchText)
-    conditions.push(`(
-      CAST(concept_id AS VARCHAR) LIKE '${term}%'
-      OR LOWER(concept_name) LIKE LOWER('%${term}%')
-      OR LOWER(concept_code) LIKE LOWER('%${term}%')
-    )`)
-  }
-  if (filters.vocabularyId) {
-    conditions.push(`vocabulary_id = '${esc(filters.vocabularyId)}'`)
-  }
-  if (filters.domainId) {
-    conditions.push(`domain_id = '${esc(filters.domainId)}'`)
-  }
-  if (filters.conceptClassId) {
-    conditions.push(`concept_class_id = '${esc(filters.conceptClassId)}'`)
-  }
-  if (conditions.length > 0) {
-    sql += ` WHERE ${conditions.join(' AND ')}`
-  }
+  sql += buildWhereClause(filters)
 
-  // ORDER BY
-  if (sorting) {
+  // ORDER BY — record_count/patient_count sorting handled client-side via cached counts
+  if (sorting && sorting.columnId !== 'record_count' && sorting.columnId !== 'patient_count') {
     sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
   } else {
-    sql += ' ORDER BY record_count DESC NULLS LAST'
+    sql += ' ORDER BY concept_name ASC'
   }
 
   sql += ` LIMIT ${limit} OFFSET ${offset}`
   return sql
+}
+
+/**
+ * Build a single query that computes record_count and patient_count for ALL
+ * concepts in the data source in one pass (using GROUP BY). This should be
+ * called once and cached — never on every page change.
+ *
+ * Returns rows: { concept_id, record_count, patient_count }
+ */
+export function buildAllConceptCountsQuery(
+  mapping: SchemaMapping,
+): string {
+  const dicts = mapping.conceptTables ?? []
+  if (dicts.length === 0) return ''
+
+  // For each dictionary, build a UNION ALL of event table records grouped by concept_id
+  const allParts: string[] = []
+
+  for (const dict of dicts) {
+    const idCol = dict.idColumn ?? 'concept_id'
+    const eventTables = getEventTablesForDictionary(mapping, dict.key)
+    if (eventTables.length === 0) continue
+
+    for (const { eventTable: et } of eventTables) {
+      const patientCol = et.patientIdColumn ?? 'person_id'
+      // Build conditions: conceptIdColumn = concept_id [OR sourceConceptIdColumn = concept_id]
+      const idCols: string[] = [et.conceptIdColumn]
+      if (et.sourceConceptIdColumn) idCols.push(et.sourceConceptIdColumn)
+
+      for (const col of idCols) {
+        allParts.push(
+          `SELECT evt."${col}" AS concept_id, COUNT(*) AS record_count, COUNT(DISTINCT evt."${patientCol}") AS patient_count FROM ${et.table} evt WHERE evt."${col}" IS NOT NULL GROUP BY evt."${col}"`
+        )
+      }
+    }
+  }
+
+  if (allParts.length === 0) return ''
+
+  // Aggregate across all event tables
+  return `SELECT concept_id, SUM(record_count) AS record_count, SUM(patient_count) AS patient_count FROM (${allParts.join(' UNION ALL ')}) GROUP BY concept_id`
 }
 
 /**
@@ -139,7 +115,23 @@ export function buildSourceConceptsCountQuery(
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
-  const unionParts = dicts.map((dict) => {
+  const unionParts = buildConceptUnionParts(dicts)
+
+  let sql = unionParts.length === 1
+    ? `SELECT COUNT(*) AS total FROM (${unionParts[0]}) AS src`
+    : `SELECT COUNT(*) AS total FROM (${unionParts.join(' UNION ALL ')}) AS src`
+
+  sql += buildWhereClause(filters)
+  return sql
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Build SELECT parts for concept dictionaries (no counts). */
+function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
+  return dicts.map((dict) => {
     const idCol = dict.idColumn ?? 'concept_id'
     const nameCol = dict.nameColumn ?? 'concept_name'
     const codeCol = dict.codeColumn ? `, ${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
@@ -160,11 +152,10 @@ export function buildSourceConceptsCountQuery(
       ${extraCols.join('')}
     FROM ${dict.table} d`
   })
+}
 
-  let sql = unionParts.length === 1
-    ? `SELECT COUNT(*) AS total FROM (${unionParts[0]}) AS src`
-    : `SELECT COUNT(*) AS total FROM (${unionParts.join(' UNION ALL ')}) AS src`
-
+/** Build WHERE clause from filters. */
+function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
   if (filters.searchText) {
     const term = esc(filters.searchText)
@@ -177,11 +168,8 @@ export function buildSourceConceptsCountQuery(
   if (filters.vocabularyId) conditions.push(`vocabulary_id = '${esc(filters.vocabularyId)}'`)
   if (filters.domainId) conditions.push(`domain_id = '${esc(filters.domainId)}'`)
   if (filters.conceptClassId) conditions.push(`concept_class_id = '${esc(filters.conceptClassId)}'`)
-  if (conditions.length > 0) {
-    sql += ` WHERE ${conditions.join(' AND ')}`
-  }
-
-  return sql
+  if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
+  return ''
 }
 
 // ---------------------------------------------------------------------------

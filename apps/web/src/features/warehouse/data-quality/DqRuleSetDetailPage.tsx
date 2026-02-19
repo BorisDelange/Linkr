@@ -46,7 +46,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     addRunHistory,
   } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [activeTab, setActiveTab] = useState<TabId>('checks')
 

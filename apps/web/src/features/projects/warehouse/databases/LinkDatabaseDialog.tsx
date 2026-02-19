@@ -31,7 +31,7 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
-  const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id))
+  const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id) && !ds.isVocabularyReference)
 
   const handleLink = (dataSourceId: string) => {
     linkDataSource(projectUid, dataSourceId)

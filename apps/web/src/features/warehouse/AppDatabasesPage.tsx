@@ -193,14 +193,17 @@ export function AppDatabasesPage() {
   const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Hide vocabulary-only sources from the databases page
+  const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference)
+
   // Fuzzy search: every word in query must appear in name OR description (case-insensitive)
   const filteredSources = searchQuery.trim()
-    ? dataSources.filter((ds) => {
+    ? visibleSources.filter((ds) => {
         const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
         const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
         return words.every((w) => haystack.includes(w))
       })
-    : dataSources
+    : visibleSources
 
   const currentSelectedSource = selectedSource
     ? dataSources.find((ds) => ds.id === selectedSource.id) ?? null

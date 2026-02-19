@@ -57,7 +57,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
     }
   }, [open, editingPipeline])
 
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const handleSubmit = async () => {
     if (!name.trim() || !sourceId || !activeWorkspaceId) return

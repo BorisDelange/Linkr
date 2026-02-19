@@ -61,7 +61,7 @@ export function CreateMappingProjectDialog({
   }, [editingProject, open])
 
   const connectedDatabases = dataSources.filter(
-    (ds) => ds.sourceType === 'database' && ds.status === 'connected',
+    (ds) => ds.sourceType === 'database' && ds.status === 'connected' && !ds.isVocabularyReference,
   )
 
   const handleSubmit = async () => {

@@ -7,6 +7,7 @@ import {
   buildSourceConceptsQuery,
   buildSourceConceptsCountQuery,
   buildFilterOptionsQuery,
+  buildAllConceptCountsQuery,
   type SourceConceptFilters,
   type SourceConceptSorting,
 } from '@/lib/concept-mapping/mapping-queries'
@@ -48,8 +49,48 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
   const [sorting, setSorting] = useState<SourceConceptSorting | null>({ columnId: 'record_count', desc: true })
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
   const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>('all')
+  const [countsReady, setCountsReady] = useState(false)
 
   const loadingRef = useRef(false)
+
+  // Cached concept counts: computed once per data source, never recomputed on page/filter change
+  const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
+  const countsCacheForDs = useRef<string | null>(null)
+
+  // Load concept counts once per data source
+  useEffect(() => {
+    if (!dataSource?.id || !dataSource.schemaMapping) return
+    if (countsCacheForDs.current === dataSource.id) return // already computed
+
+    const loadCounts = async () => {
+      try {
+        await ensureMounted(dataSource.id)
+        const sql = buildAllConceptCountsQuery(dataSource.schemaMapping!)
+        if (!sql) {
+          countsCacheForDs.current = dataSource.id
+          setCountsReady(true)
+          return
+        }
+        const result = await queryDataSource(dataSource.id, sql)
+        const map = new Map<number, { record_count: number; patient_count: number }>()
+        for (const row of result) {
+          map.set(Number(row.concept_id), {
+            record_count: Number(row.record_count ?? 0),
+            patient_count: Number(row.patient_count ?? 0),
+          })
+        }
+        countsCache.current = map
+        countsCacheForDs.current = dataSource.id
+        setCountsReady(true)
+      } catch (err) {
+        console.error('Failed to load concept counts:', err)
+        // Still mark as ready so the table shows (without counts)
+        countsCacheForDs.current = dataSource.id
+        setCountsReady(true)
+      }
+    }
+    loadCounts()
+  }, [dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   // Load filter options on mount
   useEffect(() => {
@@ -74,7 +115,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     loadOptions()
   }, [dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
-  // Load source concepts
+  // Load source concepts (fast — no count computation in SQL)
   const loadConcepts = useCallback(async () => {
     if (!dataSource?.id || !dataSource.schemaMapping || loadingRef.current) return
     loadingRef.current = true
@@ -84,17 +125,27 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
       setQueryError(null)
       await ensureMounted(dataSource.id)
       const mapping = dataSource.schemaMapping
+
+      // When sorting by record_count/patient_count, we load all concepts and sort client-side
+      const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+
       const countSql = buildSourceConceptsCountQuery(mapping, filters)
       if (!countSql) { setLoading(false); loadingRef.current = false; return }
 
       const [countResult] = await queryDataSource(dataSource.id, countSql)
-      setTotalCount(Number(countResult?.total ?? 0))
+      const total = Number(countResult?.total ?? 0)
+      setTotalCount(total)
 
-      const dataSql = buildSourceConceptsQuery(
-        mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE,
-      )
-      const result = await queryDataSource(dataSource.id, dataSql)
-      setRows(result as unknown as SourceConceptRow[])
+      if (isSortingByCount) {
+        // Load all concepts (filtered), pagination done client-side after sort
+        const dataSql = buildSourceConceptsQuery(mapping, filters, null, total, 0)
+        const result = await queryDataSource(dataSource.id, dataSql)
+        setRows(result as unknown as SourceConceptRow[])
+      } else {
+        const dataSql = buildSourceConceptsQuery(mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
+        const result = await queryDataSource(dataSource.id, dataSql)
+        setRows(result as unknown as SourceConceptRow[])
+      }
     } catch (err) {
       console.error('Failed to load source concepts:', err)
       setQueryError(err instanceof Error ? err.message : String(err))
@@ -138,6 +189,30 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     )
   }
 
+  // Merge cached counts into rows
+  const rowsWithCounts = rows.map((row) => {
+    const counts = countsCache.current.get(row.concept_id)
+    return {
+      ...row,
+      record_count: counts?.record_count ?? 0,
+      patient_count: counts?.patient_count ?? 0,
+    }
+  })
+
+  // Sort client-side when sorting by counts
+  const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+  let sortedRows = rowsWithCounts
+  if (isSortingByCount && countsReady) {
+    const col = sorting!.columnId as 'record_count' | 'patient_count'
+    const dir = sorting!.desc ? -1 : 1
+    sortedRows = [...rowsWithCounts].sort((a, b) => dir * (a[col] - b[col]))
+  }
+
+  // Apply pagination client-side when sorting by counts (all rows loaded)
+  const paginatedRows = isSortingByCount
+    ? sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+    : sortedRows
+
   // Compute mapping status for each source concept
   const mappingStatusMap = new Map<number, 'unmapped' | 'mapped' | 'approved' | 'flagged' | 'invalid'>()
   for (const m of mappings) {
@@ -150,8 +225,8 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
 
   // Client-side filtering by mapping status
   const filteredRows = mappingStatusFilter === 'all'
-    ? rows
-    : rows.filter((row) => {
+    ? paginatedRows
+    : paginatedRows.filter((row) => {
         const status = mappingStatusMap.get(row.concept_id)
         if (mappingStatusFilter === 'unmapped') return !status
         if (mappingStatusFilter === 'mapped') return !!status
@@ -162,7 +237,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     ? totalCount
     : filteredRows.length
 
-  const selectedRow = rows.find((r) => r.concept_id === selectedSourceConceptId)
+  const selectedRow = paginatedRows.find((r) => r.concept_id === selectedSourceConceptId)
 
   return (
     <div className="h-full">

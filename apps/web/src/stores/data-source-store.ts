@@ -56,6 +56,8 @@ interface DataSourceState {
     files?: File[]
     /** File System Access API handles for zero-copy import (Chrome/Edge). */
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
+    /** Mark as vocabulary reference (hidden from database pages). */
+    isVocabularyReference?: boolean
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => void
@@ -230,6 +232,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       connectionConfig: connectionConfig as unknown as ConnectionConfig,
       schemaMapping: source.schemaMapping,
       status: 'configuring' as DataSourceStatus,
+      ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
       createdAt: now,
       updatedAt: now,
     }

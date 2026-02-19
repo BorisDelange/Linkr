@@ -1,7 +1,7 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptSet, ConceptSetItem, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectStats, ConceptMapping, MappingStatus, MappingEquivalence, MappingType } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogResultRow, CatalogResultCache, CatalogMarginRow, CatalogConceptTotal, CatalogGrandTotal, CatalogMargins } from './catalog'
+export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache } from './catalog'
 export { getDefaultDimensions } from './catalog'
 
 export interface User {
@@ -234,6 +234,8 @@ export interface DataSource {
   stats?: DataSourceStats
   /** Human-readable error message when status is 'error'. */
   errorMessage?: string
+  /** True when this data source is a vocabulary reference (ATHENA). Hidden from database pages. */
+  isVocabularyReference?: boolean
   createdAt: string
   updatedAt: string
 }

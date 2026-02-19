@@ -34,7 +34,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createRuleSet, updateRuleSet } = useDqStore()
-  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database')
+  const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [name, setName] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')

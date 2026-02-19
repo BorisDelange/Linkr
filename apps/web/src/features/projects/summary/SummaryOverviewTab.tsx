@@ -34,7 +34,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
   const allTabs = useDashboardStore((s) => s.tabs)
   const allWidgets = useDashboardStore((s) => s.widgets)
 
-  const dataSources = useMemo(() => getProjectSources(uid), [getProjectSources, uid])
+  const dataSources = useMemo(() => getProjectSources(uid).filter((ds) => !ds.isVocabularyReference), [getProjectSources, uid])
   const cohorts = useMemo(() => getProjectCohorts(uid), [getProjectCohorts, uid])
   const dashTabs = useMemo(() => {
     const dashIds = new Set(allDashboards.filter((d) => d.projectUid === uid).map((d) => d.id))
