@@ -106,10 +106,26 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     setPage(0)
   }, [filters, sorting])
 
-  if (!dataSource?.schemaMapping) {
+  if (!dataSource) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">{t('concept_mapping.no_datasource')}</p>
+      </div>
+    )
+  }
+
+  if (!dataSource.schemaMapping) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-sm text-muted-foreground">{t('concept_mapping.no_schema')}</p>
+      </div>
+    )
+  }
+
+  if (!dataSource.schemaMapping.conceptTables?.length) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">{t('concept_mapping.no_concept_tables')}</p>
       </div>
     )
   }

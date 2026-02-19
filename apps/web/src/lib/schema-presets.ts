@@ -321,6 +321,40 @@ const mimicIII: SchemaMapping = {
 }
 
 // ---------------------------------------------------------------------------
+// MIMIC-IV — ERD Groups
+// ---------------------------------------------------------------------------
+
+const MIMIC_IV_ERD_GROUPS: ErdGroup[] = [
+  {
+    id: 'hosp',
+    label: 'Hospital (hosp)',
+    color: 'blue',
+    tables: [
+      'patients', 'admissions', 'transfers', 'services',
+      'diagnoses_icd', 'procedures_icd', 'hcpcsevents', 'drgcodes',
+      'labevents', 'microbiologyevents',
+      'emar', 'emar_detail', 'pharmacy', 'poe', 'poe_detail',
+      'prescriptions', 'omr', 'provider', 'discharge',
+    ],
+  },
+  {
+    id: 'icu',
+    label: 'ICU (icu)',
+    color: 'green',
+    tables: [
+      'icustays', 'chartevents', 'datetimeevents',
+      'inputevents', 'outputevents', 'ingredientevents',
+      'procedureevents', 'caregiver',
+    ],
+  },
+  {
+    id: 'dictionaries',
+    label: 'Dictionaries',
+    color: 'orange',
+    tables: ['d_items', 'd_labitems', 'd_hcpcs', 'd_icd_diagnoses', 'd_icd_procedures'],
+  },
+]
+
 // MIMIC-IV
 // ---------------------------------------------------------------------------
 
@@ -441,6 +475,7 @@ const mimicIV: SchemaMapping = {
   },
   knownTables: MIMIC_IV_TABLES,
   ddl: MIMIC_IV_DDL,
+  erdGroups: MIMIC_IV_ERD_GROUPS,
 }
 
 // ---------------------------------------------------------------------------

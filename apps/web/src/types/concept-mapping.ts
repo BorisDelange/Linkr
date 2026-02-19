@@ -38,6 +38,12 @@ export interface ConceptSet {
   resolvedConceptIds: number[] | null
   /** Origin URL (GitHub, ATLAS, etc). */
   sourceUrl?: string
+  /** Category from metadata (e.g. "Clinical observation"). */
+  category?: string
+  /** Subcategory from metadata (e.g. "Neurological assessment"). */
+  subcategory?: string
+  /** Provenance: name of the organization that created the concept set. */
+  provenance?: string
   createdAt: string
   updatedAt: string
 }

@@ -15,6 +15,7 @@ import {
   RotateCcw,
   Pencil,
   MoreHorizontal,
+  Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -58,6 +59,130 @@ import type {
   EventTable,
   CustomSchemaPreset,
 } from '@/types/schema-mapping'
+import type * as Monaco from 'monaco-editor'
+import { ScrollArea } from '@/components/ui/scroll-area'
+
+// ---------------------------------------------------------------------------
+// DDL Table of Contents — sidebar with collapsible sections
+// ---------------------------------------------------------------------------
+
+interface DdlTocEntry { label: string; line: number }
+interface DdlTocSection { key: string; title: string; entries: DdlTocEntry[] }
+
+function parseDdlToc(ddl: string): DdlTocSection[] {
+  const tables: DdlTocEntry[] = []
+  const pks: DdlTocEntry[] = []
+  const fks: DdlTocEntry[] = []
+  const indexes: DdlTocEntry[] = []
+
+  const lines = ddl.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    // CREATE TABLE
+    const tblMatch = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?(?:"?(\w+)"?)/i.exec(line)
+    if (tblMatch?.[1]) { tables.push({ label: tblMatch[1], line: i + 1 }); continue }
+    // ALTER TABLE ... PRIMARY KEY
+    const pkMatch = /ALTER\s+TABLE\s+(?:"?\w+"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+\w+\s+PRIMARY\s+KEY/i.exec(line)
+    if (pkMatch?.[1]) { pks.push({ label: pkMatch[1], line: i + 1 }); continue }
+    // ALTER TABLE ... FOREIGN KEY
+    const fkMatch = /ALTER\s+TABLE\s+(?:"?\w+"?\.)?(?:"?(\w+)"?)\s+ADD\s+CONSTRAINT\s+(\w+)\s+FOREIGN\s+KEY/i.exec(line)
+    if (fkMatch) { fks.push({ label: `${fkMatch[1]}.${fkMatch[2]}`, line: i + 1 }); continue }
+    // CREATE INDEX
+    const idxMatch = /CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?)/i.exec(line)
+    if (idxMatch?.[1]) { indexes.push({ label: idxMatch[1], line: i + 1 }); continue }
+  }
+
+  const sections: DdlTocSection[] = []
+  if (tables.length) sections.push({ key: 'tables', title: 'Tables', entries: tables })
+  if (pks.length) sections.push({ key: 'pks', title: 'Primary Keys', entries: pks })
+  if (fks.length) sections.push({ key: 'fks', title: 'Foreign Keys', entries: fks })
+  if (indexes.length) sections.push({ key: 'indexes', title: 'Indexes', entries: indexes })
+  return sections
+}
+
+function DdlTableOfContents({
+  ddl,
+  editorRef,
+}: {
+  ddl: string
+  editorRef: React.RefObject<Monaco.editor.IStandaloneCodeEditor | null>
+}) {
+  const { t } = useTranslation()
+  const [filter, setFilter] = useState('')
+  const sections = useMemo(() => parseDdlToc(ddl), [ddl])
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set())
+  const lower = filter.toLowerCase()
+
+  const toggle = (key: string) =>
+    setCollapsed((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next })
+
+  const scrollTo = (line: number) => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.revealLineInCenter(line)
+    editor.setPosition({ lineNumber: line, column: 1 })
+    editor.focus()
+  }
+
+  return (
+    <div className="w-[200px] shrink-0 border-r flex flex-col overflow-hidden bg-muted/30">
+      <div className="px-2 py-2 border-b shrink-0">
+        <div className="relative">
+          <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={t('common.filter')}
+            className="h-7 text-xs pl-7"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        {sections.map((section) => {
+          const filtered = lower
+            ? section.entries.filter((e) => e.label.toLowerCase().includes(lower))
+            : section.entries
+          if (lower && filtered.length === 0) return null
+          const isCollapsed = collapsed.has(section.key) && !lower
+
+          return (
+            <div key={section.key}>
+              <button
+                type="button"
+                className="flex items-center gap-1.5 w-full px-2.5 py-1.5 text-left hover:bg-muted/50 border-b"
+                onClick={() => toggle(section.key)}
+              >
+                {isCollapsed
+                  ? <ChevronRight size={11} className="shrink-0 text-muted-foreground" />
+                  : <ChevronDown size={11} className="shrink-0 text-muted-foreground" />}
+                <span className="text-[10px] font-semibold text-muted-foreground uppercase flex-1">{section.title}</span>
+                <span className="text-[10px] text-muted-foreground">{filtered.length}</span>
+              </button>
+              {!isCollapsed && (
+                <div className="py-0.5">
+                  {filtered.map((entry) => (
+                    <button
+                      key={entry.line}
+                      type="button"
+                      className="w-full text-left px-3 py-1 text-xs font-mono hover:bg-muted/60 transition-colors truncate"
+                      onClick={() => scrollTo(entry.line)}
+                      title={`Line ${entry.line}`}
+                    >
+                      {entry.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {sections.every((s) => lower && s.entries.every((e) => !e.label.toLowerCase().includes(lower))) && (
+          <p className="px-3 py-3 text-xs text-muted-foreground">{t('common.no_results')}</p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Detail sub-components (read-only view)
@@ -684,6 +809,7 @@ function SchemaDetailView({
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const ddlEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
   // Check if built-in has been customized (override exists in IDB)
   const hasCustomOverride = isBuiltin && customPresets.some((p) => p.presetId === schemaId)
@@ -829,27 +955,32 @@ function SchemaDetailView({
 
         {/* Tab 2: DDL editor */}
         <TabsContent value="ddl" className="flex-1 min-h-0 m-0 p-0">
-          {isEditing && editMapping ? (
-            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
-              <LazyCodeEditor
-                value={editMapping.ddl ?? ''}
-                language="sql"
-                onChange={(v) => setEditMapping({ ...editMapping, ddl: v ?? '' })}
-              />
-            </Suspense>
-          ) : displayMapping.ddl ? (
-            <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
-              <LazyCodeEditor
-                value={displayMapping.ddl}
-                language="sql"
-                readOnly
-              />
-            </Suspense>
-          ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {t('settings.schema_preset_no_ddl')}
-            </div>
-          )}
+          {(() => {
+            const ddlValue = isEditing && editMapping ? (editMapping.ddl ?? '') : (displayMapping.ddl ?? '')
+            if (!ddlValue) {
+              return (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                  {t('settings.schema_preset_no_ddl')}
+                </div>
+              )
+            }
+            return (
+              <div className="flex h-full">
+                <DdlTableOfContents ddl={ddlValue} editorRef={ddlEditorRef} />
+                <div className="flex-1 min-w-0">
+                  <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-muted-foreground">Loading editor...</div>}>
+                    <LazyCodeEditor
+                      value={ddlValue}
+                      language="sql"
+                      editorRef={ddlEditorRef}
+                      readOnly={!(isEditing && editMapping)}
+                      onChange={isEditing && editMapping ? (v) => setEditMapping({ ...editMapping, ddl: v ?? '' }) : undefined}
+                    />
+                  </Suspense>
+                </div>
+              </div>
+            )
+          })()}
         </TabsContent>
 
         {/* Tab 3: Mapping config */}

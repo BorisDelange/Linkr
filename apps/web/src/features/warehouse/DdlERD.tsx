@@ -614,84 +614,100 @@ function ErdFilterSheet({ groups, allTables, hiddenGroups, hiddenTables, open, o
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="w-[280px] sm:max-w-[280px] p-0 gap-0">
-        <SheetHeader className="px-4 py-3 border-b">
-          <SheetTitle className="text-sm">{t('schemas.erd_filter')}</SheetTitle>
+      <SheetContent side="right" className="w-[300px] sm:max-w-[300px] p-0 gap-0">
+        <SheetHeader className="px-3 py-2 border-b">
+          <SheetTitle className="text-xs font-semibold">{t('schemas.erd_filter')}</SheetTitle>
           <SheetDescription className="sr-only">{t('schemas.erd_filter')}</SheetDescription>
         </SheetHeader>
 
-        <div className="flex-1 overflow-auto p-3 space-y-1">
-          {groups.map((group) => {
-            const groupHidden = hiddenGroups.has(group.id)
-            const isExpanded = expandedGroupId === group.id
-            const groupTables = allTables.filter((tbl) => group.tables.some((gt) => gt.toLowerCase() === tbl.name.toLowerCase()))
+        <div className="flex-1 overflow-auto p-3">
+          <div className="space-y-2">
+            {groups.map((group) => {
+              const groupHidden = hiddenGroups.has(group.id)
+              const isExpanded = expandedGroupId === group.id
+              const groupTables = allTables.filter((tbl) => group.tables.some((gt) => gt.toLowerCase() === tbl.name.toLowerCase()))
 
-            return (
-              <div key={group.id}>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    className="p-0.5 hover:bg-muted/50 rounded"
-                    onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
-                  >
-                    {isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                  </button>
-                  <label className="flex items-center gap-2 flex-1 cursor-pointer py-0.5">
-                    <input
-                      type="checkbox"
-                      checked={!groupHidden}
-                      onChange={() => onToggleGroup(group.id)}
-                      className="rounded"
-                    />
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT_ERD[group.color] ?? COLOR_DOT_ERD.slate}`} />
-                    <span className="text-xs text-foreground truncate">{group.label}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto">{groupTables.length}</span>
-                  </label>
+              return (
+                <div key={group.id} className="rounded-lg border bg-muted/30">
+                  <div className="flex items-center gap-2 w-full px-3 py-2">
+                    <button
+                      type="button"
+                      className="shrink-0"
+                      onClick={() => setExpandedGroupId(isExpanded ? null : group.id)}
+                    >
+                      {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                    </button>
+                    <label className="flex items-center gap-2 flex-1 cursor-pointer min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={!groupHidden}
+                        onChange={() => onToggleGroup(group.id)}
+                        className="rounded shrink-0"
+                      />
+                      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${COLOR_DOT_ERD[group.color] ?? COLOR_DOT_ERD.slate}`} />
+                      <span className="text-xs font-medium text-foreground truncate flex-1">{group.label}</span>
+                      <span className="text-[10px] text-muted-foreground">{groupTables.length}</span>
+                    </label>
+                  </div>
+
+                  {isExpanded && (
+                    <div className="px-3 pb-3 border-t">
+                      <div className="pt-2 space-y-px">
+                        {groupTables.map((tbl) => {
+                          const hidden = hiddenTables.has(tbl.name.toLowerCase())
+                          return (
+                            <label
+                              key={tbl.name}
+                              className="flex items-center gap-2 px-1.5 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50"
+                            >
+                              <input
+                                type="checkbox"
+                                checked={!hidden && !groupHidden}
+                                disabled={groupHidden}
+                                onChange={() => onToggleTable(tbl.name.toLowerCase())}
+                                className="rounded"
+                              />
+                              <code className="text-[10px] font-mono">{tbl.name}</code>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {isExpanded && (
-                  <div className="ml-6 space-y-px">
-                    {groupTables.map((tbl) => {
+              )
+            })}
+
+            {ungrouped.length > 0 && (
+              <div className="rounded-lg border bg-muted/30">
+                <div className="flex items-center gap-2 w-full px-3 py-2">
+                  <span className="text-xs font-medium text-foreground">{t('schemas.erd_ungrouped')}</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{ungrouped.length}</span>
+                </div>
+                <div className="px-3 pb-3 border-t">
+                  <div className="pt-2 space-y-px">
+                    {ungrouped.map((tbl) => {
                       const hidden = hiddenTables.has(tbl.name.toLowerCase())
                       return (
-                        <label key={tbl.name} className="flex items-center gap-2 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50">
+                        <label
+                          key={tbl.name}
+                          className="flex items-center gap-2 px-1.5 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50"
+                        >
                           <input
                             type="checkbox"
-                            checked={!hidden && !groupHidden}
-                            disabled={groupHidden}
+                            checked={!hidden}
                             onChange={() => onToggleTable(tbl.name.toLowerCase())}
                             className="rounded"
                           />
-                          <code className="text-[10px] font-mono text-foreground/80">{tbl.name}</code>
+                          <code className="text-[10px] font-mono">{tbl.name}</code>
                         </label>
                       )
                     })}
                   </div>
-                )}
+                </div>
               </div>
-            )
-          })}
-
-          {ungrouped.length > 0 && (
-            <div className="pt-1 border-t mt-1">
-              <span className="text-[10px] font-medium text-muted-foreground uppercase px-1">{t('schemas.erd_ungrouped')}</span>
-              <div className="mt-1 space-y-px">
-                {ungrouped.map((tbl) => {
-                  const hidden = hiddenTables.has(tbl.name.toLowerCase())
-                  return (
-                    <label key={tbl.name} className="flex items-center gap-2 px-1 py-0.5 rounded text-xs cursor-pointer hover:bg-muted/50">
-                      <input
-                        type="checkbox"
-                        checked={!hidden}
-                        onChange={() => onToggleTable(tbl.name.toLowerCase())}
-                        className="rounded"
-                      />
-                      <code className="text-[10px] font-mono text-foreground/80">{tbl.name}</code>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </SheetContent>
     </Sheet>
@@ -849,13 +865,14 @@ export function DdlERD({
           onToggleTable={toggleTable}
         />
 
-        {/* Group editing side panel (edit mode) */}
-        {groupPanelOpen && isEditing && onGroupsChange && (
+        {/* Group editing sheet (edit mode, full viewport height) */}
+        {onGroupsChange && (
           <DdlERDGroupPanel
             groups={erdGroups ?? []}
             allTables={tables.map((t) => t.name)}
             onChange={onGroupsChange}
-            onClose={() => setGroupPanelOpen(false)}
+            open={groupPanelOpen && isEditing}
+            onOpenChange={setGroupPanelOpen}
           />
         )}
       </div>
