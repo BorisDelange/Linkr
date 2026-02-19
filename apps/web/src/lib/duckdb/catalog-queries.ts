@@ -1,4 +1,4 @@
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule } from '@/types/catalog'
 import { getEventTablesForDictionary } from '@/lib/schema-helpers'
 
@@ -13,7 +13,6 @@ function esc(value: string): string {
 
 /**
  * Build a SQL CASE expression for age groups from custom brackets.
- * E.g. brackets=[0, 18, 25, 65, 80] → "0–17", "18–24", "25–64", "65–79", "80+"
  */
 function buildAgeGroupExpr(
   brackets: number[],
@@ -39,14 +38,12 @@ function buildAgeGroupExpr(
     const lo = sorted[i]
     if (i < sorted.length - 1) {
       const hi = sorted[i + 1]
-      const label = `'[${lo};${hi}['`
-      cases.push(`WHEN ${birthExpr} >= ${lo} AND ${birthExpr} < ${hi} THEN ${label}`)
+      cases.push(`WHEN ${birthExpr} >= ${lo} AND ${birthExpr} < ${hi} THEN '[${lo};${hi}['`)
     } else {
       cases.push(`WHEN ${birthExpr} >= ${lo} THEN '[${lo};+∞['`)
     }
   }
 
-  // Handle ages below the first bracket
   if (sorted[0] > 0) {
     cases.unshift(`WHEN ${birthExpr} < ${sorted[0]} THEN '[0;${sorted[0]}['`)
   }
@@ -54,9 +51,6 @@ function buildAgeGroupExpr(
   return `CASE ${cases.join(' ')} END`
 }
 
-/**
- * Build SQL expression for sex dimension.
- */
 function buildSexExpr(mapping: SchemaMapping): string | null {
   const pt = mapping.patientTable
   const gv = mapping.genderValues
@@ -65,9 +59,6 @@ function buildSexExpr(mapping: SchemaMapping): string | null {
   return `CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN 'Male' WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN 'Female' ELSE 'Other' END`
 }
 
-/**
- * Build SQL expression for admission date dimension.
- */
 function buildAdmissionDateExpr(
   step: 'day' | 'month' | 'year',
   mapping: SchemaMapping,
@@ -79,10 +70,6 @@ function buildAdmissionDateExpr(
   return `STRFTIME(v."${vt.startDateColumn}"::TIMESTAMP, '${fmt}')`
 }
 
-/**
- * Build SQL expression for care site dimension.
- * Supports service mapping rules for renaming/grouping.
- */
 function buildCareSiteExpr(
   mapping: SchemaMapping,
   level: 'visit' | 'visit_detail',
@@ -92,7 +79,6 @@ function buildCareSiteExpr(
     const vd = mapping.visitDetailTable
     if (!vd?.unitColumn) return null
 
-    // If the unit column is a FK to a name table, join to it
     let nameExpr: string
     const joins: string[] = []
     if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
@@ -107,9 +93,6 @@ function buildCareSiteExpr(
     return { expr: applyServiceMappingRules(nameExpr, rules), joins }
   }
 
-  // level === 'visit': use visit table
-  // Visit table doesn't have care_site columns in current schema — check visitTable for typeColumn
-  // For now, fall back to visit type column if available
   const vt = mapping.visitTable
   if (!vt?.typeColumn) return null
   return { expr: applyServiceMappingRules(`v."${vt.typeColumn}"`, rules), joins: [] }
@@ -133,66 +116,22 @@ function applyServiceMappingRules(
 }
 
 // ---------------------------------------------------------------------------
-// Main catalog aggregation query builder (GROUPING SETS)
+// Shared dimension resolution
 // ---------------------------------------------------------------------------
 
-export interface CatalogQueryParts {
-  sql: string
+interface DimensionParts {
+  dimSelectExprs: string[]
+  dimGroupByAliases: string[]
+  extraJoins: string[]
+  needsVisitDetail: boolean
   hasDimensions: boolean
-  /** Ordered column names passed to GROUPING(). Used to decode the grp_flags bitmask. */
-  groupingColumns: string[]
-  /** Maps dimension alias (dim_age_group etc) to its bit position (from right) in grp_flags. */
-  dimBitPositions: Record<string, number>
-  /** Bitmask: if (flags & conceptBitMask) !== 0, concept columns are rolled up (NULL). */
-  conceptBitMask: number
 }
 
-/**
- * Build the full catalog aggregation SQL query using GROUPING SETS.
- *
- * Produces multiple aggregation levels in a single query:
- * 1. Leaf rows: concept × all enabled dimensions (same as a simple GROUP BY)
- * 2. Concept × single dimension margins (for concept-level drill-down)
- * 3. Concept totals: all dimensions rolled up (per-concept unique counts)
- * 4. Dimension-only margins: concept rolled up (for overall charts with accurate COUNT DISTINCT)
- * 5. Grand total: everything rolled up (overall unique patients/visits/records)
- *
- * Rows are classified via GROUPING() bitmask flags.
- */
-export function buildCatalogAggregationQuery(
-  mapping: SchemaMapping,
+function resolveDimensions(
   dimensions: DimensionConfig[],
+  mapping: SchemaMapping,
   serviceMappingRules?: ServiceMappingRule[],
-  categoryColumn?: string,
-  subcategoryColumn?: string,
-): CatalogQueryParts | null {
-  const dicts = mapping.conceptTables
-  if (!dicts || dicts.length === 0) return null
-
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  if (!pt || !vt) return null
-
-  // --- 1. Build events CTE: UNION ALL across all event tables ---
-  const eventParts: string[] = []
-  for (const dict of dicts) {
-    const eventEntries = getEventTablesForDictionary(mapping, dict.key)
-    for (const { eventTable: et } of eventEntries) {
-      const patientCol = et.patientIdColumn ?? pt.idColumn
-      eventParts.push(
-        `SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid, '${esc(dict.key)}' AS dkey FROM "${et.table}"`,
-      )
-      if (et.sourceConceptIdColumn) {
-        eventParts.push(
-          `SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid, '${esc(dict.key)}' AS dkey FROM "${et.table}"`,
-        )
-      }
-    }
-  }
-
-  if (eventParts.length === 0) return null
-
-  // --- 2. Resolve enabled dimensions ---
+): DimensionParts {
   const enabledDims = dimensions.filter((d) => d.enabled)
   const dimSelectExprs: string[] = []
   const dimGroupByAliases: string[] = []
@@ -230,115 +169,136 @@ export function buildCatalogAggregationQuery(
     }
   }
 
-  const hasDimensions = dimSelectExprs.length > 0
+  return { dimSelectExprs, dimGroupByAliases, extraJoins, needsVisitDetail, hasDimensions: dimSelectExprs.length > 0 }
+}
 
-  // --- 3. Build concept name CTE ---
-  const hasCategory = !!categoryColumn
-  const hasSubcategory = !!subcategoryColumn
+// ---------------------------------------------------------------------------
+// Shared SQL helpers
+// ---------------------------------------------------------------------------
 
-  const conceptNameParts = dicts.map((d) => {
-    const extras = d.extraColumns ?? {}
-    const catCol = categoryColumn ? extras[categoryColumn] : undefined
-    const subcatCol = subcategoryColumn ? extras[subcategoryColumn] : undefined
-    const catExpr = catCol ? `"${catCol}"` : 'NULL'
-    const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
-    return `SELECT "${d.idColumn}" AS cid, "${d.nameColumn}" AS cname, '${esc(d.key)}' AS dkey${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM "${d.table}"`
-  })
-  const conceptNameCte = conceptNameParts.length === 1
-    ? conceptNameParts[0]
-    : conceptNameParts.join('\n    UNION ALL\n    ')
-
-  // --- 4. Build JOINs ---
-  const vdJoin = needsVisitDetail && mapping.visitDetailTable
+function buildJoinClauses(
+  mapping: SchemaMapping,
+  dimParts: DimensionParts,
+): { vdJoin: string; extraJoinStr: string } {
+  const vt = mapping.visitTable!
+  const vdJoin = dimParts.needsVisitDetail && mapping.visitDetailTable
     ? `LEFT JOIN "${mapping.visitDetailTable.table}" vd ON v."${vt.idColumn}" = vd."${mapping.visitDetailTable.visitIdColumn}" AND e.pid = vd."${mapping.visitDetailTable.patientIdColumn}"`
     : ''
+  const extraJoinStr = dimParts.extraJoins.length > 0 ? `\n  ${dimParts.extraJoins.join('\n  ')}` : ''
+  return { vdJoin, extraJoinStr }
+}
 
-  const extraJoinStr = extraJoins.length > 0 ? `\n  ${extraJoins.join('\n  ')}` : ''
-
-  // --- 5. Build SELECT columns ---
-  const dimSelectStr = dimSelectExprs.length > 0
-    ? `,\n    ${dimSelectExprs.join(',\n    ')}`
-    : ''
-
-  const catSelectStr = hasCategory ? `,\n    cn.ccat AS concept_category` : ''
-  const subcatSelectStr = hasSubcategory ? `,\n    cn.csubcat AS concept_subcategory` : ''
-  const catCteFields = `${hasCategory ? ', ccat' : ''}${hasSubcategory ? ', csubcat' : ''}`
-
-  // --- 6. Build GROUPING SETS ---
-  // Concept columns always grouped together (they are 1:1)
-  const conceptCols = ['cn.cid', 'cn.cname', 'cn.dkey']
-  if (hasCategory) conceptCols.push('cn.ccat')
-  if (hasSubcategory) conceptCols.push('cn.csubcat')
-  const conceptColsStr = conceptCols.join(', ')
-
-  // Build the grouping sets list
-  const groupingSets: string[] = []
-
-  if (hasDimensions) {
-    // 1. Leaf: concept × all dims
-    groupingSets.push(`(${conceptColsStr}, ${dimGroupByAliases.join(', ')})`)
-
-    // 2. Concept × single dim (for concept-level per-dimension margins)
-    for (const dimAlias of dimGroupByAliases) {
-      groupingSets.push(`(${conceptColsStr}, ${dimAlias})`)
-    }
-
-    // 3. Concept totals (all dims rolled up)
-    groupingSets.push(`(${conceptColsStr})`)
-
-    // 4. Dimension-only (no concept — for overall charts)
-    for (const dimAlias of dimGroupByAliases) {
-      groupingSets.push(`(${dimAlias})`)
-    }
-
-    // 5. Grand total
-    groupingSets.push('()')
-  } else {
-    // No dimensions: just concept-level and grand total
-    groupingSets.push(`(${conceptColsStr})`)
-    groupingSets.push('()')
-  }
-
-  const groupByClause = `GROUP BY GROUPING SETS (\n    ${groupingSets.join(',\n    ')}\n  )`
-
-  // --- 7. Build GROUPING() bitmask ---
-  // Column order in GROUPING(): concept cols first, then dim aliases
-  // DuckDB GROUPING(c1, c2, ..., cN) → bit (N-1) = c1, bit (N-2) = c2, ..., bit 0 = cN
-  // If a column is rolled up (aggregated), its bit is 1; if grouped, its bit is 0.
+function buildGroupingMeta(
+  conceptCols: string[],
+  dimGroupByAliases: string[],
+): { groupingColumns: string[]; dimBitPositions: Record<string, number>; conceptBitMask: number } {
   const groupingColumns = [...conceptCols, ...dimGroupByAliases]
   const N = groupingColumns.length
 
-  // Compute conceptBitMask: OR of all concept column bit positions
   let conceptBitMask = 0
   for (let i = 0; i < conceptCols.length; i++) {
     conceptBitMask |= (1 << (N - 1 - i))
   }
 
-  // Compute dimBitPositions: map dim alias → bit position (from right, i.e. bit 0 = rightmost)
   const dimBitPositions: Record<string, number> = {}
   for (let i = 0; i < dimGroupByAliases.length; i++) {
-    const colIndex = conceptCols.length + i // index in the groupingColumns array
-    dimBitPositions[dimGroupByAliases[i]] = N - 1 - colIndex // bit position from right
+    const colIndex = conceptCols.length + i
+    dimBitPositions[dimGroupByAliases[i]] = N - 1 - colIndex
   }
 
-  const groupingExpr = `GROUPING(${groupingColumns.join(', ')})::INTEGER AS grp_flags`
+  return { groupingColumns, dimBitPositions, conceptBitMask }
+}
 
-  // --- 8. Assemble SQL ---
-  const sql = `WITH events AS (
-  SELECT cid, pid, dkey FROM (
+// ---------------------------------------------------------------------------
+// Per-dictionary query builder (for incremental progress)
+// ---------------------------------------------------------------------------
+
+export interface DictionaryQueryParts {
+  dictKey: string
+  sql: string
+  /** Metadata for decoding grp_flags from this query. */
+  meta: { groupingColumns: string[]; dimBitPositions: Record<string, number>; conceptBitMask: number }
+  hasDimensions: boolean
+}
+
+export interface PerDictionaryQueries {
+  /** One query per concept dictionary — produces leaf rows + concept totals. */
+  dictQueries: DictionaryQueryParts[]
+  /** Global query for dim-only margins + grand total. Always present. */
+  globalQuery: string
+}
+
+/**
+ * Build one SQL query per concept dictionary (leaf rows + concept totals)
+ * plus one global query for dim-only margins and grand total.
+ */
+export function buildPerDictionaryQueries(
+  mapping: SchemaMapping,
+  dimensions: DimensionConfig[],
+  serviceMappingRules?: ServiceMappingRule[],
+  categoryColumn?: string,
+  subcategoryColumn?: string,
+): PerDictionaryQueries | null {
+  const dicts = mapping.conceptTables
+  if (!dicts || dicts.length === 0) return null
+
+  const pt = mapping.patientTable
+  const vt = mapping.visitTable
+  if (!pt || !vt) return null
+
+  const dimParts = resolveDimensions(dimensions, mapping, serviceMappingRules)
+  const hasCategory = !!categoryColumn
+  const hasSubcategory = !!subcategoryColumn
+
+  const { vdJoin, extraJoinStr } = buildJoinClauses(mapping, dimParts)
+  const dimSelectStr = dimParts.dimSelectExprs.length > 0
+    ? `,\n    ${dimParts.dimSelectExprs.join(',\n    ')}`
+    : ''
+
+  // --- Per-dictionary queries ---
+  const dictQueries: DictionaryQueryParts[] = []
+
+  for (const dict of dicts) {
+    const eventParts = buildEventPartsForDict(mapping, dict, pt.idColumn)
+    if (eventParts.length === 0) continue
+
+    const cnSql = buildConceptNameSql(dict, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
+
+    // Concept columns for this per-dict query (no dkey — it's constant)
+    const conceptCols = ['cn.cid', 'cn.cname']
+    if (hasCategory) conceptCols.push('cn.ccat')
+    if (hasSubcategory) conceptCols.push('cn.csubcat')
+    const conceptColsStr = conceptCols.join(', ')
+
+    const meta = buildGroupingMeta(conceptCols, dimParts.dimGroupByAliases)
+    const groupingExpr = `GROUPING(${meta.groupingColumns.join(', ')})::INTEGER AS grp_flags`
+
+    const catSelectStr = hasCategory ? `,\n    cn.ccat AS concept_category` : ''
+    const subcatSelectStr = hasSubcategory ? `,\n    cn.csubcat AS concept_subcategory` : ''
+
+    // Per-dict grouping sets: leaf + concept totals only (no dim-only margins, no grand total)
+    const gs: string[] = []
+    if (dimParts.hasDimensions) {
+      gs.push(`(${conceptColsStr}, ${dimParts.dimGroupByAliases.join(', ')})`)
+      gs.push(`(${conceptColsStr})`)
+    } else {
+      gs.push(`(${conceptColsStr})`)
+    }
+    const groupByClause = `GROUP BY GROUPING SETS (\n    ${gs.join(',\n    ')}\n  )`
+
+    const sql = `WITH events AS (
+  SELECT cid, pid FROM (
     ${eventParts.join('\n    UNION ALL\n    ')}
   ) _evts
   WHERE cid IS NOT NULL
 ),
 concept_names AS (
-  SELECT cid, cname, dkey${catCteFields} FROM (
-    ${conceptNameCte}
-  ) _cn
+  ${cnSql}
 )
 SELECT
     cn.cid AS concept_id,
     cn.cname AS concept_name,
-    cn.dkey AS dictionary_key${catSelectStr}${subcatSelectStr},
+    '${esc(dict.key)}' AS dictionary_key${catSelectStr}${subcatSelectStr},
     COUNT(*)::INTEGER AS record_count,
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
     COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr},
@@ -347,8 +307,84 @@ FROM events e
 JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
 JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
 ${vdJoin}${extraJoinStr}
-JOIN concept_names cn ON e.cid = cn.cid AND e.dkey = cn.dkey
+JOIN concept_names cn ON e.cid = cn.cid
 ${groupByClause}`
 
-  return { sql, hasDimensions, groupingColumns, dimBitPositions, conceptBitMask }
+    dictQueries.push({ dictKey: dict.key, sql, meta, hasDimensions: dimParts.hasDimensions })
+  }
+
+  if (dictQueries.length === 0) return null
+
+  // --- Global query: dim-only margins + grand total (across all dicts) ---
+  const allEventParts: string[] = []
+  for (const dict of dicts) {
+    allEventParts.push(...buildEventPartsForDict(mapping, dict, pt.idColumn))
+  }
+
+  const globalGs: string[] = []
+  if (dimParts.hasDimensions) {
+    for (const dimAlias of dimParts.dimGroupByAliases) {
+      globalGs.push(`(${dimAlias})`)
+    }
+  }
+  globalGs.push('()')
+  const globalGroupByClause = `GROUP BY GROUPING SETS (\n    ${globalGs.join(',\n    ')}\n  )`
+
+  const globalQuery = `WITH events AS (
+  SELECT cid, pid FROM (
+    ${allEventParts.join('\n    UNION ALL\n    ')}
+  ) _evts
+  WHERE cid IS NOT NULL
+)
+SELECT
+    COUNT(*)::INTEGER AS record_count,
+    COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
+    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr}
+FROM events e
+JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
+JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
+${vdJoin}${extraJoinStr}
+${globalGroupByClause}`
+
+  return { dictQueries, globalQuery }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildEventPartsForDict(
+  mapping: SchemaMapping,
+  dict: ConceptDictionary,
+  defaultPatientIdColumn: string,
+): string[] {
+  const parts: string[] = []
+  const eventEntries = getEventTablesForDictionary(mapping, dict.key)
+  for (const { eventTable: et } of eventEntries) {
+    const patientCol = et.patientIdColumn ?? defaultPatientIdColumn
+    parts.push(
+      `SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid FROM "${et.table}"`,
+    )
+    if (et.sourceConceptIdColumn) {
+      parts.push(
+        `SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid FROM "${et.table}"`,
+      )
+    }
+  }
+  return parts
+}
+
+function buildConceptNameSql(
+  dict: ConceptDictionary,
+  hasCategory: boolean,
+  hasSubcategory: boolean,
+  categoryColumn?: string,
+  subcategoryColumn?: string,
+): string {
+  const extras = dict.extraColumns ?? {}
+  const catCol = categoryColumn ? extras[categoryColumn] : undefined
+  const subcatCol = subcategoryColumn ? extras[subcategoryColumn] : undefined
+  const catExpr = catCol ? `"${catCol}"` : 'NULL'
+  const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
+  return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM "${dict.table}"`
 }

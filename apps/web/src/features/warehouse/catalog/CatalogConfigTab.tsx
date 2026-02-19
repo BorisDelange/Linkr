@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { Progress } from '@/components/ui/progress'
 import { Switch } from '@/components/ui/switch'
 import {
   Select,
@@ -17,8 +18,24 @@ import {
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { computeCatalog } from '@/lib/duckdb/catalog-compute'
+import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 import type { DataCatalog, DimensionConfig } from '@/types'
 import { AGE_BRACKET_PRESETS } from '@/types/catalog'
+
+/** Map each compute step to a [start, end] percentage range (0–100). */
+const STEP_RANGES: Record<string, [number, number]> = {
+  mounting: [0, 5],
+  building: [5, 10],
+  executing: [10, 85],
+  processing: [85, 95],
+  saving: [95, 100],
+}
+
+function computeProgressPercent(progress: ComputeProgress): number {
+  const range = STEP_RANGES[progress.step]
+  if (!range) return 0
+  return range[0] + (range[1] - range[0]) * progress.fraction
+}
 
 interface Props {
   catalog: DataCatalog
@@ -33,7 +50,7 @@ const DIMENSION_ICONS: Record<string, React.ComponentType<{ size?: number; class
 
 export function CatalogConfigTab({ catalog }: Props) {
   const { t } = useTranslation()
-  const { updateCatalog, computeRunning, startCompute, finishCompute, failCompute, serviceMappings } = useCatalogStore()
+  const { updateCatalog, computeRunning, computeProgress, startCompute, setComputeProgress, finishCompute, failCompute, serviceMappings } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId)
@@ -119,12 +136,15 @@ export function CatalogConfigTab({ catalog }: Props) {
     startCompute()
     try {
       await updateCatalog(catalog.id, { status: 'computing' })
+      setComputeProgress({ step: 'mounting', fraction: 0 })
       await ensureMounted(catalog.dataSourceId)
+      setComputeProgress({ step: 'mounting', fraction: 1 })
       const cache = await computeCatalog(
         catalog,
         catalog.dataSourceId,
         dataSource.schemaMapping,
         serviceMappings,
+        (progress) => setComputeProgress(progress),
       )
       await updateCatalog(catalog.id, {
         status: 'ready',
@@ -356,27 +376,38 @@ export function CatalogConfigTab({ catalog }: Props) {
         </Card>
       )}
 
-      {/* Compute button */}
-      <div className="flex items-center gap-3">
-        <Button onClick={handleCompute} disabled={computeRunning || !dataSource?.schemaMapping}>
-          {computeRunning ? (
-            <>
-              <Loader2 size={16} className="animate-spin" />
-              {t('data_catalog.computing')}
-            </>
-          ) : (
-            <>
-              <Play size={16} />
-              {t('data_catalog.compute')}
-            </>
+      {/* Compute button + progress */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <Button onClick={handleCompute} disabled={computeRunning || !dataSource?.schemaMapping}>
+            {computeRunning ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                {t('data_catalog.computing')}
+              </>
+            ) : (
+              <>
+                <Play size={16} />
+                {t('data_catalog.compute')}
+              </>
+            )}
+          </Button>
+          {!computeRunning && catalog.lastComputedAt && (
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock size={12} />
+              {t('data_catalog.last_computed')}: {new Date(catalog.lastComputedAt).toLocaleString()}
+              {catalog.lastComputeDurationMs != null && ` (${(catalog.lastComputeDurationMs / 1000).toFixed(1)}s)`}
+            </span>
           )}
-        </Button>
-        {catalog.lastComputedAt && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Clock size={12} />
-            {t('data_catalog.last_computed')}: {new Date(catalog.lastComputedAt).toLocaleString()}
-            {catalog.lastComputeDurationMs != null && ` (${(catalog.lastComputeDurationMs / 1000).toFixed(1)}s)`}
-          </span>
+        </div>
+        {computeRunning && computeProgress && (
+          <div className="space-y-1">
+            <Progress value={computeProgressPercent(computeProgress)} className="h-1.5" />
+            <p className="text-xs text-muted-foreground">
+              {t(`data_catalog.step_${computeProgress.step}`)}
+              {computeProgress.detail && <span className="ml-1 text-muted-foreground/60">({computeProgress.detail})</span>}
+            </p>
+          </div>
         )}
       </div>
     </div>

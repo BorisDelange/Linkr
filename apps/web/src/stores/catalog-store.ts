@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
+import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 
 interface CatalogState {
   // Catalog CRUD
@@ -23,12 +24,12 @@ interface CatalogState {
 
   // Computation state
   computeRunning: boolean
-  computeProgress: { done: number; total: number }
+  computeProgress: ComputeProgress | null
   activeResultCache: CatalogResultCache | null
   loadResultCache: (catalogId: string) => Promise<void>
   setResultCache: (cache: CatalogResultCache | null) => void
   startCompute: () => void
-  updateComputeProgress: (done: number, total: number) => void
+  setComputeProgress: (progress: ComputeProgress) => void
   finishCompute: (cache: CatalogResultCache) => void
   failCompute: () => void
 }
@@ -122,7 +123,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   // --- Computation state ---
   computeRunning: false,
-  computeProgress: { done: 0, total: 0 },
+  computeProgress: null,
   activeResultCache: null,
 
   loadResultCache: async (catalogId) => {
@@ -135,18 +136,18 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   },
 
   startCompute: () => {
-    set({ computeRunning: true, computeProgress: { done: 0, total: 0 }, activeResultCache: null })
+    set({ computeRunning: true, computeProgress: { step: 'mounting', fraction: 0 }, activeResultCache: null })
   },
 
-  updateComputeProgress: (done, total) => {
-    set({ computeProgress: { done, total } })
+  setComputeProgress: (progress) => {
+    set({ computeProgress: progress })
   },
 
   finishCompute: (cache) => {
-    set({ computeRunning: false, activeResultCache: cache })
+    set({ computeRunning: false, computeProgress: null, activeResultCache: cache })
   },
 
   failCompute: () => {
-    set({ computeRunning: false })
+    set({ computeRunning: false, computeProgress: null })
   },
 }))
