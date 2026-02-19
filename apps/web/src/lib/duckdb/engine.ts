@@ -114,9 +114,9 @@ export async function mountDataSource(
     await safeDropSchema(conn, dataSource.id)
 
     if (config.fileIds && config.fileIds.length > 0) {
-      // Multi-parquet folder mode -> create schema + views per table
+      // Multi-file folder mode -> create schema + views per table
       const knownTables = dataSource.schemaMapping?.knownTables
-      await mountParquetFolder(db, conn, schema, files, knownTables)
+      await mountFileFolder(db, conn, schema, files, knownTables)
     } else if (files.length > 0) {
       // Single file -> ATTACH (DuckDB or SQLite)
       const file = files[0]
@@ -199,6 +199,46 @@ export async function discoverTables(dataSourceId: string): Promise<string[]> {
   } finally {
     await conn.close()
   }
+}
+
+// --- Full schema introspection ---
+
+export interface IntrospectedColumn {
+  name: string
+  type: string
+  nullable: boolean
+}
+
+export interface IntrospectedTable {
+  name: string
+  columns: IntrospectedColumn[]
+}
+
+/**
+ * Introspect the full database schema (all tables + columns)
+ * via information_schema.columns. Uses queryDataSource() so
+ * search_path is set correctly for both schema-based and ATTACHed sources.
+ */
+export async function discoverFullSchema(dataSourceId: string): Promise<IntrospectedTable[]> {
+  const rows = await queryDataSource(
+    dataSourceId,
+    `SELECT table_name, column_name, data_type, is_nullable, ordinal_position
+     FROM information_schema.columns
+     ORDER BY table_name, ordinal_position`,
+  )
+
+  const tableMap = new Map<string, IntrospectedColumn[]>()
+  for (const row of rows) {
+    const tableName = String(row.table_name)
+    if (!tableMap.has(tableName)) tableMap.set(tableName, [])
+    tableMap.get(tableName)!.push({
+      name: String(row.column_name),
+      type: String(row.data_type),
+      nullable: String(row.is_nullable) === 'YES',
+    })
+  }
+
+  return Array.from(tableMap.entries()).map(([name, columns]) => ({ name, columns }))
 }
 
 /** Compute stats for a data source using its schema mapping. */
@@ -348,8 +388,23 @@ export function groupFilesByTable(files: StoredFile[], knownTables?: string[]): 
   return map
 }
 
-/** Mount a folder of Parquet files as views in a DuckDB schema. */
-async function mountParquetFolder(
+/** Detect the DuckDB reader function for a file based on its extension. */
+function fileReaderFn(fileName: string): string {
+  const lower = fileName.toLowerCase()
+  if (lower.endsWith('.parquet') || lower.endsWith('.pq')) return 'read_parquet'
+  return 'read_csv_auto'
+}
+
+/** Build a DuckDB reader expression for one or more files (auto-detects CSV vs Parquet). */
+function buildReaderExpr(fileNames: string[]): string {
+  const fn = fileReaderFn(fileNames[0])
+  if (fileNames.length === 1) return `${fn}('${fileNames[0]}')`
+  const list = fileNames.map((n) => `'${n}'`).join(', ')
+  return `${fn}([${list}])`
+}
+
+/** Mount a folder of data files (Parquet or CSV) as views in a DuckDB schema. */
+async function mountFileFolder(
   db: duckdb.AsyncDuckDB,
   conn: duckdb.AsyncDuckDBConnection,
   schema: string,
@@ -367,11 +422,7 @@ async function mountParquetFolder(
       registeredNames.push(f.fileName)
     }
 
-    // Create a view using read_parquet with all files for this table
-    const fileList = registeredNames.map((n) => `'${n}'`).join(', ')
-    const reader = registeredNames.length === 1
-      ? `read_parquet('${registeredNames[0]}')`
-      : `read_parquet([${fileList}])`
+    const reader = buildReaderExpr(registeredNames)
     await conn.query(
       `CREATE VIEW "${schema}"."${tableName}" AS SELECT * FROM ${reader}`,
     )
@@ -434,7 +485,7 @@ export async function mountDataSourceFromHandles(
     await safeDropSchema(conn, dataSource.id)
 
     if (config.fileIds && config.fileIds.length > 0) {
-      // Multi-parquet folder mode
+      // Multi-file folder mode
       await conn.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
       const knownTables = dataSource.schemaMapping?.knownTables
       const byTable = groupHandlesByTable(handles, knownTables)
@@ -452,10 +503,7 @@ export async function mountDataSourceFromHandles(
           registeredNames.push(h.fileName)
         }
 
-        const fileList = registeredNames.map((n) => `'${n}'`).join(', ')
-        const reader = registeredNames.length === 1
-          ? `read_parquet('${registeredNames[0]}')`
-          : `read_parquet([${fileList}])`
+        const reader = buildReaderExpr(registeredNames)
         await conn.query(
           `CREATE VIEW "${schema}"."${tableName}" AS SELECT * FROM ${reader}`,
         )

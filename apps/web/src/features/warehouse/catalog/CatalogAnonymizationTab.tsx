@@ -32,36 +32,29 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
 
   // Compute anonymization impact
   const impact = useMemo(() => {
-    const belowThreshold = cache.rows.filter((r) => r.patientCount < previewThreshold)
-    const aboveThreshold = cache.rows.filter((r) => r.patientCount >= previewThreshold)
+    const allRows = [...cache.concepts, ...cache.dimensions]
+    const belowThreshold = allRows.filter((r) => r.patientCount < previewThreshold)
+    const aboveThreshold = allRows.filter((r) => r.patientCount >= previewThreshold)
 
-    // Unique concepts across all rows
-    const allConceptIds = new Set(cache.rows.map((r) => r.conceptId))
-    const aboveConceptIds = new Set(aboveThreshold.map((r) => r.conceptId))
-    const lostConceptIds = new Set(
-      [...allConceptIds].filter((id) => !aboveConceptIds.has(id)),
-    )
-    const partiallyConceptIds = new Set(
-      belowThreshold
-        .map((r) => r.conceptId)
-        .filter((id) => aboveConceptIds.has(id)),
-    )
+    const allConcepts = cache.concepts
+    const aboveConcepts = allConcepts.filter((r) => r.patientCount >= previewThreshold)
+    const lostConcepts = allConcepts.filter((r) => r.patientCount < previewThreshold && !aboveConcepts.some((a) => a.conceptId === r.conceptId))
 
     return {
-      totalRows: cache.rows.length,
+      totalRows: allRows.length,
       affectedRows: belowThreshold.length,
       unaffectedRows: aboveThreshold.length,
-      totalConcepts: allConceptIds.size,
-      retainedConcepts: aboveConceptIds.size,
-      lostConcepts: lostConceptIds.size,
-      partialConcepts: partiallyConceptIds.size,
-      retainedPct: cache.rows.length > 0
+      totalConcepts: allConcepts.length,
+      retainedConcepts: aboveConcepts.length,
+      lostConcepts: lostConcepts.length,
+      partialConcepts: 0,
+      retainedPct: allRows.length > 0
         ? Math.round((mode === 'suppress'
-          ? aboveThreshold.length / cache.rows.length
+          ? aboveThreshold.length / allRows.length
           : 1) * 100)
         : 100,
     }
-  }, [cache.rows, previewThreshold, mode])
+  }, [cache.concepts, cache.dimensions, previewThreshold, mode])
 
   const handleSave = async () => {
     await updateCatalog(catalog.id, {

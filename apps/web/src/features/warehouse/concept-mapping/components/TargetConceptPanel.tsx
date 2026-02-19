@@ -1,11 +1,35 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type VisibilityState,
+} from '@tanstack/react-table'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Select,
   SelectContent,
@@ -13,15 +37,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import type { MappingProject, DataSource, MappingType, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
@@ -67,6 +86,8 @@ function textMatch(text: string, query: string): boolean {
 export function TargetConceptPanel({ project, dataSource, sourceConcept }: TargetConceptPanelProps) {
   const { t } = useTranslation()
   const { mappings, conceptSets, createMapping } = useConceptMappingStore()
+  const allDataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   // Search for mapping
   const [searchTerm, setSearchTerm] = useState('')
@@ -229,13 +250,19 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   }, [resolvedSearch])
 
   const handleSearch = useCallback(async () => {
-    if (!searchTerm.trim() || !dataSource?.schemaMapping) return
+    if (!searchTerm.trim()) return
+    // Determine which data source and schema mapping to use for the search.
+    // If a vocabulary reference is imported, use it; otherwise fall back to the clinical DB.
+    const vocabDs = project.vocabularyDataSourceId
+      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
+      : null
+    const targetDsId = vocabDs?.id ?? dataSource?.id
+    const targetMapping = vocabDs?.schemaMapping ?? dataSource?.schemaMapping
+    if (!targetDsId || !targetMapping) return
     setSearching(true)
     try {
-      const targetDsId = project.vocabularyDataSourceId ?? dataSource.id
-      const sql = buildStandardConceptSearchQuery(
-        dataSource.schemaMapping, searchTerm.trim(),
-      )
+      await ensureMounted(targetDsId)
+      const sql = buildStandardConceptSearchQuery(targetMapping, searchTerm.trim())
       if (!sql) { setSearching(false); return }
       const results = await queryDataSource(targetDsId, sql)
       setSearchResults(results as unknown as SearchResult[])
@@ -245,7 +272,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     } finally {
       setSearching(false)
     }
-  }, [searchTerm, dataSource, project.vocabularyDataSourceId])
+  }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted])
 
   const handleAddMapping = async () => {
     if (!addingTarget || !sourceConcept) return
@@ -525,68 +552,164 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     </div>
   )
 
-  // ─── Search mode view ──────────────────────────────────────────────
+  // ─── Search mode: TanStack DataTable ─────────────────────────────
+
+  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({})
+  const [searchColSizing, setSearchColSizing] = useState<Record<string, number>>({})
+  const [searchPage, setSearchPage] = useState(0)
+  const SEARCH_PAGE_SIZE = 50
+
+  const searchColumns = useMemo<ColumnDef<SearchResult>[]>(() => [
+    {
+      id: 'concept_id',
+      header: 'ID',
+      accessorFn: (row) => row.concept_id,
+      cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
+      size: 70,
+      minSize: 50,
+      enableHiding: false,
+    },
+    {
+      id: 'concept_name',
+      header: () => t('concept_mapping.col_name'),
+      accessorFn: (row) => row.concept_name,
+      cell: ({ row }) => row.original.concept_name,
+      size: 200,
+      minSize: 100,
+      enableHiding: false,
+    },
+    {
+      id: 'concept_code',
+      header: 'Code',
+      accessorFn: (row) => row.concept_code,
+      cell: ({ row }) => <span className="font-mono">{row.original.concept_code}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'vocabulary_id',
+      header: () => t('concept_mapping.col_vocab'),
+      accessorFn: (row) => row.vocabulary_id,
+      cell: ({ row }) => row.original.vocabulary_id,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'domain_id',
+      header: () => t('concept_mapping.col_domain'),
+      accessorFn: (row) => row.domain_id,
+      cell: ({ row }) => row.original.domain_id ?? '',
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: '_add',
+      header: '',
+      cell: ({ row }) => (
+        <button
+          className="flex justify-center text-muted-foreground hover:text-foreground"
+          onClick={(e) => { e.stopPropagation(); setAddingTarget(row.original) }}
+          title={t('concept_mapping.add_mapping')}
+        >
+          <Plus size={14} />
+        </button>
+      ),
+      size: 32,
+      minSize: 32,
+      enableHiding: false,
+      enableResizing: false,
+    },
+  ], [t])
+
+  const searchPageItems = searchResults.slice(searchPage * SEARCH_PAGE_SIZE, (searchPage + 1) * SEARCH_PAGE_SIZE)
+  const searchTotalPages = Math.max(1, Math.ceil(searchResults.length / SEARCH_PAGE_SIZE))
+
+  const searchTable = useReactTable({
+    data: searchPageItems,
+    columns: searchColumns,
+    state: { columnVisibility: searchColVisibility, columnSizing: searchColSizing },
+    onColumnVisibilityChange: setSearchColVisibility,
+    onColumnSizingChange: setSearchColSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: searchTotalPages,
+  })
+
+  /** Get human-readable label for a column. */
+  const getSearchColLabel = (id: string): string => {
+    const col = searchColumns.find((c) => 'id' in c && c.id === id)
+    if (col && typeof col.header === 'function') {
+      const result = (col.header as () => string)()
+      if (typeof result === 'string') return result
+    }
+    if (col && typeof col.header === 'string') return col.header
+    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
 
   const renderSearchMode = () => (
-    <div className="flex h-full flex-col overflow-hidden p-3">
+    <div className="flex h-full flex-col overflow-hidden">
       {addingTarget ? (
-        <Card className="p-3 space-y-3">
-          <div>
-            <p className="text-xs font-medium">{addingTarget.concept_name}</p>
-            <div className="mt-1 flex gap-1">
-              <Badge variant="outline" className="text-[10px]">ID: {addingTarget.concept_id}</Badge>
-              <Badge variant="outline" className="text-[10px]">{addingTarget.vocabulary_id}</Badge>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="p-3">
+          <Card className="p-3 space-y-3">
             <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.mapping_type')}</p>
-              <Select value={mappingType} onValueChange={(v) => setMappingType(v as MappingType)}>
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="maps_to">Maps to</SelectItem>
-                  <SelectItem value="maps_to_value">Maps to value</SelectItem>
-                  <SelectItem value="maps_to_unit">Maps to unit</SelectItem>
-                  <SelectItem value="maps_to_operator">Maps to operator</SelectItem>
-                </SelectContent>
-              </Select>
+              <p className="text-xs font-medium">{addingTarget.concept_name}</p>
+              <div className="mt-1 flex gap-1">
+                <Badge variant="outline" className="text-[10px]">ID: {addingTarget.concept_id}</Badge>
+                <Badge variant="outline" className="text-[10px]">{addingTarget.vocabulary_id}</Badge>
+              </div>
             </div>
-            <div>
-              <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.equivalence')}</p>
-              <Select value={equivalence} onValueChange={(v) => setEquivalence(v as MappingEquivalence)}>
-                <SelectTrigger className="h-7 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
-                  <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
-                  <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
-                  <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
-                  <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.mapping_type')}</p>
+                <Select value={mappingType} onValueChange={(v) => setMappingType(v as MappingType)}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="maps_to">Maps to</SelectItem>
+                    <SelectItem value="maps_to_value">Maps to value</SelectItem>
+                    <SelectItem value="maps_to_unit">Maps to unit</SelectItem>
+                    <SelectItem value="maps_to_operator">Maps to operator</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.equivalence')}</p>
+                <Select value={equivalence} onValueChange={(v) => setEquivalence(v as MappingEquivalence)}>
+                  <SelectTrigger className="h-7 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="skos:exactMatch">{t('concept_mapping.skos_exact_match')}</SelectItem>
+                    <SelectItem value="skos:closeMatch">{t('concept_mapping.skos_close_match')}</SelectItem>
+                    <SelectItem value="skos:broadMatch">{t('concept_mapping.skos_broad_match')}</SelectItem>
+                    <SelectItem value="skos:narrowMatch">{t('concept_mapping.skos_narrow_match')}</SelectItem>
+                    <SelectItem value="skos:relatedMatch">{t('concept_mapping.skos_related_match')}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </div>
-          <Textarea
-            className="text-xs"
-            rows={2}
-            placeholder={t('concept_mapping.comment_placeholder')}
-            value={comment}
-            onChange={(e) => setComment(e.target.value)}
-          />
-          <div className="flex gap-2">
-            <Button size="sm" onClick={handleAddMapping}>{t('concept_mapping.save_mapping')}</Button>
-            <Button size="sm" variant="outline" onClick={() => setAddingTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-          </div>
-        </Card>
+            <Textarea
+              className="text-xs"
+              rows={2}
+              placeholder={t('concept_mapping.comment_placeholder')}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleAddMapping}>{t('concept_mapping.save_mapping')}</Button>
+              <Button size="sm" variant="outline" onClick={() => setAddingTarget(null)}>
+                {t('common.cancel')}
+              </Button>
+            </div>
+          </Card>
+        </div>
       ) : (
         <>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+          {/* Search bar + columns toggle */}
+          <div className="flex items-center gap-2 border-b px-3 py-2">
+            <div className="relative min-w-0 flex-1">
               <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="h-8 pl-8 text-xs"
@@ -596,31 +719,120 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
               />
             </div>
-            <Button size="sm" variant="outline" onClick={handleSearch} disabled={searching}>
-              {t('common.search')}
+            <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
+              {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
+                  <Settings2 size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-[180px]">
+                <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {searchTable.getAllColumns()
+                  .filter((col) => col.getCanHide())
+                  .map((col) => (
+                    <DropdownMenuCheckboxItem
+                      key={col.id}
+                      checked={col.getIsVisible()}
+                      onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                      onSelect={(e) => e.preventDefault()}
+                      className="text-xs"
+                    >
+                      {getSearchColLabel(col.id)}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          <div className="mt-2 flex-1 overflow-auto">
-            {searchResults.length > 0 && (
-              <div className="rounded-md border">
-                {searchResults.map((result) => (
-                  <button
-                    key={result.concept_id}
-                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent/50 border-b border-border/40 last:border-b-0"
-                    onClick={() => setAddingTarget(result)}
-                  >
-                    <Plus size={12} className="shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <span className="text-muted-foreground">{result.concept_id}</span>{' '}
-                      <span>{result.concept_name}</span>
-                    </div>
-                    <span className="shrink-0 text-[10px] text-muted-foreground">{result.vocabulary_id}</span>
-                  </button>
-                ))}
+          {/* Results table */}
+          <div className="min-h-0 flex-1 overflow-auto">
+            {searchResults.length === 0 ? (
+              <div className="flex h-32 items-center justify-center">
+                <p className="text-xs text-muted-foreground">
+                  {searching ? t('common.loading') : t('concept_mapping.search_hint')}
+                </p>
               </div>
+            ) : (
+              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+                <TableHeader>
+                  <TableRow>
+                    {searchTable.getHeaderGroups().map((hg) =>
+                      hg.headers.map((header) => (
+                        <TableHead
+                          key={header.id}
+                          className="relative select-none text-xs"
+                          style={{ width: header.getSize() }}
+                        >
+                          <span className="truncate">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                          {header.column.getCanResize() && (
+                            <div
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              onDoubleClick={() => header.column.resetSize()}
+                              className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                            >
+                              <div
+                                className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                                  header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                                }`}
+                              />
+                            </div>
+                          )}
+                        </TableHead>
+                      ))
+                    )}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {searchTable.getRowModel().rows.map((row) => (
+                    <TableRow key={row.original.concept_id} className="cursor-pointer" onClick={() => setAddingTarget(row.original)}>
+                      {row.getVisibleCells().map((cell) => {
+                        const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                        const raw = cell.getValue()
+                        const title = raw != null ? String(raw) : undefined
+                        return (
+                          <TableCell
+                            key={cell.id}
+                            className="overflow-hidden truncate text-xs"
+                            style={{ maxWidth: cell.column.getSize() }}
+                            title={title}
+                          >
+                            {rendered}
+                          </TableCell>
+                        )
+                      })}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             )}
           </div>
+
+          {/* Pagination */}
+          {searchResults.length > 0 && (
+            <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
+              <span className="text-[10px] text-muted-foreground">
+                {searchResults.length} {t('common.results').toLowerCase()}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon-sm" disabled={searchPage === 0} onClick={() => setSearchPage(searchPage - 1)}>
+                  <ChevronLeft size={14} />
+                </Button>
+                <span className="text-[10px] text-muted-foreground">
+                  {searchPage + 1} / {searchTotalPages}
+                </span>
+                <Button variant="ghost" size="icon-sm" disabled={searchPage >= searchTotalPages - 1} onClick={() => setSearchPage(searchPage + 1)}>
+                  <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

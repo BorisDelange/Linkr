@@ -9,7 +9,7 @@
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
-import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping } from '@/types'
+import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
 const DEMO_DASHBOARD_SEED_KEY = 'linkr-demo-dashboard-seeded'
@@ -455,6 +455,49 @@ export async function seedDemoDqRuleSet(): Promise<void> {
     console.info('[demo-seed] Demo DQ rule set seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed demo DQ rule set:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo ETL Pipeline (MIMIC-IV source → OMOP CDM)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_ETL = 'linkr-demo-etl-pipeline-seeded'
+const DEMO_ETL_PIPELINE_ID = '00000000-0000-0000-0000-000000000007'
+
+/**
+ * Seed a demo ETL pipeline: MIMIC-IV (source) → MIMIC-IV Demo (OMOP).
+ *
+ * Creates an EtlPipeline record linking the raw MIMIC-IV source database
+ * to the OMOP target. ETL scripts can be added later via the ETL editor.
+ *
+ * Must run after seedDemoDatabase() and seedMimicIVRawDatabase().
+ */
+export async function seedDemoEtlPipeline(): Promise<void> {
+  if (localStorage.getItem(SEED_KEY_ETL)) return
+
+  try {
+    const storage = getStorage()
+    const now = new Date().toISOString()
+
+    const pipeline: EtlPipeline = {
+      id: DEMO_ETL_PIPELINE_ID,
+      workspaceId: DEMO_WORKSPACE_ID,
+      name: 'MIMIC-IV → OMOP CDM',
+      description: 'ETL pipeline transforming MIMIC-IV native source data into OMOP CDM 5.4 format. Based on OHDSI mimic-iv-demo-omop ETL scripts (Apache 2.0).',
+      sourceDataSourceId: DEMO_RAW_DATASOURCE_ID,
+      targetDataSourceId: DEMO_DATASOURCE_ID,
+      status: 'draft',
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await storage.etlPipelines.create(pipeline)
+
+    localStorage.setItem(SEED_KEY_ETL, '1')
+    console.info('[demo-seed] Demo ETL pipeline seeded successfully')
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed demo ETL pipeline:', err)
   }
 }
 

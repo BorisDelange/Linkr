@@ -11,9 +11,6 @@ function esc(value: string): string {
 // Dimension SQL expression builders
 // ---------------------------------------------------------------------------
 
-/**
- * Build a SQL CASE expression for age groups from custom brackets.
- */
 function buildAgeGroupExpr(
   brackets: number[],
   mapping: SchemaMapping,
@@ -188,57 +185,49 @@ function buildJoinClauses(
   return { vdJoin, extraJoinStr }
 }
 
-function buildGroupingMeta(
-  conceptCols: string[],
-  dimGroupByAliases: string[],
-): { groupingColumns: string[]; dimBitPositions: Record<string, number>; conceptBitMask: number } {
-  const groupingColumns = [...conceptCols, ...dimGroupByAliases]
-  const N = groupingColumns.length
-
-  let conceptBitMask = 0
-  for (let i = 0; i < conceptCols.length; i++) {
-    conceptBitMask |= (1 << (N - 1 - i))
-  }
-
-  const dimBitPositions: Record<string, number> = {}
-  for (let i = 0; i < dimGroupByAliases.length; i++) {
-    const colIndex = conceptCols.length + i
-    dimBitPositions[dimGroupByAliases[i]] = N - 1 - colIndex
-  }
-
-  return { groupingColumns, dimBitPositions, conceptBitMask }
-}
-
 // ---------------------------------------------------------------------------
-// Per-dictionary query builder (for incremental progress)
+// Batched query builder (two-table architecture)
 // ---------------------------------------------------------------------------
 
-export interface DictionaryQueryParts {
+/** SQL to list all distinct concept IDs for one dictionary. */
+export interface ConceptListQuery {
   dictKey: string
   sql: string
-  /** Metadata for decoding grp_flags from this query. */
-  meta: { groupingColumns: string[]; dimBitPositions: Record<string, number>; conceptBitMask: number }
-  hasDimensions: boolean
+  table: string
+  idColumn: string
 }
 
-export interface PerDictionaryQueries {
-  /** One query per concept dictionary — produces leaf rows + concept totals. */
-  dictQueries: DictionaryQueryParts[]
-  /** Global query for dim-only margins + grand total. Always present. */
+/**
+ * Template for executing a batch of concept IDs within one dictionary.
+ * Produces concept-level aggregates only (no dimensions).
+ */
+export interface BatchQueryTemplate {
+  dictKey: string
+  buildSql: (conceptIds: (string | number)[]) => string
+}
+
+export interface BatchedCatalogQueries {
+  /** Queries to list concept IDs per dictionary (fast, no joins). */
+  conceptListQueries: ConceptListQuery[]
+  /** Templates for batched concept-level queries. */
+  batchTemplates: BatchQueryTemplate[]
+  /** Global query for dim-only margins + grand total (GROUPING SETS). */
   globalQuery: string
 }
 
 /**
- * Build one SQL query per concept dictionary (leaf rows + concept totals)
- * plus one global query for dim-only margins and grand total.
+ * Build batched catalog queries (two-table architecture):
+ * 1. One small query per dict to list concept IDs
+ * 2. A template per dict for concept-level aggregates (simple GROUP BY, no dims)
+ * 3. A global query for dim-only margins + grand total (GROUPING SETS)
  */
-export function buildPerDictionaryQueries(
+export function buildBatchedCatalogQueries(
   mapping: SchemaMapping,
   dimensions: DimensionConfig[],
   serviceMappingRules?: ServiceMappingRule[],
   categoryColumn?: string,
   subcategoryColumn?: string,
-): PerDictionaryQueries | null {
+): BatchedCatalogQueries | null {
   const dicts = mapping.conceptTables
   if (!dicts || dicts.length === 0) return null
 
@@ -255,67 +244,71 @@ export function buildPerDictionaryQueries(
     ? `,\n    ${dimParts.dimSelectExprs.join(',\n    ')}`
     : ''
 
-  // --- Per-dictionary queries ---
-  const dictQueries: DictionaryQueryParts[] = []
+  const conceptListQueries: ConceptListQuery[] = []
+  const batchTemplates: BatchQueryTemplate[] = []
 
   for (const dict of dicts) {
     const eventParts = buildEventPartsForDict(mapping, dict, pt.idColumn)
     if (eventParts.length === 0) continue
 
-    const cnSql = buildConceptNameSql(dict, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
+    // 1. Concept list query
+    conceptListQueries.push({
+      dictKey: dict.key,
+      sql: `SELECT DISTINCT "${dict.idColumn}" AS cid FROM "${dict.table}"`,
+      table: dict.table,
+      idColumn: dict.idColumn,
+    })
 
-    // Concept columns for this per-dict query (no dkey — it's constant)
+    // 2. Batch template — concept-level only (simple GROUP BY)
+    const cnBaseSql = buildConceptNameSql(dict, hasCategory, hasSubcategory, categoryColumn, subcategoryColumn)
+
     const conceptCols = ['cn.cid', 'cn.cname']
     if (hasCategory) conceptCols.push('cn.ccat')
     if (hasSubcategory) conceptCols.push('cn.csubcat')
     const conceptColsStr = conceptCols.join(', ')
 
-    const meta = buildGroupingMeta(conceptCols, dimParts.dimGroupByAliases)
-    const groupingExpr = `GROUPING(${meta.groupingColumns.join(', ')})::INTEGER AS grp_flags`
-
     const catSelectStr = hasCategory ? `,\n    cn.ccat AS concept_category` : ''
     const subcatSelectStr = hasSubcategory ? `,\n    cn.csubcat AS concept_subcategory` : ''
 
-    // Per-dict grouping sets: leaf + concept totals only (no dim-only margins, no grand total)
-    const gs: string[] = []
-    if (dimParts.hasDimensions) {
-      gs.push(`(${conceptColsStr}, ${dimParts.dimGroupByAliases.join(', ')})`)
-      gs.push(`(${conceptColsStr})`)
-    } else {
-      gs.push(`(${conceptColsStr})`)
-    }
-    const groupByClause = `GROUP BY GROUPING SETS (\n    ${gs.join(',\n    ')}\n  )`
+    const eventsSql = eventParts.join('\n    UNION ALL\n    ')
+    const dictKeyLiteral = `'${esc(dict.key)}'`
 
-    const sql = `WITH events AS (
+    batchTemplates.push({
+      dictKey: dict.key,
+      buildSql: (conceptIds) => {
+        const inList = conceptIds.map((id) =>
+          typeof id === 'string' ? `'${esc(id)}'` : String(id),
+        ).join(', ')
+
+        return `WITH events AS (
   SELECT cid, pid FROM (
-    ${eventParts.join('\n    UNION ALL\n    ')}
+    ${eventsSql}
   ) _evts
-  WHERE cid IS NOT NULL
+  WHERE cid IN (${inList})
 ),
 concept_names AS (
-  ${cnSql}
+  ${cnBaseSql}
+  WHERE cid IN (${inList})
 )
 SELECT
     cn.cid AS concept_id,
     cn.cname AS concept_name,
-    '${esc(dict.key)}' AS dictionary_key${catSelectStr}${subcatSelectStr},
+    ${dictKeyLiteral} AS dictionary_key${catSelectStr}${subcatSelectStr},
     COUNT(*)::INTEGER AS record_count,
     COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr},
-    ${groupingExpr}
+    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count
 FROM events e
 JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
 JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
-${vdJoin}${extraJoinStr}
 JOIN concept_names cn ON e.cid = cn.cid
-${groupByClause}`
-
-    dictQueries.push({ dictKey: dict.key, sql, meta, hasDimensions: dimParts.hasDimensions })
+GROUP BY ${conceptColsStr}`
+      },
+    })
   }
 
-  if (dictQueries.length === 0) return null
+  if (batchTemplates.length === 0) return null
 
-  // --- Global query: dim-only margins + grand total (across all dicts) ---
+  // Global query: dim-only margins + grand total (GROUPING SETS)
   const allEventParts: string[] = []
   for (const dict of dicts) {
     allEventParts.push(...buildEventPartsForDict(mapping, dict, pt.idColumn))
@@ -346,7 +339,7 @@ JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
 ${vdJoin}${extraJoinStr}
 ${globalGroupByClause}`
 
-  return { dictQueries, globalQuery }
+  return { conceptListQueries, batchTemplates, globalQuery }
 }
 
 // ---------------------------------------------------------------------------

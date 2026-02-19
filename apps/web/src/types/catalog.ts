@@ -105,9 +105,10 @@ export interface DataCatalog {
   updatedAt: string
 }
 
-// --- Computed result row (cached in IDB) ---
+// --- Computed result types (cached in IDB) ---
 
-export interface CatalogResultRow {
+/** Per-concept row: exact COUNT(DISTINCT) per concept (no dimensions). */
+export interface CatalogConceptRow {
   conceptId: number | string
   conceptName: string
   dictionaryKey?: string
@@ -116,27 +117,13 @@ export interface CatalogResultRow {
   patientCount: number
   recordCount: number
   visitCount: number
-  /** Dynamic dimension columns: key = dimension id, value = dimension value. */
-  dimensions: Record<string, string | number | null>
 }
 
-// --- OLAP margin types (from GROUPING SETS) ---
-
-/** Aggregated count for a single dimension value (overall, no concept filter). */
-export interface CatalogMarginRow {
+/** Per-dimension-value row: exact COUNT(DISTINCT) per dimension bucket (no concepts). */
+export interface CatalogDimensionRow {
+  dimensionId: string
+  dimensionType: DimensionType
   value: string | number
-  patientCount: number
-  recordCount: number
-  visitCount: number
-}
-
-/** Per-concept total (all dimensions rolled up). */
-export interface CatalogConceptTotal {
-  conceptId: number | string
-  conceptName: string
-  dictionaryKey?: string
-  category?: string | null
-  subcategory?: string | null
   patientCount: number
   recordCount: number
   visitCount: number
@@ -149,26 +136,19 @@ export interface CatalogGrandTotal {
   totalRecords: number
 }
 
-/** Margin data computed via GROUPING SETS for accurate per-dimension counts. */
-export interface CatalogMargins {
-  /** Per-dimension margins (no concept): accurate COUNT(DISTINCT) per bucket. Key = dimension id. */
-  byDimension: Record<string, CatalogMarginRow[]>
-  /** Per-concept totals (all dimensions rolled up). */
-  conceptTotals: CatalogConceptTotal[]
-  /** Grand total row. */
-  grandTotal: CatalogGrandTotal
-}
-
 export interface CatalogResultCache {
   catalogId: string
   computedAt: string
   durationMs: number
-  rows: CatalogResultRow[]
+  /** Concept table: one row per concept with exact counts. */
+  concepts: CatalogConceptRow[]
+  /** Dimension table: one row per (dimension, value) with exact counts. */
+  dimensions: CatalogDimensionRow[]
+  /** Grand total. */
+  grandTotal: CatalogGrandTotal
   totalConcepts: number
   totalPatients: number
   totalVisits: number
-  /** OLAP margins for accurate per-dimension counts. Optional for backward compat. */
-  margins?: CatalogMargins
 }
 
 // --- Default dimension presets ---

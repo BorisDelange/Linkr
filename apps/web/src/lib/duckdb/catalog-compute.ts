@@ -1,10 +1,8 @@
 import { queryDataSource } from './engine'
-import { buildPerDictionaryQueries } from './catalog-queries'
-import type { DictionaryQueryParts } from './catalog-queries'
+import { buildBatchedCatalogQueries } from './catalog-queries'
 import { getStorage } from '@/lib/storage'
-import type { DataCatalog, CatalogResultCache, CatalogResultRow, CatalogMarginRow, CatalogConceptTotal, CatalogGrandTotal, CatalogMargins, ServiceMapping } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, ServiceMapping } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import type { DimensionConfig } from '@/types/catalog'
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
 
@@ -12,14 +10,14 @@ export interface ComputeProgress {
   step: ComputeStep
   /** 0–1 fraction within the current step (0 = just started, 1 = done). */
   fraction: number
-  /** Human-readable label for the current sub-step (e.g. dictionary key). */
+  /** Human-readable label for the current sub-step. */
   detail?: string
 }
 
 /**
- * Compute a catalog by executing one query per concept dictionary,
- * then a global query for dim-only margins and grand total.
- * Reports progress via onProgress callback.
+ * Compute a catalog using two-table architecture:
+ * - Concept table: per-concept aggregates (simple GROUP BY, no dims) — one query per dictionary
+ * - Dimension table: per-dimension-value aggregates + grand total (GROUPING SETS)
  */
 export async function computeCatalog(
   catalog: DataCatalog,
@@ -39,7 +37,7 @@ export async function computeCatalog(
     ? serviceMappings.find((m) => m.id === smId)?.rules
     : undefined
 
-  const queries = buildPerDictionaryQueries(
+  const queries = buildBatchedCatalogQueries(
     mapping,
     catalog.dimensions,
     smRules,
@@ -52,41 +50,57 @@ export async function computeCatalog(
 
   onProgress?.({ step: 'building', fraction: 1 })
 
-  // Step 2: Execute queries with progress
+  // Step 2: Execute one query per dictionary (concept-level aggregates, no dims)
+  onProgress?.({ step: 'executing', fraction: 0, detail: 'listing concepts' })
+
+  const totalDicts = queries.conceptListQueries.length
+  const totalSteps = totalDicts + 1 // dictionaries + 1 global query
+
   const enabledDims = catalog.dimensions.filter((d) => d.enabled)
   const dimKeys = enabledDims.map((d) => `dim_${d.type}`)
 
-  const leafRows: CatalogResultRow[] = []
-  const conceptTotals: CatalogConceptTotal[] = []
-  const dimOnlyMargins: Record<string, CatalogMarginRow[]> = {}
+  const concepts: CatalogConceptRow[] = []
+  const dimensions: CatalogDimensionRow[] = []
   let grandTotal: CatalogGrandTotal = { totalPatients: 0, totalVisits: 0, totalRecords: 0 }
 
-  for (const dim of enabledDims) {
-    dimOnlyMargins[dim.id] = []
-  }
+  for (let dictIdx = 0; dictIdx < queries.conceptListQueries.length; dictIdx++) {
+    const clq = queries.conceptListQueries[dictIdx]
 
-  // Total steps: dict queries + 1 global query
-  const totalSteps = queries.dictQueries.length + 1
-  let completedSteps = 0
+    // Fetch all concept IDs for this dictionary
+    const idRows = await queryDataSource(dataSourceId, clq.sql)
+    const allIds = idRows.map((r) => r.cid as string | number)
 
-  // 2a. Execute per-dictionary queries (leaf rows + concept totals)
-  for (const dq of queries.dictQueries) {
     onProgress?.({
       step: 'executing',
-      fraction: completedSteps / totalSteps,
-      detail: dq.dictKey,
+      fraction: (dictIdx + 1) / totalSteps,
+      detail: `dictionary ${dictIdx + 1}/${totalDicts}`,
     })
 
-    const rawRows = await queryDataSource(dataSourceId, dq.sql)
-    classifyDictRows(rawRows, dq, enabledDims, dimKeys, catalog, leafRows, conceptTotals)
+    if (allIds.length === 0) continue
 
-    completedSteps++
+    // Execute one query for all concepts in this dictionary
+    const template = queries.batchTemplates.find((t) => t.dictKey === clq.dictKey)!
+    const sql = template.buildSql(allIds)
+    const rawRows = await queryDataSource(dataSourceId, sql)
+
+    for (const row of rawRows) {
+      concepts.push({
+        conceptId: row.concept_id as number | string,
+        conceptName: row.concept_name as string,
+        dictionaryKey: row.dictionary_key as string | undefined,
+        category: catalog.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
+        subcategory: catalog.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
+        patientCount: Number(row.patient_count ?? 0),
+        recordCount: Number(row.record_count ?? 0),
+        visitCount: Number(row.visit_count ?? 0),
+      })
+    }
   }
 
-  // 2b. Execute global query (dim-only margins + grand total)
+  // Execute global query (dim-only margins + grand total)
   onProgress?.({
     step: 'executing',
-    fraction: completedSteps / totalSteps,
+    fraction: totalDicts / totalSteps,
     detail: 'totals',
   })
 
@@ -96,20 +110,24 @@ export async function computeCatalog(
     const rCount = Number(row.record_count ?? 0)
     const vCount = Number(row.visit_count ?? 0)
 
-    // Check which dims have non-NULL values
-    const activeDimIds: string[] = []
+    // Determine which dim columns are present (non-null)
+    const activeDims: { dimIndex: number; value: string | number }[] = []
     for (let i = 0; i < enabledDims.length; i++) {
-      if (row[dimKeys[i]] != null) activeDimIds.push(enabledDims[i].id)
+      if (row[dimKeys[i]] != null) {
+        activeDims.push({ dimIndex: i, value: row[dimKeys[i]] as string | number })
+      }
     }
 
-    if (activeDimIds.length === 0) {
+    if (activeDims.length === 0) {
+      // Grand total row (all dims rolled up)
       grandTotal = { totalPatients: pCount, totalVisits: vCount, totalRecords: rCount }
-    } else if (activeDimIds.length === 1) {
-      const dimId = activeDimIds[0]
-      const dim = enabledDims.find((d) => d.id === dimId)!
-      const alias = `dim_${dim.type}`
-      dimOnlyMargins[dimId].push({
-        value: row[alias] as string | number,
+    } else if (activeDims.length === 1) {
+      // Single-dimension margin row
+      const dim = enabledDims[activeDims[0].dimIndex]
+      dimensions.push({
+        dimensionId: dim.id,
+        dimensionType: dim.type,
+        value: activeDims[0].value,
         patientCount: pCount,
         recordCount: rCount,
         visitCount: vCount,
@@ -117,31 +135,23 @@ export async function computeCatalog(
     }
   }
 
-  completedSteps++
   onProgress?.({ step: 'executing', fraction: 1 })
 
   // Step 3: Build cache
   onProgress?.({ step: 'processing', fraction: 0 })
 
   const durationMs = Math.round(performance.now() - startTime)
-  const uniqueConcepts = new Set(leafRows.map((r) => r.conceptId))
-  const finalConceptTotals = enabledDims.length === 0 ? [] : conceptTotals
-
-  const margins: CatalogMargins = {
-    byDimension: dimOnlyMargins,
-    conceptTotals: finalConceptTotals,
-    grandTotal,
-  }
 
   const cache: CatalogResultCache = {
     catalogId: catalog.id,
     computedAt: new Date().toISOString(),
     durationMs,
-    rows: leafRows,
-    totalConcepts: uniqueConcepts.size,
+    concepts,
+    dimensions,
+    grandTotal,
+    totalConcepts: concepts.length,
     totalPatients: grandTotal.totalPatients,
     totalVisits: grandTotal.totalVisits,
-    margins,
   }
 
   onProgress?.({ step: 'processing', fraction: 1 })
@@ -152,71 +162,4 @@ export async function computeCatalog(
   onProgress?.({ step: 'saving', fraction: 1 })
 
   return cache
-}
-
-/**
- * Classify rows from a per-dictionary GROUPING SETS query into leaf/concept-total buckets.
- */
-function classifyDictRows(
-  rawRows: Record<string, unknown>[],
-  dq: DictionaryQueryParts,
-  enabledDims: DimensionConfig[],
-  dimKeys: string[],
-  catalog: DataCatalog,
-  leafRows: CatalogResultRow[],
-  conceptTotals: CatalogConceptTotal[],
-): void {
-  const { conceptBitMask, dimBitPositions } = dq.meta
-
-  for (const row of rawRows) {
-    const flags = Number(row.grp_flags ?? 0)
-    const conceptRolledUp = (flags & conceptBitMask) !== 0
-    if (conceptRolledUp) continue // per-dict queries shouldn't produce these, but skip just in case
-
-    const activeDimIds: string[] = []
-    for (let i = 0; i < enabledDims.length; i++) {
-      const alias = dimKeys[i]
-      const bitPos = dimBitPositions[alias]
-      if (bitPos !== undefined) {
-        const bitVal = (flags >> bitPos) & 1
-        if (bitVal === 0) activeDimIds.push(enabledDims[i].id)
-      }
-    }
-
-    const pCount = Number(row.patient_count ?? 0)
-    const rCount = Number(row.record_count ?? 0)
-    const vCount = Number(row.visit_count ?? 0)
-
-    if (activeDimIds.length === enabledDims.length) {
-      // Leaf row: concept × all dims (or concept-only when no dims)
-      const dimensions: Record<string, string | number | null> = {}
-      for (let i = 0; i < enabledDims.length; i++) {
-        dimensions[enabledDims[i].id] = row[dimKeys[i]] != null ? (row[dimKeys[i]] as string | number) : null
-      }
-
-      leafRows.push({
-        conceptId: row.concept_id as number | string,
-        conceptName: row.concept_name as string,
-        dictionaryKey: row.dictionary_key as string | undefined,
-        category: catalog.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
-        subcategory: catalog.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
-        patientCount: pCount,
-        recordCount: rCount,
-        visitCount: vCount,
-        dimensions,
-      })
-    } else if (activeDimIds.length === 0 && enabledDims.length > 0) {
-      // Concept total: all dims rolled up
-      conceptTotals.push({
-        conceptId: row.concept_id as number | string,
-        conceptName: row.concept_name as string,
-        dictionaryKey: row.dictionary_key as string | undefined,
-        category: catalog.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
-        subcategory: catalog.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
-        patientCount: pCount,
-        recordCount: rCount,
-        visitCount: vCount,
-      })
-    }
-  }
 }

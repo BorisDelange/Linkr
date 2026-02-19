@@ -135,7 +135,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
 
       // Pre-fill from cache (number of records = rows in the catalog)
       if (!next['dataset.numberOfRecords'] && cache) {
-        next['dataset.numberOfRecords'] = cache.rows.length
+        next['dataset.numberOfRecords'] = cache.concepts.length
       }
 
       // --- Query the database for additional stats ---
@@ -274,7 +274,8 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
     metadata,
     schemaMapping,
     cache,
-  }), [metadata, schemaMapping, cache])
+    catalog,
+  }), [metadata, schemaMapping, cache, catalog])
   const jsonLdStr = useMemo(() => JSON.stringify(jsonLd, null, 2), [jsonLd])
 
   const handleCopyJsonLd = async () => {

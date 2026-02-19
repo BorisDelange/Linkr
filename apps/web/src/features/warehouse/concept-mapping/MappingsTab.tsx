@@ -1,12 +1,36 @@
-import { useState } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type VisibilityState,
+} from '@tanstack/react-table'
 import {
   Search, Check, Flag, X, MessageSquare,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
+  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +42,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { MappingProject, MappingStatus } from '@/types'
+import type { MappingProject, ConceptMapping, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -48,6 +72,19 @@ const EQUIV_SHORT: Record<string, string> = {
   equal: 'Exact', equivalent: 'Close', wider: 'Broad', narrower: 'Narrow', inexact: 'Related',
 }
 
+/** Get human-readable label for a TanStack column def. */
+function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {
+  const def = colDefs.find((c) => 'id' in c && c.id === id)
+  if (def) {
+    if (typeof def.header === 'function') {
+      const result = (def.header as () => unknown)()
+      if (typeof result === 'string') return result
+    }
+    if (typeof def.header === 'string') return def.header
+  }
+  return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
@@ -57,6 +94,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [editMode, setEditMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
   const projectMappings = mappings.filter((m) => m.projectId === project.id)
 
@@ -89,14 +128,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
     setSelected(new Set())
   }
 
-  const toggleSelect = (id: string) => {
+  const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
       return next
     })
-  }
+  }, [])
 
   const toggleSelectAll = () => {
     const pageIds = pageItems.map((m) => m.id)
@@ -118,15 +157,222 @@ export function MappingsTab({ project }: MappingsTabProps) {
   }
 
   /** Toggle review: clicking the same status resets to unchecked. */
-  const handleReview = (mappingId: string, current: MappingStatus, target: MappingStatus) => {
+  const handleReview = useCallback((mappingId: string, current: MappingStatus, target: MappingStatus) => {
     updateMapping(mappingId, { status: current === target ? 'unchecked' : target })
-  }
+  }, [updateMapping])
 
   const pageAllSelected = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
 
-  // Grid templates
-  const editCols = 'grid-cols-[28px_1fr_50px_1fr_50px_60px_70px_60px]'
-  const reviewCols = 'grid-cols-[1fr_50px_1fr_50px_60px_70px_60px_90px]'
+  // Build TanStack columns
+  const columns = useMemo<ColumnDef<ConceptMapping>[]>(() => {
+    const cols: ColumnDef<ConceptMapping>[] = []
+
+    // Edit mode checkbox column
+    if (editMode) {
+      cols.push({
+        id: '_select',
+        header: () => (
+          <button onClick={toggleSelectAll} className="flex justify-center">
+            {pageAllSelected
+              ? <CheckSquare size={14} className="text-foreground" />
+              : <Square size={14} />}
+          </button>
+        ),
+        cell: ({ row }) => (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleSelect(row.original.id) }}
+            className="flex justify-center"
+          >
+            {selected.has(row.original.id)
+              ? <CheckSquare size={14} className="text-foreground" />
+              : <Square size={14} className="text-muted-foreground" />}
+          </button>
+        ),
+        size: 32,
+        minSize: 32,
+        enableHiding: false,
+        enableResizing: false,
+      })
+    }
+
+    cols.push(
+      {
+        id: 'sourceConceptName',
+        header: () => t('concept_mapping.col_source'),
+        accessorFn: (row) => row.sourceConceptName,
+        cell: ({ row }) => row.original.sourceConceptName,
+        size: 200,
+        minSize: 100,
+        enableHiding: false,
+      },
+      {
+        id: 'sourceConceptId',
+        header: 'Source ID',
+        accessorFn: (row) => row.sourceConceptId,
+        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptId}</span>,
+        size: 70,
+        minSize: 50,
+      },
+      {
+        id: 'sourceVocabularyId',
+        header: () => t('concept_mapping.col_source') + ' Vocab',
+        accessorFn: (row) => row.sourceVocabularyId,
+        cell: ({ row }) => row.original.sourceVocabularyId,
+        size: 80,
+        minSize: 50,
+      },
+      {
+        id: 'sourceDomainId',
+        header: () => t('concept_mapping.col_source') + ' Domain',
+        accessorFn: (row) => row.sourceDomainId,
+        cell: ({ row }) => row.original.sourceDomainId,
+        size: 90,
+        minSize: 50,
+      },
+      {
+        id: 'targetConceptName',
+        header: () => t('concept_mapping.col_target'),
+        accessorFn: (row) => row.targetConceptName,
+        cell: ({ row }) => {
+          const m = row.original
+          return (
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{m.targetConceptName}</span>
+              {m.comment && <span title={m.comment}><MessageSquare size={10} className="shrink-0 text-muted-foreground" /></span>}
+            </span>
+          )
+        },
+        size: 200,
+        minSize: 100,
+        enableHiding: false,
+      },
+      {
+        id: 'targetConceptId',
+        header: 'Target ID',
+        accessorFn: (row) => row.targetConceptId,
+        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.targetConceptId}</span>,
+        size: 70,
+        minSize: 50,
+      },
+      {
+        id: 'targetVocabularyId',
+        header: () => t('concept_mapping.col_vocab'),
+        accessorFn: (row) => row.targetVocabularyId,
+        cell: ({ row }) => row.original.targetVocabularyId,
+        size: 80,
+        minSize: 50,
+      },
+      {
+        id: 'targetDomainId',
+        header: () => t('concept_mapping.col_target') + ' Domain',
+        accessorFn: (row) => row.targetDomainId,
+        cell: ({ row }) => row.original.targetDomainId,
+        size: 90,
+        minSize: 50,
+      },
+      {
+        id: 'status',
+        header: () => t('concept_mapping.col_status'),
+        accessorFn: (row) => row.status,
+        cell: ({ row }) => (
+          <Badge
+            variant="secondary"
+            className={`px-1.5 py-0 text-[9px] font-medium ${STATUS_BADGE[row.original.status] ?? ''}`}
+          >
+            {t(`concept_mapping.status_${row.original.status}`)}
+          </Badge>
+        ),
+        size: 80,
+        minSize: 60,
+        enableHiding: false,
+      },
+      {
+        id: 'equivalence',
+        header: () => t('concept_mapping.col_equiv'),
+        accessorFn: (row) => row.equivalence,
+        cell: ({ row }) => (
+          <span className="text-[10px] text-muted-foreground">
+            {EQUIV_SHORT[row.original.equivalence] ?? row.original.equivalence}
+          </span>
+        ),
+        size: 70,
+        minSize: 50,
+      },
+      {
+        id: 'mappingType',
+        header: 'Type',
+        accessorFn: (row) => row.mappingType,
+        cell: ({ row }) => (
+          <span className="text-[10px] text-muted-foreground">
+            {row.original.mappingType}
+          </span>
+        ),
+        size: 90,
+        minSize: 50,
+      },
+    )
+
+    // Review action buttons (only in review mode)
+    if (!editMode) {
+      cols.push({
+        id: '_review',
+        header: () => <span className="text-right w-full block">{t('concept_mapping.col_review')}</span>,
+        cell: ({ row }) => {
+          const m = row.original
+          return (
+            <span className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
+              <Button
+                variant={m.status === 'approved' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-6 ${m.status === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+                title={t('concept_mapping.approve')}
+                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'approved') }}
+              >
+                <Check size={13} />
+              </Button>
+              <Button
+                variant={m.status === 'rejected' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-6 ${m.status === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+                title={t('concept_mapping.reject')}
+                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'rejected') }}
+              >
+                <X size={13} />
+              </Button>
+              <Button
+                variant={m.status === 'flagged' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-6 ${m.status === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+                title={t('concept_mapping.flag')}
+                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'flagged') }}
+              >
+                <Flag size={13} />
+              </Button>
+            </span>
+          )
+        },
+        size: 100,
+        minSize: 100,
+        enableHiding: false,
+        enableResizing: false,
+      })
+    }
+
+    return cols
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect])
+
+  const table = useReactTable({
+    data: pageItems,
+    columns,
+    state: { columnVisibility, columnSizing },
+    onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    pageCount: totalPages,
+  })
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -157,121 +403,109 @@ export function MappingsTab({ project }: MappingsTabProps) {
             <Pencil size={12} />
             {editMode ? t('concept_mapping.done_editing') : t('concept_mapping.edit_mode')}
           </Button>
+          {/* Column visibility toggle */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table.getAllColumns()
+                .filter((col) => col.getCanHide())
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    {getColLabel(columns, col.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
-      {/* Column headers */}
-      <div className={`grid items-center gap-1 border-b bg-muted/30 px-4 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider ${editMode ? editCols : reviewCols}`}>
-        {editMode && (
-          <button onClick={toggleSelectAll} className="flex justify-center">
-            {pageAllSelected
-              ? <CheckSquare size={14} className="text-foreground" />
-              : <Square size={14} />}
-          </button>
-        )}
-        <span>{t('concept_mapping.col_source')}</span>
-        <span>ID</span>
-        <span>{t('concept_mapping.col_target')}</span>
-        <span>ID</span>
-        <span>{t('concept_mapping.col_vocab')}</span>
-        <span>{t('concept_mapping.col_status')}</span>
-        <span>{t('concept_mapping.col_equiv')}</span>
-        {!editMode && <span className="text-right">{t('concept_mapping.col_review')}</span>}
-      </div>
-
-      {/* Table body */}
-      <div className="flex-1 overflow-auto">
-        {pageItems.length === 0 ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">
-              {projectMappings.length === 0
-                ? t('concept_mapping.prog_empty')
-                : t('common.no_results')}
-            </p>
-          </div>
-        ) : (
-          pageItems.map((m) => (
-            <div
-              key={m.id}
-              className={`group grid w-full items-center gap-1 border-b border-border/40 px-4 py-1 text-xs hover:bg-accent/30 ${
-                editMode ? editCols : reviewCols
-              } ${selected.has(m.id) ? 'bg-accent/40' : ''}`}
-            >
-              {/* Edit mode: checkbox */}
-              {editMode && (
-                <button onClick={() => toggleSelect(m.id)} className="flex justify-center">
-                  {selected.has(m.id)
-                    ? <CheckSquare size={14} className="text-foreground" />
-                    : <Square size={14} className="text-muted-foreground" />}
-                </button>
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <TableHeader>
+            <TableRow>
+              {table.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={header.id}
+                    className="relative select-none text-xs"
+                    style={{ width: header.getSize() }}
+                  >
+                    <span className="truncate">
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                    </span>
+                    {/* Resize handle */}
+                    {header.column.getCanResize() && (
+                      <div
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                        onDoubleClick={() => header.column.resetSize()}
+                        className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                      >
+                        <div
+                          className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                            header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                          }`}
+                        />
+                      </div>
+                    )}
+                  </TableHead>
+                ))
               )}
-
-              {/* Source */}
-              <span className="truncate" title={m.sourceConceptName}>{m.sourceConceptName}</span>
-              <span className="text-muted-foreground">{m.sourceConceptId}</span>
-
-              {/* Target */}
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
-                {m.comment && <span title={m.comment}><MessageSquare size={10} className="shrink-0 text-muted-foreground" /></span>}
-              </span>
-              <span className="text-muted-foreground">{m.targetConceptId}</span>
-              <span className="truncate text-muted-foreground">{m.targetVocabularyId}</span>
-
-              {/* Status badge */}
-              <span>
-                <Badge
-                  variant="secondary"
-                  className={`px-1.5 py-0 text-[9px] font-medium ${STATUS_BADGE[m.status] ?? ''}`}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {pageItems.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
+                  {projectMappings.length === 0
+                    ? t('concept_mapping.prog_empty')
+                    : t('common.no_results')}
+                </TableCell>
+              </TableRow>
+            ) : (
+              table.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.original.id}
+                  className="group"
+                  data-state={selected.has(row.original.id) ? 'selected' : undefined}
                 >
-                  {t(`concept_mapping.status_${m.status}`)}
-                </Badge>
-              </span>
-
-              {/* Equivalence */}
-              <span className="truncate text-[10px] text-muted-foreground" title={m.equivalence}>
-                {EQUIV_SHORT[m.equivalence] ?? m.equivalence}
-              </span>
-
-              {/* Review mode: action buttons */}
-              {!editMode && (
-                <span className="flex justify-end gap-1 opacity-0 group-hover:opacity-100">
-                  <Button
-                    variant={m.status === 'approved' ? 'default' : 'outline'}
-                    size="icon-sm"
-                    className={`size-6 ${m.status === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
-                    title={t('concept_mapping.approve')}
-                    onClick={() => handleReview(m.id, m.status, 'approved')}
-                  >
-                    <Check size={13} />
-                  </Button>
-                  <Button
-                    variant={m.status === 'rejected' ? 'default' : 'outline'}
-                    size="icon-sm"
-                    className={`size-6 ${m.status === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
-                    title={t('concept_mapping.reject')}
-                    onClick={() => handleReview(m.id, m.status, 'rejected')}
-                  >
-                    <X size={13} />
-                  </Button>
-                  <Button
-                    variant={m.status === 'flagged' ? 'default' : 'outline'}
-                    size="icon-sm"
-                    className={`size-6 ${m.status === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
-                    title={t('concept_mapping.flag')}
-                    onClick={() => handleReview(m.id, m.status, 'flagged')}
-                  >
-                    <Flag size={13} />
-                  </Button>
-                </span>
-              )}
-            </div>
-          ))
-        )}
+                  {row.getVisibleCells().map((cell) => {
+                    const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                    const raw = cell.getValue()
+                    const title = raw != null ? String(raw) : undefined
+                    return (
+                      <TableCell
+                        key={cell.id}
+                        className="overflow-hidden truncate text-xs"
+                        style={{ maxWidth: cell.column.getSize() }}
+                        title={title}
+                      >
+                        {rendered}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between border-t px-4 py-1.5">
+      <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
         <span className="text-[10px] text-muted-foreground">
           {filtered.length} {t('concept_mapping.existing_mappings').toLowerCase()}
         </span>

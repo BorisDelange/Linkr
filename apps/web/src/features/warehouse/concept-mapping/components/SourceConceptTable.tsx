@@ -1,9 +1,26 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, ChevronLeft, ChevronRight, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal } from 'lucide-react'
+import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type VisibilityState,
+} from '@tanstack/react-table'
+import {
+  Search,
+  ChevronLeft,
+  ChevronRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  SlidersHorizontal,
+  Settings2,
+} from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
   SelectContent,
@@ -16,6 +33,22 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
@@ -49,6 +82,29 @@ const STATUS_COLORS: Record<string, string> = {
   invalid: 'bg-red-500',
 }
 
+/** Get human-readable label for a TanStack column def. */
+function getColLabel(colDefs: ColumnDef<SourceConceptRow>[], id: string): string {
+  const def = colDefs.find((c) => 'id' in c && c.id === id)
+  if (def) {
+    if (typeof def.header === 'function') {
+      const result = (def.header as () => unknown)()
+      if (typeof result === 'string') return result
+    }
+    if (typeof def.header === 'string') return def.header
+  }
+  return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function SortIndicator({ columnId, sorting }: { columnId: string; sorting: SourceConceptSorting | null }) {
+  if (!sorting || sorting.columnId !== columnId) {
+    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+  }
+  if (sorting.desc) {
+    return <ArrowDown size={10} className="shrink-0 text-primary" />
+  }
+  return <ArrowUp size={10} className="shrink-0 text-primary" />
+}
+
 export function SourceConceptTable({
   rows,
   totalCount,
@@ -70,6 +126,8 @@ export function SourceConceptTable({
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [filterOpen, setFilterOpen] = useState(false)
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
   // Count active filters (excluding search text)
@@ -89,14 +147,116 @@ export function SourceConceptTable({
     }
   }
 
-  const SortIcon = ({ columnId }: { columnId: string }) => {
-    if (sorting?.columnId !== columnId) return <ArrowUpDown size={12} className="opacity-30" />
-    return sorting.desc ? <ArrowDown size={12} /> : <ArrowUp size={12} />
-  }
+  // Build columns dynamically
+  const columns = useMemo<ColumnDef<SourceConceptRow>[]>(() => {
+    return [
+      {
+        id: '_status',
+        header: '',
+        accessorFn: () => null,
+        cell: ({ row }) => {
+          const status = mappingStatusMap.get(row.original.concept_id) ?? 'unmapped'
+          return (
+            <span className="flex justify-center">
+              <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[status] ?? STATUS_COLORS.unmapped}`} />
+            </span>
+          )
+        },
+        size: 28,
+        minSize: 28,
+        enableHiding: false,
+        enableResizing: false,
+      },
+      {
+        id: 'concept_id',
+        header: 'ID',
+        accessorFn: (row) => row.concept_id,
+        cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
+        size: 70,
+        minSize: 50,
+        enableHiding: false,
+      },
+      {
+        id: 'concept_name',
+        header: () => t('concept_mapping.col_name'),
+        accessorFn: (row) => row.concept_name,
+        cell: ({ row }) => row.original.concept_name,
+        size: 220,
+        minSize: 100,
+        enableHiding: false,
+      },
+      {
+        id: 'concept_code',
+        header: 'Code',
+        accessorFn: (row) => row.concept_code,
+        cell: ({ row }) => <span className="font-mono">{row.original.concept_code}</span>,
+        size: 90,
+        minSize: 50,
+      },
+      {
+        id: 'vocabulary_id',
+        header: () => t('concept_mapping.col_vocab'),
+        accessorFn: (row) => row.vocabulary_id,
+        cell: ({ row }) => row.original.vocabulary_id,
+        size: 90,
+        minSize: 60,
+      },
+      {
+        id: 'domain_id',
+        header: () => t('concept_mapping.col_domain'),
+        accessorFn: (row) => row.domain_id,
+        cell: ({ row }) => row.original.domain_id ?? '',
+        size: 90,
+        minSize: 60,
+      },
+      {
+        id: 'concept_class_id',
+        header: () => t('concept_mapping.col_concept_class'),
+        accessorFn: (row) => row.concept_class_id,
+        cell: ({ row }) => row.original.concept_class_id ?? '',
+        size: 100,
+        minSize: 60,
+      },
+      {
+        id: 'record_count',
+        header: () => t('concept_mapping.col_records'),
+        accessorFn: (row) => row.record_count,
+        cell: ({ row }) => (
+          <span className="tabular-nums">{Number(row.original.record_count ?? 0).toLocaleString()}</span>
+        ),
+        size: 80,
+        minSize: 50,
+      },
+      {
+        id: 'patient_count',
+        header: () => t('concept_mapping.col_patients'),
+        accessorFn: (row) => row.patient_count,
+        cell: ({ row }) => (
+          <span className="tabular-nums">{Number(row.original.patient_count ?? 0).toLocaleString()}</span>
+        ),
+        size: 80,
+        minSize: 50,
+      },
+    ]
+  }, [t, mappingStatusMap])
+
+  const table = useReactTable({
+    data: rows,
+    columns,
+    state: { columnVisibility, columnSizing },
+    onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    manualFiltering: true,
+    manualSorting: true,
+    pageCount: totalPages,
+  })
 
   return (
-    <div className="flex h-full flex-col border-r">
-      {/* Filters bar */}
+    <div className="flex h-full flex-col border-r overflow-hidden">
+      {/* Top bar: search + filters + columns toggle */}
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <div className="relative min-w-0 flex-1">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -228,72 +388,139 @@ export function SourceConceptTable({
             )}
           </PopoverContent>
         </Popover>
+
+        {/* Column visibility toggle */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
+              <Settings2 size={14} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[180px]">
+            <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {table.getAllColumns()
+              .filter((col) => col.getCanHide())
+              .map((col) => (
+                <DropdownMenuCheckboxItem
+                  key={col.id}
+                  checked={col.getIsVisible()}
+                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                  onSelect={(e) => e.preventDefault()}
+                  className="text-xs"
+                >
+                  {getColLabel(columns, col.id)}
+                </DropdownMenuCheckboxItem>
+              ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Table header */}
-      <div className="grid grid-cols-[24px_1fr_80px_80px_60px_60px] items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-        <span />
-        <button className="flex items-center gap-1 text-left" onClick={() => handleSort('concept_name')}>
-          {t('concept_mapping.col_name')} <SortIcon columnId="concept_name" />
-        </button>
-        <button className="flex items-center gap-1" onClick={() => handleSort('vocabulary_id')}>
-          {t('concept_mapping.col_vocab')} <SortIcon columnId="vocabulary_id" />
-        </button>
-        <span>{t('concept_mapping.col_domain')}</span>
-        <button className="flex items-center gap-1 justify-end" onClick={() => handleSort('record_count')}>
-          {t('concept_mapping.col_records')} <SortIcon columnId="record_count" />
-        </button>
-        <button className="flex items-center gap-1 justify-end" onClick={() => handleSort('patient_count')}>
-          {t('concept_mapping.col_patients')} <SortIcon columnId="patient_count" />
-        </button>
-      </div>
-
-      {/* Table body */}
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-          </div>
-        ) : queryError ? (
-          <div className="flex h-32 flex-col items-center justify-center gap-1 px-4">
-            <p className="text-xs text-destructive">{t('concept_mapping.query_error')}</p>
-            <p className="max-w-sm text-center text-[10px] text-muted-foreground">{queryError}</p>
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">{t('concept_mapping.no_concepts')}</p>
-          </div>
-        ) : (
-          rows.map((row) => {
-            const status = mappingStatusMap.get(row.concept_id) ?? 'unmapped'
-            const isSelected = row.concept_id === selectedConceptId
-            return (
-              <button
-                key={row.concept_id}
-                className={`grid w-full grid-cols-[24px_1fr_80px_80px_60px_60px] items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors hover:bg-accent/50 ${
-                  isSelected ? 'bg-accent' : ''
-                }`}
-                onClick={() => onSelectConcept(row.concept_id)}
-              >
-                <span className="flex justify-center">
-                  <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[status] ?? STATUS_COLORS.unmapped}`} />
-                </span>
-                <span className="truncate" title={row.concept_name}>
-                  <span className="text-muted-foreground">{row.concept_id}</span>{' '}
-                  {row.concept_name}
-                </span>
-                <span className="truncate text-muted-foreground">{row.vocabulary_id}</span>
-                <span className="truncate text-muted-foreground">{row.domain_id}</span>
-                <span className="text-right tabular-nums">{row.record_count?.toLocaleString()}</span>
-                <span className="text-right tabular-nums">{row.patient_count?.toLocaleString()}</span>
-              </button>
-            )
-          })
-        )}
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <TableHeader>
+            <TableRow>
+              {table.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => {
+                  const colId = header.column.id
+                  const isStatusCol = colId === '_status'
+                  return (
+                    <TableHead
+                      key={header.id}
+                      className="relative select-none text-xs"
+                      style={{ width: header.getSize() }}
+                    >
+                      {isStatusCol ? null : (
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          onClick={() => handleSort(colId)}
+                        >
+                          <span className="truncate">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                          <SortIndicator columnId={colId} sorting={sorting} />
+                        </button>
+                      )}
+                      {/* Resize handle */}
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          onDoubleClick={() => header.column.resetSize()}
+                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                        >
+                          <div
+                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                            }`}
+                          />
+                        </div>
+                      )}
+                    </TableHead>
+                  )
+                })
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              Array.from({ length: 10 }).map((_, i) => (
+                <TableRow key={i}>
+                  {table.getVisibleLeafColumns().map((col) => (
+                    <TableCell key={col.id}><Skeleton className="h-4 w-full" /></TableCell>
+                  ))}
+                </TableRow>
+              ))
+            ) : queryError ? (
+              <TableRow>
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center">
+                  <p className="text-xs text-destructive">{t('concept_mapping.query_error')}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">{queryError}</p>
+                </TableCell>
+              </TableRow>
+            ) : rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
+                  {t('concept_mapping.no_concepts')}
+                </TableCell>
+              </TableRow>
+            ) : (
+              table.getRowModel().rows.map((row) => {
+                const isSelected = row.original.concept_id === selectedConceptId
+                return (
+                  <TableRow
+                    key={row.original.concept_id}
+                    className="cursor-pointer"
+                    data-state={isSelected ? 'selected' : undefined}
+                    onClick={() => onSelectConcept(row.original.concept_id)}
+                  >
+                    {row.getVisibleCells().map((cell) => {
+                      const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                      const raw = cell.getValue()
+                      const title = raw != null ? String(raw) : undefined
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className="overflow-hidden truncate text-xs"
+                          style={{ maxWidth: cell.column.getSize() }}
+                          title={title}
+                        >
+                          {rendered}
+                        </TableCell>
+                      )
+                    })}
+                  </TableRow>
+                )
+              })
+            )}
+          </TableBody>
+        </Table>
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-between border-t px-3 py-1.5">
+      <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <span className="text-[10px] text-muted-foreground">
           {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
         </span>

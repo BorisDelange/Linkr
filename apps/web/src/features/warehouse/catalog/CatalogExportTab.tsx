@@ -1,6 +1,7 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useRef, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Eye, FileText, ShieldCheck } from 'lucide-react'
+import { Download, Eye, FileText, Archive, ShieldCheck } from 'lucide-react'
+import JSZip from 'jszip'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -10,7 +11,9 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { generateCatalogHtml } from '@/lib/dcat-ap/export-html'
+import { generateCatalogHtml, buildConceptsCsv, buildDimensionsCsv } from '@/lib/dcat-ap/export-html'
+import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
+import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 
 interface Props {
@@ -23,36 +26,85 @@ export function CatalogExportTab({ catalog, cache }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const schemaMapping = dataSources.find((ds) => ds.id === catalog.dataSourceId)?.schemaMapping
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [zipLoading, setZipLoading] = useState(false)
+
+  // Cache introspected schema across exports (fetched once per session)
+  const schemaCache = useRef<IntrospectedTable[] | null>(null)
+
+  const getFullSchema = async (): Promise<IntrospectedTable[] | null> => {
+    if (schemaCache.current) return schemaCache.current
+    try {
+      const schema = await discoverFullSchema(catalog.dataSourceId)
+      schemaCache.current = schema
+      return schema
+    } catch {
+      return null
+    }
+  }
 
   const threshold = catalog.anonymization.threshold
   const mode = catalog.anonymization.mode ?? 'replace'
 
   // Anonymization impact preview
   const impact = useMemo(() => {
-    const affected = cache.rows.filter((r) => r.patientCount < threshold)
-    const unaffected = cache.rows.length - affected.length
+    const allRows = [...cache.concepts, ...cache.dimensions]
+    const affected = allRows.filter((r) => r.patientCount < threshold)
+    const unaffected = allRows.length - affected.length
     const retainedConcepts = mode === 'suppress'
-      ? new Set(cache.rows.filter((r) => r.patientCount >= threshold).map((r) => r.conceptId)).size
-      : new Set(cache.rows.map((r) => r.conceptId)).size
-    const totalConcepts = new Set(cache.rows.map((r) => r.conceptId)).size
+      ? cache.concepts.filter((r) => r.patientCount >= threshold).length
+      : cache.concepts.length
+    const totalConcepts = cache.concepts.length
     return { affected: affected.length, unaffected, retainedConcepts, totalConcepts }
-  }, [cache.rows, threshold, mode])
+  }, [cache.concepts, cache.dimensions, threshold, mode])
 
-  const handleDownload = () => {
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping })
-    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+  const downloadBlob = (blob: Blob, filename: string) => {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${catalog.name.replace(/\s+/g, '-').toLowerCase()}-catalog.html`
+    a.download = filename
     a.click()
     URL.revokeObjectURL(url)
   }
 
-  const handlePreview = useCallback(() => {
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping })
+  const baseName = catalog.name.replace(/\s+/g, '-').toLowerCase()
+
+  const handleDownload = useCallback(async () => {
+    const fullSchema = await getFullSchema()
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
+    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
+  }, [catalog, cache, schemaMapping, baseName])
+
+  const handlePreview = useCallback(async () => {
+    const fullSchema = await getFullSchema()
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
     setPreviewHtml(html)
   }, [catalog, cache, schemaMapping])
+
+  const handleDownloadZip = useCallback(async () => {
+    setZipLoading(true)
+    try {
+      const fullSchema = await getFullSchema()
+      const zip = new JSZip()
+
+      // HTML catalog
+      const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
+      zip.file('catalog.html', html)
+
+      // CSV files
+      zip.file('concepts.csv', buildConceptsCsv(cache.concepts, catalog))
+      zip.file('dimensions.csv', buildDimensionsCsv(cache.dimensions, catalog))
+
+      // JSON-LD metadata
+      const metadata = catalog.metadata ?? {}
+      const jsonld = buildJsonLd({ metadata, schemaMapping, cache, catalog, fullSchema })
+      zip.file('metadata.jsonld', JSON.stringify(jsonld, null, 2))
+
+      const blob = await zip.generateAsync({ type: 'blob' })
+      downloadBlob(blob, `${baseName}-catalog.zip`)
+    } finally {
+      setZipLoading(false)
+    }
+  }, [catalog, cache, schemaMapping, baseName])
 
   return (
     <div className="space-y-4">
@@ -96,15 +148,22 @@ export function CatalogExportTab({ catalog, cache }: Props) {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2">
-            <Button onClick={handleDownload}>
+            <Button onClick={handleDownloadZip} disabled={zipLoading}>
+              <Archive size={14} />
+              {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
+            </Button>
+            <Button variant="outline" onClick={handleDownload}>
               <Download size={14} />
-              {t('data_catalog.export_download')}
+              {t('data_catalog.export_download_html')}
             </Button>
             <Button variant="outline" onClick={handlePreview}>
               <Eye size={14} />
               {t('data_catalog.export_preview')}
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            {t('data_catalog.export_zip_contents')}
+          </p>
         </div>
       </Card>
 

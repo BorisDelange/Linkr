@@ -4,11 +4,12 @@
  * Generates a self-contained HTML page with:
  * - Embedded JSON-LD (machine-readable metadata, always included)
  * - Four tabs: Metadata (JSON-LD), Schema (data dictionary), Dashboard (stats + charts), Data Table (paginated)
- * - Shared filters above tabs (apply to Dashboard and Data Table)
+ * - Data Table has two sub-tabs: Concepts and Dimensions
  * - Anonymization: rows below threshold are either capped (replace) or removed (suppress)
  */
 
-import type { DataCatalog, CatalogResultCache, CatalogResultRow, CatalogMarginRow, SchemaMapping, AnonymizationMode } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, SchemaMapping, AnonymizationMode } from '@/types'
+import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { buildJsonLd } from './jsonld'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
 
@@ -16,111 +17,131 @@ export interface ExportHtmlOptions {
   catalog: DataCatalog
   cache: CatalogResultCache
   schemaMapping?: SchemaMapping | null
+  /** Full introspected schema (all tables + columns from information_schema). */
+  fullSchema?: IntrospectedTable[] | null
 }
 
 export function generateCatalogHtml(opts: ExportHtmlOptions): string {
-  const { catalog, cache, schemaMapping } = opts
+  const { catalog, cache, schemaMapping, fullSchema } = opts
   const threshold = catalog.anonymization.threshold
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
-  // Apply anonymization to leaf rows
-  let rows: CatalogResultRow[]
-  let anonymizedCount = 0
+  // Apply anonymization to concept rows
+  let concepts: CatalogConceptRow[]
+  let anonConceptCount = 0
   if (mode === 'suppress') {
-    rows = cache.rows.filter((r) => r.patientCount >= threshold)
-    anonymizedCount = cache.rows.length - rows.length
+    concepts = cache.concepts.filter((r) => r.patientCount >= threshold)
+    anonConceptCount = cache.concepts.length - concepts.length
   } else {
-    rows = cache.rows.map((r) => {
+    concepts = cache.concepts.map((r) => {
       if (r.patientCount < threshold) {
-        anonymizedCount++
+        anonConceptCount++
         return { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
       }
       return r
     })
   }
 
-  // Apply anonymization to margin rows
-  const anonymizedMargins: Record<string, [string | number, number, number][]> = {}
-  if (cache.margins) {
-    for (const [dimId, marginRows] of Object.entries(cache.margins.byDimension)) {
-      const anonMargins: [string | number, number, number][] = []
-      for (const m of marginRows) {
-        if (mode === 'suppress' && m.patientCount < threshold) continue
-        const pc = mode === 'replace' && m.patientCount < threshold ? threshold : m.patientCount
-        const vc = mode === 'replace' && m.visitCount < threshold ? threshold : m.visitCount
-        anonMargins.push([m.value, pc, vc])
+  // Apply anonymization to dimension rows
+  let dimensions: CatalogDimensionRow[]
+  let anonDimCount = 0
+  if (mode === 'suppress') {
+    dimensions = cache.dimensions.filter((r) => r.patientCount >= threshold)
+    anonDimCount = cache.dimensions.length - dimensions.length
+  } else {
+    dimensions = cache.dimensions.map((r) => {
+      if (r.patientCount < threshold) {
+        anonDimCount++
+        return { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
       }
-      anonymizedMargins[`dim_${dimId}`] = anonMargins
-    }
+      return r
+    })
   }
 
+  const totalAnonymized = anonConceptCount + anonDimCount
+
   // Check for multiple dictionaries
-  const dictionaryKeys = new Set(rows.map((r) => r.dictionaryKey).filter(Boolean))
+  const dictionaryKeys = new Set(concepts.map((r) => r.dictionaryKey).filter(Boolean))
   const hasDictionary = dictionaryKeys.size > 1
 
-  // Collect dimension keys from the first row
-  const dimensionKeys = rows.length > 0 ? Object.keys(rows[0].dimensions) : []
-
-  // Summary stats (unfiltered)
-  const totalConcepts = new Set(rows.map((r) => r.conceptId)).size
+  // Summary stats
+  const totalConcepts = new Set(concepts.map((r) => r.conceptId)).size
   const totalPatients = cache.totalPatients
-  const totalVisits = cache.totalVisits ?? 0
+  const totalVisits = cache.totalVisits
+
+  // Collect enabled dimension IDs for charts + sub-tables
+  const enabledDims = catalog.dimensions.filter((d) => d.enabled)
+  const dimIds = enabledDims.map((d) => d.id)
 
   // JSON-LD
   const metadata = catalog.dcatApMetadata ?? {}
-  const jsonLdObj = buildJsonLd({ metadata, schemaMapping, cache })
+  const jsonLdObj = buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog })
   const jsonLd = JSON.stringify(jsonLdObj, null, 2)
 
   const catalogTitle = (metadata['catalog.title'] as string) || catalog.name
   const catalogDesc = (metadata['catalog.description'] as string) || catalog.description || ''
   const publisher = (metadata['agent.name'] as string) || (metadata['catalog.publisher'] as string) || ''
 
-  // Build filter columns info for JS — mark date dimensions
-  const filterCols: FilterColInfo[] = []
-  if (hasDictionary) filterCols.push({ key: 'dictionaryKey', label: 'Vocabulary', isDate: false })
-  if (catalog.categoryColumn) filterCols.push({ key: 'category', label: 'Category', isDate: false })
-  if (catalog.subcategoryColumn) filterCols.push({ key: 'subcategory', label: 'Subcategory', isDate: false })
-  for (const k of dimensionKeys) {
-    const dim = catalog.dimensions.find((d) => d.id === k)
-    const isDate = dim?.type === 'admission_date'
-    filterCols.push({ key: `dim_${k}`, label: titleCase(k), isDate })
-  }
+  // Build concept filter columns info for JS
+  const conceptFilterCols: FilterColInfo[] = []
+  if (hasDictionary) conceptFilterCols.push({ key: 'dictionaryKey', label: 'Vocabulary' })
+  if (catalog.categoryColumn) conceptFilterCols.push({ key: 'category', label: 'Category' })
+  if (catalog.subcategoryColumn) conceptFilterCols.push({ key: 'subcategory', label: 'Subcategory' })
 
-  // Build chart definitions for JS
+  // Build chart definitions from dimension data
   const chartDefs: ChartDef[] = []
-  if (hasDictionary) chartDefs.push({ key: 'dictionaryKey', title: 'Vocabulary distribution', type: 'horizontal', limit: 0 })
-  if (catalog.categoryColumn) chartDefs.push({ key: 'category', title: 'Category distribution', type: 'horizontal', limit: 20 })
-  if (catalog.subcategoryColumn) chartDefs.push({ key: 'subcategory', title: 'Subcategory distribution (top 20)', type: 'horizontal', limit: 20 })
-  for (const k of dimensionKeys) {
-    const dim = catalog.dimensions.find((d) => d.id === k)
-    const isDate = dim?.type === 'admission_date'
+  for (const dim of enabledDims) {
+    const isDate = dim.type === 'admission_date'
     chartDefs.push({
-      key: `dim_${k}`,
-      title: `${titleCase(k)} distribution`,
+      dimId: dim.id,
+      title: `${titleCase(dim.id)} distribution`,
       type: isDate ? 'vertical' : 'horizontal',
-      limit: 30,
+      limit: isDate ? 60 : 30,
     })
   }
 
-  // Build filter HTML — date dims get range inputs, others get dropdowns
-  const filterHtml = filterCols.map((f) => {
-    if (f.isDate) {
-      return `      <div class="date-range-filter" data-col="${f.key}">
-        <label class="filter-label">${esc(f.label)}</label>
-        <input type="date" id="filter-${f.key}-from" class="date-input" />
-        <span class="date-sep">—</span>
-        <input type="date" id="filter-${f.key}-to" class="date-input" />
-      </div>`
-    }
-    return `      <select id="filter-${f.key}" class="filter-select" data-col="${f.key}"><option value="">All ${esc(f.label)}</option></select>`
-  }).join('\n')
+  // Build concept filter HTML — dropdowns
+  const conceptFilterHtml = conceptFilterCols.map((f) =>
+    `      <select id="filter-${f.key}" class="filter-select" data-col="${f.key}"><option value="">All ${esc(f.label)}</option></select>`,
+  ).join('\n')
 
   // Build schema HTML from SchemaMapping
-  const schemaHtml = buildSchemaHtml(schemaMapping)
+  const schemaHtml = buildSchemaHtml(fullSchema, schemaMapping)
 
   // Build metadata rendered UI + raw JSON-LD
   const metadataRenderedHtml = buildMetadataRenderedHtml(metadata)
   const jsonLdHighlighted = syntaxHighlight(jsonLd)
+
+  // Build concept table headers
+  const conceptThs = [
+    '            <th data-col="conceptId" class="sortable">Concept ID</th>',
+    '            <th data-col="conceptName" class="sortable">Concept Name</th>',
+    ...(hasDictionary ? ['            <th data-col="dictionaryKey" class="sortable">Vocabulary</th>'] : []),
+    ...(catalog.categoryColumn ? ['            <th data-col="category" class="sortable">Category</th>'] : []),
+    ...(catalog.subcategoryColumn ? ['            <th data-col="subcategory" class="sortable">Subcategory</th>'] : []),
+    '            <th data-col="patientCount" class="sortable num">Patients</th>',
+    '            <th data-col="visitCount" class="sortable num">Visits</th>',
+    '            <th data-col="recordCount" class="sortable num">Records</th>',
+  ].join('\n')
+
+  // Build dimension sub-tables HTML (one per enabled dimension)
+  const dimTablesHtml = enabledDims.map((dim) => `
+        <div class="dim-section" id="dim-section-${dim.id}">
+          <h3 class="dim-title">${esc(titleCase(dim.id))}</h3>
+          <div class="table-wrapper">
+            <table class="dim-table" id="dim-table-${dim.id}">
+              <thead>
+                <tr>
+                  <th class="sortable" data-col="value">Value</th>
+                  <th class="sortable num" data-col="patientCount">Patients</th>
+                  <th class="sortable num" data-col="visitCount">Visits</th>
+                  <th class="sortable num" data-col="recordCount">Records</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>`).join('\n')
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -144,14 +165,6 @@ ${CSS}
     ${publisher ? `<p class="publisher">${esc(publisher)}</p>` : ''}
     <p class="generated">Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} by Linkr</p>
   </header>
-
-  <!-- Shared filters (apply to Dashboard + Data Table) -->
-  <div class="filters-bar hidden" id="filters-bar">
-    <input type="text" id="search" placeholder="Search concepts..." class="search-input" />
-${filterHtml}
-    <button id="clear-filters" class="clear-btn" title="Clear all filters"><i class="fa-solid fa-xmark"></i> Clear</button>
-    <span id="row-count" class="row-count"></span>
-  </div>
 
   <!-- Tab navigation -->
   <div class="tabs">
@@ -188,7 +201,7 @@ ${metadataRenderedHtml}
   <!-- Schema tab: data dictionary -->
   <div id="tab-schema" class="tab-content" style="display:none">
     <div class="schema-section">
-      <h2 class="metadata-title">Data Schema${schemaMapping?.presetLabel ? ` — ${esc(schemaMapping.presetLabel)}` : ''}</h2>
+      <h2 class="metadata-title">Data Schema${schemaMapping?.presetLabel ? ` — ${esc(schemaMapping.presetLabel)}` : ''}${fullSchema ? ` — ${fullSchema.length} tables` : ''}</h2>
       <p class="metadata-subtitle">Source warehouse structure · tables and columns</p>
 ${schemaHtml}
     </div>
@@ -202,47 +215,62 @@ ${schemaHtml}
 
   <!-- Data Table tab -->
   <div id="tab-datatable" class="tab-content" style="display:none">
-    <div class="table-wrapper">
-      <table id="catalog-table">
-        <thead>
-          <tr>
-            <th data-col="conceptId" class="sortable">Concept ID</th>
-            <th data-col="conceptName" class="sortable">Concept Name</th>
-${hasDictionary ? '            <th data-col="dictionaryKey" class="sortable">Vocabulary</th>\n' : ''}${catalog.categoryColumn ? '            <th data-col="category" class="sortable">Category</th>\n' : ''}${catalog.subcategoryColumn ? '            <th data-col="subcategory" class="sortable">Subcategory</th>\n' : ''}${dimensionKeys.map((k) => `            <th data-col="dim_${k}" class="sortable">${esc(titleCase(k))}</th>`).join('\n')}
-            <th data-col="patientCount" class="sortable num">Patients</th>
-            <th data-col="visitCount" class="sortable num">Visits</th>
-            <th data-col="recordCount" class="sortable num">Records</th>
-          </tr>
-        </thead>
-        <tbody id="catalog-tbody"></tbody>
-      </table>
+    <!-- Sub-tabs: Concepts / Dimensions -->
+    <div class="subtabs">
+      <button class="subtab active" data-subtab="concepts">Concepts</button>
+      <button class="subtab" data-subtab="dimensions">Dimensions</button>
     </div>
 
-    <div class="pagination" id="pagination">
-      <button id="page-prev" class="page-btn" disabled>&laquo; Prev</button>
-      <span id="page-info" class="page-info">Page 1</span>
-      <button id="page-next" class="page-btn">Next &raquo;</button>
-      <select id="page-size" class="filter-select">
-        <option value="100">100 rows</option>
-        <option value="250">250 rows</option>
-        <option value="500">500 rows</option>
-        <option value="1000">1000 rows</option>
-      </select>
+    <!-- Concepts sub-tab -->
+    <div id="subtab-concepts" class="subtab-content active">
+      <div class="filters-bar" id="concept-filters">
+        <input type="text" id="concept-search" placeholder="Search concepts..." class="search-input" />
+${conceptFilterHtml}
+        <button id="concept-clear-filters" class="clear-btn" title="Clear all filters"><i class="fa-solid fa-xmark"></i> Clear</button>
+        <span id="concept-row-count" class="row-count"></span>
+      </div>
+      <div class="table-wrapper">
+        <table id="concept-table">
+          <thead>
+            <tr>
+${conceptThs}
+            </tr>
+          </thead>
+          <tbody id="concept-tbody"></tbody>
+        </table>
+      </div>
+      <div class="pagination" id="concept-pagination">
+        <button id="concept-page-prev" class="page-btn" disabled>&laquo; Prev</button>
+        <span id="concept-page-info" class="page-info">Page 1</span>
+        <button id="concept-page-next" class="page-btn">Next &raquo;</button>
+        <select id="concept-page-size" class="filter-select">
+          <option value="100">100 rows</option>
+          <option value="250">250 rows</option>
+          <option value="500">500 rows</option>
+          <option value="1000">1000 rows</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Dimensions sub-tab -->
+    <div id="subtab-dimensions" class="subtab-content" style="display:none">
+${dimTablesHtml || '      <p class="schema-empty">No dimensions enabled.</p>'}
     </div>
   </div>
 
   <footer>
-    <p>Anonymization: threshold = ${threshold} patients · mode = ${mode === 'suppress' ? 'suppress (rows removed)' : 'replace (counts capped)'} · ${anonymizedCount} row${anonymizedCount !== 1 ? 's' : ''} affected.</p>
+    <p>Anonymization: threshold = ${threshold} patients · mode = ${mode === 'suppress' ? 'suppress (rows removed)' : 'replace (counts capped)'} · ${totalAnonymized} row${totalAnonymized !== 1 ? 's' : ''} affected.</p>
     <p>Health-DCAT-AP Release 6 · EHDS Regulation (EU) 2025/327</p>
   </footer>
 </div>
 
 <script>
-var CATALOG_DATA = ${buildRowsJson(rows, dimensionKeys, hasDictionary, !!catalog.categoryColumn, !!catalog.subcategoryColumn)};
-var CATALOG_META = ${JSON.stringify({ totalConcepts, totalPatients, totalVisits, anonymizedCount, threshold, mode })};
+var CONCEPTS = ${buildConceptsJson(concepts as (CatalogConceptRow & { _anonymized?: boolean })[], hasDictionary, !!catalog.categoryColumn, !!catalog.subcategoryColumn)};
+var DIMENSIONS = ${JSON.stringify(buildDimensionsJson(dimensions as (CatalogDimensionRow & { _anonymized?: boolean })[]))};
+var CATALOG_META = ${JSON.stringify({ totalConcepts, totalPatients, totalVisits, totalRecords: cache.grandTotal.totalRecords, anonymizedConcepts: anonConceptCount, anonymizedDimensions: anonDimCount, threshold, mode })};
 var CHART_DEFS = ${JSON.stringify(chartDefs)};
-var CATALOG_MARGINS = ${JSON.stringify(anonymizedMargins)};
-${buildJS(filterCols)}
+var DIM_IDS = ${JSON.stringify(dimIds)};
+${buildJS(conceptFilterCols)}
 </script>
 </body>
 </html>`
@@ -252,92 +280,88 @@ ${buildJS(filterCols)}
 // Schema HTML builder
 // ---------------------------------------------------------------------------
 
-function buildSchemaHtml(schemaMapping?: SchemaMapping | null): string {
-  if (!schemaMapping) {
-    return '      <p class="schema-empty">No schema mapping available.</p>'
+function buildSchemaHtml(fullSchema?: IntrospectedTable[] | null, schemaMapping?: SchemaMapping | null): string {
+  if (!fullSchema?.length && !schemaMapping) {
+    return '      <p class="schema-empty">No schema available.</p>'
   }
 
-  const tables: { name: string; description: string; columns: { name: string; title: string; description: string; datatype: string }[] }[] = []
-
-  // Patient table
-  if (schemaMapping.patientTable) {
-    const pt = schemaMapping.patientTable
-    const cols = [
-      { name: pt.idColumn, title: 'Patient ID', description: 'Primary key', datatype: 'integer' },
-    ]
-    if (pt.birthDateColumn) cols.push({ name: pt.birthDateColumn, title: 'Birth date', description: 'Date of birth', datatype: 'date' })
-    if (pt.birthYearColumn) cols.push({ name: pt.birthYearColumn, title: 'Birth year', description: 'Year of birth', datatype: 'integer' })
-    if (pt.genderColumn) cols.push({ name: pt.genderColumn, title: 'Gender', description: 'Gender value', datatype: 'string' })
-    tables.push({ name: pt.table, description: 'Patient demographics', columns: cols })
-  }
-
-  // Visit table
-  if (schemaMapping.visitTable) {
-    const vt = schemaMapping.visitTable
-    const cols = [
-      { name: vt.idColumn, title: 'Visit ID', description: 'Primary key', datatype: 'integer' },
-      { name: vt.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' },
-      { name: vt.startDateColumn, title: 'Start date', description: 'Visit start', datatype: 'datetime' },
-    ]
-    if (vt.endDateColumn) cols.push({ name: vt.endDateColumn, title: 'End date', description: 'Visit end', datatype: 'datetime' })
-    if (vt.typeColumn) cols.push({ name: vt.typeColumn, title: 'Visit type', description: 'Type of visit', datatype: 'string' })
-    tables.push({ name: vt.table, description: 'Visit / encounter records', columns: cols })
-  }
-
-  // Visit detail table
-  if (schemaMapping.visitDetailTable) {
-    const vd = schemaMapping.visitDetailTable
-    const cols = [
-      { name: vd.idColumn, title: 'Visit detail ID', description: 'Primary key', datatype: 'integer' },
-      { name: vd.visitIdColumn, title: 'Visit ID', description: 'FK → visit', datatype: 'integer' },
-      { name: vd.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' },
-      { name: vd.startDateColumn, title: 'Start date', description: 'Sub-visit start', datatype: 'datetime' },
-    ]
-    if (vd.endDateColumn) cols.push({ name: vd.endDateColumn, title: 'End date', description: 'Sub-visit end', datatype: 'datetime' })
-    if (vd.unitColumn) cols.push({ name: vd.unitColumn, title: 'Care site', description: 'Unit identifier', datatype: 'string' })
-    tables.push({ name: vd.table, description: 'Visit detail / unit stays', columns: cols })
-  }
-
-  // Concept dictionary tables
-  if (schemaMapping.conceptTables) {
-    for (const cd of schemaMapping.conceptTables) {
-      const cols = [
-        { name: cd.idColumn, title: 'Concept ID', description: 'Primary key', datatype: 'integer' },
-        { name: cd.nameColumn, title: 'Concept name', description: 'Label', datatype: 'string' },
-      ]
-      if (cd.codeColumn) cols.push({ name: cd.codeColumn, title: 'Code', description: 'Vocabulary code', datatype: 'string' })
-      if (cd.vocabularyColumn) cols.push({ name: cd.vocabularyColumn, title: 'Vocabulary', description: 'Terminology', datatype: 'string' })
-      if (cd.extraColumns) {
-        for (const [semantic, actual] of Object.entries(cd.extraColumns)) {
-          cols.push({ name: actual, title: titleCase(semantic), description: `Concept ${semantic}`, datatype: 'string' })
-        }
-      }
-      tables.push({ name: cd.table, description: `Concept dictionary`, columns: cols })
+  // Build a set of mapped table names + semantic descriptions from SchemaMapping
+  const mappedTableRoles = new Map<string, string>()
+  if (schemaMapping) {
+    if (schemaMapping.patientTable) mappedTableRoles.set(schemaMapping.patientTable.table, 'Patient demographics')
+    if (schemaMapping.visitTable) mappedTableRoles.set(schemaMapping.visitTable.table, 'Visit / encounter records')
+    if (schemaMapping.visitDetailTable) mappedTableRoles.set(schemaMapping.visitDetailTable.table, 'Visit detail / unit stays')
+    if (schemaMapping.conceptTables) {
+      for (const cd of schemaMapping.conceptTables) mappedTableRoles.set(cd.table, 'Concept dictionary')
+    }
+    if (schemaMapping.eventTables) {
+      for (const [label, et] of Object.entries(schemaMapping.eventTables)) mappedTableRoles.set(et.table, label)
     }
   }
 
-  // Event tables
-  if (schemaMapping.eventTables) {
-    for (const [label, et] of Object.entries(schemaMapping.eventTables)) {
-      const cols = [
-        { name: et.conceptIdColumn, title: 'Concept ID', description: 'FK → concept', datatype: 'integer' },
-      ]
-      if (et.sourceConceptIdColumn) cols.push({ name: et.sourceConceptIdColumn, title: 'Source concept ID', description: 'Source FK', datatype: 'integer' })
-      if (et.patientIdColumn) cols.push({ name: et.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' })
-      if (et.dateColumn) cols.push({ name: et.dateColumn, title: 'Date', description: 'Event date', datatype: 'datetime' })
-      if (et.valueColumn) cols.push({ name: et.valueColumn, title: 'Numeric value', description: 'Measurement value', datatype: 'decimal' })
-      if (et.valueStringColumn) cols.push({ name: et.valueStringColumn, title: 'String value', description: 'Text value', datatype: 'string' })
+  // If full schema is available, render all introspected tables
+  if (fullSchema && fullSchema.length > 0) {
+    return fullSchema.map((t) => {
+      const role = mappedTableRoles.get(t.name) ?? ''
+      const rows = t.columns.map((c) =>
+        `            <tr><td class="col-name"><code>${esc(c.name)}</code></td><td class="col-type"><code>${esc(c.type)}</code></td><td class="col-desc">${c.nullable ? 'NULL' : 'NOT NULL'}</td></tr>`,
+      ).join('\n')
+      return `      <div class="schema-table-card">
+        <div class="schema-table-header">
+          <span class="schema-table-name">${esc(t.name)}</span>
+          ${role ? `<span class="schema-table-desc">${esc(role)}</span>` : ''}
+          <span class="schema-table-count">${t.columns.length} columns</span>
+        </div>
+        <table class="schema-cols">
+          <thead><tr><th>Column</th><th>Type</th><th>Nullable</th></tr></thead>
+          <tbody>
+${rows}
+          </tbody>
+        </table>
+      </div>`
+    }).join('\n')
+  }
+
+  // Fallback: render only mapped tables from SchemaMapping (legacy)
+  const tables: { name: string; description: string; columns: { name: string; datatype: string }[] }[] = []
+
+  if (schemaMapping!.patientTable) {
+    const pt = schemaMapping!.patientTable
+    const cols = [{ name: pt.idColumn, datatype: 'integer' }]
+    if (pt.birthDateColumn) cols.push({ name: pt.birthDateColumn, datatype: 'date' })
+    if (pt.birthYearColumn) cols.push({ name: pt.birthYearColumn, datatype: 'integer' })
+    if (pt.genderColumn) cols.push({ name: pt.genderColumn, datatype: 'string' })
+    tables.push({ name: pt.table, description: 'Patient demographics', columns: cols })
+  }
+  if (schemaMapping!.visitTable) {
+    const vt = schemaMapping!.visitTable
+    const cols = [{ name: vt.idColumn, datatype: 'integer' }, { name: vt.patientIdColumn, datatype: 'integer' }, { name: vt.startDateColumn, datatype: 'datetime' }]
+    if (vt.endDateColumn) cols.push({ name: vt.endDateColumn, datatype: 'datetime' })
+    if (vt.typeColumn) cols.push({ name: vt.typeColumn, datatype: 'string' })
+    tables.push({ name: vt.table, description: 'Visit / encounter records', columns: cols })
+  }
+  if (schemaMapping!.conceptTables) {
+    for (const cd of schemaMapping!.conceptTables) {
+      const cols = [{ name: cd.idColumn, datatype: 'integer' }, { name: cd.nameColumn, datatype: 'string' }]
+      if (cd.codeColumn) cols.push({ name: cd.codeColumn, datatype: 'string' })
+      if (cd.vocabularyColumn) cols.push({ name: cd.vocabularyColumn, datatype: 'string' })
+      tables.push({ name: cd.table, description: 'Concept dictionary', columns: cols })
+    }
+  }
+  if (schemaMapping!.eventTables) {
+    for (const [label, et] of Object.entries(schemaMapping!.eventTables)) {
+      const cols = [{ name: et.conceptIdColumn, datatype: 'integer' }]
+      if (et.patientIdColumn) cols.push({ name: et.patientIdColumn, datatype: 'integer' })
+      if (et.dateColumn) cols.push({ name: et.dateColumn, datatype: 'datetime' })
       tables.push({ name: et.table, description: label, columns: cols })
     }
   }
 
-  if (tables.length === 0) {
-    return '      <p class="schema-empty">No tables defined in schema mapping.</p>'
-  }
+  if (tables.length === 0) return '      <p class="schema-empty">No tables defined in schema mapping.</p>'
 
   return tables.map((t) => {
     const rows = t.columns.map((c) =>
-      `            <tr><td class="col-name"><code>${esc(c.name)}</code></td><td>${esc(c.title)}</td><td class="col-desc">${esc(c.description)}</td><td class="col-type"><code>${esc(c.datatype)}</code></td></tr>`,
+      `            <tr><td class="col-name"><code>${esc(c.name)}</code></td><td class="col-type"><code>${esc(c.datatype)}</code></td><td></td></tr>`,
     ).join('\n')
     return `      <div class="schema-table-card">
         <div class="schema-table-header">
@@ -346,7 +370,7 @@ function buildSchemaHtml(schemaMapping?: SchemaMapping | null): string {
           <span class="schema-table-count">${t.columns.length} columns</span>
         </div>
         <table class="schema-cols">
-          <thead><tr><th>Column</th><th>Title</th><th>Description</th><th>Type</th></tr></thead>
+          <thead><tr><th>Column</th><th>Type</th><th>Nullable</th></tr></thead>
           <tbody>
 ${rows}
           </tbody>
@@ -473,15 +497,14 @@ function syntaxHighlight(json: string): string {
 // Row data as JSON (for client-side rendering)
 // ---------------------------------------------------------------------------
 
-function buildRowsJson(
-  rows: CatalogResultRow[],
-  dimensionKeys: string[],
+function buildConceptsJson(
+  rows: (CatalogConceptRow & { _anonymized?: boolean })[],
   hasDictionary: boolean,
   hasCategory: boolean,
   hasSubcategory: boolean,
 ): string {
   const data = rows.map((r) => {
-    const isAnonymized = (r as Record<string, unknown>)._anonymized === true
+    const isAnonymized = r._anonymized === true
     const row: (string | number | boolean)[] = [
       r.conceptId,
       r.conceptName,
@@ -489,16 +512,25 @@ function buildRowsJson(
     if (hasDictionary) row.push(r.dictionaryKey ?? '')
     if (hasCategory) row.push(r.category ?? '')
     if (hasSubcategory) row.push(r.subcategory ?? '')
-    for (const k of dimensionKeys) {
-      row.push(r.dimensions[k] ?? '')
-    }
     row.push(r.patientCount)
-    row.push(r.visitCount ?? 0)
+    row.push(r.visitCount)
     row.push(r.recordCount)
     row.push(isAnonymized)
     return row
   })
   return JSON.stringify(data)
+}
+
+/** Build dimension data grouped by dimensionId: { dimId: [[value, patients, visits, records, isAnon], ...] } */
+function buildDimensionsJson(
+  rows: (CatalogDimensionRow & { _anonymized?: boolean })[],
+): Record<string, (string | number | boolean)[][]> {
+  const result: Record<string, (string | number | boolean)[][]> = {}
+  for (const r of rows) {
+    if (!result[r.dimensionId]) result[r.dimensionId] = []
+    result[r.dimensionId].push([r.value, r.patientCount, r.visitCount, r.recordCount, r._anonymized === true])
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------
@@ -524,11 +556,10 @@ function titleCase(s: string): string {
 interface FilterColInfo {
   key: string
   label: string
-  isDate: boolean
 }
 
 interface ChartDef {
-  key: string
+  dimId: string
   title: string
   type: 'horizontal' | 'vertical'
   limit: number
@@ -578,8 +609,7 @@ header .publisher { margin-top: 0.25rem; color: var(--accent); font-size: 0.8125
 header .generated { margin-top: 0.5rem; color: var(--muted); font-size: 0.75rem; }
 
 /* Shared filters bar */
-.filters-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; transition: opacity 0.15s; }
-.filters-bar.hidden { display: none; }
+.filters-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; }
 .search-input { flex: 0 0 220px; padding: 0.4rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.8125rem; background: var(--bg); color: var(--fg); outline: none; }
 .search-input:focus { border-color: var(--accent); }
 .filter-select { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.75rem; background: var(--bg); color: var(--fg); outline: none; max-width: 180px; }
@@ -588,18 +618,17 @@ header .generated { margin-top: 0.5rem; color: var(--muted); font-size: 0.75rem;
 .clear-btn:hover { border-color: var(--accent); color: var(--accent); }
 .row-count { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
 
-/* Date range filter */
-.date-range-filter { display: flex; align-items: center; gap: 0.35rem; }
-.date-range-filter .filter-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
-.date-input { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.75rem; background: var(--bg); color: var(--fg); outline: none; width: 130px; }
-.date-input:focus { border-color: var(--accent); }
-.date-sep { color: var(--muted); font-size: 0.75rem; }
-
 /* Tabs */
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
 .tab { padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 500; color: var(--muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
 .tab:hover { color: var(--fg); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Sub-tabs (inside Data Table) */
+.subtabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.subtab { padding: 0.4rem 1rem; font-size: 0.8125rem; font-weight: 500; color: var(--muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.subtab:hover { color: var(--fg); }
+.subtab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* Metadata tab */
 .metadata-section { }
@@ -699,6 +728,10 @@ header .generated { margin-top: 0.5rem; color: var(--muted); font-size: 0.75rem;
 .vchart-labels span { flex: 1; min-width: 3px; max-width: 24px; font-size: 0.5625rem; color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vchart-axis { display: flex; justify-content: space-between; font-size: 0.625rem; color: var(--muted); margin-top: 2px; }
 
+/* Dimension sub-tables */
+.dim-section { margin-bottom: 1.5rem; }
+.dim-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; }
+
 /* Table */
 .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.5rem; }
 table:not(.schema-cols) { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
@@ -723,8 +756,8 @@ footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border
 footer p { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
 
 @media print {
-  .filters-bar, .tabs, .pagination { display: none; }
-  .tab-content { display: block !important; }
+  .filters-bar, .tabs, .subtabs, .pagination { display: none; }
+  .tab-content, .subtab-content { display: block !important; }
   .table-wrapper { border: none; overflow: visible; }
   footer { page-break-inside: avoid; }
 }
@@ -734,14 +767,12 @@ footer p { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
 // Embedded JavaScript
 // ---------------------------------------------------------------------------
 
-function buildJS(filterCols: FilterColInfo[]): string {
+function buildJS(conceptFilterCols: FilterColInfo[]): string {
   return `
 (function() {
-  // --- Tabs ---
+  // --- Main tabs ---
   var tabs = document.querySelectorAll('.tab');
   var contents = document.querySelectorAll('.tab-content');
-  var filtersBar = document.getElementById('filters-bar');
-  var dataTabs = { dashboard: true, datatable: true };
 
   function switchTab(tabName) {
     tabs.forEach(function(x) { x.classList.remove('active'); });
@@ -750,18 +781,27 @@ function buildJS(filterCols: FilterColInfo[]): string {
     if (btn) btn.classList.add('active');
     var target = document.getElementById('tab-' + tabName);
     if (target) { target.style.display = ''; target.classList.add('active'); }
-    // Show/hide filters bar based on tab
-    if (filtersBar) {
-      if (dataTabs[tabName]) {
-        filtersBar.classList.remove('hidden');
-      } else {
-        filtersBar.classList.add('hidden');
-      }
-    }
   }
 
   tabs.forEach(function(t) {
     t.addEventListener('click', function() { switchTab(t.dataset.tab); });
+  });
+
+  // --- Sub-tabs (Concepts / Dimensions) ---
+  var subtabs = document.querySelectorAll('.subtab');
+  var subtabContents = document.querySelectorAll('.subtab-content');
+
+  function switchSubtab(name) {
+    subtabs.forEach(function(x) { x.classList.remove('active'); });
+    subtabContents.forEach(function(x) { x.style.display = 'none'; x.classList.remove('active'); });
+    var btn = document.querySelector('.subtab[data-subtab="' + name + '"]');
+    if (btn) btn.classList.add('active');
+    var target = document.getElementById('subtab-' + name);
+    if (target) { target.style.display = ''; target.classList.add('active'); }
+  }
+
+  subtabs.forEach(function(t) {
+    t.addEventListener('click', function() { switchSubtab(t.dataset.subtab); });
   });
 
   // --- JSON-LD overlay ---
@@ -789,65 +829,47 @@ function buildJS(filterCols: FilterColInfo[]): string {
     });
   }
 
-  // --- Data + state ---
-  var allData = CATALOG_DATA;
-  var filtered = allData;
-  var colCount = allData.length > 0 ? allData[0].length : 0;
+  // --- Concept data + state ---
+  var allConcepts = CONCEPTS;
+  var filteredConcepts = allConcepts;
+  var conceptColCount = allConcepts.length > 0 ? allConcepts[0].length : 0;
   var page = 0;
   var pageSize = 100;
   var sortCol = -1, sortAsc = true;
 
-  var tbody = document.getElementById('catalog-tbody');
-  var search = document.getElementById('search');
-  var rowCountEl = document.getElementById('row-count');
-  var prevBtn = document.getElementById('page-prev');
-  var nextBtn = document.getElementById('page-next');
-  var pageInfoEl = document.getElementById('page-info');
-  var pageSizeSel = document.getElementById('page-size');
+  var tbody = document.getElementById('concept-tbody');
+  var search = document.getElementById('concept-search');
+  var rowCountEl = document.getElementById('concept-row-count');
+  var prevBtn = document.getElementById('concept-page-prev');
+  var nextBtn = document.getElementById('concept-page-next');
+  var pageInfoEl = document.getElementById('concept-page-info');
+  var pageSizeSel = document.getElementById('concept-page-size');
   var statsGrid = document.getElementById('stats-grid');
   var chartsGrid = document.getElementById('charts-grid');
 
-  var filterCols = ${JSON.stringify(filterCols)};
+  var filterCols = ${JSON.stringify(conceptFilterCols)};
   var chartDefs = CHART_DEFS;
   var meta = CATALOG_META;
+  var dimData = DIMENSIONS;
+  var dimIds = DIM_IDS;
 
-  // Map column keys to indices in the row array (via <th data-col>)
+  // Map column keys to indices in the concept row array (via <th data-col>)
   var colMap = {};
-  var headers = document.querySelectorAll('#catalog-table th');
+  var headers = document.querySelectorAll('#concept-table th');
   for (var i = 0; i < headers.length; i++) {
     var key = headers[i].dataset.col;
     if (key) colMap[key] = i;
   }
 
-  // --- Populate filter dropdowns (non-date) ---
+  // --- Populate concept filter dropdowns ---
   filterCols.forEach(function(fc) {
-    if (fc.isDate) {
-      var idx = colMap[fc.key];
-      if (idx == null) return;
-      var fromEl = document.getElementById('filter-' + fc.key + '-from');
-      var toEl = document.getElementById('filter-' + fc.key + '-to');
-      if (!fromEl || !toEl) return;
-      var minD = null, maxD = null;
-      allData.forEach(function(r) {
-        var v = String(r[idx] || '');
-        if (!v) return;
-        var d = v.length === 7 ? v + '-01' : v;
-        if (!minD || d < minD) minD = d;
-        if (!maxD || d > maxD) maxD = d;
-      });
-      if (minD) { fromEl.min = minD; fromEl.value = minD; toEl.min = minD; }
-      if (maxD) { fromEl.max = maxD; toEl.max = maxD; toEl.value = maxD; }
-      fromEl.addEventListener('change', function() { page = 0; applyFilters(); });
-      toEl.addEventListener('change', function() { page = 0; applyFilters(); });
-      return;
-    }
     var sel = document.getElementById('filter-' + fc.key);
     if (!sel) return;
-    var idx2 = colMap[fc.key];
-    if (idx2 == null) return;
+    var idx = colMap[fc.key];
+    if (idx == null) return;
     var vals = {};
-    allData.forEach(function(r) {
-      var v = r[idx2];
+    allConcepts.forEach(function(r) {
+      var v = r[idx];
       if (v != null && v !== '') vals[v] = true;
     });
     Object.keys(vals).sort().forEach(function(v) {
@@ -855,29 +877,20 @@ function buildJS(filterCols: FilterColInfo[]): string {
       opt.value = v; opt.textContent = v;
       sel.appendChild(opt);
     });
-    sel.addEventListener('change', function() { page = 0; applyFilters(); });
+    sel.addEventListener('change', function() { page = 0; applyConceptFilters(); });
   });
 
-  // --- Filter logic ---
-  function applyFilters() {
+  // --- Concept filter logic ---
+  function applyConceptFilters() {
     var q = search ? search.value.toLowerCase() : '';
     var selectFilters = {};
-    var dateFilters = {};
 
     filterCols.forEach(function(fc) {
-      if (fc.isDate) {
-        var fromEl = document.getElementById('filter-' + fc.key + '-from');
-        var toEl = document.getElementById('filter-' + fc.key + '-to');
-        if (fromEl && toEl && (fromEl.value || toEl.value)) {
-          dateFilters[fc.key] = { from: fromEl.value || '', to: toEl.value || '' };
-        }
-      } else {
-        var sel = document.getElementById('filter-' + fc.key);
-        if (sel && sel.value) selectFilters[fc.key] = sel.value;
-      }
+      var sel = document.getElementById('filter-' + fc.key);
+      if (sel && sel.value) selectFilters[fc.key] = sel.value;
     });
 
-    filtered = allData.filter(function(r) {
+    filteredConcepts = allConcepts.filter(function(r) {
       if (q) {
         var haystack = (String(r[0]) + ' ' + String(r[1])).toLowerCase();
         if (haystack.indexOf(q) === -1) return false;
@@ -886,87 +899,34 @@ function buildJS(filterCols: FilterColInfo[]): string {
         var idx = colMap[key];
         if (idx != null && String(r[idx]) !== selectFilters[key]) return false;
       }
-      for (var dkey in dateFilters) {
-        var didx = colMap[dkey];
-        if (didx == null) continue;
-        var val = String(r[didx] || '');
-        if (!val) return false;
-        var norm = val.length === 7 ? val + '-01' : val;
-        var df = dateFilters[dkey];
-        if (df.from && norm < df.from) return false;
-        var normEnd = val.length === 7 ? val + '-31' : val;
-        if (df.to && normEnd > df.to + (df.to.length === 7 ? '-31' : '')) return false;
-      }
       return true;
     });
 
-    renderDashboard();
-    renderPage();
+    renderConceptPage();
   }
 
-  // --- Margins data (from GROUPING SETS, pre-computed accurate counts) ---
-  var margins = (typeof CATALOG_MARGINS !== 'undefined') ? CATALOG_MARGINS : null;
-
-  // Check if any filter is active
-  function isFiltered() {
-    if (search && search.value.trim()) return true;
-    for (var i = 0; i < filterCols.length; i++) {
-      var fc = filterCols[i];
-      if (fc.isDate) {
-        var fromEl = document.getElementById('filter-' + fc.key + '-from');
-        var toEl = document.getElementById('filter-' + fc.key + '-to');
-        if (fromEl && toEl && (fromEl.value !== (fromEl.min || '') || toEl.value !== (toEl.max || ''))) return true;
-      } else {
-        var sel = document.getElementById('filter-' + fc.key);
-        if (sel && sel.value) return true;
-      }
-    }
-    return false;
-  }
-
-  // Patient count column index (3rd from end, before visits, records, isAnonymized)
-  var patientColIdx = colCount - 4;
-  var visitColIdx = colCount - 3;
+  // Patient/visit/record column indices (last 4 columns: patients, visits, records, isAnonymized)
+  var patientColIdx = conceptColCount - 4;
+  var visitColIdx = conceptColCount - 3;
+  var recordColIdx = conceptColCount - 2;
 
   // --- Dashboard rendering ---
   function renderDashboard() {
-    var concepts = {};
-    var totalRows = filtered.length;
-    var anonRows = 0;
-    filtered.forEach(function(r) {
-      concepts[r[0]] = true;
-      if (r[colCount - 1] === true) anonRows++;
-    });
-    var filteredConcepts = Object.keys(concepts).length;
-    var hasFilters = isFiltered();
-
     statsGrid.innerHTML =
-      statCard(filteredConcepts, 'Concepts') +
+      statCard(meta.totalConcepts, 'Concepts') +
       statCard(meta.totalPatients, 'Unique patients') +
       statCard(meta.totalVisits, 'Unique visits') +
-      statCard(totalRows, 'Data rows' + (totalRows !== allData.length ? ' (filtered)' : '')) +
-      statCard(anonRows, (meta.mode === 'suppress' ? 'Suppressed' : 'Anonymized') + ' rows');
+      statCard(meta.totalRecords, 'Records') +
+      statCard(meta.anonymizedConcepts + meta.anonymizedDimensions, (meta.mode === 'suppress' ? 'Suppressed' : 'Anonymized') + ' rows');
 
+    // Charts use dimension data directly (always accurate — no overcounting)
     var html = '';
     chartDefs.forEach(function(cd) {
-      var idx = colMap[cd.key];
-      if (idx == null) return;
-      var entries;
+      var rows = dimData[cd.dimId];
+      if (!rows || rows.length === 0) return;
 
-      // Use accurate GROUPING SETS margins when unfiltered, fallback to leaf-row sums when filtered
-      if (!hasFilters && margins && margins[cd.key]) {
-        entries = margins[cd.key].map(function(m) { return [String(m[0]), m[1]]; });
-      } else {
-        var map = {};
-        filtered.forEach(function(r) {
-          var k = r[idx];
-          if (k == null || k === '') k = 'Unknown';
-          k = String(k);
-          map[k] = (map[k] || 0) + r[patientColIdx];
-        });
-        entries = [];
-        for (var k in map) entries.push([k, map[k]]);
-      }
+      // rows: [[value, patients, visits, records, isAnon], ...]
+      var entries = rows.map(function(r) { return [String(r[0]), r[1]]; });
 
       if (cd.type === 'vertical') {
         entries.sort(function(a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
@@ -974,7 +934,6 @@ function buildJS(filterCols: FilterColInfo[]): string {
         entries.sort(function(a, b) { return b[1] - a[1]; });
       }
       if (cd.limit > 0 && entries.length > cd.limit) entries = entries.slice(0, cd.limit);
-      if (entries.length === 0) return;
 
       if (cd.type === 'vertical') {
         html += buildVerticalChart(cd.title, entries);
@@ -1018,25 +977,25 @@ function buildJS(filterCols: FilterColInfo[]): string {
     return '<div class="chart-card"><h3 class="chart-title">' + escHtml(title) + '</h3>' + axis + '<div class="vchart-bars">' + bars + '</div><div class="vchart-labels">' + labels + '</div></div>';
   }
 
-  // --- Data table rendering (paginated) ---
-  function renderPage() {
-    var totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // --- Concept table rendering (paginated) ---
+  function renderConceptPage() {
+    var totalPages = Math.max(1, Math.ceil(filteredConcepts.length / pageSize));
     if (page >= totalPages) page = totalPages - 1;
     if (page < 0) page = 0;
 
     var start = page * pageSize;
-    var end = Math.min(start + pageSize, filtered.length);
-    var slice = filtered.slice(start, end);
+    var end = Math.min(start + pageSize, filteredConcepts.length);
+    var slice = filteredConcepts.slice(start, end);
 
     var html = '';
     for (var i = 0; i < slice.length; i++) {
       var r = slice[i];
-      var isAnon = r[colCount - 1] === true;
+      var isAnon = r[conceptColCount - 1] === true;
       var prefix = isAnon ? '&lt; ' : '';
       html += '<tr' + (isAnon ? ' class="anonymized"' : '') + '>';
-      for (var c = 0; c < colCount - 1; c++) {
+      for (var c = 0; c < conceptColCount - 1; c++) {
         var val = r[c];
-        if (c >= colCount - 4) {
+        if (c >= conceptColCount - 4) {
           html += '<td class="num">' + prefix + Number(val).toLocaleString() + '</td>';
         } else {
           html += '<td>' + escHtml(String(val != null ? val : '')) + '</td>';
@@ -1046,10 +1005,38 @@ function buildJS(filterCols: FilterColInfo[]): string {
     }
     tbody.innerHTML = html;
 
-    if (rowCountEl) rowCountEl.textContent = filtered.length + ' rows';
+    if (rowCountEl) rowCountEl.textContent = filteredConcepts.length + ' concepts';
     if (pageInfoEl) pageInfoEl.textContent = 'Page ' + (page + 1) + ' / ' + totalPages;
     if (prevBtn) prevBtn.disabled = page === 0;
     if (nextBtn) nextBtn.disabled = page >= totalPages - 1;
+  }
+
+  // --- Dimension table rendering ---
+  function renderDimensionTables() {
+    dimIds.forEach(function(dimId) {
+      var tableEl = document.getElementById('dim-table-' + dimId);
+      if (!tableEl) return;
+      var dimTbody = tableEl.querySelector('tbody');
+      if (!dimTbody) return;
+      var rows = dimData[dimId] || [];
+
+      // Sort by patient count descending
+      rows.sort(function(a, b) { return b[1] - a[1]; });
+
+      var html = '';
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var isAnon = r[4] === true;
+        var prefix = isAnon ? '&lt; ' : '';
+        html += '<tr' + (isAnon ? ' class="anonymized"' : '') + '>';
+        html += '<td>' + escHtml(String(r[0])) + '</td>';
+        html += '<td class="num">' + prefix + Number(r[1]).toLocaleString() + '</td>';
+        html += '<td class="num">' + prefix + Number(r[2]).toLocaleString() + '</td>';
+        html += '<td class="num">' + prefix + Number(r[3]).toLocaleString() + '</td>';
+        html += '</tr>';
+      }
+      dimTbody.innerHTML = html;
+    });
   }
 
   function escHtml(s) {
@@ -1059,44 +1046,37 @@ function buildJS(filterCols: FilterColInfo[]): string {
     return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // --- Clear all filters ---
-  var clearBtn = document.getElementById('clear-filters');
+  // --- Clear concept filters ---
+  var clearBtn = document.getElementById('concept-clear-filters');
   if (clearBtn) {
     clearBtn.addEventListener('click', function() {
       if (search) search.value = '';
       filterCols.forEach(function(fc) {
-        if (fc.isDate) {
-          var fromEl = document.getElementById('filter-' + fc.key + '-from');
-          var toEl = document.getElementById('filter-' + fc.key + '-to');
-          if (fromEl) { fromEl.value = fromEl.min || ''; }
-          if (toEl) { toEl.value = toEl.max || ''; }
-        } else {
-          var sel = document.getElementById('filter-' + fc.key);
-          if (sel) sel.value = '';
-        }
+        var sel = document.getElementById('filter-' + fc.key);
+        if (sel) sel.value = '';
       });
       page = 0;
-      applyFilters();
+      applyConceptFilters();
     });
   }
 
-  // --- Search (debounced) ---
+  // --- Concept search (debounced) ---
   var searchTimer;
   if (search) search.addEventListener('input', function() {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(function() { page = 0; applyFilters(); }, 200);
+    searchTimer = setTimeout(function() { page = 0; applyConceptFilters(); }, 200);
   });
 
-  // --- Pagination ---
-  if (prevBtn) prevBtn.addEventListener('click', function() { if (page > 0) { page--; renderPage(); } });
-  if (nextBtn) nextBtn.addEventListener('click', function() { page++; renderPage(); });
+  // --- Concept pagination ---
+  if (prevBtn) prevBtn.addEventListener('click', function() { if (page > 0) { page--; renderConceptPage(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function() { page++; renderConceptPage(); });
   if (pageSizeSel) pageSizeSel.addEventListener('change', function() {
     pageSize = parseInt(this.value) || 100;
     page = 0;
-    renderPage();
+    renderConceptPage();
   });
 
-  // --- Sort ---
+  // --- Concept sort ---
   headers.forEach(function(th) {
     if (!th.classList.contains('sortable')) return;
     th.addEventListener('click', function() {
@@ -1108,7 +1088,7 @@ function buildJS(filterCols: FilterColInfo[]): string {
         if (h.dataset.col) h.textContent = h.textContent.replace(/ [\\u25B2\\u25BC]/, '');
       });
       th.textContent += sortAsc ? ' \\u25B2' : ' \\u25BC';
-      filtered.sort(function(a, b) {
+      filteredConcepts.sort(function(a, b) {
         var va = a[colIdx], vb = b[colIdx];
         if (isNum) {
           va = typeof va === 'number' ? va : (parseFloat(String(va).replace(/[<,]/g, '')) || 0);
@@ -1122,12 +1102,82 @@ function buildJS(filterCols: FilterColInfo[]): string {
         return 0;
       });
       page = 0;
-      renderPage();
+      renderConceptPage();
     });
   });
 
   // --- Initial render ---
-  applyFilters();
+  renderDashboard();
+  applyConceptFilters();
+  renderDimensionTables();
 })();
 `
+}
+
+// ---------------------------------------------------------------------------
+// CSV export builders
+// ---------------------------------------------------------------------------
+
+function csvEscape(value: string | number | null | undefined): string {
+  if (value == null) return ''
+  const str = String(value)
+  if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+    return `"${str.replace(/"/g, '""')}"`
+  }
+  return str
+}
+
+/** Build CSV string from concept rows with anonymization applied. */
+export function buildConceptsCsv(
+  concepts: CatalogConceptRow[],
+  catalog: DataCatalog,
+): string {
+  const threshold = catalog.anonymization.threshold
+  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
+
+  const header = ['concept_id', 'concept_name', 'vocabulary', 'category', 'subcategory',
+    'patient_count', 'visit_count', 'record_count']
+  const rows: string[] = [header.join(',')]
+
+  for (const r of concepts) {
+    if (mode === 'suppress' && r.patientCount < threshold) continue
+    const belowThreshold = r.patientCount < threshold
+    const pc = mode === 'replace' && belowThreshold ? threshold : r.patientCount
+    const vc = mode === 'replace' && belowThreshold ? threshold : r.visitCount
+    const rc = mode === 'replace' && belowThreshold ? threshold : r.recordCount
+    rows.push([
+      csvEscape(r.conceptId), csvEscape(r.conceptName),
+      csvEscape(r.dictionaryKey ?? ''), csvEscape(r.category ?? ''), csvEscape(r.subcategory ?? ''),
+      String(pc), String(vc), String(rc),
+    ].join(','))
+  }
+
+  return rows.join('\n')
+}
+
+/** Build CSV string from dimension rows with anonymization applied. */
+export function buildDimensionsCsv(
+  dimensions: CatalogDimensionRow[],
+  catalog: DataCatalog,
+): string {
+  const threshold = catalog.anonymization.threshold
+  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
+
+  const header = ['dimension_id', 'dimension_type', 'value',
+    'patient_count', 'visit_count', 'record_count']
+  const rows: string[] = [header.join(',')]
+
+  for (const r of dimensions) {
+    if (mode === 'suppress' && r.patientCount < threshold) continue
+    const belowThreshold = r.patientCount < threshold
+    const pc = mode === 'replace' && belowThreshold ? threshold : r.patientCount
+    const vc = mode === 'replace' && belowThreshold ? threshold : r.visitCount
+    const rc = mode === 'replace' && belowThreshold ? threshold : r.recordCount
+    rows.push([
+      csvEscape(r.dimensionId), csvEscape(r.dimensionType), csvEscape(r.value),
+      String(pc), String(vc), String(rc),
+    ].join(','))
+  }
+
+  return rows.join('\n')
 }

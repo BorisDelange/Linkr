@@ -8,7 +8,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { seedDemoDatabase, seedMimicIVRawDatabase, seedOmopVocabulary, seedDemoMappingProject, seedDemoDqRuleSet, seedDemoConceptMappings } from '@/lib/demo-seed'
+import { seedDemoDatabase, seedMimicIVRawDatabase, seedOmopVocabulary, seedDemoMappingProject, seedDemoConceptMappings, seedDemoEtlPipeline, seedDemoDqRuleSet } from '@/lib/demo-seed'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -83,6 +83,7 @@ export function App() {
         .then(() => seedOmopVocabulary())
         .then(() => seedDemoMappingProject())
         .then(() => seedDemoConceptMappings())
+        .then(() => seedDemoEtlPipeline())
         .then(() => seedDemoDqRuleSet())
         .then(() => {
           loadProjects()
