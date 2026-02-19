@@ -2,60 +2,136 @@
  * Standalone HTML export for concept catalogs.
  *
  * Generates a self-contained HTML page with:
- * - Embedded JSON-LD (machine-readable metadata)
- * - Interactive data table (vanilla JS search + sort)
- * - Summary statistics
- * - DCAT-AP metadata display
- * - Anonymization: rows below threshold are excluded
+ * - Embedded JSON-LD (machine-readable metadata, always included)
+ * - Four tabs: Metadata (JSON-LD), Schema (data dictionary), Dashboard (stats + charts), Data Table (paginated)
+ * - Shared filters above tabs (apply to Dashboard and Data Table)
+ * - Anonymization: rows below threshold are either capped (replace) or removed (suppress)
  */
 
-import type { DataCatalog, CatalogResultCache, CatalogResultRow, SchemaMapping } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogResultRow, CatalogMarginRow, SchemaMapping, AnonymizationMode } from '@/types'
 import { buildJsonLd } from './jsonld'
+import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
 
 export interface ExportHtmlOptions {
   catalog: DataCatalog
   cache: CatalogResultCache
   schemaMapping?: SchemaMapping | null
-  /** Rows below this patient count are excluded. Defaults to catalog.anonymization.threshold. */
-  threshold?: number
-  /** Include JSON-LD in the HTML. Default true. */
-  includeJsonLd?: boolean
 }
 
 export function generateCatalogHtml(opts: ExportHtmlOptions): string {
   const { catalog, cache, schemaMapping } = opts
-  const threshold = opts.threshold ?? catalog.anonymization.threshold
-  const includeJsonLd = opts.includeJsonLd !== false
+  const threshold = catalog.anonymization.threshold
+  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
-  // Filter rows by anonymization threshold
-  const rows = cache.rows.filter((r) => r.patientCount >= threshold)
+  // Apply anonymization to leaf rows
+  let rows: CatalogResultRow[]
+  let anonymizedCount = 0
+  if (mode === 'suppress') {
+    rows = cache.rows.filter((r) => r.patientCount >= threshold)
+    anonymizedCount = cache.rows.length - rows.length
+  } else {
+    rows = cache.rows.map((r) => {
+      if (r.patientCount < threshold) {
+        anonymizedCount++
+        return { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
+      }
+      return r
+    })
+  }
+
+  // Apply anonymization to margin rows
+  const anonymizedMargins: Record<string, [string | number, number, number][]> = {}
+  if (cache.margins) {
+    for (const [dimId, marginRows] of Object.entries(cache.margins.byDimension)) {
+      const anonMargins: [string | number, number, number][] = []
+      for (const m of marginRows) {
+        if (mode === 'suppress' && m.patientCount < threshold) continue
+        const pc = mode === 'replace' && m.patientCount < threshold ? threshold : m.patientCount
+        const vc = mode === 'replace' && m.visitCount < threshold ? threshold : m.visitCount
+        anonMargins.push([m.value, pc, vc])
+      }
+      anonymizedMargins[`dim_${dimId}`] = anonMargins
+    }
+  }
+
+  // Check for multiple dictionaries
+  const dictionaryKeys = new Set(rows.map((r) => r.dictionaryKey).filter(Boolean))
+  const hasDictionary = dictionaryKeys.size > 1
 
   // Collect dimension keys from the first row
   const dimensionKeys = rows.length > 0 ? Object.keys(rows[0].dimensions) : []
 
-  // Summary stats
+  // Summary stats (unfiltered)
   const totalConcepts = new Set(rows.map((r) => r.conceptId)).size
   const totalPatients = cache.totalPatients
-  const totalRows = rows.length
-  const suppressedRows = cache.rows.length - rows.length
+  const totalVisits = cache.totalVisits ?? 0
 
   // JSON-LD
   const metadata = catalog.dcatApMetadata ?? {}
-  const jsonLd = includeJsonLd
-    ? JSON.stringify(buildJsonLd({ metadata, schemaMapping, cache }), null, 2)
-    : null
+  const jsonLdObj = buildJsonLd({ metadata, schemaMapping, cache })
+  const jsonLd = JSON.stringify(jsonLdObj, null, 2)
 
   const catalogTitle = (metadata['catalog.title'] as string) || catalog.name
   const catalogDesc = (metadata['catalog.description'] as string) || catalog.description || ''
   const publisher = (metadata['agent.name'] as string) || (metadata['catalog.publisher'] as string) || ''
+
+  // Build filter columns info for JS — mark date dimensions
+  const filterCols: FilterColInfo[] = []
+  if (hasDictionary) filterCols.push({ key: 'dictionaryKey', label: 'Vocabulary', isDate: false })
+  if (catalog.categoryColumn) filterCols.push({ key: 'category', label: 'Category', isDate: false })
+  if (catalog.subcategoryColumn) filterCols.push({ key: 'subcategory', label: 'Subcategory', isDate: false })
+  for (const k of dimensionKeys) {
+    const dim = catalog.dimensions.find((d) => d.id === k)
+    const isDate = dim?.type === 'admission_date'
+    filterCols.push({ key: `dim_${k}`, label: titleCase(k), isDate })
+  }
+
+  // Build chart definitions for JS
+  const chartDefs: ChartDef[] = []
+  if (hasDictionary) chartDefs.push({ key: 'dictionaryKey', title: 'Vocabulary distribution', type: 'horizontal', limit: 0 })
+  if (catalog.categoryColumn) chartDefs.push({ key: 'category', title: 'Category distribution', type: 'horizontal', limit: 20 })
+  if (catalog.subcategoryColumn) chartDefs.push({ key: 'subcategory', title: 'Subcategory distribution (top 20)', type: 'horizontal', limit: 20 })
+  for (const k of dimensionKeys) {
+    const dim = catalog.dimensions.find((d) => d.id === k)
+    const isDate = dim?.type === 'admission_date'
+    chartDefs.push({
+      key: `dim_${k}`,
+      title: `${titleCase(k)} distribution`,
+      type: isDate ? 'vertical' : 'horizontal',
+      limit: 30,
+    })
+  }
+
+  // Build filter HTML — date dims get range inputs, others get dropdowns
+  const filterHtml = filterCols.map((f) => {
+    if (f.isDate) {
+      return `      <div class="date-range-filter" data-col="${f.key}">
+        <label class="filter-label">${esc(f.label)}</label>
+        <input type="date" id="filter-${f.key}-from" class="date-input" />
+        <span class="date-sep">—</span>
+        <input type="date" id="filter-${f.key}-to" class="date-input" />
+      </div>`
+    }
+    return `      <select id="filter-${f.key}" class="filter-select" data-col="${f.key}"><option value="">All ${esc(f.label)}</option></select>`
+  }).join('\n')
+
+  // Build schema HTML from SchemaMapping
+  const schemaHtml = buildSchemaHtml(schemaMapping)
+
+  // Build metadata rendered UI + raw JSON-LD
+  const metadataRenderedHtml = buildMetadataRenderedHtml(metadata)
+  const jsonLdHighlighted = syntaxHighlight(jsonLd)
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${escHtml(catalogTitle)} — Concept Catalog</title>
-${jsonLd ? `<script type="application/ld+json">\n${escHtml(jsonLd)}\n</script>` : ''}
+<title>${esc(catalogTitle)} — Concept Catalog</title>
+<script type="application/ld+json">
+${esc(jsonLd)}
+</script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
 <style>
 ${CSS}
 </style>
@@ -63,97 +139,371 @@ ${CSS}
 <body>
 <div class="container">
   <header>
-    <h1>${escHtml(catalogTitle)}</h1>
-    ${catalogDesc ? `<p class="description">${escHtml(catalogDesc)}</p>` : ''}
-    ${publisher ? `<p class="publisher">${escHtml(publisher)}</p>` : ''}
-    <p class="generated">Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} by LinkR</p>
+    <h1>${esc(catalogTitle)}</h1>
+    ${catalogDesc ? `<p class="description">${esc(catalogDesc)}</p>` : ''}
+    ${publisher ? `<p class="publisher">${esc(publisher)}</p>` : ''}
+    <p class="generated">Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} by Linkr</p>
   </header>
 
-  <div class="stats-grid">
-    <div class="stat-card">
-      <div class="stat-value">${totalConcepts.toLocaleString()}</div>
-      <div class="stat-label">Concepts</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">${totalPatients.toLocaleString()}</div>
-      <div class="stat-label">Unique patients</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">${totalRows.toLocaleString()}</div>
-      <div class="stat-label">Data rows</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-value">${suppressedRows.toLocaleString()}</div>
-      <div class="stat-label">Suppressed rows (threshold &lt; ${threshold})</div>
-    </div>
-  </div>
-
-  <div class="table-controls">
+  <!-- Shared filters (apply to Dashboard + Data Table) -->
+  <div class="filters-bar hidden" id="filters-bar">
     <input type="text" id="search" placeholder="Search concepts..." class="search-input" />
-    <span id="row-count" class="row-count">${totalRows} rows</span>
+${filterHtml}
+    <button id="clear-filters" class="clear-btn" title="Clear all filters"><i class="fa-solid fa-xmark"></i> Clear</button>
+    <span id="row-count" class="row-count"></span>
   </div>
 
-  <div class="table-wrapper">
-    <table id="catalog-table">
-      <thead>
-        <tr>
-          <th data-col="conceptId" class="sortable">Concept ID</th>
-          <th data-col="conceptName" class="sortable">Concept Name</th>
-${catalog.categoryColumn ? `          <th data-col="category" class="sortable">Category</th>\n` : ''}${catalog.subcategoryColumn ? `          <th data-col="subcategory" class="sortable">Subcategory</th>\n` : ''}${dimensionKeys.map((k) => `          <th data-col="dim_${k}" class="sortable">${escHtml(titleCase(k))}</th>`).join('\n')}
-          <th data-col="patientCount" class="sortable num">Patients</th>
-          <th data-col="recordCount" class="sortable num">Records</th>
-        </tr>
-      </thead>
-      <tbody>
-${buildTableRows(rows, dimensionKeys, catalog.categoryColumn, catalog.subcategoryColumn)}
-      </tbody>
-    </table>
+  <!-- Tab navigation -->
+  <div class="tabs">
+    <button class="tab active" data-tab="metadata">Metadata</button>
+    <button class="tab" data-tab="schema">Schema</button>
+    <button class="tab" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="datatable">Data Table</button>
+  </div>
+
+  <!-- Metadata tab: rendered UI + JSON-LD viewer button -->
+  <div id="tab-metadata" class="tab-content active">
+    <div class="metadata-section">
+      <div class="metadata-header">
+        <h2 class="metadata-title">Health-DCAT-AP Release 6</h2>
+        <p class="metadata-subtitle">EHDS Regulation (EU) 2025/327</p>
+        <button class="jsonld-view-btn" id="open-jsonld" title="View raw JSON-LD source"><i class="fa-solid fa-code"></i> JSON-LD</button>
+      </div>
+${metadataRenderedHtml}
+    </div>
+  </div>
+
+  <!-- JSON-LD fullscreen overlay -->
+  <div id="jsonld-overlay" class="jsonld-overlay" style="display:none">
+    <div class="jsonld-overlay-header">
+      <span class="jsonld-overlay-title"><i class="fa-solid fa-code"></i> JSON-LD Source</span>
+      <div class="jsonld-overlay-actions">
+        <button class="copy-btn" id="copy-jsonld" title="Copy to clipboard">Copy</button>
+        <button class="jsonld-close-btn" id="close-jsonld" title="Close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+    </div>
+    <pre class="json-block jsonld-overlay-code"><code id="jsonld-code">${jsonLdHighlighted}</code></pre>
+  </div>
+
+  <!-- Schema tab: data dictionary -->
+  <div id="tab-schema" class="tab-content" style="display:none">
+    <div class="schema-section">
+      <h2 class="metadata-title">Data Schema${schemaMapping?.presetLabel ? ` — ${esc(schemaMapping.presetLabel)}` : ''}</h2>
+      <p class="metadata-subtitle">Source warehouse structure · tables and columns</p>
+${schemaHtml}
+    </div>
+  </div>
+
+  <!-- Dashboard tab -->
+  <div id="tab-dashboard" class="tab-content" style="display:none">
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="charts-grid" id="charts-grid"></div>
+  </div>
+
+  <!-- Data Table tab -->
+  <div id="tab-datatable" class="tab-content" style="display:none">
+    <div class="table-wrapper">
+      <table id="catalog-table">
+        <thead>
+          <tr>
+            <th data-col="conceptId" class="sortable">Concept ID</th>
+            <th data-col="conceptName" class="sortable">Concept Name</th>
+${hasDictionary ? '            <th data-col="dictionaryKey" class="sortable">Vocabulary</th>\n' : ''}${catalog.categoryColumn ? '            <th data-col="category" class="sortable">Category</th>\n' : ''}${catalog.subcategoryColumn ? '            <th data-col="subcategory" class="sortable">Subcategory</th>\n' : ''}${dimensionKeys.map((k) => `            <th data-col="dim_${k}" class="sortable">${esc(titleCase(k))}</th>`).join('\n')}
+            <th data-col="patientCount" class="sortable num">Patients</th>
+            <th data-col="visitCount" class="sortable num">Visits</th>
+            <th data-col="recordCount" class="sortable num">Records</th>
+          </tr>
+        </thead>
+        <tbody id="catalog-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="pagination" id="pagination">
+      <button id="page-prev" class="page-btn" disabled>&laquo; Prev</button>
+      <span id="page-info" class="page-info">Page 1</span>
+      <button id="page-next" class="page-btn">Next &raquo;</button>
+      <select id="page-size" class="filter-select">
+        <option value="100">100 rows</option>
+        <option value="250">250 rows</option>
+        <option value="500">500 rows</option>
+        <option value="1000">1000 rows</option>
+      </select>
+    </div>
   </div>
 
   <footer>
-    <p>Anonymization threshold: ${threshold} patients minimum per row. ${suppressedRows} row${suppressedRows !== 1 ? 's' : ''} suppressed.</p>
+    <p>Anonymization: threshold = ${threshold} patients · mode = ${mode === 'suppress' ? 'suppress (rows removed)' : 'replace (counts capped)'} · ${anonymizedCount} row${anonymizedCount !== 1 ? 's' : ''} affected.</p>
     <p>Health-DCAT-AP Release 6 · EHDS Regulation (EU) 2025/327</p>
   </footer>
 </div>
 
 <script>
-${JS}
+var CATALOG_DATA = ${buildRowsJson(rows, dimensionKeys, hasDictionary, !!catalog.categoryColumn, !!catalog.subcategoryColumn)};
+var CATALOG_META = ${JSON.stringify({ totalConcepts, totalPatients, totalVisits, anonymizedCount, threshold, mode })};
+var CHART_DEFS = ${JSON.stringify(chartDefs)};
+var CATALOG_MARGINS = ${JSON.stringify(anonymizedMargins)};
+${buildJS(filterCols)}
 </script>
 </body>
 </html>`
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Schema HTML builder
 // ---------------------------------------------------------------------------
 
-function buildTableRows(
-  rows: CatalogResultRow[],
-  dimensionKeys: string[],
-  categoryColumn?: string,
-  subcategoryColumn?: string,
-): string {
-  return rows.map((r) => {
-    const cells = [
-      `        <td>${escHtml(String(r.conceptId))}</td>`,
-      `        <td>${escHtml(r.conceptName)}</td>`,
+function buildSchemaHtml(schemaMapping?: SchemaMapping | null): string {
+  if (!schemaMapping) {
+    return '      <p class="schema-empty">No schema mapping available.</p>'
+  }
+
+  const tables: { name: string; description: string; columns: { name: string; title: string; description: string; datatype: string }[] }[] = []
+
+  // Patient table
+  if (schemaMapping.patientTable) {
+    const pt = schemaMapping.patientTable
+    const cols = [
+      { name: pt.idColumn, title: 'Patient ID', description: 'Primary key', datatype: 'integer' },
     ]
-    if (categoryColumn) {
-      cells.push(`        <td>${escHtml(r.category ?? '')}</td>`)
+    if (pt.birthDateColumn) cols.push({ name: pt.birthDateColumn, title: 'Birth date', description: 'Date of birth', datatype: 'date' })
+    if (pt.birthYearColumn) cols.push({ name: pt.birthYearColumn, title: 'Birth year', description: 'Year of birth', datatype: 'integer' })
+    if (pt.genderColumn) cols.push({ name: pt.genderColumn, title: 'Gender', description: 'Gender value', datatype: 'string' })
+    tables.push({ name: pt.table, description: 'Patient demographics', columns: cols })
+  }
+
+  // Visit table
+  if (schemaMapping.visitTable) {
+    const vt = schemaMapping.visitTable
+    const cols = [
+      { name: vt.idColumn, title: 'Visit ID', description: 'Primary key', datatype: 'integer' },
+      { name: vt.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' },
+      { name: vt.startDateColumn, title: 'Start date', description: 'Visit start', datatype: 'datetime' },
+    ]
+    if (vt.endDateColumn) cols.push({ name: vt.endDateColumn, title: 'End date', description: 'Visit end', datatype: 'datetime' })
+    if (vt.typeColumn) cols.push({ name: vt.typeColumn, title: 'Visit type', description: 'Type of visit', datatype: 'string' })
+    tables.push({ name: vt.table, description: 'Visit / encounter records', columns: cols })
+  }
+
+  // Visit detail table
+  if (schemaMapping.visitDetailTable) {
+    const vd = schemaMapping.visitDetailTable
+    const cols = [
+      { name: vd.idColumn, title: 'Visit detail ID', description: 'Primary key', datatype: 'integer' },
+      { name: vd.visitIdColumn, title: 'Visit ID', description: 'FK → visit', datatype: 'integer' },
+      { name: vd.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' },
+      { name: vd.startDateColumn, title: 'Start date', description: 'Sub-visit start', datatype: 'datetime' },
+    ]
+    if (vd.endDateColumn) cols.push({ name: vd.endDateColumn, title: 'End date', description: 'Sub-visit end', datatype: 'datetime' })
+    if (vd.unitColumn) cols.push({ name: vd.unitColumn, title: 'Care site', description: 'Unit identifier', datatype: 'string' })
+    tables.push({ name: vd.table, description: 'Visit detail / unit stays', columns: cols })
+  }
+
+  // Concept dictionary tables
+  if (schemaMapping.conceptTables) {
+    for (const cd of schemaMapping.conceptTables) {
+      const cols = [
+        { name: cd.idColumn, title: 'Concept ID', description: 'Primary key', datatype: 'integer' },
+        { name: cd.nameColumn, title: 'Concept name', description: 'Label', datatype: 'string' },
+      ]
+      if (cd.codeColumn) cols.push({ name: cd.codeColumn, title: 'Code', description: 'Vocabulary code', datatype: 'string' })
+      if (cd.vocabularyColumn) cols.push({ name: cd.vocabularyColumn, title: 'Vocabulary', description: 'Terminology', datatype: 'string' })
+      if (cd.extraColumns) {
+        for (const [semantic, actual] of Object.entries(cd.extraColumns)) {
+          cols.push({ name: actual, title: titleCase(semantic), description: `Concept ${semantic}`, datatype: 'string' })
+        }
+      }
+      tables.push({ name: cd.table, description: `Concept dictionary`, columns: cols })
     }
-    if (subcategoryColumn) {
-      cells.push(`        <td>${escHtml(r.subcategory ?? '')}</td>`)
+  }
+
+  // Event tables
+  if (schemaMapping.eventTables) {
+    for (const [label, et] of Object.entries(schemaMapping.eventTables)) {
+      const cols = [
+        { name: et.conceptIdColumn, title: 'Concept ID', description: 'FK → concept', datatype: 'integer' },
+      ]
+      if (et.sourceConceptIdColumn) cols.push({ name: et.sourceConceptIdColumn, title: 'Source concept ID', description: 'Source FK', datatype: 'integer' })
+      if (et.patientIdColumn) cols.push({ name: et.patientIdColumn, title: 'Patient ID', description: 'FK → patient', datatype: 'integer' })
+      if (et.dateColumn) cols.push({ name: et.dateColumn, title: 'Date', description: 'Event date', datatype: 'datetime' })
+      if (et.valueColumn) cols.push({ name: et.valueColumn, title: 'Numeric value', description: 'Measurement value', datatype: 'decimal' })
+      if (et.valueStringColumn) cols.push({ name: et.valueStringColumn, title: 'String value', description: 'Text value', datatype: 'string' })
+      tables.push({ name: et.table, description: label, columns: cols })
     }
-    for (const k of dimensionKeys) {
-      cells.push(`        <td>${escHtml(String(r.dimensions[k] ?? ''))}</td>`)
-    }
-    cells.push(`        <td class="num">${r.patientCount.toLocaleString()}</td>`)
-    cells.push(`        <td class="num">${r.recordCount.toLocaleString()}</td>`)
-    return `      <tr>\n${cells.join('\n')}\n      </tr>`
+  }
+
+  if (tables.length === 0) {
+    return '      <p class="schema-empty">No tables defined in schema mapping.</p>'
+  }
+
+  return tables.map((t) => {
+    const rows = t.columns.map((c) =>
+      `            <tr><td class="col-name"><code>${esc(c.name)}</code></td><td>${esc(c.title)}</td><td class="col-desc">${esc(c.description)}</td><td class="col-type"><code>${esc(c.datatype)}</code></td></tr>`,
+    ).join('\n')
+    return `      <div class="schema-table-card">
+        <div class="schema-table-header">
+          <span class="schema-table-name">${esc(t.name)}</span>
+          <span class="schema-table-desc">${esc(t.description)}</span>
+          <span class="schema-table-count">${t.columns.length} columns</span>
+        </div>
+        <table class="schema-cols">
+          <thead><tr><th>Column</th><th>Title</th><th>Description</th><th>Type</th></tr></thead>
+          <tbody>
+${rows}
+          </tbody>
+        </table>
+      </div>`
   }).join('\n')
 }
 
-function escHtml(s: string): string {
+// ---------------------------------------------------------------------------
+// Metadata rendered UI builder
+// ---------------------------------------------------------------------------
+
+const CLASS_LABELS: Record<DcatClass, { title: string; icon: string }> = {
+  catalog: { title: 'Catalog', icon: '<i class="fa-solid fa-folder-open"></i>' },
+  dataset: { title: 'Dataset', icon: '<i class="fa-solid fa-chart-bar"></i>' },
+  distribution: { title: 'Distribution', icon: '<i class="fa-solid fa-cube"></i>' },
+  agent: { title: 'Publisher / Agent', icon: '<i class="fa-solid fa-building"></i>' },
+}
+
+const CLASS_ORDER: DcatClass[] = ['catalog', 'dataset', 'distribution', 'agent']
+
+function buildMetadataRenderedHtml(metadata: Record<string, unknown>): string {
+  const sections: string[] = []
+
+  for (const cls of CLASS_ORDER) {
+    const fields = DCAT_FIELDS.filter((f) => f.dcatClass === cls)
+    // Only show fields that have a value
+    const filledFields = fields.filter((f) => {
+      const val = metadata[f.key]
+      return val != null && val !== ''
+    })
+    if (filledFields.length === 0) continue
+
+    const { title, icon } = CLASS_LABELS[cls]
+    const rows = filledFields.map((f) => {
+      const raw = metadata[f.key]
+      const display = resolveFieldDisplay(f.key, raw, f.type, f.vocabularyKey)
+      const obligationBadge = f.obligation === 'mandatory'
+        ? '<span class="meta-badge meta-badge-m">mandatory</span>'
+        : f.obligation === 'recommended'
+          ? '<span class="meta-badge meta-badge-r">recommended</span>'
+          : ''
+      const rdfProp = `<span class="meta-rdf">${esc(f.uri)}</span>`
+      return `          <div class="meta-row">
+            <div class="meta-label">${esc(f.labelKey.replace(/^dcat\./, '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase()))} ${obligationBadge}</div>
+            <div class="meta-value">${display}</div>
+            <div class="meta-uri">${rdfProp}</div>
+          </div>`
+    }).join('\n')
+
+    sections.push(`      <div class="meta-card">
+        <div class="meta-card-header"><span class="meta-icon">${icon}</span> ${title}</div>
+${rows}
+      </div>`)
+  }
+
+  return sections.join('\n')
+}
+
+function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?: string): string {
+  if (raw == null || raw === '') return '<span class="meta-empty">—</span>'
+
+  // Multiselect / select with vocabulary
+  if (vocabKey && DCAT_VOCABULARIES[vocabKey]) {
+    const vocab = DCAT_VOCABULARIES[vocabKey]
+    const values = typeof raw === 'string'
+      ? raw.split(',').map((s) => s.trim()).filter(Boolean)
+      : Array.isArray(raw) ? raw.map(String) : [String(raw)]
+
+    const labels = values.map((v) => {
+      const opt = vocab.find((o) => o.value === v)
+      // Resolve labelKey to readable text: strip 'dcat.' prefix, replace _ with space, title case
+      const label = opt
+        ? opt.labelKey.replace(/^dcat\./, '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+        : v
+      return `<span class="meta-tag">${esc(label)}</span>`
+    })
+    return labels.join(' ')
+  }
+
+  // URI
+  if (type === 'uri') {
+    const url = String(raw)
+    return `<a href="${esc(url)}" class="meta-link" target="_blank" rel="noopener">${esc(url)}</a>`
+  }
+
+  // Keywords (comma-separated)
+  if (key.endsWith('.keyword')) {
+    const kws = String(raw).split(',').map((s) => s.trim()).filter(Boolean)
+    return kws.map((k) => `<span class="meta-tag">${esc(k)}</span>`).join(' ')
+  }
+
+  // Number
+  if (type === 'number') {
+    const n = Number(raw)
+    return isNaN(n) ? esc(String(raw)) : `<strong>${n.toLocaleString()}</strong>`
+  }
+
+  return esc(String(raw))
+}
+
+// ---------------------------------------------------------------------------
+// Syntax highlighting for JSON (pure string manipulation, no deps)
+// ---------------------------------------------------------------------------
+
+function syntaxHighlight(json: string): string {
+  // Escape HTML entities first
+  const escaped = esc(json)
+  // After esc(), " becomes &quot; — work with escaped entities
+  return escaped
+    // Keys: &quot;key&quot; followed by :
+    .replace(/&quot;([^&]*)&quot;(\s*:)/g, '<span class="json-key">&quot;$1&quot;</span>$2')
+    // String values: : &quot;value&quot;
+    .replace(/:\s*&quot;([^&]*)&quot;/g, ': <span class="json-str">&quot;$1&quot;</span>')
+    // Numbers
+    .replace(/:\s*(\d+(?:\.\d+)?)\b/g, ': <span class="json-num">$1</span>')
+    // Booleans and null
+    .replace(/:\s*(true|false|null)\b/g, ': <span class="json-bool">$1</span>')
+}
+
+// ---------------------------------------------------------------------------
+// Row data as JSON (for client-side rendering)
+// ---------------------------------------------------------------------------
+
+function buildRowsJson(
+  rows: CatalogResultRow[],
+  dimensionKeys: string[],
+  hasDictionary: boolean,
+  hasCategory: boolean,
+  hasSubcategory: boolean,
+): string {
+  const data = rows.map((r) => {
+    const isAnonymized = (r as Record<string, unknown>)._anonymized === true
+    const row: (string | number | boolean)[] = [
+      r.conceptId,
+      r.conceptName,
+    ]
+    if (hasDictionary) row.push(r.dictionaryKey ?? '')
+    if (hasCategory) row.push(r.category ?? '')
+    if (hasSubcategory) row.push(r.subcategory ?? '')
+    for (const k of dimensionKeys) {
+      row.push(r.dimensions[k] ?? '')
+    }
+    row.push(r.patientCount)
+    row.push(r.visitCount ?? 0)
+    row.push(r.recordCount)
+    row.push(isAnonymized)
+    return row
+  })
+  return JSON.stringify(data)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function esc(s: string): string {
   return s
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -163,6 +513,23 @@ function escHtml(s: string): string {
 
 function titleCase(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface FilterColInfo {
+  key: string
+  label: string
+  isDate: boolean
+}
+
+interface ChartDef {
+  key: string
+  title: string
+  type: 'horizontal' | 'vertical'
+  limit: number
 }
 
 // ---------------------------------------------------------------------------
@@ -178,6 +545,9 @@ const CSS = `
   --card-bg: #f9fafb;
   --accent: #0d9488;
   --accent-light: #ccfbf1;
+  --accent-20: rgba(13,148,136,0.2);
+  --warn: #f59e0b;
+  --warn-light: rgba(245,158,11,0.1);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -189,99 +559,573 @@ const CSS = `
     --card-bg: #1e293b;
     --accent: #2dd4bf;
     --accent-light: #134e4a;
+    --accent-20: rgba(45,212,191,0.2);
+    --warn: #fbbf24;
+    --warn-light: rgba(251,191,36,0.1);
   }
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.5; }
-.container { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem; }
+.container { max-width: 1400px; margin: 0 auto; padding: 2rem 1.5rem; }
 
-header { margin-bottom: 2rem; }
+header { margin-bottom: 1.5rem; }
 header h1 { font-size: 1.5rem; font-weight: 700; }
 header .description { margin-top: 0.25rem; color: var(--muted); font-size: 0.875rem; }
 header .publisher { margin-top: 0.25rem; color: var(--accent); font-size: 0.8125rem; font-weight: 500; }
 header .generated { margin-top: 0.5rem; color: var(--muted); font-size: 0.75rem; }
 
+/* Shared filters bar */
+.filters-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; transition: opacity 0.15s; }
+.filters-bar.hidden { display: none; }
+.search-input { flex: 0 0 220px; padding: 0.4rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.8125rem; background: var(--bg); color: var(--fg); outline: none; }
+.search-input:focus { border-color: var(--accent); }
+.filter-select { padding: 0.4rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.75rem; background: var(--bg); color: var(--fg); outline: none; max-width: 180px; }
+.filter-select:focus { border-color: var(--accent); }
+.clear-btn { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.6875rem; background: var(--bg); color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.clear-btn:hover { border-color: var(--accent); color: var(--accent); }
+.row-count { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
+
+/* Date range filter */
+.date-range-filter { display: flex; align-items: center; gap: 0.35rem; }
+.date-range-filter .filter-label { font-size: 0.75rem; color: var(--muted); white-space: nowrap; }
+.date-input { padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.75rem; background: var(--bg); color: var(--fg); outline: none; width: 130px; }
+.date-input:focus { border-color: var(--accent); }
+.date-sep { color: var(--muted); font-size: 0.75rem; }
+
+/* Tabs */
+.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem; }
+.tab { padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 500; color: var(--muted); background: none; border: none; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+.tab:hover { color: var(--fg); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Metadata tab */
+.metadata-section { }
+.metadata-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.75rem; margin-bottom: 1rem; }
+.metadata-title { font-size: 1rem; font-weight: 600; }
+.metadata-subtitle { font-size: 0.75rem; color: var(--muted); }
+
+/* Metadata cards */
+.meta-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 1rem; overflow: hidden; }
+.meta-card-header { padding: 0.6rem 1rem; font-weight: 600; font-size: 0.875rem; border-bottom: 1px solid var(--border); background: var(--bg); }
+.meta-icon { margin-right: 0.35rem; color: var(--accent); font-size: 0.8125rem; }
+.meta-row { display: grid; grid-template-columns: 180px 1fr auto; gap: 0.5rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); align-items: baseline; }
+.meta-row:last-child { border-bottom: none; }
+.meta-label { font-size: 0.8125rem; font-weight: 500; color: var(--fg); display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
+.meta-value { font-size: 0.8125rem; color: var(--fg); }
+.meta-value strong { color: var(--accent); font-weight: 700; }
+.meta-uri { font-size: 0.6875rem; color: var(--muted); text-align: right; }
+.meta-rdf { font-family: 'SF Mono', Menlo, monospace; font-size: 0.625rem; }
+.meta-empty { color: var(--muted); font-style: italic; }
+.meta-tag { display: inline-block; padding: 0.1rem 0.5rem; margin: 0.1rem 0.15rem; background: var(--accent-20); color: var(--accent); border-radius: 0.25rem; font-size: 0.75rem; font-weight: 500; }
+.meta-badge { display: inline-block; padding: 0 0.3rem; border-radius: 0.2rem; font-size: 0.5625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; vertical-align: middle; }
+.meta-badge-m { background: var(--accent-20); color: var(--accent); }
+.meta-badge-r { background: var(--warn-light); color: var(--warn); }
+.meta-link { color: var(--accent); text-decoration: none; font-size: 0.8125rem; word-break: break-all; }
+.meta-link:hover { text-decoration: underline; }
+
+/* JSON-LD view button */
+.jsonld-view-btn { padding: 0.3rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.75rem; font-weight: 500; background: var(--bg); color: var(--muted); cursor: pointer; margin-left: auto; display: inline-flex; align-items: center; gap: 0.35rem; transition: all 0.15s; }
+.jsonld-view-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* JSON-LD fullscreen overlay */
+.jsonld-overlay { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; flex-direction: column; }
+.jsonld-overlay-header { display: flex; align-items: center; justify-content: space-between; padding: 0.75rem 1.5rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.jsonld-overlay-title { font-size: 0.875rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; }
+.jsonld-overlay-actions { display: flex; align-items: center; gap: 0.5rem; }
+.jsonld-close-btn { padding: 0.35rem 0.6rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.875rem; background: var(--bg); color: var(--fg); cursor: pointer; }
+.jsonld-close-btn:hover { border-color: var(--accent); color: var(--accent); }
+.jsonld-overlay-code { flex: 1; overflow: auto; margin: 0; border: none; border-radius: 0; }
+
+.copy-btn { padding: 0.25rem 0.6rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.6875rem; background: var(--bg); color: var(--fg); cursor: pointer; }
+.copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+.json-block { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; overflow-x: auto; font-size: 0.8125rem; line-height: 1.6; tab-size: 2; margin-top: 0.5rem; }
+.json-block code { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace; white-space: pre; }
+.json-key { color: #0d9488; }
+.json-str { color: #059669; }
+.json-num { color: #d97706; }
+.json-bool { color: #7c3aed; }
+
+@media (prefers-color-scheme: dark) {
+  .json-key { color: #2dd4bf; }
+  .json-str { color: #34d399; }
+  .json-num { color: #fbbf24; }
+  .json-bool { color: #a78bfa; }
+}
+
+/* Schema tab */
+.schema-section { }
+.schema-empty { color: var(--muted); font-size: 0.875rem; font-style: italic; }
+.schema-table-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; margin-bottom: 1rem; overflow: hidden; }
+.schema-table-header { display: flex; align-items: baseline; gap: 0.75rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+.schema-table-name { font-weight: 600; font-size: 0.875rem; font-family: 'SF Mono', Menlo, monospace; color: var(--accent); }
+.schema-table-desc { font-size: 0.8125rem; color: var(--muted); }
+.schema-table-count { margin-left: auto; font-size: 0.6875rem; color: var(--muted); }
+.schema-cols { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.schema-cols th { padding: 0.4rem 0.75rem; text-align: left; font-weight: 600; font-size: 0.6875rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); border-bottom: 1px solid var(--border); }
+.schema-cols td { padding: 0.35rem 0.75rem; border-bottom: 1px solid var(--border); }
+.schema-cols tr:last-child td { border-bottom: none; }
+.schema-cols .col-name code { font-family: 'SF Mono', Menlo, monospace; font-size: 0.8125rem; color: var(--accent); }
+.schema-cols .col-desc { color: var(--muted); font-size: 0.75rem; }
+.schema-cols .col-type code { font-family: 'SF Mono', Menlo, monospace; font-size: 0.75rem; color: var(--muted); }
+
+/* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem; }
 .stat-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; text-align: center; }
 .stat-value { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
 .stat-label { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
 
-.table-controls { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.75rem; }
-.search-input { flex: 1; max-width: 320px; padding: 0.5rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.875rem; background: var(--bg); color: var(--fg); outline: none; }
-.search-input:focus { border-color: var(--accent); }
-.row-count { font-size: 0.75rem; color: var(--muted); }
+/* Charts */
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 1rem; }
+.chart-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; }
+.chart-title { font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.75rem; }
 
+/* Horizontal bar chart */
+.bar-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; }
+.bar-label { width: 120px; font-size: 0.6875rem; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
+.bar-track { flex: 1; height: 16px; background: var(--accent-20); border-radius: 3px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+.bar-value { width: 60px; font-size: 0.6875rem; font-weight: 500; text-align: right; flex-shrink: 0; }
+
+/* Vertical bar chart (for dates) */
+.vchart-bars { display: flex; align-items: flex-end; gap: 1px; height: 140px; padding-bottom: 2px; }
+.vchart-bar { flex: 1; min-width: 3px; max-width: 24px; background: var(--accent); border-radius: 2px 2px 0 0; position: relative; transition: height 0.3s; cursor: default; }
+.vchart-bar:hover { background: var(--accent-light); outline: 1px solid var(--accent); }
+.vchart-bar:hover::after { content: attr(data-tip); position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg); font-size: 0.625rem; padding: 2px 6px; border-radius: 3px; white-space: nowrap; z-index: 10; margin-bottom: 4px; pointer-events: none; }
+.vchart-labels { display: flex; gap: 1px; margin-top: 4px; overflow: hidden; }
+.vchart-labels span { flex: 1; min-width: 3px; max-width: 24px; font-size: 0.5625rem; color: var(--muted); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vchart-axis { display: flex; justify-content: space-between; font-size: 0.625rem; color: var(--muted); margin-top: 2px; }
+
+/* Table */
 .table-wrapper { overflow-x: auto; border: 1px solid var(--border); border-radius: 0.5rem; }
-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
-thead { background: var(--card-bg); position: sticky; top: 0; }
-th { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; font-size: 0.75rem; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; user-select: none; }
+table:not(.schema-cols) { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+table:not(.schema-cols) thead { background: var(--card-bg); position: sticky; top: 0; }
+table:not(.schema-cols) th { padding: 0.5rem 0.75rem; text-align: left; font-weight: 600; font-size: 0.75rem; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; user-select: none; }
 th.sortable { cursor: pointer; }
 th.sortable:hover { color: var(--fg); }
 th.num, td.num { text-align: right; }
-td { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--border); }
-tr:hover { background: var(--accent-light); }
+table:not(.schema-cols) td { padding: 0.375rem 0.75rem; border-bottom: 1px solid var(--border); }
+table:not(.schema-cols) tr:hover { background: var(--accent-light); }
+tr.anonymized { background: var(--warn-light); }
+tr.anonymized td.num { color: var(--warn); font-style: italic; }
+
+/* Pagination */
+.pagination { display: flex; align-items: center; gap: 0.75rem; margin-top: 0.75rem; padding: 0.5rem 0; }
+.page-btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 0.375rem; font-size: 0.8125rem; background: var(--bg); color: var(--fg); cursor: pointer; }
+.page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.page-btn:disabled { opacity: 0.4; cursor: default; }
+.page-info { font-size: 0.8125rem; color: var(--muted); }
 
 footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
 footer p { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
 
 @media print {
-  .table-controls { display: none; }
+  .filters-bar, .tabs, .pagination { display: none; }
+  .tab-content { display: block !important; }
   .table-wrapper { border: none; overflow: visible; }
   footer { page-break-inside: avoid; }
 }
 `
 
 // ---------------------------------------------------------------------------
-// Embedded JavaScript (search + sort)
+// Embedded JavaScript
 // ---------------------------------------------------------------------------
 
-const JS = `
+function buildJS(filterCols: FilterColInfo[]): string {
+  return `
 (function() {
-  var table = document.getElementById('catalog-table');
-  var tbody = table.querySelector('tbody');
-  var rows = Array.from(tbody.querySelectorAll('tr'));
-  var search = document.getElementById('search');
-  var rowCount = document.getElementById('row-count');
-  var sortCol = null, sortAsc = true;
+  // --- Tabs ---
+  var tabs = document.querySelectorAll('.tab');
+  var contents = document.querySelectorAll('.tab-content');
+  var filtersBar = document.getElementById('filters-bar');
+  var dataTabs = { dashboard: true, datatable: true };
 
-  // Search
-  search.addEventListener('input', function() {
-    var q = this.value.toLowerCase();
-    var visible = 0;
-    rows.forEach(function(r) {
-      var match = r.textContent.toLowerCase().indexOf(q) !== -1;
-      r.style.display = match ? '' : 'none';
-      if (match) visible++;
-    });
-    rowCount.textContent = visible + ' rows';
+  function switchTab(tabName) {
+    tabs.forEach(function(x) { x.classList.remove('active'); });
+    contents.forEach(function(x) { x.style.display = 'none'; x.classList.remove('active'); });
+    var btn = document.querySelector('.tab[data-tab="' + tabName + '"]');
+    if (btn) btn.classList.add('active');
+    var target = document.getElementById('tab-' + tabName);
+    if (target) { target.style.display = ''; target.classList.add('active'); }
+    // Show/hide filters bar based on tab
+    if (filtersBar) {
+      if (dataTabs[tabName]) {
+        filtersBar.classList.remove('hidden');
+      } else {
+        filtersBar.classList.add('hidden');
+      }
+    }
+  }
+
+  tabs.forEach(function(t) {
+    t.addEventListener('click', function() { switchTab(t.dataset.tab); });
   });
 
-  // Sort
-  var headers = table.querySelectorAll('th.sortable');
-  headers.forEach(function(th, i) {
+  // --- JSON-LD overlay ---
+  var jsonldOverlay = document.getElementById('jsonld-overlay');
+  var openBtn = document.getElementById('open-jsonld');
+  var closeBtn = document.getElementById('close-jsonld');
+  var copyBtn = document.getElementById('copy-jsonld');
+
+  if (openBtn && jsonldOverlay) {
+    openBtn.addEventListener('click', function() { jsonldOverlay.style.display = ''; });
+  }
+  if (closeBtn && jsonldOverlay) {
+    closeBtn.addEventListener('click', function() { jsonldOverlay.style.display = 'none'; });
+  }
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var code = document.getElementById('jsonld-code');
+      if (!code) return;
+      var text = code.textContent || '';
+      navigator.clipboard.writeText(text).then(function() {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(function() { copyBtn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  }
+
+  // --- Data + state ---
+  var allData = CATALOG_DATA;
+  var filtered = allData;
+  var colCount = allData.length > 0 ? allData[0].length : 0;
+  var page = 0;
+  var pageSize = 100;
+  var sortCol = -1, sortAsc = true;
+
+  var tbody = document.getElementById('catalog-tbody');
+  var search = document.getElementById('search');
+  var rowCountEl = document.getElementById('row-count');
+  var prevBtn = document.getElementById('page-prev');
+  var nextBtn = document.getElementById('page-next');
+  var pageInfoEl = document.getElementById('page-info');
+  var pageSizeSel = document.getElementById('page-size');
+  var statsGrid = document.getElementById('stats-grid');
+  var chartsGrid = document.getElementById('charts-grid');
+
+  var filterCols = ${JSON.stringify(filterCols)};
+  var chartDefs = CHART_DEFS;
+  var meta = CATALOG_META;
+
+  // Map column keys to indices in the row array (via <th data-col>)
+  var colMap = {};
+  var headers = document.querySelectorAll('#catalog-table th');
+  for (var i = 0; i < headers.length; i++) {
+    var key = headers[i].dataset.col;
+    if (key) colMap[key] = i;
+  }
+
+  // --- Populate filter dropdowns (non-date) ---
+  filterCols.forEach(function(fc) {
+    if (fc.isDate) {
+      var idx = colMap[fc.key];
+      if (idx == null) return;
+      var fromEl = document.getElementById('filter-' + fc.key + '-from');
+      var toEl = document.getElementById('filter-' + fc.key + '-to');
+      if (!fromEl || !toEl) return;
+      var minD = null, maxD = null;
+      allData.forEach(function(r) {
+        var v = String(r[idx] || '');
+        if (!v) return;
+        var d = v.length === 7 ? v + '-01' : v;
+        if (!minD || d < minD) minD = d;
+        if (!maxD || d > maxD) maxD = d;
+      });
+      if (minD) { fromEl.min = minD; fromEl.value = minD; toEl.min = minD; }
+      if (maxD) { fromEl.max = maxD; toEl.max = maxD; toEl.value = maxD; }
+      fromEl.addEventListener('change', function() { page = 0; applyFilters(); });
+      toEl.addEventListener('change', function() { page = 0; applyFilters(); });
+      return;
+    }
+    var sel = document.getElementById('filter-' + fc.key);
+    if (!sel) return;
+    var idx2 = colMap[fc.key];
+    if (idx2 == null) return;
+    var vals = {};
+    allData.forEach(function(r) {
+      var v = r[idx2];
+      if (v != null && v !== '') vals[v] = true;
+    });
+    Object.keys(vals).sort().forEach(function(v) {
+      var opt = document.createElement('option');
+      opt.value = v; opt.textContent = v;
+      sel.appendChild(opt);
+    });
+    sel.addEventListener('change', function() { page = 0; applyFilters(); });
+  });
+
+  // --- Filter logic ---
+  function applyFilters() {
+    var q = search ? search.value.toLowerCase() : '';
+    var selectFilters = {};
+    var dateFilters = {};
+
+    filterCols.forEach(function(fc) {
+      if (fc.isDate) {
+        var fromEl = document.getElementById('filter-' + fc.key + '-from');
+        var toEl = document.getElementById('filter-' + fc.key + '-to');
+        if (fromEl && toEl && (fromEl.value || toEl.value)) {
+          dateFilters[fc.key] = { from: fromEl.value || '', to: toEl.value || '' };
+        }
+      } else {
+        var sel = document.getElementById('filter-' + fc.key);
+        if (sel && sel.value) selectFilters[fc.key] = sel.value;
+      }
+    });
+
+    filtered = allData.filter(function(r) {
+      if (q) {
+        var haystack = (String(r[0]) + ' ' + String(r[1])).toLowerCase();
+        if (haystack.indexOf(q) === -1) return false;
+      }
+      for (var key in selectFilters) {
+        var idx = colMap[key];
+        if (idx != null && String(r[idx]) !== selectFilters[key]) return false;
+      }
+      for (var dkey in dateFilters) {
+        var didx = colMap[dkey];
+        if (didx == null) continue;
+        var val = String(r[didx] || '');
+        if (!val) return false;
+        var norm = val.length === 7 ? val + '-01' : val;
+        var df = dateFilters[dkey];
+        if (df.from && norm < df.from) return false;
+        var normEnd = val.length === 7 ? val + '-31' : val;
+        if (df.to && normEnd > df.to + (df.to.length === 7 ? '-31' : '')) return false;
+      }
+      return true;
+    });
+
+    renderDashboard();
+    renderPage();
+  }
+
+  // --- Margins data (from GROUPING SETS, pre-computed accurate counts) ---
+  var margins = (typeof CATALOG_MARGINS !== 'undefined') ? CATALOG_MARGINS : null;
+
+  // Check if any filter is active
+  function isFiltered() {
+    if (search && search.value.trim()) return true;
+    for (var i = 0; i < filterCols.length; i++) {
+      var fc = filterCols[i];
+      if (fc.isDate) {
+        var fromEl = document.getElementById('filter-' + fc.key + '-from');
+        var toEl = document.getElementById('filter-' + fc.key + '-to');
+        if (fromEl && toEl && (fromEl.value !== (fromEl.min || '') || toEl.value !== (toEl.max || ''))) return true;
+      } else {
+        var sel = document.getElementById('filter-' + fc.key);
+        if (sel && sel.value) return true;
+      }
+    }
+    return false;
+  }
+
+  // Patient count column index (3rd from end, before visits, records, isAnonymized)
+  var patientColIdx = colCount - 4;
+  var visitColIdx = colCount - 3;
+
+  // --- Dashboard rendering ---
+  function renderDashboard() {
+    var concepts = {};
+    var totalRows = filtered.length;
+    var anonRows = 0;
+    filtered.forEach(function(r) {
+      concepts[r[0]] = true;
+      if (r[colCount - 1] === true) anonRows++;
+    });
+    var filteredConcepts = Object.keys(concepts).length;
+    var hasFilters = isFiltered();
+
+    statsGrid.innerHTML =
+      statCard(filteredConcepts, 'Concepts') +
+      statCard(meta.totalPatients, 'Unique patients') +
+      statCard(meta.totalVisits, 'Unique visits') +
+      statCard(totalRows, 'Data rows' + (totalRows !== allData.length ? ' (filtered)' : '')) +
+      statCard(anonRows, (meta.mode === 'suppress' ? 'Suppressed' : 'Anonymized') + ' rows');
+
+    var html = '';
+    chartDefs.forEach(function(cd) {
+      var idx = colMap[cd.key];
+      if (idx == null) return;
+      var entries;
+
+      // Use accurate GROUPING SETS margins when unfiltered, fallback to leaf-row sums when filtered
+      if (!hasFilters && margins && margins[cd.key]) {
+        entries = margins[cd.key].map(function(m) { return [String(m[0]), m[1]]; });
+      } else {
+        var map = {};
+        filtered.forEach(function(r) {
+          var k = r[idx];
+          if (k == null || k === '') k = 'Unknown';
+          k = String(k);
+          map[k] = (map[k] || 0) + r[patientColIdx];
+        });
+        entries = [];
+        for (var k in map) entries.push([k, map[k]]);
+      }
+
+      if (cd.type === 'vertical') {
+        entries.sort(function(a, b) { return a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0; });
+      } else {
+        entries.sort(function(a, b) { return b[1] - a[1]; });
+      }
+      if (cd.limit > 0 && entries.length > cd.limit) entries = entries.slice(0, cd.limit);
+      if (entries.length === 0) return;
+
+      if (cd.type === 'vertical') {
+        html += buildVerticalChart(cd.title, entries);
+      } else {
+        html += buildHorizontalChart(cd.title, entries);
+      }
+    });
+    chartsGrid.innerHTML = html;
+  }
+
+  function statCard(value, label) {
+    return '<div class="stat-card"><div class="stat-value">' + Number(value).toLocaleString() + '</div><div class="stat-label">' + label + '</div></div>';
+  }
+
+  function buildHorizontalChart(title, entries) {
+    var maxVal = 0;
+    entries.forEach(function(e) { if (e[1] > maxVal) maxVal = e[1]; });
+    var bars = '';
+    entries.forEach(function(e) {
+      var pct = maxVal > 0 ? Math.round((e[1] / maxVal) * 100) : 0;
+      var lbl = e[0].length > 30 ? e[0].slice(0, 28) + '\\u2026' : e[0];
+      bars += '<div class="bar-row"><span class="bar-label" title="' + escAttr(e[0]) + '">' + escHtml(lbl) + '</span><div class="bar-track"><div class="bar-fill" style="width:' + pct + '%"></div></div><span class="bar-value">' + e[1].toLocaleString() + '</span></div>';
+    });
+    return '<div class="chart-card"><h3 class="chart-title">' + escHtml(title) + '</h3>' + bars + '</div>';
+  }
+
+  function buildVerticalChart(title, entries) {
+    var maxVal = 0;
+    entries.forEach(function(e) { if (e[1] > maxVal) maxVal = e[1]; });
+    var bars = '';
+    var labels = '';
+    var labelStep = entries.length > 20 ? Math.ceil(entries.length / 12) : 1;
+    entries.forEach(function(e, i) {
+      var pct = maxVal > 0 ? Math.round((e[1] / maxVal) * 100) : 0;
+      var h = Math.max(1, pct * 1.4);
+      bars += '<div class="vchart-bar" style="height:' + h + 'px" data-tip="' + escAttr(e[0]) + ': ' + e[1].toLocaleString() + '"></div>';
+      var lbl = (i % labelStep === 0) ? escHtml(e[0]) : '';
+      labels += '<span title="' + escAttr(e[0]) + '">' + lbl + '</span>';
+    });
+    var axis = '<div class="vchart-axis"><span>0</span><span>' + maxVal.toLocaleString() + '</span></div>';
+    return '<div class="chart-card"><h3 class="chart-title">' + escHtml(title) + '</h3>' + axis + '<div class="vchart-bars">' + bars + '</div><div class="vchart-labels">' + labels + '</div></div>';
+  }
+
+  // --- Data table rendering (paginated) ---
+  function renderPage() {
+    var totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page >= totalPages) page = totalPages - 1;
+    if (page < 0) page = 0;
+
+    var start = page * pageSize;
+    var end = Math.min(start + pageSize, filtered.length);
+    var slice = filtered.slice(start, end);
+
+    var html = '';
+    for (var i = 0; i < slice.length; i++) {
+      var r = slice[i];
+      var isAnon = r[colCount - 1] === true;
+      var prefix = isAnon ? '&lt; ' : '';
+      html += '<tr' + (isAnon ? ' class="anonymized"' : '') + '>';
+      for (var c = 0; c < colCount - 1; c++) {
+        var val = r[c];
+        if (c >= colCount - 4) {
+          html += '<td class="num">' + prefix + Number(val).toLocaleString() + '</td>';
+        } else {
+          html += '<td>' + escHtml(String(val != null ? val : '')) + '</td>';
+        }
+      }
+      html += '</tr>';
+    }
+    tbody.innerHTML = html;
+
+    if (rowCountEl) rowCountEl.textContent = filtered.length + ' rows';
+    if (pageInfoEl) pageInfoEl.textContent = 'Page ' + (page + 1) + ' / ' + totalPages;
+    if (prevBtn) prevBtn.disabled = page === 0;
+    if (nextBtn) nextBtn.disabled = page >= totalPages - 1;
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function escAttr(s) {
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // --- Clear all filters ---
+  var clearBtn = document.getElementById('clear-filters');
+  if (clearBtn) {
+    clearBtn.addEventListener('click', function() {
+      if (search) search.value = '';
+      filterCols.forEach(function(fc) {
+        if (fc.isDate) {
+          var fromEl = document.getElementById('filter-' + fc.key + '-from');
+          var toEl = document.getElementById('filter-' + fc.key + '-to');
+          if (fromEl) { fromEl.value = fromEl.min || ''; }
+          if (toEl) { toEl.value = toEl.max || ''; }
+        } else {
+          var sel = document.getElementById('filter-' + fc.key);
+          if (sel) sel.value = '';
+        }
+      });
+      page = 0;
+      applyFilters();
+    });
+  }
+
+  // --- Search (debounced) ---
+  var searchTimer;
+  if (search) search.addEventListener('input', function() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(function() { page = 0; applyFilters(); }, 200);
+  });
+
+  // --- Pagination ---
+  if (prevBtn) prevBtn.addEventListener('click', function() { if (page > 0) { page--; renderPage(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function() { page++; renderPage(); });
+  if (pageSizeSel) pageSizeSel.addEventListener('change', function() {
+    pageSize = parseInt(this.value) || 100;
+    page = 0;
+    renderPage();
+  });
+
+  // --- Sort ---
+  headers.forEach(function(th) {
+    if (!th.classList.contains('sortable')) return;
     th.addEventListener('click', function() {
-      var colIdx = i;
+      var colIdx = colMap[th.dataset.col];
+      if (colIdx == null) return;
       var isNum = th.classList.contains('num');
       if (sortCol === colIdx) { sortAsc = !sortAsc; } else { sortCol = colIdx; sortAsc = true; }
-      headers.forEach(function(h) { h.textContent = h.textContent.replace(/ [\\u25B2\\u25BC]/, ''); });
+      headers.forEach(function(h) {
+        if (h.dataset.col) h.textContent = h.textContent.replace(/ [\\u25B2\\u25BC]/, '');
+      });
       th.textContent += sortAsc ? ' \\u25B2' : ' \\u25BC';
-      rows.sort(function(a, b) {
-        var va = a.cells[colIdx].textContent.trim();
-        var vb = b.cells[colIdx].textContent.trim();
+      filtered.sort(function(a, b) {
+        var va = a[colIdx], vb = b[colIdx];
         if (isNum) {
-          va = parseFloat(va.replace(/,/g, '')) || 0;
-          vb = parseFloat(vb.replace(/,/g, '')) || 0;
+          va = typeof va === 'number' ? va : (parseFloat(String(va).replace(/[<,]/g, '')) || 0);
+          vb = typeof vb === 'number' ? vb : (parseFloat(String(vb).replace(/[<,]/g, '')) || 0);
         } else {
-          va = va.toLowerCase();
-          vb = vb.toLowerCase();
+          va = String(va || '').toLowerCase();
+          vb = String(vb || '').toLowerCase();
         }
         if (va < vb) return sortAsc ? -1 : 1;
         if (va > vb) return sortAsc ? 1 : -1;
         return 0;
       });
-      rows.forEach(function(r) { tbody.appendChild(r); });
+      page = 0;
+      renderPage();
     });
   });
+
+  // --- Initial render ---
+  applyFilters();
 })();
 `
+}

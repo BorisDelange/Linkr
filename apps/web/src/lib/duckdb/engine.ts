@@ -241,7 +241,18 @@ export async function queryDataSource(
   const schema = schemaName(dataSourceId)
 
   try {
-    await conn.query(`SET search_path TO "${schema}"`)
+    // Try schema-based path first, fall back to catalog.main for ATTACHed databases
+    if (attachedSources.has(dataSourceId)) {
+      await conn.query(`SET search_path TO "${schema}".main`)
+    } else {
+      try {
+        await conn.query(`SET search_path TO "${schema}"`)
+      } catch {
+        // Schema might be an ATTACHed catalog — retry with catalog.main
+        await conn.query(`SET search_path TO "${schema}".main`)
+        attachedSources.add(dataSourceId)
+      }
+    }
     const result = await conn.query(sql)
     return (result.toArray() as Record<string, unknown>[]).map(coerceBigInts)
   } finally {
@@ -267,13 +278,16 @@ async function safeDropSchema(
   dataSourceId: string,
 ): Promise<void> {
   const schema = schemaName(dataSourceId)
+  // Try DETACH first (works for ATTACHed databases)
   try {
-    if (attachedSources.has(dataSourceId)) {
-      await conn.query(`DETACH "${schema}"`)
-      attachedSources.delete(dataSourceId)
-    } else {
-      await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
-    }
+    await conn.query(`DETACH "${schema}"`)
+    attachedSources.delete(dataSourceId)
+    return
+  } catch {
+    // Not an attached database — try DROP SCHEMA
+  }
+  try {
+    await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
   } catch {
     // Ignore — schema may not exist yet
   }

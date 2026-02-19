@@ -1,10 +1,14 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Eye, EyeOff, FileText, ShieldCheck } from 'lucide-react'
+import { Download, Eye, EyeOff, FileText, ShieldCheck, Replace } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
-import { Label } from '@/components/ui/label'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { generateCatalogHtml } from '@/lib/dcat-ap/export-html'
 import type { DataCatalog, CatalogResultCache } from '@/types'
@@ -18,27 +22,24 @@ export function CatalogExportTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const schemaMapping = dataSources.find((ds) => ds.id === catalog.dataSourceId)?.schemaMapping
-  const [includeJsonLd, setIncludeJsonLd] = useState(true)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
 
   const threshold = catalog.anonymization.threshold
+  const mode = catalog.anonymization.mode ?? 'replace'
 
   // Anonymization impact preview
   const impact = useMemo(() => {
-    const retained = cache.rows.filter((r) => r.patientCount >= threshold)
-    const suppressed = cache.rows.length - retained.length
-    const retainedConcepts = new Set(retained.map((r) => r.conceptId)).size
+    const affected = cache.rows.filter((r) => r.patientCount < threshold)
+    const unaffected = cache.rows.length - affected.length
+    const retainedConcepts = mode === 'suppress'
+      ? new Set(cache.rows.filter((r) => r.patientCount >= threshold).map((r) => r.conceptId)).size
+      : new Set(cache.rows.map((r) => r.conceptId)).size
     const totalConcepts = new Set(cache.rows.map((r) => r.conceptId)).size
-    return { retained: retained.length, suppressed, retainedConcepts, totalConcepts }
-  }, [cache.rows, threshold])
+    return { affected: affected.length, unaffected, retainedConcepts, totalConcepts }
+  }, [cache.rows, threshold, mode])
 
   const handleDownload = () => {
-    const html = generateCatalogHtml({
-      catalog,
-      cache,
-      schemaMapping,
-      includeJsonLd,
-    })
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping })
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -48,15 +49,10 @@ export function CatalogExportTab({ catalog, cache }: Props) {
     URL.revokeObjectURL(url)
   }
 
-  const handlePreview = () => {
-    const html = generateCatalogHtml({
-      catalog,
-      cache,
-      schemaMapping,
-      includeJsonLd,
-    })
+  const handlePreview = useCallback(() => {
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping })
     setPreviewHtml(html)
-  }
+  }, [catalog, cache, schemaMapping])
 
   return (
     <div className="space-y-4">
@@ -71,25 +67,27 @@ export function CatalogExportTab({ catalog, cache }: Props) {
         </p>
 
         <div className="mt-4 space-y-3">
-          {/* Include JSON-LD toggle */}
-          <div className="flex items-center gap-3">
-            <Switch checked={includeJsonLd} onCheckedChange={setIncludeJsonLd} />
-            <Label className="text-sm">{t('data_catalog.export_include_jsonld')}</Label>
-          </div>
-
           {/* Anonymization summary */}
           <div className="flex items-center gap-2 rounded-lg border p-3">
             <ShieldCheck size={14} className="shrink-0 text-muted-foreground" />
             <div className="flex-1 text-xs">
               <span className="font-medium">{t('data_catalog.threshold')}: {threshold}</span>
-              <span className="ml-3 text-muted-foreground">
-                <Eye size={12} className="mr-0.5 inline" />
-                {impact.retained.toLocaleString()} {t('data_catalog.export_rows_retained')}
+              <span className="ml-2 text-muted-foreground">
+                ({mode === 'replace' ? t('data_catalog.anon_mode_replace') : t('data_catalog.anon_mode_suppress')})
               </span>
-              {impact.suppressed > 0 && (
-                <span className="ml-3 text-red-500">
-                  <EyeOff size={12} className="mr-0.5 inline" />
-                  {impact.suppressed.toLocaleString()} {t('data_catalog.export_rows_suppressed')}
+              {impact.affected > 0 && (
+                <span className="ml-3">
+                  {mode === 'replace' ? (
+                    <span className="text-amber-500">
+                      <Replace size={12} className="mr-0.5 inline" />
+                      {impact.affected.toLocaleString()} {t('data_catalog.export_rows_replaced')}
+                    </span>
+                  ) : (
+                    <span className="text-red-500">
+                      <EyeOff size={12} className="mr-0.5 inline" />
+                      {impact.affected.toLocaleString()} {t('data_catalog.export_rows_suppressed')}
+                    </span>
+                  )}
                 </span>
               )}
               <span className="ml-3 text-muted-foreground">
@@ -112,23 +110,20 @@ export function CatalogExportTab({ catalog, cache }: Props) {
         </div>
       </Card>
 
-      {/* HTML preview iframe */}
-      {previewHtml && (
-        <Card className="overflow-hidden p-0">
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <span className="text-xs font-medium text-muted-foreground">{t('data_catalog.export_preview_title')}</span>
-            <Button variant="ghost" size="sm" onClick={() => setPreviewHtml(null)} className="text-xs">
-              {t('common.close')}
-            </Button>
-          </div>
+      {/* HTML preview modal */}
+      <Dialog open={previewHtml !== null} onOpenChange={(open) => { if (!open) setPreviewHtml(null) }}>
+        <DialogContent className="!top-0 !left-0 !translate-x-0 !translate-y-0 !max-w-none flex h-screen max-h-screen w-screen flex-col gap-0 rounded-none border-0 p-0">
+          <DialogHeader className="shrink-0 border-b px-4 py-3">
+            <DialogTitle className="text-sm">{t('data_catalog.export_preview_title')}</DialogTitle>
+          </DialogHeader>
           <iframe
-            srcDoc={previewHtml}
-            className="h-[600px] w-full border-0"
+            srcDoc={previewHtml ?? undefined}
+            className="min-h-0 flex-1 border-0"
             title="Catalog preview"
             sandbox="allow-scripts"
           />
-        </Card>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -41,6 +41,15 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   loadCatalogs: async () => {
     try {
       const all = await getStorage().dataCatalogs.getAll()
+      // Recovery: reset any catalogs stuck in 'computing' (e.g. app was closed mid-compute)
+      const storage = getStorage()
+      for (const c of all) {
+        if (c.status === 'computing') {
+          const newStatus = c.lastComputedAt ? 'ready' : 'draft'
+          c.status = newStatus
+          await storage.dataCatalogs.update(c.id, { status: newStatus })
+        }
+      }
       set({ catalogs: all, catalogsLoaded: true })
     } catch {
       // IDB store may not exist yet (upgrade pending); mark loaded so app doesn't block

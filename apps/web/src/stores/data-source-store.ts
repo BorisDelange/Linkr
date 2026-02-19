@@ -109,6 +109,9 @@ function handleDuckDBError(err: unknown): void {
 /** Track which data sources are currently mounted in DuckDB. */
 const mountedSources = new Set<string>()
 
+/** Track in-flight mount promises to avoid concurrent mounts of the same source. */
+const mountingPromises = new Map<string, Promise<void>>()
+
 /** Track data sources currently being processed (mounting, testing, reconnecting). */
 const busySources = new Set<string>()
 
@@ -552,20 +555,31 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   ensureMounted: async (id) => {
     if (mountedSources.has(id)) return
-    const ds = get().dataSources.find((d) => d.id === id)
-    if (!ds) throw new Error(`Data source ${id} not found`)
-    const config = ds.connectionConfig as DatabaseConnectionConfig
-    if (config.inMemory && ds.schemaMapping?.ddl) {
-      await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
-    } else if (config.useFileHandles) {
-      const handles = await getStorage().fileHandles.getByDataSource(id)
-      const granted = await engine.requestHandlePermissions(handles)
-      if (!granted) throw new Error('File access permission denied')
-      await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
-    } else {
-      const files = await getStorage().files.getByDataSource(id)
-      await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
+    // Deduplicate concurrent mount calls for the same source
+    const existing = mountingPromises.get(id)
+    if (existing) return existing
+    const promise = (async () => {
+      const ds = get().dataSources.find((d) => d.id === id)
+      if (!ds) throw new Error(`Data source ${id} not found`)
+      const config = ds.connectionConfig as DatabaseConnectionConfig
+      if (config.inMemory && ds.schemaMapping?.ddl) {
+        await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+      } else if (config.useFileHandles) {
+        const handles = await getStorage().fileHandles.getByDataSource(id)
+        const granted = await engine.requestHandlePermissions(handles)
+        if (!granted) throw new Error('File access permission denied')
+        await withTimeout(engine.mountDataSourceFromHandles(ds, handles), MOUNT_TIMEOUT, 'mountDataSourceFromHandles')
+      } else {
+        const files = await getStorage().files.getByDataSource(id)
+        await withTimeout(engine.mountDataSource(ds, files), MOUNT_TIMEOUT, 'mountDataSource')
+      }
+      mountedSources.add(id)
+    })()
+    mountingPromises.set(id, promise)
+    try {
+      await promise
+    } finally {
+      mountingPromises.delete(id)
     }
-    mountedSources.add(id)
   },
 }))

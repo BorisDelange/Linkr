@@ -133,24 +133,31 @@ function applyServiceMappingRules(
 }
 
 // ---------------------------------------------------------------------------
-// Main catalog aggregation query builder
+// Main catalog aggregation query builder (GROUPING SETS)
 // ---------------------------------------------------------------------------
 
 export interface CatalogQueryParts {
   sql: string
   hasDimensions: boolean
+  /** Ordered column names passed to GROUPING(). Used to decode the grp_flags bitmask. */
+  groupingColumns: string[]
+  /** Maps dimension alias (dim_age_group etc) to its bit position (from right) in grp_flags. */
+  dimBitPositions: Record<string, number>
+  /** Bitmask: if (flags & conceptBitMask) !== 0, concept columns are rolled up (NULL). */
+  conceptBitMask: number
 }
 
 /**
- * Build the full catalog aggregation SQL query.
+ * Build the full catalog aggregation SQL query using GROUPING SETS.
  *
- * Strategy:
- * 1. UNION ALL across all event tables to get concept_id → person_id + visit_id
- * 2. JOIN to person table for age + sex
- * 3. JOIN to visit table for admission date
- * 4. Optionally JOIN to visit_detail + care_site for care site dimension
- * 5. JOIN to concept dictionary for concept_name
- * 6. GROUP BY concept_id, concept_name, [enabled dimensions]
+ * Produces multiple aggregation levels in a single query:
+ * 1. Leaf rows: concept × all enabled dimensions (same as a simple GROUP BY)
+ * 2. Concept × single dimension margins (for concept-level drill-down)
+ * 3. Concept totals: all dimensions rolled up (per-concept unique counts)
+ * 4. Dimension-only margins: concept rolled up (for overall charts with accurate COUNT DISTINCT)
+ * 5. Grand total: everything rolled up (overall unique patients/visits/records)
+ *
+ * Rows are classified via GROUPING() bitmask flags.
  */
 export function buildCatalogAggregationQuery(
   mapping: SchemaMapping,
@@ -225,11 +232,7 @@ export function buildCatalogAggregationQuery(
 
   const hasDimensions = dimSelectExprs.length > 0
 
-  // --- 3. Build the query ---
-  // We need to join events → person (for age/sex) → visit (for admission date, visit_id) → optionally visit_detail → concept dict
-
-  // Build concept name lookup CTE (UNION ALL across all dicts)
-  // Include category/subcategory columns from each dictionary's extraColumns
+  // --- 3. Build concept name CTE ---
   const hasCategory = !!categoryColumn
   const hasSubcategory = !!subcategoryColumn
 
@@ -245,26 +248,82 @@ export function buildCatalogAggregationQuery(
     ? conceptNameParts[0]
     : conceptNameParts.join('\n    UNION ALL\n    ')
 
-  // Build visit_detail join if needed
+  // --- 4. Build JOINs ---
   const vdJoin = needsVisitDetail && mapping.visitDetailTable
     ? `LEFT JOIN "${mapping.visitDetailTable.table}" vd ON v."${vt.idColumn}" = vd."${mapping.visitDetailTable.visitIdColumn}" AND e.pid = vd."${mapping.visitDetailTable.patientIdColumn}"`
     : ''
 
+  const extraJoinStr = extraJoins.length > 0 ? `\n  ${extraJoins.join('\n  ')}` : ''
+
+  // --- 5. Build SELECT columns ---
   const dimSelectStr = dimSelectExprs.length > 0
     ? `,\n    ${dimSelectExprs.join(',\n    ')}`
     : ''
 
-  const dimGroupByStr = dimGroupByAliases.length > 0
-    ? `, ${dimGroupByAliases.join(', ')}`
-    : ''
-
-  const extraJoinStr = extraJoins.length > 0 ? `\n  ${extraJoins.join('\n  ')}` : ''
-
   const catSelectStr = hasCategory ? `,\n    cn.ccat AS concept_category` : ''
   const subcatSelectStr = hasSubcategory ? `,\n    cn.csubcat AS concept_subcategory` : ''
   const catCteFields = `${hasCategory ? ', ccat' : ''}${hasSubcategory ? ', csubcat' : ''}`
-  const catGroupByStr = `${hasCategory ? ', cn.ccat' : ''}${hasSubcategory ? ', cn.csubcat' : ''}`
 
+  // --- 6. Build GROUPING SETS ---
+  // Concept columns always grouped together (they are 1:1)
+  const conceptCols = ['cn.cid', 'cn.cname', 'cn.dkey']
+  if (hasCategory) conceptCols.push('cn.ccat')
+  if (hasSubcategory) conceptCols.push('cn.csubcat')
+  const conceptColsStr = conceptCols.join(', ')
+
+  // Build the grouping sets list
+  const groupingSets: string[] = []
+
+  if (hasDimensions) {
+    // 1. Leaf: concept × all dims
+    groupingSets.push(`(${conceptColsStr}, ${dimGroupByAliases.join(', ')})`)
+
+    // 2. Concept × single dim (for concept-level per-dimension margins)
+    for (const dimAlias of dimGroupByAliases) {
+      groupingSets.push(`(${conceptColsStr}, ${dimAlias})`)
+    }
+
+    // 3. Concept totals (all dims rolled up)
+    groupingSets.push(`(${conceptColsStr})`)
+
+    // 4. Dimension-only (no concept — for overall charts)
+    for (const dimAlias of dimGroupByAliases) {
+      groupingSets.push(`(${dimAlias})`)
+    }
+
+    // 5. Grand total
+    groupingSets.push('()')
+  } else {
+    // No dimensions: just concept-level and grand total
+    groupingSets.push(`(${conceptColsStr})`)
+    groupingSets.push('()')
+  }
+
+  const groupByClause = `GROUP BY GROUPING SETS (\n    ${groupingSets.join(',\n    ')}\n  )`
+
+  // --- 7. Build GROUPING() bitmask ---
+  // Column order in GROUPING(): concept cols first, then dim aliases
+  // DuckDB GROUPING(c1, c2, ..., cN) → bit (N-1) = c1, bit (N-2) = c2, ..., bit 0 = cN
+  // If a column is rolled up (aggregated), its bit is 1; if grouped, its bit is 0.
+  const groupingColumns = [...conceptCols, ...dimGroupByAliases]
+  const N = groupingColumns.length
+
+  // Compute conceptBitMask: OR of all concept column bit positions
+  let conceptBitMask = 0
+  for (let i = 0; i < conceptCols.length; i++) {
+    conceptBitMask |= (1 << (N - 1 - i))
+  }
+
+  // Compute dimBitPositions: map dim alias → bit position (from right, i.e. bit 0 = rightmost)
+  const dimBitPositions: Record<string, number> = {}
+  for (let i = 0; i < dimGroupByAliases.length; i++) {
+    const colIndex = conceptCols.length + i // index in the groupingColumns array
+    dimBitPositions[dimGroupByAliases[i]] = N - 1 - colIndex // bit position from right
+  }
+
+  const groupingExpr = `GROUPING(${groupingColumns.join(', ')})::INTEGER AS grp_flags`
+
+  // --- 8. Assemble SQL ---
   const sql = `WITH events AS (
   SELECT cid, pid, dkey FROM (
     ${eventParts.join('\n    UNION ALL\n    ')}
@@ -281,14 +340,15 @@ SELECT
     cn.cname AS concept_name,
     cn.dkey AS dictionary_key${catSelectStr}${subcatSelectStr},
     COUNT(*)::INTEGER AS record_count,
-    COUNT(DISTINCT e.pid)::INTEGER AS patient_count${dimSelectStr}
+    COUNT(DISTINCT e.pid)::INTEGER AS patient_count,
+    COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS visit_count${dimSelectStr},
+    ${groupingExpr}
 FROM events e
 JOIN "${pt.table}" p ON e.pid = p."${pt.idColumn}"
 JOIN "${vt.table}" v ON e.pid = v."${vt.patientIdColumn}"
 ${vdJoin}${extraJoinStr}
 JOIN concept_names cn ON e.cid = cn.cid AND e.dkey = cn.dkey
-GROUP BY cn.cid, cn.cname, cn.dkey${catGroupByStr}${dimGroupByStr}
-ORDER BY patient_count DESC`
+${groupByClause}`
 
-  return { sql, hasDimensions }
+  return { sql, hasDimensions, groupingColumns, dimBitPositions, conceptBitMask }
 }

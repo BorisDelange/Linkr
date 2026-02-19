@@ -47,9 +47,13 @@ export interface DimensionConfig {
 
 // --- Anonymization ---
 
+export type AnonymizationMode = 'suppress' | 'replace'
+
 export interface AnonymizationConfig {
-  /** Minimum patient count per row. Rows below this are suppressed on export. */
+  /** Minimum patient count per row. */
   threshold: number
+  /** How to handle rows below threshold. 'suppress' removes them, 'replace' caps counts to threshold. Default 'replace'. */
+  mode: AnonymizationMode
 }
 
 // --- Service Mapping (reusable per-workspace entity) ---
@@ -111,8 +115,48 @@ export interface CatalogResultRow {
   subcategory?: string | null
   patientCount: number
   recordCount: number
+  visitCount: number
   /** Dynamic dimension columns: key = dimension id, value = dimension value. */
   dimensions: Record<string, string | number | null>
+}
+
+// --- OLAP margin types (from GROUPING SETS) ---
+
+/** Aggregated count for a single dimension value (overall, no concept filter). */
+export interface CatalogMarginRow {
+  value: string | number
+  patientCount: number
+  recordCount: number
+  visitCount: number
+}
+
+/** Per-concept total (all dimensions rolled up). */
+export interface CatalogConceptTotal {
+  conceptId: number | string
+  conceptName: string
+  dictionaryKey?: string
+  category?: string | null
+  subcategory?: string | null
+  patientCount: number
+  recordCount: number
+  visitCount: number
+}
+
+/** Grand total from GROUPING SETS. */
+export interface CatalogGrandTotal {
+  totalPatients: number
+  totalVisits: number
+  totalRecords: number
+}
+
+/** Margin data computed via GROUPING SETS for accurate per-dimension counts. */
+export interface CatalogMargins {
+  /** Per-dimension margins (no concept): accurate COUNT(DISTINCT) per bucket. Key = dimension id. */
+  byDimension: Record<string, CatalogMarginRow[]>
+  /** Per-concept totals (all dimensions rolled up). */
+  conceptTotals: CatalogConceptTotal[]
+  /** Grand total row. */
+  grandTotal: CatalogGrandTotal
 }
 
 export interface CatalogResultCache {
@@ -122,6 +166,9 @@ export interface CatalogResultCache {
   rows: CatalogResultRow[]
   totalConcepts: number
   totalPatients: number
+  totalVisits: number
+  /** OLAP margins for accurate per-dimension counts. Optional for backward compat. */
+  margins?: CatalogMargins
 }
 
 // --- Default dimension presets ---

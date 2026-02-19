@@ -71,7 +71,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         description: description.trim(),
         dataSourceId,
         dimensions: getDefaultDimensions(),
-        anonymization: { threshold: 10 },
+        anonymization: { threshold: 10, mode: 'replace' },
         status: 'draft',
         createdAt: now,
         updatedAt: now,

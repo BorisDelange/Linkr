@@ -36,8 +36,6 @@ export function CatalogConfigTab({ catalog }: Props) {
   const { updateCatalog, computeRunning, startCompute, finishCompute, failCompute, serviceMappings } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const [thresholdInput, setThresholdInput] = useState(String(catalog.anonymization.threshold))
-
   const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId)
 
   const ageDim = catalog.dimensions.find((d) => d.type === 'age_group')
@@ -116,12 +114,6 @@ export function CatalogConfigTab({ catalog }: Props) {
     await updateCatalog(catalog.id, { dimensions: newDims })
   }
 
-  const handleThresholdChange = async (value: string) => {
-    setThresholdInput(value)
-    const threshold = Math.max(0, parseInt(value) || 0)
-    await updateCatalog(catalog.id, { anonymization: { ...catalog.anonymization, threshold } })
-  }
-
   const handleCompute = async () => {
     if (!dataSource?.schemaMapping) return
     startCompute()
@@ -175,7 +167,7 @@ export function CatalogConfigTab({ catalog }: Props) {
                       })
                     }
                   >
-                    <SelectTrigger className="h-7 w-20 text-xs">
+                    <SelectTrigger className="h-7 w-28 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -316,72 +308,53 @@ export function CatalogConfigTab({ catalog }: Props) {
         )}
       </Card>
 
-      {/* Classification + Anonymization — side by side */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Concept classification */}
-        {availableExtraColumns.length > 0 && (
-          <Card className="p-4">
-            <div className="flex items-center gap-2">
-              <Tag size={14} className="text-muted-foreground" />
-              <h3 className="text-sm font-semibold">{t('data_catalog.classification_title')}</h3>
+      {/* Concept classification */}
+      {availableExtraColumns.length > 0 && (
+        <Card className="p-4">
+          <div className="flex items-center gap-2">
+            <Tag size={14} className="text-muted-foreground" />
+            <h3 className="text-sm font-semibold">{t('data_catalog.classification_title')}</h3>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-xs text-muted-foreground">{t('data_catalog.category_column')}</Label>
+              <Select
+                value={catalog.categoryColumn ?? '__none__'}
+                onValueChange={handleCategoryChange}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
+                  {availableExtraColumns.map((key) => (
+                    <SelectItem key={key} value={key}>{key}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div className="mt-3 space-y-2">
-              <div>
-                <Label className="text-xs text-muted-foreground">{t('data_catalog.category_column')}</Label>
-                <Select
-                  value={catalog.categoryColumn ?? '__none__'}
-                  onValueChange={handleCategoryChange}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
-                    {availableExtraColumns.map((key) => (
+            <div>
+              <Label className="text-xs text-muted-foreground">{t('data_catalog.subcategory_column')}</Label>
+              <Select
+                value={catalog.subcategoryColumn ?? '__none__'}
+                onValueChange={handleSubcategoryChange}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
+                  {availableExtraColumns
+                    .filter((key) => key !== catalog.categoryColumn)
+                    .map((key) => (
                       <SelectItem key={key} value={key}>{key}</SelectItem>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs text-muted-foreground">{t('data_catalog.subcategory_column')}</Label>
-                <Select
-                  value={catalog.subcategoryColumn ?? '__none__'}
-                  onValueChange={handleSubcategoryChange}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
-                    {availableExtraColumns
-                      .filter((key) => key !== catalog.categoryColumn)
-                      .map((key) => (
-                        <SelectItem key={key} value={key}>{key}</SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
-          </Card>
-        )}
-
-        {/* Anonymization */}
-        <Card className="p-4">
-          <h3 className="text-sm font-semibold">{t('data_catalog.anonymization_title')}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('data_catalog.anonymization_description')}</p>
-          <div className="mt-3 flex items-center gap-3">
-            <Label className="text-xs">{t('data_catalog.threshold')}</Label>
-            <Input
-              type="number"
-              min={0}
-              value={thresholdInput}
-              onChange={(e) => handleThresholdChange(e.target.value)}
-              className="w-24"
-            />
           </div>
         </Card>
-      </div>
+      )}
 
       {/* Compute button */}
       <div className="flex items-center gap-3">

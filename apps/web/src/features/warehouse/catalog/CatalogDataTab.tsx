@@ -154,9 +154,22 @@ export function CatalogDataTab({ catalog, cache }: Props) {
   const hasCategory = !!catalog.categoryColumn
   const hasSubcategory = !!catalog.subcategoryColumn
 
+  // Show vocabulary column when there are multiple dictionaries
+  const hasDictionary = useMemo(() => {
+    const keys = new Set(cache.rows.map((r) => r.dictionaryKey).filter(Boolean))
+    return keys.size > 1
+  }, [cache.rows])
+
   // Build list of filterable columns dynamically
   const filterColumns = useMemo<FilterColumn[]>(() => {
     const cols: FilterColumn[] = []
+    if (hasDictionary) {
+      cols.push({
+        key: 'dictionaryKey',
+        label: t('data_catalog.col_vocabulary'),
+        getValue: (r) => r.dictionaryKey ?? null,
+      })
+    }
     if (hasCategory) {
       cols.push({
         key: 'category',
@@ -182,7 +195,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
       })
     }
     return cols
-  }, [hasCategory, hasSubcategory, enabledDims, t])
+  }, [hasDictionary, hasCategory, hasSubcategory, enabledDims, t])
 
   // Precompute distinct values per filter column
   // Subcategory values are scoped to the active category selection
@@ -238,6 +251,9 @@ export function CatalogDataTab({ catalog, cache }: Props) {
       if (sortKey === 'conceptName') {
         aVal = a.conceptName
         bVal = b.conceptName
+      } else if (sortKey === 'dictionaryKey') {
+        aVal = a.dictionaryKey ?? null
+        bVal = b.dictionaryKey ?? null
       } else if (sortKey === 'category') {
         aVal = a.category ?? null
         bVal = b.category ?? null
@@ -247,6 +263,9 @@ export function CatalogDataTab({ catalog, cache }: Props) {
       } else if (sortKey === 'patientCount') {
         aVal = a.patientCount
         bVal = b.patientCount
+      } else if (sortKey === 'visitCount') {
+        aVal = a.visitCount ?? 0
+        bVal = b.visitCount ?? 0
       } else if (sortKey === 'recordCount') {
         aVal = a.recordCount
         bVal = b.recordCount
@@ -345,6 +364,10 @@ export function CatalogDataTab({ catalog, cache }: Props) {
           <p className="text-xs text-muted-foreground">{t('data_catalog.total_patients')}</p>
         </Card>
         <Card className="flex-1 p-3 text-center">
+          <p className="text-2xl font-bold">{(cache.totalVisits ?? 0).toLocaleString()}</p>
+          <p className="text-xs text-muted-foreground">{t('data_catalog.total_visits')}</p>
+        </Card>
+        <Card className="flex-1 p-3 text-center">
           <p className="text-2xl font-bold">{cache.rows.length.toLocaleString()}</p>
           <p className="text-xs text-muted-foreground">{t('data_catalog.total_rows')}</p>
         </Card>
@@ -399,6 +422,11 @@ export function CatalogDataTab({ catalog, cache }: Props) {
               <TableHead>
                 <SortButton colKey="conceptName">{t('data_catalog.col_concept_name')}</SortButton>
               </TableHead>
+              {hasDictionary && (
+                <TableHead>
+                  <SortButton colKey="dictionaryKey">{t('data_catalog.col_vocabulary')}</SortButton>
+                </TableHead>
+              )}
               {hasCategory && (
                 <TableHead>
                   <SortButton colKey="category">{t('data_catalog.col_category')}</SortButton>
@@ -418,6 +446,9 @@ export function CatalogDataTab({ catalog, cache }: Props) {
                 <SortButton colKey="patientCount">{t('data_catalog.col_patients')}</SortButton>
               </TableHead>
               <TableHead className="w-28 text-right">
+                <SortButton colKey="visitCount">{t('data_catalog.col_visits')}</SortButton>
+              </TableHead>
+              <TableHead className="w-28 text-right">
                 <SortButton colKey="recordCount">{t('data_catalog.col_records')}</SortButton>
               </TableHead>
             </TableRow>
@@ -425,7 +456,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
           <TableBody>
             {pageRows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4 + enabledDims.length + (hasCategory ? 1 : 0) + (hasSubcategory ? 1 : 0)} className="py-8 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={5 + enabledDims.length + (hasDictionary ? 1 : 0) + (hasCategory ? 1 : 0) + (hasSubcategory ? 1 : 0)} className="py-8 text-center text-sm text-muted-foreground">
                   {t('data_catalog.no_results')}
                 </TableCell>
               </TableRow>
@@ -434,6 +465,9 @@ export function CatalogDataTab({ catalog, cache }: Props) {
                 <TableRow key={`${row.conceptId}-${i}`}>
                   <TableCell className="font-mono text-xs">{row.conceptId}</TableCell>
                   <TableCell className="text-sm">{row.conceptName}</TableCell>
+                  {hasDictionary && (
+                    <TableCell className="text-xs">{row.dictionaryKey ?? '—'}</TableCell>
+                  )}
                   {hasCategory && (
                     <TableCell className="text-xs">{row.category ?? '—'}</TableCell>
                   )}
@@ -447,6 +481,9 @@ export function CatalogDataTab({ catalog, cache }: Props) {
                   ))}
                   <TableCell className="text-right font-mono text-xs">
                     {row.patientCount.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {(row.visitCount ?? 0).toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right font-mono text-xs">
                     {row.recordCount.toLocaleString()}

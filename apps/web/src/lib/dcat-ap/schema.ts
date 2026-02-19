@@ -95,15 +95,33 @@ const CODING_SYSTEMS: VocabularyOption[] = [
   { value: 'other', labelKey: 'dcat.cs_other' },
 ]
 
-/** Languages (subset). */
+/** All 24 EU official languages + Other. EU Publications Office Named Authority List. */
 const LANGUAGES: VocabularyOption[] = [
+  { value: 'http://publications.europa.eu/resource/authority/language/BUL', labelKey: 'dcat.lang_bg' },
+  { value: 'http://publications.europa.eu/resource/authority/language/HRV', labelKey: 'dcat.lang_hr' },
+  { value: 'http://publications.europa.eu/resource/authority/language/CES', labelKey: 'dcat.lang_cs' },
+  { value: 'http://publications.europa.eu/resource/authority/language/DAN', labelKey: 'dcat.lang_da' },
+  { value: 'http://publications.europa.eu/resource/authority/language/NLD', labelKey: 'dcat.lang_nl' },
   { value: 'http://publications.europa.eu/resource/authority/language/ENG', labelKey: 'dcat.lang_en' },
+  { value: 'http://publications.europa.eu/resource/authority/language/EST', labelKey: 'dcat.lang_et' },
+  { value: 'http://publications.europa.eu/resource/authority/language/FIN', labelKey: 'dcat.lang_fi' },
   { value: 'http://publications.europa.eu/resource/authority/language/FRA', labelKey: 'dcat.lang_fr' },
   { value: 'http://publications.europa.eu/resource/authority/language/DEU', labelKey: 'dcat.lang_de' },
-  { value: 'http://publications.europa.eu/resource/authority/language/SPA', labelKey: 'dcat.lang_es' },
+  { value: 'http://publications.europa.eu/resource/authority/language/ELL', labelKey: 'dcat.lang_el' },
+  { value: 'http://publications.europa.eu/resource/authority/language/HUN', labelKey: 'dcat.lang_hu' },
+  { value: 'http://publications.europa.eu/resource/authority/language/GLE', labelKey: 'dcat.lang_ga' },
   { value: 'http://publications.europa.eu/resource/authority/language/ITA', labelKey: 'dcat.lang_it' },
-  { value: 'http://publications.europa.eu/resource/authority/language/NLD', labelKey: 'dcat.lang_nl' },
+  { value: 'http://publications.europa.eu/resource/authority/language/LAV', labelKey: 'dcat.lang_lv' },
+  { value: 'http://publications.europa.eu/resource/authority/language/LIT', labelKey: 'dcat.lang_lt' },
+  { value: 'http://publications.europa.eu/resource/authority/language/MLT', labelKey: 'dcat.lang_mt' },
+  { value: 'http://publications.europa.eu/resource/authority/language/POL', labelKey: 'dcat.lang_pl' },
   { value: 'http://publications.europa.eu/resource/authority/language/POR', labelKey: 'dcat.lang_pt' },
+  { value: 'http://publications.europa.eu/resource/authority/language/RON', labelKey: 'dcat.lang_ro' },
+  { value: 'http://publications.europa.eu/resource/authority/language/SLK', labelKey: 'dcat.lang_sk' },
+  { value: 'http://publications.europa.eu/resource/authority/language/SLV', labelKey: 'dcat.lang_sl' },
+  { value: 'http://publications.europa.eu/resource/authority/language/SPA', labelKey: 'dcat.lang_es' },
+  { value: 'http://publications.europa.eu/resource/authority/language/SWE', labelKey: 'dcat.lang_sv' },
+  { value: 'other', labelKey: 'dcat.lang_other' },
 ]
 
 /** Distribution format. */
