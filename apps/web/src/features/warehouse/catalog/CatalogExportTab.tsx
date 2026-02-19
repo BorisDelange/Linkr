@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Eye, EyeOff, FileText, ShieldCheck, Replace } from 'lucide-react'
+import { Download, Eye, FileText, ShieldCheck } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -79,12 +79,10 @@ export function CatalogExportTab({ catalog, cache }: Props) {
                 <span className="ml-3">
                   {mode === 'replace' ? (
                     <span className="text-amber-500">
-                      <Replace size={12} className="mr-0.5 inline" />
                       {impact.affected.toLocaleString()} {t('data_catalog.export_rows_replaced')}
                     </span>
                   ) : (
                     <span className="text-red-500">
-                      <EyeOff size={12} className="mr-0.5 inline" />
                       {impact.affected.toLocaleString()} {t('data_catalog.export_rows_suppressed')}
                     </span>
                   )}

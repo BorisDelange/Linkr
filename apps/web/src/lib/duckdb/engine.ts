@@ -278,18 +278,21 @@ async function safeDropSchema(
   dataSourceId: string,
 ): Promise<void> {
   const schema = schemaName(dataSourceId)
-  // Try DETACH first (works for ATTACHed databases)
-  try {
-    await conn.query(`DETACH "${schema}"`)
+  if (attachedSources.has(dataSourceId)) {
+    // ATTACHed database — must DETACH
+    try {
+      await conn.query(`DETACH "${schema}"`)
+    } catch {
+      // Already detached or not found
+    }
     attachedSources.delete(dataSourceId)
-    return
-  } catch {
-    // Not an attached database — try DROP SCHEMA
-  }
-  try {
-    await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
-  } catch {
-    // Ignore — schema may not exist yet
+  } else {
+    // Schema-based (Parquet views) — DROP SCHEMA
+    try {
+      await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+    } catch {
+      // Ignore — schema may not exist yet
+    }
   }
 }
 

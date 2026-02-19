@@ -433,9 +433,11 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
     return `<a href="${esc(url)}" class="meta-link" target="_blank" rel="noopener">${esc(url)}</a>`
   }
 
-  // Keywords (comma-separated)
+  // Keywords (semicolon-separated, also accepts comma for backward compat)
   if (key.endsWith('.keyword')) {
-    const kws = String(raw).split(',').map((s) => s.trim()).filter(Boolean)
+    const str = String(raw)
+    const sep = str.includes(';') ? ';' : ','
+    const kws = str.split(sep).map((s) => s.trim()).filter(Boolean)
     return kws.map((k) => `<span class="meta-tag">${esc(k)}</span>`).join(' ')
   }
 

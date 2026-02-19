@@ -35,8 +35,13 @@ export async function computeCatalog(
     throw new Error('Cannot build catalog query: missing schema mapping (patient table, visit table, or concept dictionaries)')
   }
 
+  console.log('[Catalog] SQL built in', Math.round(performance.now() - startTime), 'ms')
+  console.log('[Catalog] SQL:', result.sql)
+
   // Execute
+  const t1 = performance.now()
   const rawRows = await queryDataSource(dataSourceId, result.sql)
+  console.log('[Catalog] Query executed in', Math.round(performance.now() - t1), 'ms →', rawRows.length, 'rows returned')
 
   // Classify rows by GROUPING() bitmask flags
   const enabledDims = catalog.dimensions.filter((d) => d.enabled)
@@ -121,6 +126,8 @@ export async function computeCatalog(
     // Other intermediate grouping sets (concept + 2..N-1 dims) are skipped
   }
 
+  console.log('[Catalog] Row classification:', leafRows.length, 'leaf,', conceptTotals.length, 'concept totals,', Object.values(dimOnlyMargins).reduce((s, a) => s + a.length, 0), 'dim margins, grand total:', grandTotal)
+
   const durationMs = Math.round(performance.now() - startTime)
   const uniqueConcepts = new Set(leafRows.map((r) => r.conceptId))
 
@@ -145,7 +152,10 @@ export async function computeCatalog(
   }
 
   // Persist to IDB
+  const t2 = performance.now()
   await getStorage().catalogResults.save(cache)
+  console.log('[Catalog] IDB save in', Math.round(performance.now() - t2), 'ms')
+  console.log('[Catalog] Total:', durationMs, 'ms')
 
   return cache
 }

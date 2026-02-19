@@ -76,10 +76,13 @@ export function buildJsonLd(
 
   const get = (key: string) => metadata[key]
 
-  // Helper: split comma-separated strings into arrays
+  // Helper: split semicolon-separated strings into arrays (also accepts comma for backward compat)
   const toArray = (val: unknown): string[] => {
     if (Array.isArray(val)) return val.filter(Boolean).map(String)
-    if (typeof val === 'string') return val.split(',').map((s) => s.trim()).filter(Boolean)
+    if (typeof val === 'string') {
+      const sep = val.includes(';') ? ';' : ','
+      return val.split(sep).map((s) => s.trim()).filter(Boolean)
+    }
     return []
   }
 

@@ -127,7 +127,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
         next['dataset.theme'] = 'Clinical data warehouse, Health data'
       }
       if (!next['dataset.keyword']) {
-        next['dataset.keyword'] = 'clinical data warehouse, concepts dictionary, OMOP CDM, health data, demographics'
+        next['dataset.keyword'] = 'Clinical data warehouse; Concepts dictionary; OMOP CDM; Health data; Demographics'
       }
       if (!next['dataset.personalData']) {
         next['dataset.personalData'] = 'No — aggregated concept counts only'
