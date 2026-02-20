@@ -1,4 +1,4 @@
-# LinkR v2
+# Linkr v2
 
 Healthcare data visualization and analysis platform using the OMOP Common Data Model.
 

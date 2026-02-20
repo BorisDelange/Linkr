@@ -58,8 +58,11 @@ async function computeSummary(
   const visitCount = mapping.visitTable
     ? await safeQueryCount(dsId, mapping.visitTable.table)
     : 0
+  const visitDetailCount = mapping.visitDetailTable
+    ? await safeQueryCount(dsId, mapping.visitDetailTable.table)
+    : 0
 
-  return { patientCount, visitCount, tableCount }
+  return { patientCount, visitCount, visitDetailCount, tableCount }
 }
 
 /** Compute gender distribution from patient table. */

@@ -1,4 +1,4 @@
-# Health-DCAT-AP — Summary for LinkR
+# Health-DCAT-AP — Summary for Linkr
 
 > Based on [Health-DCAT-AP Release 6](https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/index.html) — the EU metadata standard for describing health datasets under the EHDS Regulation (EU 2025/327).
 
@@ -206,9 +206,9 @@ Health-DCAT-AP metadata is serialized as **JSON-LD** — a JSON format with sema
 
 ---
 
-## How LinkR Uses This
+## How Linkr Uses This
 
-In LinkR, the Health-DCAT-AP tab on a Data Catalog lets you:
+In Linkr, the Health-DCAT-AP tab on a Data Catalog lets you:
 
 1. **Describe your dataset** with standardized metadata (title, description, access rights, health categories, coding systems...)
 2. **Auto-fill** numeric fields from computed catalog results (number of records, patients, age range)
@@ -222,7 +222,7 @@ In LinkR, the Health-DCAT-AP tab on a Data Catalog lets you:
 
 The [EU Health Data Portal](https://ehds.healthdataportal.eu/) currently lists ~20 national catalogs (Belgium, Croatia, France, Germany, etc.). Most entries describe **registries** (cancer, rare diseases) or **administrative databases** at the national level.
 
-**None of them currently include a detailed breakdown of available variables/concepts** — they only describe the dataset at a high level (title, category, temporal coverage, population size). This is where LinkR can add value: by computing the actual catalog of concepts with counts, and attaching it as a CSVW table description or as a rich HTML distribution.
+**None of them currently include a detailed breakdown of available variables/concepts** — they only describe the dataset at a high level (title, category, temporal coverage, population size). This is where Linkr can add value: by computing the actual catalog of concepts with counts, and attaching it as a CSVW table description or as a rich HTML distribution.
 
 ---
 

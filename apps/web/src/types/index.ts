@@ -214,6 +214,7 @@ export interface DatabaseStatsCache {
   summary: {
     patientCount: number
     visitCount: number
+    visitDetailCount: number
     tableCount: number
   }
   genderDistribution: GenderDistribution
@@ -622,6 +623,7 @@ export interface EtlPipeline {
   description: string
   sourceDataSourceId: string
   targetDataSourceId?: string
+  mappingProjectId?: string
   status: EtlPipelineStatus
   lastRunAt?: string
   lastRunDurationMs?: number

@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # App
-    app_name: str = "LinkR"
+    app_name: str = "Linkr"
     app_version: str = "2.0.0-dev"
     debug: bool = False
     app_mode: str = "full"  # full, dashboard, viewer

@@ -160,7 +160,7 @@ const DEMO_PY = [
   '# Mortality prediction — Step 2: Feature engineering',
   '# Extracts H0-H24 measurements, pivots OMOP long -> wide, exports CSV.',
   '#',
-  '# Uses sql_query(sql) which is automatically available in LinkR.',
+  '# Uses sql_query(sql) which is automatically available in Linkr.',
   '# It queries the active DuckDB connection and returns a pandas DataFrame.',
   '# Usage: df = await sql_query("SELECT * FROM person LIMIT 10")',
   '',

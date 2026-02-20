@@ -72,7 +72,7 @@ Source repo cloned at: `../shadcn-ui/apps/v4/registry/bases/radix/ui/`
 - **Direction** - RTL/LTR support
 - **Item** - Generic item component
 
-## Currently Installed in LinkR v2
+## Currently Installed in Linkr v2
 avatar, badge, button, card, dropdown-menu, input, scroll-area, separator, sheet, skeleton, sidebar, tooltip
 
 ## Priority Components to Install Next

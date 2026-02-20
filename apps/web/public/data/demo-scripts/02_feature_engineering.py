@@ -6,7 +6,7 @@
 # measurements from the first 24 hours, pivots from OMOP long format
 # to one-row-per-visit wide format, and exports a CSV.
 #
-# Uses sql_query(sql) which is automatically available in LinkR.
+# Uses sql_query(sql) which is automatically available in Linkr.
 # It queries the active DuckDB connection and returns a pandas DataFrame.
 # Usage: df = await sql_query("SELECT * FROM person LIMIT 10")
 #

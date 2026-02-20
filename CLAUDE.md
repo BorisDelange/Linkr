@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code when working with the LinkR v2 codebase.
+This file provides guidance to Claude Code when working with the Linkr v2 codebase.
 
 ## Project Overview
 
-LinkR is a healthcare data visualization and analysis platform. It provides tools for clinicians, statisticians, and data scientists to work with clinical data warehouses through an intuitive web interface. While OMOP CDM is the primary supported data model, LinkR is **not locked to OMOP** — the schema presets system allows working with any data model (OMOP, i2b2, FHIR-flattened, custom hospital schemas, etc.).
+Linkr is a healthcare data visualization and analysis platform. It provides tools for clinicians, statisticians, and data scientists to work with clinical data warehouses through an intuitive web interface. While OMOP CDM is the primary supported data model, Linkr is **not locked to OMOP** — the schema presets system allows working with any data model (OMOP, i2b2, FHIR-flattened, custom hospital schemas, etc.).
 
 **v2** is a full rewrite from R/Shiny to React + FastAPI, with dual deployment (static WASM frontend-only, or full-stack with Python backend).
 
@@ -410,7 +410,7 @@ my-project/
 
 The current focus is **Research** (warehouse, pipeline, lab). Future capabilities are documented in `docs/vision-roadmap.md`. The key principle: **design current code so it doesn't block future evolution**.
 
-### Three use cases for LinkR
+### Three use cases for Linkr
 1. **Research** (current priority) — explore OMOP data, build cohorts, create datasets, run analyses, publish results
 2. **Monitoring / Pilotage** (next) — live dashboards for hospital services (quality indicators, adverse events, operational KPIs), scheduled refresh, alerts
 3. **AI Deployment / CDSS** (long term, TBD) — model registry, serving, prediction logging, drift monitoring, audit trail for regulatory compliance (EU MDR, FDA)

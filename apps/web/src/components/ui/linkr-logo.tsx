@@ -1,17 +1,17 @@
 import { cn } from '@/lib/utils'
 
-interface LinkRLogoProps {
+interface LinkrLogoProps {
   size?: number
   className?: string
   animated?: boolean
 }
 
 /**
- * LinkR logo — 3 triangles forming a Y shape.
+ * Linkr logo — 3 triangles forming a Y shape.
  * Supports dark/light mode via currentColor and explicit fills.
  * When animated=true, triangles spread apart on hover.
  */
-export function LinkRLogo({ size = 24, className, animated = false }: LinkRLogoProps) {
+export function LinkrLogo({ size = 24, className, animated = false }: LinkrLogoProps) {
   // The logo is designed in a 100x100 viewBox.
   // 3 triangles meet at center (50, 58), separated by small gaps.
   // Top triangle: cyan gradient

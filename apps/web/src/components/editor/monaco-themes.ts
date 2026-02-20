@@ -1,5 +1,5 @@
 /**
- * Custom Monaco Editor themes that match the LinkR UI color palette.
+ * Custom Monaco Editor themes that match the Linkr UI color palette.
  *
  * Dark theme: blue-tinted dark colors from the app's .dark CSS variables
  * Light theme: cool-tinted light colors from the app's :root CSS variables

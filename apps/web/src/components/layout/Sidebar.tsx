@@ -59,7 +59,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { LinkRLogo } from '@/components/ui/linkr-logo'
+import { LinkrLogo } from '@/components/ui/linkr-logo'
 
 // ── Shared nav types ──────────────────────────────────────────────
 
@@ -371,7 +371,7 @@ export function AppSidebar() {
           className="group/logo flex items-center gap-2.5 transition-opacity hover:opacity-80 group-data-[collapsible=icon]:hidden"
           onClick={handleLogoClick}
         >
-          <LinkRLogo size={28} animated />
+          <LinkrLogo size={28} animated />
           <span className="text-[15px] font-semibold text-sidebar-foreground">Linkr</span>
         </Link>
         <SidebarTrigger />

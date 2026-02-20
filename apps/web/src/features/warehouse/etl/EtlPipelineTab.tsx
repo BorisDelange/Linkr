@@ -1,20 +1,7 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import {
-  ReactFlow,
-  Background,
-  BackgroundVariant,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  type Node,
-  type Edge,
-  type OnNodesChange,
-  type OnEdgesChange,
-} from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
 import {
   DndContext,
   closestCenter,
@@ -49,16 +36,17 @@ import {
   History,
   ChevronDown,
   ChevronRight,
-  Trash2,
   Eye,
   GripVertical,
-  List,
   FileCode,
   Users,
   Activity,
   Table2,
   Power,
   Ban,
+  Building2,
+  GitCompare,
+  AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -69,46 +57,19 @@ import {
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
-import { etlNodeTypes, type EtlSourceNodeData, type EtlScriptNodeData, type EtlTargetNodeData } from './etl-nodes'
 import type { EtlFile, DatabaseStatsCache } from '@/types'
-
-// ---------------------------------------------------------------------------
-// Serial layout (vertical chain, alphabetical order by default)
-// ---------------------------------------------------------------------------
-
-const NODE_WIDTH = 200
-const NODE_HEIGHT = 60
-const VERTICAL_GAP = 80
-
-function layoutSerial(
-  scriptIds: string[],
-  hasSource: boolean,
-  hasTarget: boolean,
-): Map<string, { x: number; y: number }> {
-  const posMap = new Map<string, { x: number; y: number }>()
-  const centerX = 0
-  let y = 0
-
-  if (hasSource) {
-    posMap.set('__source__', { x: centerX, y })
-    y += NODE_HEIGHT + VERTICAL_GAP
-  }
-
-  for (const id of scriptIds) {
-    posMap.set(id, { x: centerX, y })
-    y += NODE_HEIGHT + VERTICAL_GAP
-  }
-
-  if (hasTarget) {
-    posMap.set('__target__', { x: centerX, y })
-  }
-
-  return posMap
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -121,7 +82,7 @@ interface Props {
 
 export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const { t } = useTranslation()
-  const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, startPipelineRun, stopPipelineRun, setScriptStatus, finishPipelineRun, deleteFile, updateFile } = useEtlStore()
+  const { etlPipelines, files, pipelineRunning, scriptStatuses, runHistory, startPipelineRun, stopPipelineRun, setScriptStatus, finishPipelineRun, updateFile, updatePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
@@ -134,163 +95,15 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   const [sidebarVisible, setSidebarVisible] = useState(false)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
+  const [showComparison, setShowComparison] = useState(false)
   const [expandedRunId, setExpandedRunId] = useState<string | null>(null)
-  const [viewMode, setViewMode] = useState<'dag' | 'list'>('list')
 
-  // Context menu state
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string; nodeType: string; fileId?: string } | null>(null)
-  const contextMenuRef = useRef<HTMLDivElement>(null)
-
-  // Close context menu on click outside
-  useEffect(() => {
-    if (!contextMenu) return
-    const handleClick = () => setContextMenu(null)
-    window.addEventListener('click', handleClick)
-    return () => window.removeEventListener('click', handleClick)
-  }, [contextMenu])
-
-  // Build React Flow nodes & edges — serial chain (alphabetical)
-  const { initialNodes, initialEdges, sqlFiles } = useMemo(() => {
-    const sqlFiles = files
+  const sqlFiles = useMemo(() =>
+    files
       .filter((f) => f.type === 'file' && f.language === 'sql')
-      .sort((a, b) => a.order - b.order)
-
-    if (sqlFiles.length === 0 && !hasSource && !hasTarget) {
-      return { initialNodes: [] as Node[], initialEdges: [] as Edge[], sqlFiles: [] }
-    }
-
-    const scriptIds = sqlFiles.map((f) => f.id)
-    const posMap = layoutSerial(scriptIds, hasSource, hasTarget)
-
-    const rfNodes: Node[] = []
-    const rfEdges: Edge[] = []
-
-    // Source node
-    if (hasSource) {
-      const pos = posMap.get('__source__') ?? { x: 0, y: 0 }
-      rfNodes.push({
-        id: '__source__',
-        type: 'source',
-        position: pos,
-        draggable: false,
-        data: {
-          nodeType: 'source',
-          label: t('etl.source'),
-          dataSourceName: sourceDs?.name,
-        } satisfies EtlSourceNodeData,
-      })
-    }
-
-    // Script nodes — chained serially
-    let prevId = hasSource ? '__source__' : null
-    for (let i = 0; i < sqlFiles.length; i++) {
-      const file = sqlFiles[i]
-      const pos = posMap.get(file.id) ?? { x: 0, y: 0 }
-      rfNodes.push({
-        id: file.id,
-        type: 'script',
-        position: pos,
-        data: {
-          nodeType: 'script',
-          label: file.name,
-          fileId: file.id,
-          order: i + 1,
-          status: file.disabled ? 'disabled' : 'idle',
-          disabled: file.disabled,
-        } satisfies EtlScriptNodeData,
-      })
-      if (prevId) {
-        rfEdges.push({
-          id: `chain-${prevId}-${file.id}`,
-          source: prevId,
-          target: file.id,
-          type: 'smoothstep',
-          animated: false,
-          style: { stroke: 'var(--color-border)', strokeWidth: 1.5 },
-        })
-      }
-      prevId = file.id
-    }
-
-    // Target node
-    if (hasTarget) {
-      const pos = posMap.get('__target__') ?? { x: 0, y: 0 }
-      rfNodes.push({
-        id: '__target__',
-        type: 'target',
-        position: pos,
-        draggable: false,
-        data: {
-          nodeType: 'target',
-          label: t('etl.target'),
-          dataSourceName: targetDs?.name,
-        } satisfies EtlTargetNodeData,
-      })
-      if (prevId) {
-        rfEdges.push({
-          id: `chain-${prevId}-__target__`,
-          source: prevId,
-          target: '__target__',
-          type: 'smoothstep',
-          animated: false,
-          style: { stroke: 'var(--color-border)', strokeWidth: 1.5 },
-        })
-      }
-    }
-
-    return { initialNodes: rfNodes, initialEdges: rfEdges, sqlFiles }
-  }, [files, hasSource, hasTarget, sourceDs?.name, targetDs?.name, t])
-
-  // Use React Flow state for draggable nodes
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges)
-
-  // Update nodes when initial data or scriptStatuses change
-  useMemo(() => {
-    setNodes(initialNodes.map((n) => {
-      const data = n.data as unknown as { nodeType: string; fileId?: string }
-      if (data.nodeType === 'script' && data.fileId) {
-        const log = scriptStatuses.get(data.fileId)
-        if (log) {
-          return {
-            ...n,
-            data: { ...n.data, status: log.status, durationMs: log.durationMs, rowsAffected: log.rowsAffected },
-          }
-        }
-      }
-      return n
-    }))
-    setEdges(initialEdges.map((e) => {
-      // Animate edges when pipeline is running
-      if (pipelineRunning) {
-        return { ...e, animated: true }
-      }
-      return { ...e, animated: false }
-    }))
-  }, [initialNodes, initialEdges, scriptStatuses, pipelineRunning, setNodes, setEdges])
-
-  const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
-    setSelectedNodeId(node.id)
-    setSidebarVisible(true)
-  }, [])
-
-  const onNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
-    event.preventDefault()
-    const data = node.data as unknown as { nodeType: string; fileId?: string }
-    setContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id, nodeType: data.nodeType, fileId: data.fileId })
-  }, [])
-
-  const handleContextDelete = useCallback(() => {
-    if (!contextMenu?.fileId) return
-    deleteFile(contextMenu.fileId)
-    setContextMenu(null)
-  }, [contextMenu, deleteFile])
-
-  const handleContextViewCode = useCallback(() => {
-    if (!contextMenu?.fileId || !onSelectFile) return
-    onSelectFile(contextMenu.fileId)
-    setContextMenu(null)
-  }, [contextMenu, onSelectFile])
+      .sort((a, b) => a.order - b.order),
+    [files],
+  )
 
   // Run pipeline — execute scripts sequentially
   const handleRunPipeline = useCallback(async () => {
@@ -386,7 +199,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
   }, [selectedNodeId, sourceDs, targetDs, files, scriptStatuses, dataSources, pipeline?.sourceDataSourceId])
 
   // Empty state
-  if (initialNodes.length === 0) {
+  if (sqlFiles.length === 0 && !hasSource && !hasTarget) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">
@@ -424,7 +237,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
           )}
 
           <span className="text-xs text-muted-foreground">
-            {sqlFiles.length} {t('etl.pipeline_scripts_count')}
+            {sqlFiles.filter((f) => !f.disabled).length}/{sqlFiles.length} {t('etl.pipeline_scripts_count')}
           </span>
 
           {pipelineRunning && (
@@ -435,6 +248,16 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
           )}
 
           <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant={showComparison ? 'secondary' : 'ghost'}
+              size="xs"
+              className="gap-1.5 text-xs"
+              onClick={() => { setShowComparison(!showComparison); if (!showComparison) setShowHistory(false) }}
+            >
+              <GitCompare size={14} />
+              {t('etl.comparison')}
+            </Button>
+            <div className="mx-0.5 h-4 w-px bg-border" />
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -463,21 +286,9 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  variant={viewMode === 'list' ? 'secondary' : 'ghost'}
-                  size="icon-xs"
-                  onClick={() => setViewMode(viewMode === 'list' ? 'dag' : 'list')}
-                >
-                  <List size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t('etl.pipeline_list_view')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
                   variant={showHistory ? 'secondary' : 'ghost'}
                   size="icon-xs"
-                  onClick={() => setShowHistory(!showHistory)}
+                  onClick={() => { setShowHistory(!showHistory); if (!showHistory) setShowComparison(false) }}
                 >
                   <History size={14} />
                 </Button>
@@ -502,16 +313,24 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
         {/* Content: canvas + sidebar */}
         <div className="min-h-0 flex-1 overflow-hidden">
           <Allotment proportionalLayout={false}>
-            {/* Flow canvas, list, or history */}
+            {/* Script list, comparison, or history */}
             <Allotment.Pane minSize={400}>
-              {showHistory ? (
+              {showComparison ? (
+                <ComparisonView
+                  pipeline={pipeline}
+                  sourceDs={sourceDs}
+                  targetDs={targetDs}
+                  mappingProjectId={pipeline?.mappingProjectId}
+                  onMappingProjectChange={(id) => pipeline && updatePipeline(pipeline.id, { mappingProjectId: id || undefined })}
+                />
+              ) : showHistory ? (
                 <RunHistoryPanel
                   runHistory={runHistory}
                   files={files}
                   expandedRunId={expandedRunId}
                   onToggleRun={(id) => setExpandedRunId(expandedRunId === id ? null : id)}
                 />
-              ) : viewMode === 'list' ? (
+              ) : (
                 <ScriptOrderList
                   sqlFiles={sqlFiles}
                   sourceDs={sourceDs}
@@ -525,76 +344,12 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
                   onSelectFile={onSelectFile}
                   onSelectNode={(id) => { setSelectedNodeId(id); setSidebarVisible(true) }}
                 />
-              ) : (
-                <div className="h-full w-full">
-                  <ReactFlow
-                    nodes={nodes}
-                    edges={edges}
-                    nodeTypes={etlNodeTypes}
-                    onNodesChange={onNodesChange as OnNodesChange<Node>}
-                    onEdgesChange={onEdgesChange as OnEdgesChange<Edge>}
-                    onNodeClick={onNodeClick}
-                    onNodeContextMenu={onNodeContextMenu}
-                    onPaneClick={() => setContextMenu(null)}
-                    fitView
-                    fitViewOptions={{ padding: 0.2, minZoom: 0.15, maxZoom: 1 }}
-                    nodesDraggable
-                    nodesConnectable={false}
-                    elementsSelectable
-                    proOptions={{ hideAttribution: true }}
-                    minZoom={0.1}
-                    maxZoom={2}
-                  >
-                    <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-muted-foreground)" style={{ opacity: 0.15 }} />
-                    <MiniMap
-                      className="!bottom-4 !right-4 !rounded-md !border !border-border"
-                      style={{ width: 140, height: 100 }}
-                      nodeColor={(node) => {
-                        const type = (node.data as { nodeType?: string })?.nodeType
-                        if (type === 'source') return 'var(--color-teal-500, #14b8a6)'
-                        if (type === 'target') return 'var(--color-emerald-500, #10b981)'
-                        return 'var(--color-blue-500, #3b82f6)'
-                      }}
-                      maskColor="rgba(0,0,0,0.08)"
-                    />
-                  </ReactFlow>
-                  {/* Context menu */}
-                  {contextMenu && (
-                    <div
-                      ref={contextMenuRef}
-                      className="fixed z-50 min-w-[140px] rounded-md border bg-popover p-1 shadow-md"
-                      style={{ left: contextMenu.x, top: contextMenu.y }}
-                    >
-                      {contextMenu.nodeType === 'script' && onSelectFile && (
-                        <button
-                          onClick={handleContextViewCode}
-                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs hover:bg-accent"
-                        >
-                          <Eye size={12} />
-                          {t('etl.pipeline_view_code')}
-                        </button>
-                      )}
-                      {contextMenu.nodeType === 'script' && (
-                        <button
-                          onClick={handleContextDelete}
-                          className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-red-600 hover:bg-red-500/10 dark:text-red-400"
-                        >
-                          <Trash2 size={12} />
-                          {t('etl.delete_file')}
-                        </button>
-                      )}
-                      {contextMenu.nodeType !== 'script' && (
-                        <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('etl.pipeline_no_actions')}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
               )}
             </Allotment.Pane>
 
             {/* Right sidebar — node detail */}
             <Allotment.Pane preferredSize={300} minSize={220} maxSize={450} visible={sidebarVisible}>
-              <div className="flex h-full flex-col border-l">
+              <div className="flex h-full min-h-0 flex-col overflow-hidden border-l">
                 <NodeDetailSidebar
                   info={selectedNodeInfo}
                   onViewCode={onSelectFile ? (fileId: string) => onSelectFile(fileId) : undefined}
@@ -767,14 +522,14 @@ function DatabaseSidebarDetail({
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="border-b px-3 py-2.5">
         <div className="flex items-center gap-2">
           <Database size={14} className={accentColor} />
           <h3 className="text-xs font-medium">{label}</h3>
         </div>
       </div>
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-4 p-3">
           {/* Basic info */}
           <div className="space-y-2 text-xs">
@@ -813,9 +568,9 @@ function DatabaseSidebarDetail({
                     <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_visits')}</div>
                   </div>
                   <div className="rounded-md border p-2 text-center">
-                    <Table2 size={14} className="mx-auto mb-1 text-amber-500" />
-                    <div className="text-sm font-semibold tabular-nums">{stats.summary.tableCount}</div>
-                    <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_tables')}</div>
+                    <Building2 size={14} className="mx-auto mb-1 text-amber-500" />
+                    <div className="text-sm font-semibold tabular-nums">{stats.summary.visitDetailCount.toLocaleString()}</div>
+                    <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_visit_units')}</div>
                   </div>
                 </div>
               </div>
@@ -947,6 +702,499 @@ function RunStatusIcon({ status }: { status: string }) {
     case 'pending': return <Clock size={12} className="text-muted-foreground/50" />
     case 'skipped': return <AlertCircle size={12} className="text-amber-500" />
     default: return null
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Comparison view — side-by-side source vs target stats + concept mapping diff
+// ---------------------------------------------------------------------------
+
+interface ComparisonViewProps {
+  pipeline: import('@/types').EtlPipeline | undefined
+  sourceDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  targetDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  mappingProjectId?: string
+  onMappingProjectChange: (id: string) => void
+}
+
+type ComparisonTab = 'statistics' | 'concepts'
+
+interface ConceptMappingRow {
+  sourceVocabularyId: string
+  sourceCode: string
+  sourceDescription: string
+  targetConceptId: number
+  targetVocabularyId: string
+  sourcePatients: number
+  sourceRows: number
+  targetPatients: number
+  targetRows: number
+  diff: 'match' | 'fewer' | 'more' | 'missing'
+}
+
+function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMappingProjectChange }: ComparisonViewProps) {
+  const { t } = useTranslation()
+  const [activeTab, setActiveTab] = useState<ComparisonTab>('statistics')
+  const [sourceStats, setSourceStats] = useState<DatabaseStatsCache | null>(null)
+  const [targetStats, setTargetStats] = useState<DatabaseStatsCache | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  // Mapping projects for concept tab
+  const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
+
+  useEffect(() => {
+    if (!mappingProjectsLoaded) loadMappingProjects()
+  }, [mappingProjectsLoaded, loadMappingProjects])
+
+  // Auto-select first mapping project if none is set
+  const workspaceId = pipeline?.workspaceId
+  const availableProjects = useMemo(
+    () => mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId),
+    [mappingProjects, workspaceId],
+  )
+  useEffect(() => {
+    if (!mappingProjectId && availableProjects.length > 0) {
+      onMappingProjectChange(availableProjects[0].id)
+    }
+  }, [mappingProjectId, availableProjects, onMappingProjectChange])
+
+  // Load stats for both databases
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+
+    const loadStats = async () => {
+      const results = await Promise.all([
+        sourceDs?.id && sourceDs.schemaMapping
+          ? computeDatabaseStats(sourceDs.id, sourceDs.schemaMapping).catch(() => null)
+          : Promise.resolve(null),
+        targetDs?.id && targetDs.schemaMapping
+          ? computeDatabaseStats(targetDs.id, targetDs.schemaMapping).catch(() => null)
+          : Promise.resolve(null),
+      ])
+      if (!cancelled) {
+        setSourceStats(results[0])
+        setTargetStats(results[1])
+        setLoading(false)
+      }
+    }
+    loadStats()
+    return () => { cancelled = true }
+  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+
+  if (!sourceDs && !targetDs) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-sm text-muted-foreground">{t('etl.comparison_no_db')}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Tab bar */}
+      <div className="flex items-center gap-0.5 border-b px-3 py-1">
+        {(['statistics', 'concepts'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+              activeTab === tab
+                ? 'bg-accent text-accent-foreground'
+                : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+            )}
+          >
+            {t(`etl.comparison_tab_${tab}`)}
+          </button>
+        ))}
+
+        {/* Mapping project selector (shown on concepts tab) */}
+        {activeTab === 'concepts' && availableProjects.length > 0 && (
+          <div className="ml-auto">
+            <Select value={mappingProjectId ?? ''} onValueChange={onMappingProjectChange}>
+              <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+                <SelectValue placeholder={t('etl.vocab_select_project')} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableProjects.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+      </div>
+
+      {/* Tab content */}
+      <div className="min-h-0 flex-1">
+        {activeTab === 'statistics' ? (
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-6">
+              <div className="grid grid-cols-2 gap-4">
+                <ComparisonColumn
+                  label={t('etl.source')}
+                  ds={sourceDs}
+                  stats={sourceStats}
+                  loading={loading}
+                  accentColor="teal"
+                />
+                <ComparisonColumn
+                  label={t('etl.target')}
+                  ds={targetDs}
+                  stats={targetStats}
+                  loading={loading}
+                  accentColor="emerald"
+                />
+              </div>
+            </div>
+          </ScrollArea>
+        ) : (
+          <ConceptComparisonTab
+            sourceDs={sourceDs}
+            targetDs={targetDs}
+            mappingProjectId={mappingProjectId}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Concept comparison tab — concept mapping datatable with source vs target counts
+// ---------------------------------------------------------------------------
+
+function ConceptComparisonTab({
+  sourceDs,
+  targetDs,
+  mappingProjectId,
+}: {
+  sourceDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  targetDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  mappingProjectId?: string
+}) {
+  const { t } = useTranslation()
+  const [mappingRows, setMappingRows] = useState<ConceptMappingRow[]>([])
+  const [mappingLoading, setMappingLoading] = useState(false)
+
+  useEffect(() => {
+    if (!sourceDs?.id || !targetDs?.id || !targetDs?.schemaMapping) return
+    let cancelled = false
+    setMappingLoading(true)
+
+    const loadMapping = async () => {
+      try {
+        // Read STCM from target database
+        const stcmRows = await duckdbEngine.queryDataSource(targetDs.id, `
+          SELECT source_vocabulary_id, source_code, source_code_description,
+                 target_concept_id, target_vocabulary_id
+          FROM source_to_concept_map
+          WHERE target_concept_id != 0
+        `).catch(() => [])
+
+        if (cancelled || stcmRows.length === 0) {
+          if (!cancelled) { setMappingRows([]); setMappingLoading(false) }
+          return
+        }
+
+        // Build concept_id lists for counting
+        const targetConceptIds = new Set<number>()
+        for (const row of stcmRows) {
+          targetConceptIds.add(Number(row.target_concept_id))
+        }
+
+        const countConceptsInDb = async (dsId: string, conceptIds: number[], side: 'source' | 'target') => {
+          if (conceptIds.length === 0) return new Map<number, { patients: number; rows: number }>()
+          const counts = new Map<number, { patients: number; rows: number }>()
+
+          const clinicalTables = [
+            { table: 'condition_occurrence', conceptCol: side === 'source' ? 'condition_source_concept_id' : 'condition_concept_id', personCol: 'person_id' },
+            { table: 'drug_exposure', conceptCol: side === 'source' ? 'drug_source_concept_id' : 'drug_concept_id', personCol: 'person_id' },
+            { table: 'measurement', conceptCol: side === 'source' ? 'measurement_source_concept_id' : 'measurement_concept_id', personCol: 'person_id' },
+            { table: 'procedure_occurrence', conceptCol: side === 'source' ? 'procedure_source_concept_id' : 'procedure_concept_id', personCol: 'person_id' },
+            { table: 'observation', conceptCol: side === 'source' ? 'observation_source_concept_id' : 'observation_concept_id', personCol: 'person_id' },
+          ]
+
+          for (const ct of clinicalTables) {
+            try {
+              const idList = conceptIds.join(',')
+              const sql = `
+                SELECT "${ct.conceptCol}" as cid,
+                       COUNT(DISTINCT "${ct.personCol}")::INTEGER as patients,
+                       COUNT(*)::INTEGER as rows
+                FROM "${ct.table}"
+                WHERE "${ct.conceptCol}" IN (${idList})
+                GROUP BY "${ct.conceptCol}"
+              `
+              const rows = await duckdbEngine.queryDataSource(dsId, sql)
+              for (const r of rows) {
+                const cid = Number(r.cid)
+                const prev = counts.get(cid) ?? { patients: 0, rows: 0 }
+                counts.set(cid, { patients: prev.patients + Number(r.patients), rows: prev.rows + Number(r.rows) })
+              }
+            } catch { /* table may not exist */ }
+          }
+          return counts
+        }
+
+        const allTargetIds = [...targetConceptIds]
+        const targetCounts = await countConceptsInDb(targetDs.id, allTargetIds, 'target')
+        const sourceCounts = sourceDs.schemaMapping
+          ? await countConceptsInDb(sourceDs.id, allTargetIds, 'target').catch(() => new Map())
+          : new Map<number, { patients: number; rows: number }>()
+
+        const comparisonRows: ConceptMappingRow[] = []
+        for (const row of stcmRows) {
+          const tcid = Number(row.target_concept_id)
+          const sc = sourceCounts.get(tcid) ?? { patients: 0, rows: 0 }
+          const tc = targetCounts.get(tcid) ?? { patients: 0, rows: 0 }
+
+          let diff: ConceptMappingRow['diff'] = 'match'
+          if (sc.rows > 0 && tc.rows === 0) diff = 'missing'
+          else if (tc.rows < sc.rows * 0.9) diff = 'fewer'
+          else if (tc.rows > sc.rows * 1.1) diff = 'more'
+
+          comparisonRows.push({
+            sourceVocabularyId: String(row.source_vocabulary_id ?? ''),
+            sourceCode: String(row.source_code ?? ''),
+            sourceDescription: String(row.source_code_description ?? ''),
+            targetConceptId: tcid,
+            targetVocabularyId: String(row.target_vocabulary_id ?? ''),
+            sourcePatients: sc.patients,
+            sourceRows: sc.rows,
+            targetPatients: tc.patients,
+            targetRows: tc.rows,
+            diff,
+          })
+        }
+
+        const diffOrder = { missing: 0, fewer: 1, more: 2, match: 3 }
+        comparisonRows.sort((a, b) => diffOrder[a.diff] - diffOrder[b.diff])
+
+        if (!cancelled) {
+          setMappingRows(comparisonRows)
+          setMappingLoading(false)
+        }
+      } catch {
+        if (!cancelled) { setMappingRows([]); setMappingLoading(false) }
+      }
+    }
+    loadMapping()
+    return () => { cancelled = true }
+  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+
+  if (mappingLoading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 size={14} className="animate-spin" />
+          {t('common.loading')}…
+        </div>
+      </div>
+    )
+  }
+
+  if (mappingRows.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <div className="text-center">
+          <GitCompare size={24} className="mx-auto text-muted-foreground/30" />
+          <p className="mt-2 text-xs text-muted-foreground">{t('etl.comparison_no_mappings')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const diffCounts = { missing: 0, fewer: 0, more: 0, match: 0 }
+  for (const row of mappingRows) diffCounts[row.diff]++
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* Summary badges */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b">
+        <span className="text-xs text-muted-foreground">{mappingRows.length} {t('etl.comparison_mapping_concepts')}</span>
+        <div className="flex items-center gap-1">
+          {diffCounts.missing > 0 && (
+            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+              <AlertTriangle size={9} /> {diffCounts.missing} {t('etl.comparison_missing')}
+            </span>
+          )}
+          {diffCounts.fewer > 0 && (
+            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+              {diffCounts.fewer} {t('etl.comparison_fewer')}
+            </span>
+          )}
+          {diffCounts.more > 0 && (
+            <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+              {diffCounts.more} {t('etl.comparison_more')}
+            </span>
+          )}
+          {diffCounts.match > 0 && (
+            <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+              {diffCounts.match} OK
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Datatable */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-xs">
+          <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+            <tr>
+              <th className="px-2 py-1.5 text-left font-medium">{t('etl.comparison_source_vocab')}</th>
+              <th className="px-2 py-1.5 text-left font-medium">{t('etl.comparison_source_code')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_id')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_source_patients')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_patients')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_source_rows')}</th>
+              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_rows')}</th>
+              <th className="px-2 py-1.5 text-center font-medium">{t('etl.comparison_status')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {mappingRows.map((row, idx) => (
+              <tr key={idx} className={cn('border-t hover:bg-accent/30', row.diff === 'missing' && 'bg-red-500/5')}>
+                <td className="px-2 py-1.5 font-mono">{row.sourceVocabularyId}</td>
+                <td className="px-2 py-1.5 font-mono max-w-[200px] truncate" title={row.sourceDescription}>
+                  {row.sourceCode}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetConceptId}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{row.sourcePatients.toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetPatients.toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{row.sourceRows.toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetRows.toLocaleString()}</td>
+                <td className="px-2 py-1.5 text-center">
+                  <ComparisonDiffBadge diff={row.diff} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function ComparisonColumn({
+  label,
+  ds,
+  stats,
+  loading,
+  accentColor,
+}: {
+  label: string
+  ds: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
+  stats: DatabaseStatsCache | null
+  loading: boolean
+  accentColor: 'teal' | 'emerald'
+}) {
+  const { t } = useTranslation()
+  const borderColor = accentColor === 'teal' ? 'border-teal-500/30' : 'border-emerald-500/30'
+  const iconColor = accentColor === 'teal' ? 'text-teal-500' : 'text-emerald-500'
+
+  if (!ds) {
+    return (
+      <div className={cn('rounded-lg border-2 p-4 text-center', borderColor)}>
+        <Database size={20} className="mx-auto text-muted-foreground/30" />
+        <p className="mt-2 text-xs text-muted-foreground">{t('etl.pipeline_no_db_selected')}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className={cn('space-y-3 rounded-lg border-2 p-3', borderColor)}>
+      <div className="flex items-center gap-2">
+        <Database size={14} className={iconColor} />
+        <span className="text-xs font-medium">{label}</span>
+        <span className="text-xs text-muted-foreground">— {ds.name}</span>
+      </div>
+
+      {loading && (
+        <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+          <Loader2 size={12} className="animate-spin" />
+          {t('common.loading')}…
+        </div>
+      )}
+
+      {stats && (
+        <div className="space-y-3">
+          {/* Key numbers */}
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-md border p-2 text-center">
+              <Users size={12} className="mx-auto mb-0.5 text-blue-500" />
+              <div className="text-sm font-semibold tabular-nums">{stats.summary.patientCount.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_patients')}</div>
+            </div>
+            <div className="rounded-md border p-2 text-center">
+              <Activity size={12} className="mx-auto mb-0.5 text-emerald-500" />
+              <div className="text-sm font-semibold tabular-nums">{stats.summary.visitCount.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_visits')}</div>
+            </div>
+            <div className="rounded-md border p-2 text-center">
+              <Building2 size={12} className="mx-auto mb-0.5 text-amber-500" />
+              <div className="text-sm font-semibold tabular-nums">{stats.summary.visitDetailCount.toLocaleString()}</div>
+              <div className="text-[9px] text-muted-foreground">{t('etl.sidebar_visit_units')}</div>
+            </div>
+          </div>
+
+          {/* Gender */}
+          {(stats.genderDistribution.male > 0 || stats.genderDistribution.female > 0) && (
+            <GenderBar distribution={stats.genderDistribution} />
+          )}
+
+          {/* Table counts */}
+          {stats.tableCounts.length > 0 && (
+            <div className="space-y-0.5">
+              <h4 className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                {t('etl.sidebar_tables')} ({stats.tableCounts.length})
+              </h4>
+              {stats.tableCounts.map((tc) => (
+                <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-0.5 text-[11px]">
+                  <Table2 size={9} className="shrink-0 text-blue-500/60" />
+                  <span className="min-w-0 flex-1 truncate font-mono">{tc.tableName}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ComparisonDiffBadge({ diff }: { diff: ConceptMappingRow['diff'] }) {
+  const { t } = useTranslation()
+  switch (diff) {
+    case 'missing':
+      return (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+          <AlertTriangle size={10} />
+          {t('etl.comparison_missing')}
+        </span>
+      )
+    case 'fewer':
+      return (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          {t('etl.comparison_fewer')}
+        </span>
+      )
+    case 'more':
+      return (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+          {t('etl.comparison_more')}
+        </span>
+      )
+    case 'match':
+      return (
+        <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 size={10} />
+        </span>
+      )
   }
 }
 
@@ -1311,6 +1559,21 @@ function SortableScriptRow({
           </div>
         </button>
 
+        {/* View code button */}
+        {onSelectFile && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => onSelectFile(file.id)}
+                className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Eye size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{t('etl.pipeline_view_code')}</TooltipContent>
+          </Tooltip>
+        )}
+
         {/* Enable/disable toggle */}
         <Tooltip>
           <TooltipTrigger asChild>
@@ -1328,17 +1591,6 @@ function SortableScriptRow({
           </TooltipTrigger>
           <TooltipContent>{isDisabled ? t('etl.enable_script') : t('etl.disable_script')}</TooltipContent>
         </Tooltip>
-
-        {/* View code button */}
-        {onSelectFile && (
-          <button
-            onClick={() => onSelectFile(file.id)}
-            className="shrink-0 rounded p-1 text-muted-foreground/40 transition-colors hover:bg-accent hover:text-foreground"
-            title={t('etl.pipeline_view_code')}
-          >
-            <Eye size={12} />
-          </button>
-        )}
       </div>
 
       {/* Connector line between items */}

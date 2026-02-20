@@ -394,13 +394,13 @@ const mimicIV: SchemaMapping = {
     typeColumn: 'note_type',
   },
   visitDetailTable: {
-    table: 'icustays',
-    idColumn: 'stay_id',
+    table: 'transfers',
+    idColumn: 'transfer_id',
     visitIdColumn: 'hadm_id',
     patientIdColumn: 'subject_id',
     startDateColumn: 'intime',
     endDateColumn: 'outtime',
-    unitColumn: 'first_careunit',
+    unitColumn: 'careunit',
   },
   conceptTables: [
     {

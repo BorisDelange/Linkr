@@ -1,6 +1,6 @@
-# LinkR v2 — Vision & Roadmap
+# Linkr v2 — Vision & Roadmap
 
-This document outlines the long-term vision for LinkR, including workspace organization, the three use-case pillars (Research, Monitoring, Deployment), and a benchmark of existing platforms. It serves as a guide for architectural decisions — not a commitment to implement everything immediately.
+This document outlines the long-term vision for Linkr, including workspace organization, the three use-case pillars (Research, Monitoring, Deployment), and a benchmark of existing platforms. It serves as a guide for architectural decisions — not a commitment to implement everything immediately.
 
 **Core principle**: Make early design choices that preserve flexibility for future development. Avoid architectural dead-ends.
 
@@ -19,11 +19,11 @@ This document outlines the long-term vision for LinkR, including workspace organ
 
 ## Three Pillars
 
-LinkR targets three progressively broader use cases:
+Linkr targets three progressively broader use cases:
 
 ### 1. Research (Current Priority)
 
-Clinical research using structured data warehouses. While OMOP CDM is the primary supported model, LinkR is **not locked to OMOP** — the schema presets system allows defining and working with any data model (OMOP, i2b2, FHIR-flattened, custom hospital schemas, etc.). Each schema preset maps generic concepts (patient, visit, condition, measurement…) to the actual table/column names of the target data model.
+Clinical research using structured data warehouses. While OMOP CDM is the primary supported model, Linkr is **not locked to OMOP** — the schema presets system allows defining and working with any data model (OMOP, i2b2, FHIR-flattened, custom hospital schemas, etc.). Each schema preset maps generic concepts (patient, visit, condition, measurement…) to the actual table/column names of the target data model.
 
 - Import and explore clinical databases (DuckDB, Parquet)
 - Browse concepts, build cohorts (schema-aware, not OMOP-specific)
@@ -55,7 +55,7 @@ Deploying AI models and Clinical Decision Support Systems in clinical settings.
 - Case review workflows
 - Compliance infrastructure for Software as a Medical Device (SaMD)
 
-**Status**: Not started. **Open question**: Is it worth building this within LinkR, or should LinkR integrate with existing MLOps platforms (MLflow, Evidently, etc.)? The regulatory complexity (EU MDR, FDA, IEC 62304) is significant. LinkR could provide the data preparation and monitoring UI, while delegating model serving and lifecycle management to specialized tools.
+**Status**: Not started. **Open question**: Is it worth building this within Linkr, or should Linkr integrate with existing MLOps platforms (MLflow, Evidently, etc.)? The regulatory complexity (EU MDR, FDA, IEC 62304) is significant. Linkr could provide the data preparation and monitoring UI, while delegating model serving and lifecycle management to specialized tools.
 
 ---
 
@@ -123,7 +123,7 @@ This avoids creating parallel project hierarchies and lets a single project evol
 
 ## Publication Model
 
-Instead of Dev/Staging/Prod infrastructure environments (overkill for LinkR's use case), we use **publication statuses** with atomic swap.
+Instead of Dev/Staging/Prod infrastructure environments (overkill for Linkr's use case), we use **publication statuses** with atomic swap.
 
 ### Dashboards
 
@@ -190,16 +190,16 @@ interface DeployedModel {
 
 ### MLOps Platforms
 
-| Platform | Key Features | Relevance to LinkR |
+| Platform | Key Features | Relevance to Linkr |
 |----------|-------------|-------------------|
-| **MLflow** | Model registry (aliases: @champion/@challenger), experiment tracking, model versioning, REST API serving | Gold standard for model registry. LinkR could integrate rather than rebuild. |
-| **Evidently AI** | Data/model drift detection (PSI, KS, Wasserstein tests), monitoring dashboards, report generation | Excellent monitoring library. Could be used as a Python dependency within LinkR's backend. |
-| **Weights & Biases** | Experiment tracking, hyperparameter sweeps, artifact versioning, collaborative dashboards | Strong experiment tracking. Overlaps with LinkR's Lab. Integration possible via API. |
+| **MLflow** | Model registry (aliases: @champion/@challenger), experiment tracking, model versioning, REST API serving | Gold standard for model registry. Linkr could integrate rather than rebuild. |
+| **Evidently AI** | Data/model drift detection (PSI, KS, Wasserstein tests), monitoring dashboards, report generation | Excellent monitoring library. Could be used as a Python dependency within Linkr's backend. |
+| **Weights & Biases** | Experiment tracking, hyperparameter sweeps, artifact versioning, collaborative dashboards | Strong experiment tracking. Overlaps with Linkr's Lab. Integration possible via API. |
 | **Seldon Core** | Kubernetes-based model serving, Alibi Explain (SHAP, LIME), canary deployments, A/B testing | Heavy infrastructure. Relevant only for large-scale hospital deployments. |
-| **BentoML** | Model packaging (Bento format), REST/gRPC serving, adaptive batching | Simplifies model serving. Good candidate if LinkR needs to serve models. |
-| **Dataiku** | Unified platform (data prep → training → deployment → monitoring), scenarios for automation, visual ML | Closest competitor in concept. Heavy, expensive, enterprise-focused. LinkR differentiates by being open-source and clinical-data-model-aware (OMOP, i2b2, custom schemas). |
+| **BentoML** | Model packaging (Bento format), REST/gRPC serving, adaptive batching | Simplifies model serving. Good candidate if Linkr needs to serve models. |
+| **Dataiku** | Unified platform (data prep → training → deployment → monitoring), scenarios for automation, visual ML | Closest competitor in concept. Heavy, expensive, enterprise-focused. Linkr differentiates by being open-source and clinical-data-model-aware (OMOP, i2b2, custom schemas). |
 
-**Key takeaway**: MLflow for model registry + Evidently for drift detection is a common open-source stack. LinkR could integrate with these rather than rebuilding them.
+**Key takeaway**: MLflow for model registry + Evidently for drift detection is a common open-source stack. Linkr could integrate with these rather than rebuilding them.
 
 ### SaMD Regulatory Landscape
 
@@ -215,10 +215,10 @@ interface DeployedModel {
 - 521 AI/ML-enabled medical devices approved as of 2024 (mostly radiology)
 - Total Product Lifecycle (TPLC) approach for AI/ML SaMD
 
-#### Implications for LinkR
-- LinkR as a platform does **not** need MDR certification itself (similar to how GitHub doesn't need MDR certification)
-- LinkR should provide **infrastructure for compliance**: audit trails, version control, change documentation, validation reports
-- Each deployed model/CDSS built on LinkR would need its own certification process
+#### Implications for Linkr
+- Linkr as a platform does **not** need MDR certification itself (similar to how GitHub doesn't need MDR certification)
+- Linkr should provide **infrastructure for compliance**: audit trails, version control, change documentation, validation reports
+- Each deployed model/CDSS built on Linkr would need its own certification process
 - Key features to support compliance: immutable prediction logs, model versioning with full provenance, automated test suites, drift detection with alerts
 
 ### Hospital Dashboard / BI Platforms
@@ -231,7 +231,7 @@ interface DeployedModel {
 | **Superset** | Open-source BI, used by some research institutions | Good SQL-based dashboards, no clinical data model awareness |
 | **Metabase** | Open-source, simpler BI tool | Easy to deploy, limited for complex clinical analyses |
 
-**Key takeaway**: Hospital dashboards today are mostly generic BI tools (Power BI, Tableau) that know nothing about clinical data models. LinkR's advantage is being **clinical-data-model-aware** (OMOP, i2b2, custom schemas via presets): concept browsing, cohort definitions, and clinical context are built into the dashboard experience.
+**Key takeaway**: Hospital dashboards today are mostly generic BI tools (Power BI, Tableau) that know nothing about clinical data models. Linkr's advantage is being **clinical-data-model-aware** (OMOP, i2b2, custom schemas via presets): concept browsing, cohort definitions, and clinical context are built into the dashboard experience.
 
 ### CDSS Platforms
 
@@ -240,10 +240,10 @@ interface DeployedModel {
 | **Epic BPA (Best Practice Alerts)** | EHR-integrated | Tightly coupled to Epic EHR. Rule-based, limited ML support. |
 | **Cerner (Oracle Health) Alerts** | EHR-integrated | Similar to Epic. Vendor lock-in. |
 | **OpenCDS** | Open-source | CDS Hooks standard. Rule engine, not ML-focused. |
-| **CDS Hooks (HL7)** | Standard | REST-based CDSS integration standard. LinkR could expose CDS Hooks endpoints for deployed models. |
+| **CDS Hooks (HL7)** | Standard | REST-based CDSS integration standard. Linkr could expose CDS Hooks endpoints for deployed models. |
 | **Custom ML pipelines** | Hospital-specific | Most hospitals deploying ML do it custom (Python + Docker + monitoring). No dominant open-source platform exists for clinical ML deployment. |
 
-**Key takeaway**: There is no dominant open-source platform for clinical ML deployment and monitoring. This is both an opportunity and a risk — building it is valuable but complex. CDS Hooks is the right integration standard if LinkR eventually serves predictions to EHRs.
+**Key takeaway**: There is no dominant open-source platform for clinical ML deployment and monitoring. This is both an opportunity and a risk — building it is valuable but complex. CDS Hooks is the right integration standard if Linkr eventually serves predictions to EHRs.
 
 ---
 

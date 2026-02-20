@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "linkr-api"
 version = "2.0.0-dev"
-description = "LinkR v2 Backend API"
+description = "Linkr v2 Backend API"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

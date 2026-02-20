@@ -6,7 +6,7 @@ import type { GitCommit, GitRemoteConfig } from '@/types'
 import { useFileStore, type FileNode } from '@/stores/file-store'
 
 const FS_PREFIX = 'linkr-git'
-const GIT_AUTHOR = { name: 'LinkR User', email: 'user@linkr.local' }
+const GIT_AUTHOR = { name: 'Linkr User', email: 'user@linkr.local' }
 
 function getFs(projectUid: string) {
   return new LightningFS(`${FS_PREFIX}-${projectUid}`)

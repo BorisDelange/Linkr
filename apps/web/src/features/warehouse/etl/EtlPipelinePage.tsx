@@ -22,10 +22,10 @@ import { EtlVocabularyTab } from './EtlVocabularyTab'
 type TabId = 'scripts' | 'pipeline' | 'profiling' | 'vocabulary'
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
+  { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
+  { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
   { id: 'profiling', labelKey: 'etl.tab_profiling', icon: BarChart3 },
   { id: 'vocabulary', labelKey: 'etl.tab_vocabulary', icon: BookOpen },
-  { id: 'scripts', labelKey: 'etl.tab_scripts', icon: Code },
-  { id: 'pipeline', labelKey: 'etl.tab_pipeline', icon: Workflow },
 ]
 
 interface Props {
@@ -40,7 +40,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
-  const [activeTab, setActiveTab] = useState<TabId>('profiling')
+  const [activeTab, setActiveTab] = useState<TabId>('pipeline')
 
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()

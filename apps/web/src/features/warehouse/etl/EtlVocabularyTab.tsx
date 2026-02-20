@@ -150,7 +150,7 @@ function filterMappings(
 
 export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t } = useTranslation()
-  const { etlPipelines } = useEtlStore()
+  const { etlPipelines, updatePipeline } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings } = useConceptMappingStore()
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
@@ -160,7 +160,25 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     if (!mappingProjectsLoaded) loadMappingProjects()
   }, [mappingProjectsLoaded, loadMappingProjects])
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('')
+  // Use the persisted mappingProjectId from the pipeline, or default to first available
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(pipeline?.mappingProjectId ?? '')
+
+  // Auto-select default when projects load and none is set
+  const workspaceId = pipeline?.workspaceId
+  const availableProjects = mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId)
+  useEffect(() => {
+    if (!selectedProjectId && availableProjects.length > 0) {
+      const defaultId = availableProjects[0].id
+      setSelectedProjectId(defaultId)
+      if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: defaultId })
+    }
+  }, [selectedProjectId, availableProjects, pipeline, updatePipeline])
+
+  // Persist selection changes
+  const handleProjectChange = useCallback((id: string) => {
+    setSelectedProjectId(id)
+    if (pipeline) updatePipeline(pipeline.id, { mappingProjectId: id || undefined })
+  }, [pipeline, updatePipeline])
   const [creating, setCreating] = useState(false)
   const [result, setResult] = useState<{ success: boolean; count: number; action?: 'created' | 'updated'; error?: string } | null>(null)
 
@@ -202,10 +220,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     () => filterMappings(projectMappings, includedStatuses, approvalRule),
     [projectMappings, includedStatuses, approvalRule],
   )
-
-  // Get mapping projects for this workspace
-  const workspaceId = pipeline?.workspaceId
-  const availableProjects = mappingProjects.filter((p) => !workspaceId || p.workspaceId === workspaceId)
 
   const handleCreateFromProject = useCallback(async () => {
     if (!selectedProjectId || filteredMappings.length === 0) return
@@ -271,7 +285,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         {/* Option 1: From mapping project */}
         <div className="space-y-2">
           <Label className="text-xs font-medium">{t('etl.vocab_from_project')}</Label>
-          <Select value={selectedProjectId} onValueChange={setSelectedProjectId}>
+          <Select value={selectedProjectId} onValueChange={handleProjectChange}>
             <SelectTrigger className="text-xs">
               <SelectValue placeholder={t('etl.vocab_select_project')} />
             </SelectTrigger>
