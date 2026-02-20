@@ -130,8 +130,9 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  // Only show source + target databases in the per-file dropdown
-  const pipelineDbIds = [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId].filter(Boolean) as string[]
+  // Show source + target + vocabulary databases in the per-file dropdown
+  const vocabDbs = dataSources.filter((ds) => ds.isVocabularyReference)
+  const pipelineDbIds = [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId, ...vocabDbs.map((ds) => ds.id)].filter(Boolean) as string[]
   const pipelineDbs = dataSources.filter((ds) => pipelineDbIds.includes(ds.id))
   const { updateFile } = useEtlStore()
 
@@ -147,11 +148,16 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   const selectedFileDataSourceId = resolveFileDataSourceId(selectedFile)
   const selectedFileDs = dataSources.find((ds) => ds.id === selectedFileDataSourceId)
 
-  // Ensure source + target data sources are mounted in DuckDB when pipeline loads
+  // Ensure source + target + vocabulary data sources are mounted in DuckDB when pipeline loads
   const ensurePipelineDbsMounted = useCallback(async () => {
-    const { testConnection } = useDataSourceStore.getState()
+    const { testConnection, dataSources: allDs } = useDataSourceStore.getState()
     if (pipeline?.sourceDataSourceId) await testConnection(pipeline.sourceDataSourceId)
     if (pipeline?.targetDataSourceId) await testConnection(pipeline.targetDataSourceId)
+    // Mount vocabulary reference databases (needed by 00_vocabulary.sql)
+    const vocabSources = allDs.filter((ds) => ds.isVocabularyReference && ds.status === 'connected')
+    for (const vs of vocabSources) {
+      await testConnection(vs.id)
+    }
   }, [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId])
 
   useEffect(() => {

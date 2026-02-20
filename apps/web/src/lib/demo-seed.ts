@@ -286,7 +286,7 @@ export async function seedMimicIVRawDatabase(): Promise<void> {
 
 const SEED_KEY_VOCAB = 'linkr-demo-omop-vocab-seeded'
 /** Bump this version whenever omop-vocabulary Parquet files are updated to force re-seed. */
-const VOCAB_VERSION = 2
+const VOCAB_VERSION = 5
 const DEMO_VOCAB_DATASOURCE_ID = '00000000-0000-0000-0000-000000000004'
 const PARQUET_BASE_VOCAB = '/data/omop-vocabulary'
 
@@ -650,6 +650,8 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
+/** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
+const ETL_FILES_VERSION = 3
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {
@@ -660,26 +662,36 @@ interface EtlScriptRow {
 }
 
 /**
- * Seed 17 ETL SQL scripts as EtlFile records in the demo ETL pipeline.
+ * Seed ETL SQL scripts as EtlFile records in the demo ETL pipeline.
  *
  * Each script runs against the ETL target database (search_path = target schema)
- * and uses fully qualified names to read from the source and vocabulary schemas.
+ * and uses local vocabulary tables populated by the generated 00_vocabulary.sql script.
  * Adapted from OHDSI mimic-iv-demo-omop BigQuery scripts (Apache 2.0).
  *
  * Must run after seedDemoEtlPipeline().
  */
 export async function seedDemoEtlFiles(): Promise<void> {
-  if (localStorage.getItem(SEED_KEY_ETL_FILES)) return
+  const seededVersion = Number(localStorage.getItem(SEED_KEY_ETL_FILES) || '0')
+  if (seededVersion >= ETL_FILES_VERSION) return
 
   try {
     const storage = getStorage()
 
-    // Check if ETL files already exist in IndexedDB (guard against localStorage/IDB desync)
-    const existingFiles = await storage.etlFiles.getByPipeline(DEMO_ETL_PIPELINE_ID)
-    if (existingFiles.length > 0) {
-      localStorage.setItem(SEED_KEY_ETL_FILES, '1')
-      console.info('[demo-seed] Demo ETL files already exist, skipping seed')
-      return
+    // Remove old ETL files if upgrading from a previous version
+    if (seededVersion > 0) {
+      const oldFiles = await storage.etlFiles.getByPipeline(DEMO_ETL_PIPELINE_ID)
+      for (const f of oldFiles) {
+        await storage.etlFiles.delete(f.id)
+      }
+      console.info(`[demo-seed] Removed ${oldFiles.length} old ETL files (v${seededVersion} → v${ETL_FILES_VERSION})`)
+    } else {
+      // First-time guard: skip if files already exist in IndexedDB (localStorage/IDB desync)
+      const existingFiles = await storage.etlFiles.getByPipeline(DEMO_ETL_PIPELINE_ID)
+      if (existingFiles.length > 0) {
+        localStorage.setItem(SEED_KEY_ETL_FILES, String(ETL_FILES_VERSION))
+        console.info('[demo-seed] Demo ETL files already exist, skipping seed')
+        return
+      }
     }
 
     const now = new Date().toISOString()
@@ -698,14 +710,13 @@ export async function seedDemoEtlFiles(): Promise<void> {
         content: script.content,
         language: 'sql',
         order: script.order,
-        dataSourceId: DEMO_ETL_DATASOURCE_ID,
         createdAt: now,
       }
       await storage.etlFiles.create(file)
     }
 
-    localStorage.setItem(SEED_KEY_ETL_FILES, '1')
-    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully`)
+    localStorage.setItem(SEED_KEY_ETL_FILES, String(ETL_FILES_VERSION))
+    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully (v${ETL_FILES_VERSION})`)
   } catch (err) {
     console.error('[demo-seed] Failed to seed ETL files:', err)
   }
