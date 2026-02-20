@@ -20,6 +20,7 @@ import {
 import { DatabaseCard } from './databases/DatabaseCard'
 import { DatabaseDetailSheet } from './databases/DatabaseDetailSheet'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
+import { ExportDatabaseDialog } from './databases/ExportDatabaseDialog'
 
 export function DatabasesPage() {
   const { t } = useTranslation()
@@ -38,6 +39,7 @@ export function DatabasesPage() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [sourceToUnlink, setSourceToUnlink] = useState<DataSource | null>(null)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
+  const [sourceToExport, setSourceToExport] = useState<DataSource | null>(null)
 
   // Mount all data sources for this project when entering the page
   useEffect(() => {
@@ -112,6 +114,7 @@ export function DatabasesPage() {
                 onTestConnection={() => testConnection(ds.id)}
                 onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
+                onExport={() => setSourceToExport(ds)}
                 onRemove={() => setSourceToUnlink(ds)}
               />
             ))}
@@ -132,6 +135,12 @@ export function DatabasesPage() {
         source={currentSelectedSource}
         open={!!currentSelectedSource}
         onOpenChange={(open) => { if (!open) setSelectedSource(null) }}
+      />
+
+      <ExportDatabaseDialog
+        source={sourceToExport}
+        open={!!sourceToExport}
+        onOpenChange={(open) => { if (!open) setSourceToExport(null) }}
       />
 
       {/* Unlink confirmation dialog */}

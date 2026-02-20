@@ -391,7 +391,21 @@
     "no_schema": "No schema (raw SQL access)",
     "database_name": "Database name",
     "database_name_placeholder": "e.g. OMOP CDM (empty)",
-    "created_from_preset": "Created from {{preset}} preset (empty)"
+    "created_from_preset": "Created from {{preset}} preset (empty)",
+    "export": "Export",
+    "export_title": "Export database",
+    "export_description": "Export \"{{name}}\" to a downloadable file.",
+    "export_format_parquet": "Parquet files (ZIP)",
+    "export_format_parquet_desc": "Each table as an individual Parquet file, bundled in a ZIP archive. Best for interoperability.",
+    "export_format_duckdb": "DuckDB file",
+    "export_format_duckdb_desc": "Single DuckDB database file with all tables. Best for re-importing into DuckDB or Linkr.",
+    "export_start": "Export",
+    "export_discovering": "Discovering tables...",
+    "export_table_progress": "Exporting table {{current}} / {{total}}: {{table}}",
+    "export_packaging": "Packaging file...",
+    "export_success": "Export completed successfully!",
+    "export_error": "Export failed",
+    "export_retry": "Retry"
   },
   "reports": {
     "title": "Reports",
@@ -1569,7 +1583,8 @@
     "coming_soon": "Coming soon",
     "name": "Name",
     "description": "Description",
-    "import": "Import"
+    "import": "Import",
+    "close": "Close"
   },
   "user_menu": {
     "profile": "Profile",

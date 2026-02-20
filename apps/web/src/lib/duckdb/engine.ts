@@ -126,6 +126,11 @@ export function schemaName(dataSourceId: string): string {
 /** Track which data sources are ATTACHed (vs schema-based). */
 const attachedSources = new Set<string>()
 
+/** Check if a data source is ATTACHed (vs schema-based). */
+export function isAttachedSource(dataSourceId: string): boolean {
+  return attachedSources.has(dataSourceId)
+}
+
 // --- Mount / unmount ---
 
 /**

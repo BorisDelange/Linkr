@@ -9,6 +9,7 @@ import {
   MoreHorizontal,
   Trash2,
   Check,
+  Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,6 +17,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
@@ -28,6 +30,7 @@ interface DatabaseCardProps {
   onDisconnect?: () => void
   onReconnect?: () => void
   onEdit?: () => void
+  onExport?: () => void
   onRemove: () => void
 }
 
@@ -80,6 +83,7 @@ export function DatabaseCard({
   onDisconnect,
   onReconnect,
   onEdit,
+  onExport,
   onRemove,
 }: DatabaseCardProps) {
   const { t } = useTranslation()
@@ -157,6 +161,13 @@ export function DatabaseCard({
                       </DropdownMenuItem>
                     )
                   )}
+                  {onExport && source.status === 'connected' && source.sourceType !== 'fhir' && (
+                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport() }}>
+                      <Download size={14} />
+                      {t('databases.export')}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={(e) => { e.stopPropagation(); onRemove() }}
                     className="text-destructive focus:text-destructive"
