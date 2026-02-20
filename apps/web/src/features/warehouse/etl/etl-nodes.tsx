@@ -1,10 +1,10 @@
 import { memo } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Database, FileCode, Target, CheckCircle2, AlertCircle, Loader2, Clock } from 'lucide-react'
+import { Database, FileCode, Target, CheckCircle2, AlertCircle, Loader2, Clock, Ban } from 'lucide-react'
 
 // --- Status indicator ---
 
-export type EtlNodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'error' | 'skipped'
+export type EtlNodeStatus = 'idle' | 'pending' | 'running' | 'success' | 'error' | 'skipped' | 'disabled'
 
 function StatusIcon({ status }: { status: EtlNodeStatus }) {
   switch (status) {
@@ -18,6 +18,8 @@ function StatusIcon({ status }: { status: EtlNodeStatus }) {
       return <Clock size={12} className="text-muted-foreground/50" />
     case 'skipped':
       return <AlertCircle size={12} className="text-amber-500" />
+    case 'disabled':
+      return <Ban size={12} className="text-muted-foreground/40" />
     default:
       return null
   }
@@ -86,6 +88,7 @@ export interface EtlScriptNodeData {
   fileId: string
   order: number
   status: EtlNodeStatus
+  disabled?: boolean
   durationMs?: number
   rowsAffected?: number
 }
@@ -124,28 +127,36 @@ export const EtlSourceNode = memo(function EtlSourceNode({ data, selected }: Nod
 
 export const EtlScriptNode = memo(function EtlScriptNode({ data, selected }: NodeProps) {
   const d = data as unknown as EtlScriptNodeData
+  const isDisabled = !!d.disabled
   return (
-    <NodeShell selected={!!selected} accentColor="blue">
-      <Handle type="target" position={Position.Top} className={handleClass('blue')} />
-      <IconBox color="blue">
-        <FileCode size={16} className="text-blue-600 dark:text-blue-400" />
-      </IconBox>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="truncate text-xs font-medium text-foreground" title={d.label}>{d.label}</span>
-          <StatusIcon status={d.status} />
-        </div>
-        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-          {d.durationMs != null && (
-            <span>{d.durationMs < 1000 ? `${d.durationMs}ms` : `${(d.durationMs / 1000).toFixed(1)}s`}</span>
+    <div style={{ opacity: isDisabled ? 0.45 : 1 }}>
+      <NodeShell selected={!!selected} accentColor={isDisabled ? 'blue' : 'blue'}>
+        <Handle type="target" position={Position.Top} className={handleClass('blue')} />
+        <IconBox color="blue">
+          {isDisabled
+            ? <Ban size={16} className="text-muted-foreground/40" />
+            : <FileCode size={16} className="text-blue-600 dark:text-blue-400" />
+          }
+        </IconBox>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className={`truncate text-xs font-medium ${isDisabled ? 'line-through text-muted-foreground/60' : 'text-foreground'}`} title={d.label}>{d.label}</span>
+            <StatusIcon status={d.status} />
+          </div>
+          {!isDisabled && (
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+              {d.durationMs != null && (
+                <span>{d.durationMs < 1000 ? `${d.durationMs}ms` : `${(d.durationMs / 1000).toFixed(1)}s`}</span>
+              )}
+              {d.rowsAffected != null && (
+                <span>{d.rowsAffected.toLocaleString()} rows</span>
+              )}
+            </div>
           )}
-          {d.rowsAffected != null && (
-            <span>{d.rowsAffected.toLocaleString()} rows</span>
-          )}
         </div>
-      </div>
-      <Handle type="source" position={Position.Bottom} className={handleClass('blue')} />
-    </NodeShell>
+        <Handle type="source" position={Position.Bottom} className={handleClass('blue')} />
+      </NodeShell>
+    </div>
   )
 })
 

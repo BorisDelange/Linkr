@@ -57,6 +57,8 @@ import {
   Users,
   Activity,
   Table2,
+  Power,
+  Ban,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -193,7 +195,8 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
           label: file.name,
           fileId: file.id,
           order: i + 1,
-          status: 'idle',
+          status: file.disabled ? 'disabled' : 'idle',
+          disabled: file.disabled,
         } satisfies EtlScriptNodeData,
       })
       if (prevId) {
@@ -303,7 +306,7 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     let hasError = false
     for (const file of sqlFiles) {
       if (abort?.signal.aborted) break
-      if (!file.content) {
+      if (file.disabled || !file.content) {
         setScriptStatus(file.id, {
           id: `log-${file.id}-${Date.now()}`,
           pipelineId,
@@ -1055,10 +1058,9 @@ function ScriptOrderList({
   )
 
   return (
-    <div className="flex h-full flex-col">
-      <ScrollArea className="flex-1">
-        <div className="mx-auto max-w-lg space-y-0 p-4">
-          {/* Source node (static) */}
+    <div className="h-full overflow-auto">
+      <div className="mx-auto max-w-lg space-y-0 p-4">
+        {/* Source node (static) */}
           {hasSource && (
             <>
               <button
@@ -1102,6 +1104,7 @@ function ScriptOrderList({
                     isLast={idx === sqlFiles.length - 1 && !hasTarget}
                     onSelectFile={onSelectFile}
                     onSelectNode={onSelectNode}
+                    onToggleDisabled={(id) => updateFile(id, { disabled: !file.disabled })}
                   />
                 )
               })}
@@ -1130,8 +1133,7 @@ function ScriptOrderList({
               </button>
             </>
           )}
-        </div>
-      </ScrollArea>
+      </div>
     </div>
   )
 }
@@ -1149,6 +1151,7 @@ function SortableScriptRow({
   isLast,
   onSelectFile,
   onSelectNode,
+  onToggleDisabled,
 }: {
   file: EtlFile
   index: number
@@ -1158,6 +1161,7 @@ function SortableScriptRow({
   isLast: boolean
   onSelectFile?: (fileId: string) => void
   onSelectNode: (id: string) => void
+  onToggleDisabled: (fileId: string) => void
 }) {
   const { t } = useTranslation()
   const {
@@ -1169,12 +1173,38 @@ function SortableScriptRow({
     isDragging,
   } = useSortable({ id: file.id })
 
+  const isDisabled = !!file.disabled
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 10 : undefined,
-    opacity: isDragging ? 0.8 : 1,
+    opacity: isDragging ? 0.8 : isDisabled ? 0.45 : 1,
   }
+
+  // Border color based on status
+  const borderClass = isDragging
+    ? 'border-blue-500 shadow-lg'
+    : isDisabled
+      ? 'border-muted-foreground/20 hover:border-muted-foreground/40'
+      : log?.status === 'success'
+        ? 'border-emerald-500/40 hover:border-emerald-500/70'
+        : log?.status === 'error'
+          ? 'border-red-500/40 hover:border-red-500/70'
+          : log?.status === 'running'
+            ? 'border-blue-500/50 hover:border-blue-500/80'
+            : 'border-blue-500/30 hover:border-blue-500/60'
+
+  // Left accent strip color
+  const accentColor = isDisabled
+    ? 'bg-muted-foreground/20'
+    : log?.status === 'success'
+      ? 'bg-emerald-500'
+      : log?.status === 'error'
+        ? 'bg-red-500'
+        : log?.status === 'running'
+          ? 'bg-blue-500'
+          : 'bg-blue-500/30'
 
   return (
     <>
@@ -1182,27 +1212,36 @@ function SortableScriptRow({
         ref={setNodeRef}
         style={style}
         className={cn(
-          'flex items-center gap-2 rounded-lg border-2 bg-card px-2 py-2 transition-colors',
-          isDragging ? 'border-blue-500 shadow-lg' : 'border-blue-500/30 hover:border-blue-500/60',
+          'flex items-center gap-2 rounded-lg border-2 bg-card px-2 py-2 transition-colors relative overflow-hidden',
+          borderClass,
         )}
       >
+        {/* Left accent strip */}
+        <div className={cn('absolute left-0 top-0 bottom-0 w-1 rounded-l-md', accentColor)} />
+
         {/* Drag handle */}
         <button
           {...attributes}
           {...listeners}
-          className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+          className="shrink-0 cursor-grab touch-none rounded p-0.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing ml-1"
         >
           <GripVertical size={14} />
         </button>
 
         {/* Order number */}
-        <span className="w-5 shrink-0 text-center text-[10px] font-medium tabular-nums text-muted-foreground">
+        <span className={cn('w-5 shrink-0 text-center text-[10px] font-medium tabular-nums', isDisabled ? 'text-muted-foreground/40' : 'text-muted-foreground')}>
           {index + 1}
         </span>
 
         {/* Icon */}
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-500/15">
-          <FileCode size={14} className="text-blue-600 dark:text-blue-400" />
+        <div className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-md',
+          isDisabled ? 'bg-muted-foreground/10' : 'bg-blue-500/15',
+        )}>
+          {isDisabled
+            ? <Ban size={14} className="text-muted-foreground/40" />
+            : <FileCode size={14} className="text-blue-600 dark:text-blue-400" />
+          }
         </div>
 
         {/* File info */}
@@ -1211,11 +1250,16 @@ function SortableScriptRow({
           onClick={() => onSelectNode(file.id)}
         >
           <div className="flex items-center gap-1.5">
-            <span className="truncate text-xs font-medium" title={file.name}>{file.name}</span>
-            {log && <RunStatusIcon status={log.status} />}
+            <span className={cn('truncate text-xs font-medium', isDisabled && 'line-through text-muted-foreground/60')} title={file.name}>{file.name}</span>
+            {log && !isDisabled && <RunStatusIcon status={log.status} />}
+            {isDisabled && (
+              <span className="rounded bg-muted-foreground/10 px-1.5 py-0.5 text-[9px] text-muted-foreground/60">
+                {t('etl.disabled')}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-            {fileDs && (
+            {fileDs && !isDisabled && (
               <span className="flex items-center gap-1">
                 <Database size={9} />
                 {fileDs.name}
@@ -1226,14 +1270,32 @@ function SortableScriptRow({
                 )}
               </span>
             )}
-            {log?.durationMs != null && (
+            {log?.durationMs != null && !isDisabled && (
               <span>{log.durationMs < 1000 ? `${log.durationMs}ms` : `${(log.durationMs / 1000).toFixed(1)}s`}</span>
             )}
-            {log?.rowsAffected != null && (
+            {log?.rowsAffected != null && !isDisabled && (
               <span>{log.rowsAffected.toLocaleString()} rows</span>
             )}
           </div>
         </button>
+
+        {/* Enable/disable toggle */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => onToggleDisabled(file.id)}
+              className={cn(
+                'shrink-0 rounded p-1 transition-colors',
+                isDisabled
+                  ? 'text-muted-foreground/30 hover:bg-accent hover:text-foreground'
+                  : 'text-emerald-500/60 hover:bg-accent hover:text-emerald-600',
+              )}
+            >
+              <Power size={12} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{isDisabled ? t('etl.enable_script') : t('etl.disable_script')}</TooltipContent>
+        </Tooltip>
 
         {/* View code button */}
         {onSelectFile && (
@@ -1250,7 +1312,7 @@ function SortableScriptRow({
       {/* Connector line between items */}
       {!isLast && (
         <div className="flex justify-center py-1">
-          <div className="h-4 w-px bg-border" />
+          <div className={cn('h-4 w-px', isDisabled ? 'bg-border/50' : 'bg-border')} />
         </div>
       )}
     </>

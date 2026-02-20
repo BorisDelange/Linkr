@@ -1,7 +1,7 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
 export type { ConceptSet, ConceptSetItem, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectStats, ConceptMapping, MappingComment, MappingStatus, MappingEquivalence, MappingType } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache } from './catalog'
+export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
 
 export interface User {
@@ -639,6 +639,7 @@ export interface EtlFile {
   language?: 'sql' | 'python' | 'r'
   order: number
   dataSourceId?: string  // override: run against this DB instead of pipeline default
+  disabled?: boolean     // skip this file during pipeline execution
   createdAt: string
 }
 

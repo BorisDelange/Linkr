@@ -262,10 +262,10 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     }
   }, [selectedFile, executeSql, resolveFileDataSourceId])
 
-  // Run all files sequentially
+  // Run all files sequentially (skip disabled)
   const handleRunAll = useCallback(async () => {
     const sqlFiles = files
-      .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')))
+      .filter((f) => f.type === 'file' && (f.language === 'sql' || f.name.endsWith('.sql')) && !f.disabled)
       .sort((a, b) => a.order - b.order)
     if (sqlFiles.length === 0) return
     setIsRunning(true)
