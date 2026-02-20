@@ -1,16 +1,41 @@
-import { useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { BookOpen, RefreshCw } from 'lucide-react'
+import { BookOpen, RefreshCw, Settings2 } from 'lucide-react'
+import type { VisibilityState } from '@tanstack/react-table'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useConcepts } from './concepts/use-concepts'
 import { hasValueColumnForDict } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
+
+// Module-level cache for column visibility (survives unmount/remount)
+const columnVisibilityCache = new Map<string, VisibilityState>()
+
+function columnLabel(id: string): string {
+  return id
+    .replace(/^_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
 
 export function ConceptsPage() {
   const { t } = useTranslation()
@@ -41,6 +66,21 @@ export function ConceptsPage() {
     conceptStatsLoading,
     resetCache,
   } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping)
+
+  const sourceId = mappedSource?.id
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    () => (sourceId ? columnVisibilityCache.get(sourceId) : undefined) ?? {},
+  )
+
+  // Persist column visibility on unmount
+  const colVisRef = useRef(columnVisibility)
+  colVisRef.current = columnVisibility
+  useEffect(() => {
+    return () => {
+      if (sourceId) columnVisibilityCache.set(sourceId, colVisRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceId])
 
   // Compute hasValueColumn for the selected concept's dict
   const hasValueCol = useMemo(() => {
@@ -105,10 +145,47 @@ export function ConceptsPage() {
           <h1 className="text-lg font-semibold">{t('concepts.title')}</h1>
           <p className="text-xs text-muted-foreground">{t('concepts.description')}</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={resetCache}>
-          <RefreshCw size={12} />
-          {t('concepts.cache_reset')}
-        </Button>
+        <TooltipProvider>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <DropdownMenu>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                      <Settings2 size={14} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <DropdownMenuContent align="end" className="w-[180px]">
+                  <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {availableColumns
+                    .filter((col) => col.id !== 'concept_id' && col.id !== 'concept_name')
+                    .map((col) => (
+                      <DropdownMenuCheckboxItem
+                        key={col.id}
+                        checked={columnVisibility[col.id] !== false}
+                        onCheckedChange={(checked) =>
+                          setColumnVisibility((prev) => ({ ...prev, [col.id]: !!checked }))
+                        }
+                        onSelect={(e) => e.preventDefault()}
+                        className="text-xs"
+                      >
+                        {columnLabel(col.id)}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <TooltipContent>
+                <p>{t('concepts.column_visibility', 'Columns')}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={resetCache}>
+              <RefreshCw size={12} />
+              {t('concepts.cache_reset')}
+            </Button>
+          </div>
+        </TooltipProvider>
       </div>
 
       {/* Main content: table + detail */}
@@ -127,6 +204,8 @@ export function ConceptsPage() {
               filters={filters}
               filterOptions={filterOptions}
               sorting={sorting}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
               onFilterChange={updateFilter}
               onSortingChange={updateSorting}
               onSelect={setSelectedConceptId}

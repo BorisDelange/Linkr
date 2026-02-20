@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import { cn } from '@/lib/utils'
+import { DATE_DATETIME_RE } from '@/lib/dataset-utils'
 
 interface OutputTableProps {
   headers: string[]
@@ -28,8 +29,6 @@ interface OutputTableProps {
 }
 
 type InferredType = 'number' | 'boolean' | 'date' | 'string' | 'unknown'
-
-const DATE_RE = /^\d{4}-\d{2}-\d{2}([ T]\d{2}:\d{2}(:\d{2})?)?$/
 
 function inferColumnType(rows: string[][], colIdx: number): InferredType {
   let hasValue = false
@@ -43,7 +42,7 @@ function inferColumnType(rows: string[][], colIdx: number): InferredType {
     hasValue = true
     if (allNumber && isNaN(Number(val))) allNumber = false
     if (allBool && val !== 'true' && val !== 'false' && val !== 'TRUE' && val !== 'FALSE' && val !== '0' && val !== '1') allBool = false
-    if (allDate && !DATE_RE.test(val)) allDate = false
+    if (allDate && !DATE_DATETIME_RE.test(val)) allDate = false
     if (!allNumber && !allBool && !allDate) return 'string'
   }
 

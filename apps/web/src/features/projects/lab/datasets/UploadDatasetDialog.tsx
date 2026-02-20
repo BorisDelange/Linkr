@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { buildColumns } from '@/lib/dataset-utils'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
@@ -40,45 +41,6 @@ interface ParsedData {
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
-
-function inferColumnType(values: unknown[]): DatasetColumn['type'] {
-  const nonNull = values.filter((v) => v !== null && v !== undefined && v !== '')
-  if (nonNull.length === 0) return 'unknown'
-
-  let allNumbers = true
-  let allBooleans = true
-
-  for (const v of nonNull.slice(0, 100)) {
-    const s = String(v).trim()
-    if (allNumbers && isNaN(Number(s))) allNumbers = false
-    if (allBooleans && !['true', 'false', '0', '1'].includes(s.toLowerCase())) allBooleans = false
-    if (!allNumbers && !allBooleans) break
-  }
-
-  if (allNumbers) return 'number'
-  if (allBooleans) return 'boolean'
-
-  let allDates = true
-  for (const v of nonNull.slice(0, 100)) {
-    const s = String(v).trim()
-    if (isNaN(Date.parse(s)) || /^\d+$/.test(s)) { allDates = false; break }
-  }
-  if (allDates) return 'date'
-
-  return 'string'
-}
-
-function buildColumns(headers: string[], rows: Record<string, unknown>[]): DatasetColumn[] {
-  return headers.map((name, idx) => {
-    const values = rows.map((r) => r[name])
-    return {
-      id: `col-${Date.now()}-${idx}`,
-      name,
-      type: inferColumnType(values),
-      order: idx,
-    }
-  })
-}
 
 function remapRows(rows: Record<string, unknown>[], columns: DatasetColumn[]): Record<string, unknown>[] {
   return rows.map((row) => {

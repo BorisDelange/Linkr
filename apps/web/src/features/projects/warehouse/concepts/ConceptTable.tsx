@@ -32,7 +32,6 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
-  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -51,14 +50,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import type { ConceptRow } from './use-concepts'
 import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
 
@@ -78,6 +69,8 @@ interface ConceptTableProps {
   filters: ConceptFilters
   filterOptions: Record<string, string[]>
   sorting: ConceptSorting | null
+  columnVisibility: VisibilityState
+  onColumnVisibilityChange: (v: VisibilityState) => void
   onFilterChange: (key: string, value: string | null) => void
   onSortingChange: (columnId: string) => void
   onSelect: (conceptId: number) => void
@@ -223,6 +216,8 @@ export function ConceptTable({
   filters,
   filterOptions,
   sorting,
+  columnVisibility,
+  onColumnVisibilityChange,
   onFilterChange,
   onSortingChange,
   onSelect,
@@ -230,7 +225,6 @@ export function ConceptTable({
   onPageSizeChange,
 }: ConceptTableProps) {
   const { t } = useTranslation()
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const [overColumnId, setOverColumnId] = useState<string | null>(null)
@@ -326,7 +320,7 @@ export function ConceptTable({
       columnOrder,
       columnSizing,
     },
-    onColumnVisibilityChange: setColumnVisibility,
+    onColumnVisibilityChange: onColumnVisibilityChange,
     onColumnOrderChange: setColumnOrder,
     onColumnSizingChange: setColumnSizing,
     columnResizeMode: 'onChange',
@@ -416,35 +410,6 @@ export function ConceptTable({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Column visibility toggle */}
-      <div className="flex items-center justify-end border-b px-2 py-1">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
-              <Settings2 size={12} />
-              {t('concepts.column_visibility', 'Columns')}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[180px]">
-            <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {table.getAllColumns()
-              .filter((col) => col.getCanHide())
-              .map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={col.getIsVisible()}
-                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="text-xs"
-                >
-                  {columnLabel(col.id)}
-                </DropdownMenuCheckboxItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
         <DndContext

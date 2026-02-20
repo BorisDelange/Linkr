@@ -17,6 +17,7 @@ import {
   Trash2,
   Box,
   Zap,
+  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -41,6 +42,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
@@ -52,6 +61,7 @@ import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
 import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
+import { TypeBadge } from './datasets/TypeBadge'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
 import type { AnalysisLanguage } from '@/types'
@@ -121,6 +131,7 @@ export function DatasetsPage() {
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
   const [environmentsOpen, setEnvironmentsOpen] = useState(false)
+  const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
 
   // Load datasets when the project changes
   useEffect(() => {
@@ -136,6 +147,7 @@ export function DatasetsPage() {
       loadAnalyses(selectedFileId)
       setSelectedColumnId(null)
       selectAnalysis(null)
+      setHiddenColumns(new Set())
     }
   }, [selectedFileId, loadFileData, loadAnalyses, selectAnalysis])
 
@@ -657,6 +669,53 @@ export function DatasetsPage() {
                       </>
                     )}
                   </div>
+
+                  {/* Column visibility toggle (only when viewing data table) */}
+                  {selectedFile && !selectedAnalysisId && (
+                    <div className="ml-auto shrink-0 px-1">
+                      <DropdownMenu>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <Settings2 size={14} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom">
+                            <p>{t('files.columns', 'Columns')}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                        <DropdownMenuContent align="end" className="max-h-[300px] w-[200px] overflow-y-auto">
+                          <DropdownMenuLabel className="text-xs">
+                            {t('files.columns', 'Columns')}
+                          </DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {(selectedFile.columns ?? []).map((col) => (
+                            <DropdownMenuCheckboxItem
+                              key={col.id}
+                              checked={!hiddenColumns.has(col.id)}
+                              onCheckedChange={() => {
+                                setHiddenColumns((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(col.id)) next.delete(col.id)
+                                  else next.add(col.id)
+                                  return next
+                                })
+                              }}
+                              onSelect={(e) => e.preventDefault()}
+                              className="text-xs"
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <TypeBadge type={col.type} size="sm" />
+                                <span className="truncate">{col.name}</span>
+                              </div>
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -679,6 +738,7 @@ export function DatasetsPage() {
                             setSelectedColumnId(colId)
                             if (colId) setStatsVisible(true)
                           }}
+                          hiddenColumns={hiddenColumns}
                         />
                       )}
                     </Allotment.Pane>

@@ -13,7 +13,7 @@ import {
   hasValueColumnForDict,
   EMPTY_FILTERS,
 } from './concept-queries'
-import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
+import type { ConceptFilters, ConceptSorting } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,27 +51,68 @@ export interface ConceptStats {
 }
 
 // ---------------------------------------------------------------------------
+// Module-level state cache (survives component unmount/remount)
+// ---------------------------------------------------------------------------
+
+interface CachedState {
+  filters: ConceptFilters
+  sorting: ConceptSorting | null
+  page: number
+  pageSize: number
+  selectedConceptId: number | null
+  filterOptions: Record<string, string[]>
+  statsCache: Map<number, ConceptStats>
+}
+
+const stateCache = new Map<string, CachedState>()
+
+// ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
 export function useConcepts(dataSourceId: string | undefined, schemaMapping: SchemaMapping | undefined) {
+  const cached = dataSourceId ? stateCache.get(dataSourceId) : undefined
+
   const [hasConceptTable, setHasConceptTable] = useState<boolean | null>(null)
-  const [filters, setFilters] = useState<ConceptFilters>(EMPTY_FILTERS)
-  const [sorting, setSorting] = useState<ConceptSorting | null>({ columnId: 'record_count', desc: true })
-  const [debouncedTextFilters, setDebouncedTextFilters] = useState<ConceptFilters>(EMPTY_FILTERS)
-  const [page, setPage] = useState(0)
-  const [pageSize, setPageSize] = useState(50)
+  const [filters, setFilters] = useState<ConceptFilters>(cached?.filters ?? EMPTY_FILTERS)
+  const [sorting, setSorting] = useState<ConceptSorting | null>(cached?.sorting ?? { columnId: 'record_count', desc: true })
+  const [debouncedTextFilters, setDebouncedTextFilters] = useState<ConceptFilters>(cached?.filters ?? EMPTY_FILTERS)
+  const [page, setPage] = useState(cached?.page ?? 0)
+  const [pageSize, setPageSize] = useState(cached?.pageSize ?? 50)
   const [concepts, setConcepts] = useState<ConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
-  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>({})
+  const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
 
-  const [selectedConceptId, setSelectedConceptId] = useState<number | null>(null)
+  const [selectedConceptId, setSelectedConceptId] = useState<number | null>(cached?.selectedConceptId ?? null)
   const [selectedConcept, setSelectedConcept] = useState<Record<string, unknown> | null>(null)
   const [conceptStatsLoading, setConceptStatsLoading] = useState(false)
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
 
-  const statsCache = useRef<Map<number, ConceptStats>>(new Map())
+  const statsCache = useRef<Map<number, ConceptStats>>(cached?.statsCache ?? new Map())
+
+  // Refs to track latest values for the unmount cleanup
+  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions })
+  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions }
+
+  // Save state to module-level cache on unmount
+  useEffect(() => {
+    return () => {
+      if (dataSourceId) {
+        const s = latestRef.current
+        stateCache.set(dataSourceId, {
+          filters: s.filters,
+          sorting: s.sorting,
+          page: s.page,
+          pageSize: s.pageSize,
+          selectedConceptId: s.selectedConceptId,
+          filterOptions: s.filterOptions,
+          statsCache: statsCache.current,
+        })
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSourceId])
 
   // ---------------------------------------------------------------------------
   // Available columns (derived from schema mapping)
@@ -238,9 +279,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const loadConceptStats = useCallback(async (conceptId: number, dictKey: string) => {
     if (!dataSourceId || !schemaMapping) return
 
-    const cached = statsCache.current.get(conceptId)
-    if (cached) {
-      setConceptStats(cached)
+    const cachedStats = statsCache.current.get(conceptId)
+    if (cachedStats) {
+      setConceptStats(cachedStats)
       return
     }
 
