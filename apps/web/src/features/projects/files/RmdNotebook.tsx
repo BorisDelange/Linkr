@@ -18,7 +18,7 @@ import {
   useMemo,
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import Editor, { type OnMount } from '@monaco-editor/react'
+import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -38,6 +38,7 @@ import {
   Loader2,
   Check,
   XCircle,
+  ChevronsUpDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -54,6 +55,7 @@ import { parseRmdFile, serializeRmdFile, type RmdCell } from '@/lib/rmd-parser'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ function getMiniEditorOptions(
     lineDecorationsWidth: 8,
     lineNumbersMinChars: 3,
     renderLineHighlight: 'line',
-    scrollbar: { vertical: 'hidden', horizontal: 'auto' },
+    scrollbar: { vertical: 'hidden', horizontal: 'auto', alwaysConsumeMouseWheel: false },
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
     padding: { top: 4, bottom: 4 },
@@ -146,9 +148,14 @@ export function RmdNotebook({
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
   const resolvedTheme = editorTheme === 'auto'
-    ? darkMode ? 'vs-dark' : 'vs'
+    ? darkMode ? 'linkr-dark' : 'linkr-light'
     : editorTheme
   const fontSize = useAppStore((s) => s.editorSettings.fontSize)
+
+  const handleBeforeMount: BeforeMount = useCallback((monaco) => {
+    monaco.editor.defineTheme('linkr-dark', linkrDark)
+    monaco.editor.defineTheme('linkr-light', linkrLight)
+  }, [])
 
   // ---- State ----
   const [cells, setCells] = useState<RmdCell[]>(() => parseRmdFile(content))
@@ -445,6 +452,7 @@ export function RmdNotebook({
               readOnly={readOnly}
               theme={resolvedTheme}
               editorOptions={editorOptions}
+              beforeMount={handleBeforeMount}
               onFocus={() => setActiveCell(cell.id)}
               onContentChange={(v) => updateCellContent(cell.id, v)}
               onRun={() => runCell(cell.id)}
@@ -477,6 +485,7 @@ interface RmdCellBlockProps {
   readOnly: boolean
   theme: string
   editorOptions: Monaco.editor.IStandaloneEditorConstructionOptions
+  beforeMount: BeforeMount
   onFocus: () => void
   onContentChange: (value: string) => void
   onRun: () => void
@@ -489,6 +498,9 @@ interface RmdCellBlockProps {
   onAddAfter: (type: RmdCell['type'], language?: string) => void
 }
 
+const RMD_COLLAPSE_LINE_THRESHOLD = 30
+const RMD_COLLAPSED_HEIGHT = 30 * 18 + 8
+
 function RmdCellBlock({
   cell,
   index,
@@ -499,6 +511,7 @@ function RmdCellBlock({
   readOnly,
   theme,
   editorOptions,
+  beforeMount,
   onFocus,
   onContentChange,
   onRun,
@@ -514,15 +527,21 @@ function RmdCellBlock({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  const lineCount = cell.content.split('\n').length
+  const isLong = lineCount > RMD_COLLAPSE_LINE_THRESHOLD
+  const [collapsed, setCollapsed] = useState(false)
+  const [editorHeight, setEditorHeight] = useState(Math.max(lineCount * 18 + 8, 36))
+
   // Auto-resize Monaco editor to fit content
   const handleEditorMount: OnMount = (editor) => {
     editorRef.current = editor
 
     const updateHeight = () => {
-      const contentHeight = editor.getContentHeight()
+      const h = Math.max(editor.getContentHeight(), 36)
+      setEditorHeight(h)
       const el = editor.getDomNode()?.parentElement
       if (el) {
-        el.style.height = `${Math.max(contentHeight, 36)}px`
+        el.style.height = `${h}px`
       }
       editor.layout()
     }
@@ -676,19 +695,34 @@ function RmdCellBlock({
       ) : (
         // Monaco editor
         <div className={cell.type === 'code' ? 'bg-muted/20' : ''}>
-          <Editor
-            value={cell.content}
-            language={monacoLang}
-            theme={theme}
-            options={editorOptions}
-            onChange={(v) => onContentChange(v ?? '')}
-            onMount={handleEditorMount}
-            loading={
-              <pre className="text-xs font-mono p-2 whitespace-pre-wrap min-h-[36px]">
-                {cell.content}
-              </pre>
-            }
-          />
+          <div
+            className="overflow-hidden transition-[height] duration-200"
+            style={{ height: collapsed ? RMD_COLLAPSED_HEIGHT : editorHeight }}
+          >
+            <Editor
+              value={cell.content}
+              language={monacoLang}
+              theme={theme}
+              options={editorOptions}
+              beforeMount={beforeMount}
+              onChange={(v) => onContentChange(v ?? '')}
+              onMount={handleEditorMount}
+              loading={
+                <pre className="text-xs font-mono p-2 whitespace-pre-wrap min-h-[36px]">
+                  {cell.content}
+                </pre>
+              }
+            />
+          </div>
+          {isLong && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c) }}
+              className="flex items-center justify-center gap-1 w-full py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/30 transition-colors border-t border-dashed"
+            >
+              <ChevronsUpDown size={10} />
+              {collapsed ? `Show all (${lineCount} lines)` : 'Collapse'}
+            </button>
+          )}
         </div>
       )}
 
