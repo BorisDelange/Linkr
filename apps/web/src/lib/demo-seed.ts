@@ -829,20 +829,20 @@ export async function seedDemoDashboard(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Demo Data Catalog (MIMIC-IV Demo OMOP)
+// Demo Data Catalog (MIMIC-IV Demo)
 // ---------------------------------------------------------------------------
 
 const SEED_KEY_CATALOG = 'linkr-demo-catalog-seeded'
 const DEMO_CATALOG_ID = '00000000-0000-0000-0000-000000000008'
 
 /**
- * Seed a default data catalog for the MIMIC-IV Demo OMOP database.
+ * Seed a default data catalog for the MIMIC-IV Demo database.
  *
  * Creates a DataCatalog with default dimensions (age group + sex enabled),
- * OMOP category/subcategory columns, and pre-filled Health-DCAT-AP metadata.
+ * and pre-filled Health-DCAT-AP metadata.
  * The catalog is in 'draft' status — the user must click "Compute" to populate results.
  *
- * Must run after seedDemoDatabase().
+ * Must run after seedMimicIVRawDatabase().
  */
 export async function seedDemoCatalog(): Promise<void> {
   if (localStorage.getItem(SEED_KEY_CATALOG)) return
@@ -864,22 +864,20 @@ export async function seedDemoCatalog(): Promise<void> {
       id: DEMO_CATALOG_ID,
       workspaceId: DEMO_WORKSPACE_ID,
       name: 'MIMIC-IV Demo',
-      description: 'Concept catalog for the MIMIC-IV Demo OMOP database (100 patients).',
-      dataSourceId: DEMO_DATASOURCE_ID,
+      description: 'Concept catalog for the MIMIC-IV Demo database (100 patients).',
+      dataSourceId: DEMO_RAW_DATASOURCE_ID,
       dimensions: getDefaultDimensions(),
+      periodConfig: { granularity: 'year', serviceLevel: 'visit_detail' },
       anonymization: { threshold: 10, mode: 'replace' },
-      categoryColumn: 'domain_id',
-      subcategoryColumn: 'concept_class_id',
       status: 'draft',
       dcatApMetadata: {
         'catalog.title': 'MIMIC-IV Demo — Concept Catalog',
-        'catalog.description': 'Aggregated clinical concepts catalog from the MIMIC-IV Demo OMOP database.',
+        'catalog.description': 'Aggregated clinical concepts catalog from the MIMIC-IV Demo database.',
         'dataset.title': 'MIMIC-IV Demo — Concepts Dictionary',
-        'dataset.description': 'Aggregated clinical concepts catalog with demographic breakdowns (age, sex). Generated from the MIMIC-IV Demo OMOP clinical data warehouse (100 patients).',
+        'dataset.description': 'Aggregated clinical concepts catalog with demographic breakdowns (age, sex). Generated from the MIMIC-IV Demo clinical data warehouse (100 patients).',
         'dataset.identifier': DEMO_CATALOG_ID,
         'dataset.accessRights': 'http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC',
         'dataset.personalData': 'false',
-
       },
       createdAt: now,
       updatedAt: now,

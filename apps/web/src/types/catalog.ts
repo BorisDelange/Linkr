@@ -233,7 +233,7 @@ export function getDefaultDimensions(): DimensionConfig[] {
       id: 'admission_date',
       type: 'admission_date',
       label: 'Admission date',
-      enabled: false,
+      enabled: true,
       admissionDate: { step: 'month' },
     },
     {

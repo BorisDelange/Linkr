@@ -200,13 +200,13 @@ export function CatalogConfigTab({ catalog }: Props) {
     return () => { cancelled = true }
   }, [catalog.categoryColumn, catalog.dataSourceId, dataSource?.schemaMapping, ensureMounted])
 
-  // Load distinct service labels when service config changes (ensure data source is mounted first)
+  // Load distinct service labels (always visit_detail level — ensure data source is mounted first)
   useEffect(() => {
     if (!periodConfig || !dataSource?.schemaMapping) {
       setAvailableServiceLabels([])
       return
     }
-    const sql = buildServiceLabelsQuery(dataSource.schemaMapping, periodConfig.serviceLevel)
+    const sql = buildServiceLabelsQuery(dataSource.schemaMapping, 'visit_detail')
     if (!sql) { setAvailableServiceLabels([]); return }
     let cancelled = false
     ensureMounted(catalog.dataSourceId)
@@ -214,10 +214,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       .then((rows) => { if (!cancelled) setAvailableServiceLabels(rows.map((r) => String(r.svc_label)).filter(Boolean)) })
       .catch(() => { if (!cancelled) setAvailableServiceLabels([]) })
     return () => { cancelled = true }
-  }, [periodConfig?.serviceLevel, catalog.dataSourceId, dataSource?.schemaMapping, ensureMounted])
-
-  const hasVisitServiceColumn = !!dataSource?.schemaMapping?.visitTable?.typeColumn
-  const hasVisitDetailServiceColumn = !!dataSource?.schemaMapping?.visitDetailTable?.unitColumn
+  }, [periodConfig, catalog.dataSourceId, dataSource?.schemaMapping, ensureMounted])
 
   // --- Dimension helpers ---
   const handleDimensionToggle = async (dimId: string, enabled: boolean) => {
@@ -236,7 +233,7 @@ export function CatalogConfigTab({ catalog }: Props) {
 
   // --- Period helpers ---
   const handlePeriodConfigChange = async (changes: Partial<PeriodConfig>) => {
-    const current = catalog.periodConfig ?? { granularity: 'month', serviceLevel: 'visit' }
+    const current = catalog.periodConfig ?? { granularity: 'month', serviceLevel: 'visit_detail' }
     await updateCatalog(catalog.id, { periodConfig: { ...current, ...changes } })
   }
 
@@ -247,7 +244,7 @@ export function CatalogConfigTab({ catalog }: Props) {
         d.id === 'admission_date' ? { ...d, enabled: true, admissionDate: { step: 'month' as const } } : d,
       )
       await updateCatalog(catalog.id, {
-        periodConfig: { granularity: 'month', serviceLevel: 'visit' },
+        periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
         dimensions: newDims,
       })
     } else {
@@ -491,7 +488,7 @@ export function CatalogConfigTab({ catalog }: Props) {
                 )}
               </div>
 
-              {/* Services */}
+              {/* Services (visit units) */}
               <div className="rounded-lg border">
                 <div className="flex items-center justify-between px-3 py-2">
                   <div className="flex items-center gap-2">
@@ -504,48 +501,18 @@ export function CatalogConfigTab({ catalog }: Props) {
                     }}
                   />
                 </div>
-                {careSiteDim?.enabled && (
-                  <div className="space-y-2 border-t px-3 py-3">
-                    <div>
-                      <Label className="text-xs text-muted-foreground">{t('data_catalog.period_service_level')}</Label>
-                      <Select
-                        value={periodConfig.serviceLevel}
-                        onValueChange={(v) => {
-                          const level = v as 'visit' | 'visit_detail'
-                          handlePeriodConfigChange({ serviceLevel: level })
-                          handleDimensionConfigChange(careSiteDim.id, {
-                            careSite: { ...careSiteDim.careSite, level },
-                          })
-                        }}
-                      >
-                        <SelectTrigger className="mt-1 h-8 w-48">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="visit" disabled={!hasVisitServiceColumn}>
-                            {t('data_catalog.level_visit')}{!hasVisitServiceColumn ? ` (${t('data_catalog.no_type_column')})` : ''}
-                          </SelectItem>
-                          <SelectItem value="visit_detail" disabled={!hasVisitDetailServiceColumn}>
-                            {t('data_catalog.level_visit_detail')}{!hasVisitDetailServiceColumn ? ` (${t('data_catalog.no_unit_column')})` : ''}
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
+                {careSiteDim?.enabled && availableServiceLabels.length > 0 && (
+                  <div className="border-t px-3 py-3">
+                    <Label className="text-xs text-muted-foreground">{t('data_catalog.period_services_select')}</Label>
+                    <div className="mt-1">
+                      <MultiSelect
+                        label={t('data_catalog.period_services')}
+                        values={availableServiceLabels}
+                        selected={periodConfig.serviceLabels ?? []}
+                        onChange={(vals) => handlePeriodConfigChange({ serviceLabels: vals.length > 0 ? vals : undefined })}
+                        placeholder={t('data_catalog.period_all_services')}
+                      />
                     </div>
-                    {/* Service multi-select (optional filter — only for visit_detail level) */}
-                    {periodConfig.serviceLevel === 'visit_detail' && availableServiceLabels.length > 0 && (
-                      <div>
-                        <Label className="text-xs text-muted-foreground">{t('data_catalog.period_services_select')}</Label>
-                        <div className="mt-1">
-                          <MultiSelect
-                            label={t('data_catalog.period_services')}
-                            values={availableServiceLabels}
-                            selected={periodConfig.serviceLabels ?? []}
-                            onChange={(vals) => handlePeriodConfigChange({ serviceLabels: vals.length > 0 ? vals : undefined })}
-                            placeholder={t('data_catalog.period_all_services')}
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

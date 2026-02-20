@@ -1825,7 +1825,11 @@
     "comparison_status": "Status",
     "comparison_missing": "Missing",
     "comparison_fewer": "Fewer",
-    "comparison_more": "More"
+    "comparison_more": "More",
+    "comparison_tab_statistics": "Statistics",
+    "comparison_tab_concepts": "Concepts",
+    "comparison_no_mappings": "No concept mappings found. Run the pipeline first or check the source_to_concept_map table.",
+    "comparison_mapping_concepts": "concepts"
   },
   "app_versioning": {
     "title": "Versioning",

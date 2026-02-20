@@ -236,7 +236,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                 'rxnorm': 'http://www.nlm.nih.gov/research/umls/rxnorm',
                 'rxnorm extension': 'http://www.nlm.nih.gov/research/umls/rxnorm',
                 'atc': 'http://www.whocc.no/atc',
-                'omop': 'https://ohdsi.org/omop',
+
               }
               for (const vn of vocabNames) {
                 for (const [pattern, uri] of Object.entries(nameMap)) {

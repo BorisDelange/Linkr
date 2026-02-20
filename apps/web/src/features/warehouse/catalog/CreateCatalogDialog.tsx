@@ -71,6 +71,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         description: description.trim(),
         dataSourceId,
         dimensions: getDefaultDimensions(),
+        periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
         anonymization: { threshold: 10, mode: 'replace' },
         status: 'draft',
         createdAt: now,

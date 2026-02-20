@@ -90,7 +90,7 @@ const CODING_SYSTEMS: VocabularyOption[] = [
   { value: 'http://hl7.org/fhir/sid/icd-11', labelKey: 'dcat.cs_icd11' },
   { value: 'http://www.nlm.nih.gov/research/umls/rxnorm', labelKey: 'dcat.cs_rxnorm' },
   { value: 'http://www.whocc.no/atc', labelKey: 'dcat.cs_atc' },
-  { value: 'https://ohdsi.org/omop', labelKey: 'dcat.cs_omop' },
+
 ]
 
 /** All 24 EU official languages + Other. EU Publications Office Named Authority List. */
