@@ -54,10 +54,11 @@ import {
 } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { MappingProject, ConceptMapping, MappingComment, MappingStatus } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingStatus, DataSource } from '@/types'
 
 interface MappingsTabProps {
   project: MappingProject
+  dataSource?: DataSource
 }
 
 const PAGE_SIZE = 50
@@ -140,7 +141,6 @@ interface MappingColumnFilters {
   sourceConceptName?: string
   sourceConceptId?: string
   sourceVocabularyId?: string | null
-  sourceDomainId?: string | null
   targetConceptName?: string
   targetConceptId?: string
   targetVocabularyId?: string | null
@@ -253,7 +253,7 @@ function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
   )
 }
 
-export function MappingsTab({ project }: MappingsTabProps) {
+export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
 
@@ -266,8 +266,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     createdAt: false,
     mappedBy: false,
-    sourceConceptClassId: false,
-    sourceDomainId: false,
     sourceCategoryId: false,
     sourceSubcategoryId: false,
     targetConceptClassId: false,
@@ -283,7 +281,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
       [...new Set(projectMappings.map(fn))].filter((v): v is string => Boolean(v)).sort()
     return {
       sourceVocabularyId: unique((m) => m.sourceVocabularyId),
-      sourceDomainId: unique((m) => m.sourceDomainId),
       targetVocabularyId: unique((m) => m.targetVocabularyId),
       targetDomainId: unique((m) => m.targetDomainId),
       status: unique((m) => m.status),
@@ -297,7 +294,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
     if (f.sourceConceptId && !String(m.sourceConceptId).includes(f.sourceConceptId)) return false
     if (f.sourceVocabularyId && m.sourceVocabularyId !== f.sourceVocabularyId) return false
-    if (f.sourceDomainId && m.sourceDomainId !== f.sourceDomainId) return false
     if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId && m.targetVocabularyId !== f.targetVocabularyId) return false
@@ -363,9 +359,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     // Dropdowns
     if (columnId === 'sourceVocabularyId' && filterOptions.sourceVocabularyId.length > 0) {
       return <ColumnFilterSelect value={colFilters.sourceVocabularyId ?? null} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('sourceVocabularyId', v)} />
-    }
-    if (columnId === 'sourceDomainId' && filterOptions.sourceDomainId.length > 0) {
-      return <ColumnFilterSelect value={colFilters.sourceDomainId ?? null} options={filterOptions.sourceDomainId} placeholder="Domain" onChange={(v) => updateFilter('sourceDomainId', v)} />
     }
     if (columnId === 'targetVocabularyId' && filterOptions.targetVocabularyId.length > 0) {
       return <ColumnFilterSelect value={colFilters.targetVocabularyId ?? null} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('targetVocabularyId', v)} />
@@ -476,27 +469,11 @@ export function MappingsTab({ project }: MappingsTabProps) {
         id: 'sourceVocabularyId',
         header: () => t('concept_mapping.col_terminology'),
         accessorFn: (row) => row.sourceVocabularyId,
-        cell: ({ row }) => row.original.sourceVocabularyId,
+        cell: ({ row }) => row.original.sourceVocabularyId || dataSource?.name || '',
         size: 90,
         minSize: 50,
       },
-      // Hidden by default: source OMOP-specific columns
-      {
-        id: 'sourceConceptClassId',
-        header: () => t('concept_mapping.col_concept_class_id'),
-        accessorFn: (row) => row.sourceConceptClassId,
-        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceConceptClassId ?? ''}</span>,
-        size: 90,
-        minSize: 60,
-      },
-      {
-        id: 'sourceDomainId',
-        header: () => t('concept_mapping.col_domain_id'),
-        accessorFn: (row) => row.sourceDomainId,
-        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceDomainId ?? ''}</span>,
-        size: 90,
-        minSize: 50,
-      },
+      // Hidden by default: source optional columns
       {
         id: 'sourceCategoryId',
         header: () => t('concept_mapping.col_category'),
@@ -679,7 +656,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, dataSource?.name])
 
   const table = useReactTable({
     data: pageItems,

@@ -705,7 +705,7 @@ const SEED_KEY_CONCEPT_MAPPINGS = 'linkr-demo-concept-mappings-seeded'
 
 /** Compact mapping row from mimic-iv-concept-mappings.json */
 interface CompactMapping {
-  sn: string; si: number; sv: string; sd: string; sc: string
+  sn: string; si: number; sc: string
   ti: number; tn: string; tv: string; td: string; tc: string
 }
 
@@ -746,8 +746,8 @@ export async function seedDemoConceptMappings(): Promise<void> {
       // otherwise fall back to the OMOP custom vocabulary concept_id (si).
       sourceConceptId: /^\d+$/.test(m.sc) ? Number(m.sc) : m.si,
       sourceConceptName: m.sn,
-      sourceVocabularyId: m.sv,
-      sourceDomainId: m.sd,
+      sourceVocabularyId: '',
+      sourceDomainId: '',
       sourceConceptCode: m.sc,
       targetConceptId: m.ti,
       targetConceptName: m.tn,
@@ -879,7 +879,7 @@ export async function seedDemoCatalog(): Promise<void> {
         'dataset.identifier': DEMO_CATALOG_ID,
         'dataset.accessRights': 'http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC',
         'dataset.personalData': 'false',
-        'dataset.codingSystem': 'https://www.ohdsi.org/omop/',
+
       },
       createdAt: now,
       updatedAt: now,

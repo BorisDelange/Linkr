@@ -2,8 +2,6 @@
   {
     "sn": "Heart Rate",
     "si": 2000030001,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220045",
     "ti": 3027018,
     "tn": "Heart rate",
@@ -14,8 +12,6 @@
   {
     "sn": "Arterial Blood Pressure systolic",
     "si": 2000030003,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220050",
     "ti": 3004249,
     "tn": "Systolic blood pressure",
@@ -26,8 +22,6 @@
   {
     "sn": "Arterial Blood Pressure diastolic",
     "si": 2000030004,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220051",
     "ti": 3012888,
     "tn": "Diastolic blood pressure",
@@ -38,8 +32,6 @@
   {
     "sn": "Arterial Blood Pressure mean",
     "si": 2000030005,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220052",
     "ti": 3027598,
     "tn": "Mean blood pressure",
@@ -50,8 +42,6 @@
   {
     "sn": "Pulmonary Artery Pressure systolic",
     "si": 2000030006,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220059",
     "ti": 3005606,
     "tn": "Pulmonary artery Systolic blood pressure",
@@ -62,8 +52,6 @@
   {
     "sn": "Pulmonary Artery Pressure diastolic",
     "si": 2000030007,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220060",
     "ti": 3017188,
     "tn": "Pulmonary artery Diastolic blood pressure",
@@ -74,8 +62,6 @@
   {
     "sn": "Pulmonary Artery Pressure mean",
     "si": 2000030008,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220061",
     "ti": 3028074,
     "tn": "Pulmonary artery Mean blood pressure",
@@ -86,8 +72,6 @@
   {
     "sn": "Central Venous Pressure",
     "si": 2000030009,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220074",
     "ti": 21490675,
     "tn": "Central venous pressure (CVP)",
@@ -98,8 +82,6 @@
   {
     "sn": "Cardiac Output (thermodilution)",
     "si": 2000030010,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220088",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -110,8 +92,6 @@
   {
     "sn": "Non Invasive Blood Pressure systolic",
     "si": 2000030011,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220179",
     "ti": 21492239,
     "tn": "Systolic blood pressure by Noninvasive",
@@ -122,8 +102,6 @@
   {
     "sn": "Non Invasive Blood Pressure diastolic",
     "si": 2000030012,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220180",
     "ti": 21492240,
     "tn": "Diastolic blood pressure by Noninvasive",
@@ -134,8 +112,6 @@
   {
     "sn": "Non Invasive Blood Pressure mean",
     "si": 2000030013,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220181",
     "ti": 21492241,
     "tn": "Mean blood pressure by Noninvasive",
@@ -146,8 +122,6 @@
   {
     "sn": "Respiratory Rate",
     "si": 2000030014,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220210",
     "ti": 3024171,
     "tn": "Respiratory rate",
@@ -158,8 +132,6 @@
   {
     "sn": "Arterial O2 pressure",
     "si": 2000030015,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220224",
     "ti": 3027801,
     "tn": "Oxygen [Partial pressure] in Arterial blood",
@@ -170,8 +142,6 @@
   {
     "sn": "Arterial O2 Saturation",
     "si": 2000030016,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220227",
     "ti": 3016502,
     "tn": "Oxygen saturation in Arterial blood",
@@ -182,8 +152,6 @@
   {
     "sn": "Hemoglobin",
     "si": 2000030017,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220228",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -194,8 +162,6 @@
   {
     "sn": "Arterial CO2 Pressure",
     "si": 2000030018,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220235",
     "ti": 3027946,
     "tn": "Carbon dioxide [Partial pressure] in Arterial blood",
@@ -206,8 +172,6 @@
   {
     "sn": "CO2 production",
     "si": 2000030019,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220245",
     "ti": 21490580,
     "tn": "Carbon dioxide production (VCO2) in Respiratory system",
@@ -218,8 +182,6 @@
   {
     "sn": "O2 saturation pulseoxymetry",
     "si": 2000030020,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220277",
     "ti": 40762499,
     "tn": "Oxygen saturation in Arterial blood by Pulse oximetry",
@@ -230,8 +192,6 @@
   {
     "sn": "PEEP set",
     "si": 2000030021,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220339",
     "ti": 3022875,
     "tn": "Positive end expiratory pressure setting Ventilator",
@@ -242,8 +202,6 @@
   {
     "sn": "Hematocrit (serum)",
     "si": 2000030022,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220545",
     "ti": 3009542,
     "tn": "Hematocrit [Volume Fraction] of Blood",
@@ -254,8 +212,6 @@
   {
     "sn": "Chloride (serum)",
     "si": 2000030023,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220602",
     "ti": 3014576,
     "tn": "Chloride [Moles/volume] in Serum or Plasma",
@@ -266,8 +222,6 @@
   {
     "sn": "Creatinine (serum)",
     "si": 2000030024,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220615",
     "ti": 3016723,
     "tn": "Creatinine [Mass/volume] in Serum or Plasma",
@@ -278,8 +232,6 @@
   {
     "sn": "Glucose (serum)",
     "si": 2000030025,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220621",
     "ti": 3004501,
     "tn": "Glucose [Mass/volume] in Serum or Plasma",
@@ -290,8 +242,6 @@
   {
     "sn": "Sodium (serum)",
     "si": 2000030026,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220645",
     "ti": 3019550,
     "tn": "Sodium [Moles/volume] in Serum or Plasma",
@@ -302,8 +252,6 @@
   {
     "sn": "GCS - Eye Opening",
     "si": 2000030027,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220739",
     "ti": 3016335,
     "tn": "Glasgow coma score eye opening",
@@ -314,8 +262,6 @@
   {
     "sn": "Intra Cranial Pressure",
     "si": 2000030028,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "220765",
     "ti": 21490653,
     "tn": "Intracranial pressure (ICP)",
@@ -326,8 +272,6 @@
   {
     "sn": "Code Status",
     "si": 2000030030,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Observation",
     "sc": "223758",
     "ti": 4127294,
     "tn": "Resuscitation status",
@@ -338,8 +282,6 @@
   {
     "sn": "Temperature Fahrenheit",
     "si": 2000030031,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223761",
     "ti": 3020891,
     "tn": "Body temperature",
@@ -350,8 +292,6 @@
   {
     "sn": "Temperature Celsius",
     "si": 2000030032,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223762",
     "ti": 3020891,
     "tn": "Body temperature",
@@ -362,8 +302,6 @@
   {
     "sn": "Orthostatic HR lying",
     "si": 2000030033,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223764",
     "ti": 40771524,
     "tn": "Heart rate --supine",
@@ -374,8 +312,6 @@
   {
     "sn": "Orthostatic HR sitting",
     "si": 2000030034,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223765",
     "ti": 40771525,
     "tn": "Heart rate --sitting",
@@ -386,8 +322,6 @@
   {
     "sn": "Orthostatic BPs standing",
     "si": 2000030035,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223766",
     "ti": 3035856,
     "tn": "Systolic blood pressure--standing",
@@ -398,8 +332,6 @@
   {
     "sn": "PCWP",
     "si": 2000030036,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223771",
     "ti": 21490776,
     "tn": "Pulmonary artery wedge pressure",
@@ -410,8 +342,6 @@
   {
     "sn": "SvO2",
     "si": 2000030037,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223772",
     "ti": 3018465,
     "tn": "Oxygen saturation in Mixed venous blood",
@@ -422,8 +352,6 @@
   {
     "sn": "Pain Present",
     "si": 2000030038,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Observation",
     "sc": "223781",
     "ti": 40757693,
     "tn": "Indicators of pain or possible pain",
@@ -434,8 +362,6 @@
   {
     "sn": "Pain Assessment Method",
     "si": 2000030042,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Procedure",
     "sc": "223795",
     "ti": 4021323,
     "tn": "Pain assessment",
@@ -446,8 +372,6 @@
   {
     "sn": "PH (Arterial)",
     "si": 2000030043,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223830",
     "ti": 3019977,
     "tn": "pH of Arterial blood",
@@ -458,8 +382,6 @@
   {
     "sn": "O2 Flow",
     "si": 2000030044,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223834",
     "ti": 3014080,
     "tn": "Oxygen gas flow Oxygen delivery system",
@@ -470,8 +392,6 @@
   {
     "sn": "Inspired O2 Fraction",
     "si": 2000030045,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223835",
     "ti": 3020716,
     "tn": "Inhaled oxygen concentration",
@@ -482,8 +402,6 @@
   {
     "sn": "ETT Size (ID)",
     "si": 2000030046,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223837",
     "ti": 21491186,
     "tn": "Endotracheal tube Diameter",
@@ -494,8 +412,6 @@
   {
     "sn": "Ventilator Type",
     "si": 2000030047,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223848",
     "ti": 3007397,
     "tn": "Ventilator type",
@@ -506,8 +422,6 @@
   {
     "sn": "Ventilator Mode",
     "si": 2000030048,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223849",
     "ti": 3004921,
     "tn": "Ventilation mode Ventilator",
@@ -518,8 +432,6 @@
   {
     "sn": "Inspired Gas Temp.",
     "si": 2000030049,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223872",
     "ti": 3004297,
     "tn": "Temperature Inhaled gas",
@@ -530,8 +442,6 @@
   {
     "sn": "Paw High",
     "si": 2000030050,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223873",
     "ti": 3025439,
     "tn": "Airway pressure Ventilator --at peak inspiratory flow maximum setting",
@@ -542,8 +452,6 @@
   {
     "sn": "Vti High",
     "si": 2000030051,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223874",
     "ti": 40760766,
     "tn": "Tidal volume.inspired maximum setting Ventilator alarm",
@@ -554,8 +462,6 @@
   {
     "sn": "Apnea Interval",
     "si": 2000030052,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223876",
     "ti": 40762903,
     "tn": "Apnea interval Ventilator alarm",
@@ -566,8 +472,6 @@
   {
     "sn": "GCS - Verbal Response",
     "si": 2000030053,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223900",
     "ti": 3009094,
     "tn": "Glasgow coma score verbal",
@@ -578,8 +482,6 @@
   {
     "sn": "GCS - Motor Response",
     "si": 2000030054,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223901",
     "ti": 3008223,
     "tn": "Glasgow coma score motor",
@@ -590,8 +492,6 @@
   {
     "sn": "Pupil Size Right",
     "si": 2000030055,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223907",
     "ti": 3010321,
     "tn": "Right eye Pupil diameter Manual",
@@ -602,8 +502,6 @@
   {
     "sn": "Respiratory Pattern",
     "si": 2000030056,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223985",
     "ti": 3020481,
     "tn": "Respiration rhythm",
@@ -614,8 +512,6 @@
   {
     "sn": "Respiratory Effort",
     "si": 2000030057,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "223990",
     "ti": 21492835,
     "tn": "Respiratory effort",
@@ -626,8 +522,6 @@
   {
     "sn": "Abdominal Assessment",
     "si": 2000030058,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224003",
     "ti": 21494966,
     "tn": "Physical findings of Abdomen by Palpation",
@@ -638,8 +532,6 @@
   {
     "sn": "Flatus",
     "si": 2000030060,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224005",
     "ti": 21494965,
     "tn": "Passing flatus",
@@ -650,8 +542,6 @@
   {
     "sn": "Stool Consistency",
     "si": 2000030061,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224011",
     "ti": 3015273,
     "tn": "Consistency of Stool",
@@ -662,8 +552,6 @@
   {
     "sn": "Stool Guaiac",
     "si": 2000030062,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224013",
     "ti": 3016251,
     "tn": "Hemoglobin.gastrointestinal [Presence] in Stool",
@@ -674,8 +562,6 @@
   {
     "sn": "Urine Color",
     "si": 2000030063,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224016",
     "ti": 3027162,
     "tn": "Color of Urine",
@@ -686,8 +572,6 @@
   {
     "sn": "Skin Integrity",
     "si": 2000030064,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224026",
     "ti": 21492838,
     "tn": "Skin integrity",
@@ -698,8 +582,6 @@
   {
     "sn": "Skin Color",
     "si": 2000030066,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224028",
     "ti": 3043970,
     "tn": "Color of Skin",
@@ -710,8 +592,6 @@
   {
     "sn": "Edema Location",
     "si": 2000030067,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224031",
     "ti": 3046838,
     "tn": "Edema site",
@@ -722,8 +602,6 @@
   {
     "sn": "Incision Closure #1",
     "si": 2000030068,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224040",
     "ti": 43055270,
     "tn": "Wound closure type",
@@ -734,8 +612,6 @@
   {
     "sn": "Incision Dressing #1",
     "si": 2000030069,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224042",
     "ti": 3042347,
     "tn": "Dressing for Wound",
@@ -746,8 +622,6 @@
   {
     "sn": "Braden Sensory Perception",
     "si": 2000030070,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224054",
     "ti": 3036098,
     "tn": "Sensory perception Braden scale",
@@ -758,8 +632,6 @@
   {
     "sn": "Braden Moisture",
     "si": 2000030071,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224055",
     "ti": 3037022,
     "tn": "Moisture exposure Braden scale",
@@ -770,8 +642,6 @@
   {
     "sn": "Braden Activity",
     "si": 2000030072,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224056",
     "ti": 3037318,
     "tn": "Physical activity Braden scale",
@@ -782,8 +652,6 @@
   {
     "sn": "Braden Mobility",
     "si": 2000030073,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224057",
     "ti": 3035206,
     "tn": "Physical mobility Braden scale",
@@ -794,8 +662,6 @@
   {
     "sn": "Braden Nutrition",
     "si": 2000030074,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224058",
     "ti": 3035816,
     "tn": "Nutrition intake pattern Braden scale",
@@ -806,8 +672,6 @@
   {
     "sn": "Braden Friction/Shear",
     "si": 2000030075,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224059",
     "ti": 3037347,
     "tn": "Friction and shear Braden scale",
@@ -818,8 +682,6 @@
   {
     "sn": "Manual Blood Pressure Systolic Left",
     "si": 2000030077,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224167",
     "ti": 3004249,
     "tn": "Systolic blood pressure",
@@ -830,8 +692,6 @@
   {
     "sn": "PCA lockout (min)",
     "si": 2000030078,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224329",
     "ti": 21490888,
     "tn": "PCA lockout time Infusion pump",
@@ -842,8 +702,6 @@
   {
     "sn": "QTc",
     "si": 2000030079,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224359",
     "ti": 3026258,
     "tn": "Q-T interval corrected",
@@ -854,8 +712,6 @@
   {
     "sn": "Sputum Color",
     "si": 2000030080,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224370",
     "ti": 36203862,
     "tn": "Color of Sputum",
@@ -866,8 +722,6 @@
   {
     "sn": "Vital Cap",
     "si": 2000030082,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224420",
     "ti": 3004305,
     "tn": "Vital capacity [Volume] Respiratory system",
@@ -878,8 +732,6 @@
   {
     "sn": "Spont Vt",
     "si": 2000030083,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224421",
     "ti": 3017594,
     "tn": "Tidal volume.spontaneous --on ventilator",
@@ -890,8 +742,6 @@
   {
     "sn": "Spont RR",
     "si": 2000030084,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224422",
     "ti": 1175625,
     "tn": "Breath rate spontaneous",
@@ -902,8 +752,6 @@
   {
     "sn": "Temperature Site",
     "si": 2000030085,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Observation",
     "sc": "224642",
     "ti": 3024265,
     "tn": "Body temperature measurement site",
@@ -914,8 +762,6 @@
   {
     "sn": "Manual Blood Pressure Diastolic Left",
     "si": 2000030086,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224643",
     "ti": 3012888,
     "tn": "Diastolic blood pressure",
@@ -926,8 +772,6 @@
   {
     "sn": "Orthostatic BPs lying",
     "si": 2000030087,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224645",
     "ti": 3009395,
     "tn": "Systolic blood pressure--supine",
@@ -938,8 +782,6 @@
   {
     "sn": "Tidal Volume (set)",
     "si": 2000030088,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224684",
     "ti": 21490854,
     "tn": "Tidal volume Ventilator --on ventilator",
@@ -950,8 +792,6 @@
   {
     "sn": "Tidal Volume (observed)",
     "si": 2000030089,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224685",
     "ti": 21490854,
     "tn": "Tidal volume Ventilator --on ventilator",
@@ -962,8 +802,6 @@
   {
     "sn": "Tidal Volume (spontaneous)",
     "si": 2000030090,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224686",
     "ti": 3017594,
     "tn": "Tidal volume.spontaneous --on ventilator",
@@ -974,8 +812,6 @@
   {
     "sn": "Minute Volume",
     "si": 2000030091,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224687",
     "ti": 21490753,
     "tn": "Volume expired per minute Respiratory system",
@@ -986,8 +822,6 @@
   {
     "sn": "Respiratory Rate (Set)",
     "si": 2000030092,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224688",
     "ti": 3007469,
     "tn": "Breath rate setting Ventilator",
@@ -998,8 +832,6 @@
   {
     "sn": "Respiratory Rate (spontaneous)",
     "si": 2000030093,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224689",
     "ti": 1175625,
     "tn": "Breath rate spontaneous",
@@ -1010,8 +842,6 @@
   {
     "sn": "Respiratory Rate (Total)",
     "si": 2000030094,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224690",
     "ti": 3024171,
     "tn": "Respiratory rate",
@@ -1022,8 +852,6 @@
   {
     "sn": "Flow Rate (L/min)",
     "si": 2000030095,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224691",
     "ti": 3025019,
     "tn": "Gas flow Respiratory system airway",
@@ -1034,8 +862,6 @@
   {
     "sn": "Peak Insp. Pressure",
     "si": 2000030096,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224695",
     "ti": 21490650,
     "tn": "Pressure max Respiratory system airway --during inspiration",
@@ -1046,8 +872,6 @@
   {
     "sn": "Plateau Pressure",
     "si": 2000030097,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224696",
     "ti": 36303946,
     "tn": "Pressure.plateau Respiratory system airway --on ventilator",
@@ -1058,8 +882,6 @@
   {
     "sn": "Mean Airway Pressure",
     "si": 2000030098,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224697",
     "ti": 42527086,
     "tn": "Mean airway pressure",
@@ -1070,8 +892,6 @@
   {
     "sn": "Total PEEP Level",
     "si": 2000030099,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224700",
     "ti": 42527140,
     "tn": "Total PEEP Respiratory system",
@@ -1082,8 +902,6 @@
   {
     "sn": "PSV Level",
     "si": 2000030100,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224701",
     "ti": 3000461,
     "tn": "Pressure support setting Ventilator",
@@ -1094,8 +912,6 @@
   {
     "sn": "Pupil Size Left",
     "si": 2000030102,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224733",
     "ti": 3026611,
     "tn": "Left eye Pupil diameter Manual",
@@ -1106,8 +922,6 @@
   {
     "sn": "Inspiratory Time",
     "si": 2000030103,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224738",
     "ti": 21490516,
     "tn": "Inspiration [Time] Respiratory system",
@@ -1118,8 +932,6 @@
   {
     "sn": "GI #1 Tube Type",
     "si": 2000030104,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224785",
     "ti": 3009497,
     "tn": "Type of GI tube",
@@ -1130,8 +942,6 @@
   {
     "sn": "Stool Color",
     "si": 2000030105,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224794",
     "ti": 3037490,
     "tn": "Color of Stool",
@@ -1142,8 +952,6 @@
   {
     "sn": "Arterial Base Excess",
     "si": 2000030106,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224828",
     "ti": 3003396,
     "tn": "Base excess in Arterial blood by calculation",
@@ -1154,8 +962,6 @@
   {
     "sn": "Cardiac Output (CCO)",
     "si": 2000030107,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224842",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -1166,8 +972,6 @@
   {
     "sn": "Urine Appearance",
     "si": 2000030108,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "224876",
     "ti": 3007876,
     "tn": "Appearance of Urine",
@@ -1178,8 +982,6 @@
   {
     "sn": "Past medical history",
     "si": 2000030109,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225059",
     "ti": 3001062,
     "tn": "History of Past illness",
@@ -1190,8 +992,6 @@
   {
     "sn": "Post menopausal",
     "si": 2000030111,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Condition",
     "sc": "225085",
     "ti": 4295261,
     "tn": "Postmenopausal state",
@@ -1202,8 +1002,6 @@
   {
     "sn": "ETOH",
     "si": 2000030112,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Condition",
     "sc": "225106",
     "ti": 433753,
     "tn": "Alcohol abuse",
@@ -1214,8 +1012,6 @@
   {
     "sn": "Currently experiencing pain",
     "si": 2000030114,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Observation",
     "sc": "225113",
     "ti": 40757693,
     "tn": "Indicators of pain or possible pain",
@@ -1226,8 +1022,6 @@
   {
     "sn": "ART BP Systolic",
     "si": 2000030115,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225309",
     "ti": 3004249,
     "tn": "Systolic blood pressure",
@@ -1238,8 +1032,6 @@
   {
     "sn": "ART BP Diastolic",
     "si": 2000030116,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225310",
     "ti": 3012888,
     "tn": "Diastolic blood pressure",
@@ -1250,8 +1042,6 @@
   {
     "sn": "ART BP Mean",
     "si": 2000030117,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225312",
     "ti": 3027598,
     "tn": "Mean blood pressure",
@@ -1262,8 +1052,6 @@
   {
     "sn": "BUN",
     "si": 2000030118,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225624",
     "ti": 3004295,
     "tn": "Urea nitrogen [Mass/volume] in Blood",
@@ -1274,8 +1062,6 @@
   {
     "sn": "Ionized Calcium",
     "si": 2000030119,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225667",
     "ti": 3021119,
     "tn": "Calcium.ionized [Moles/volume] in Blood",
@@ -1286,8 +1072,6 @@
   {
     "sn": "Lactic Acid",
     "si": 2000030120,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225668",
     "ti": 3018405,
     "tn": "Lactate [Moles/volume] in Arterial blood",
@@ -1298,8 +1082,6 @@
   {
     "sn": "Mixed Venous O2% Sat",
     "si": 2000030121,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225674",
     "ti": 3018465,
     "tn": "Oxygen saturation in Mixed venous blood",
@@ -1310,8 +1092,6 @@
   {
     "sn": "TCO2 (calc) Arterial",
     "si": 2000030122,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "225698",
     "ti": 3037663,
     "tn": "Carbon dioxide, total [Moles/volume] in Arterial blood by calculation",
@@ -1322,8 +1102,6 @@
   {
     "sn": "Orthostatic BPd lying",
     "si": 2000030123,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226092",
     "ti": 3013940,
     "tn": "Diastolic blood pressure--supine",
@@ -1334,8 +1112,6 @@
   {
     "sn": "Orthostatic BPd standing",
     "si": 2000030124,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226096",
     "ti": 3019962,
     "tn": "Diastolic blood pressure--standing",
@@ -1346,8 +1122,6 @@
   {
     "sn": "Oral Care",
     "si": 2000030125,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226168",
     "ti": 3039006,
     "tn": "Oral care given",
@@ -1358,8 +1132,6 @@
   {
     "sn": "Admission Weight (Kg)",
     "si": 2000030127,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226512",
     "ti": 3025315,
     "tn": "Body weight",
@@ -1370,8 +1142,6 @@
   {
     "sn": "Admission Weight (lbs.)",
     "si": 2000030128,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226531",
     "ti": 3025315,
     "tn": "Body weight",
@@ -1382,8 +1152,6 @@
   {
     "sn": "Height",
     "si": 2000030130,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226707",
     "ti": 3036277,
     "tn": "Body height",
@@ -1394,8 +1162,6 @@
   {
     "sn": "Height (cm)",
     "si": 2000030131,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226730",
     "ti": 3036277,
     "tn": "Body height",
@@ -1406,8 +1172,6 @@
   {
     "sn": "FiO2ApacheIIValue",
     "si": 2000030133,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "226754",
     "ti": 3020716,
     "tn": "Inhaled oxygen concentration",
@@ -1418,8 +1182,6 @@
   {
     "sn": "FiO2_ApacheIV",
     "si": 2000030134,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227010",
     "ti": 3020716,
     "tn": "Inhaled oxygen concentration",
@@ -1430,8 +1192,6 @@
   {
     "sn": "Cerebral Perfusion Pressure",
     "si": 2000030135,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227066",
     "ti": 21490695,
     "tn": "Cerebral perfusion pressure",
@@ -1442,8 +1202,6 @@
   {
     "sn": "Anion gap",
     "si": 2000030136,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227073",
     "ti": 3039000,
     "tn": "Anion gap in Blood",
@@ -1454,8 +1212,6 @@
   {
     "sn": "Pupil Response Right",
     "si": 2000030137,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227121",
     "ti": 21490963,
     "tn": "Right pupil Pupillary response",
@@ -1466,8 +1222,6 @@
   {
     "sn": "Manual Blood Pressure Diastolic Right",
     "si": 2000030138,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227242",
     "ti": 3012888,
     "tn": "Diastolic blood pressure",
@@ -1478,8 +1232,6 @@
   {
     "sn": "Manual Blood Pressure Systolic Right",
     "si": 2000030139,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227243",
     "ti": 3004249,
     "tn": "Systolic blood pressure",
@@ -1490,8 +1242,6 @@
   {
     "sn": "O2 Flow (additional cannula)",
     "si": 2000030140,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227287",
     "ti": 3014080,
     "tn": "Oxygen gas flow Oxygen delivery system",
@@ -1502,8 +1252,6 @@
   {
     "sn": "Pupil Response Left",
     "si": 2000030141,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227288",
     "ti": 21491763,
     "tn": "Left pupil Pupillary response",
@@ -1514,8 +1262,6 @@
   {
     "sn": "Potassium (serum)",
     "si": 2000030142,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227442",
     "ti": 3023103,
     "tn": "Potassium [Moles/volume] in Serum or Plasma",
@@ -1526,8 +1272,6 @@
   {
     "sn": "HCO3 (serum)",
     "si": 2000030143,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227443",
     "ti": 3016293,
     "tn": "Bicarbonate [Moles/volume] in Serum or Plasma",
@@ -1538,8 +1282,6 @@
   {
     "sn": "CO (Arterial)",
     "si": 2000030144,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227543",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -1550,8 +1292,6 @@
   {
     "sn": "SV (Arterial)",
     "si": 2000030146,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227547",
     "ti": 3036518,
     "tn": "Left ventricular Stroke volume",
@@ -1562,8 +1302,6 @@
   {
     "sn": "ScvO2 (Presep)",
     "si": 2000030147,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227549",
     "ti": 3018465,
     "tn": "Oxygen saturation in Mixed venous blood",
@@ -1574,8 +1312,6 @@
   {
     "sn": "BiPap O2 Flow",
     "si": 2000030148,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227582",
     "ti": 3014080,
     "tn": "Oxygen gas flow Oxygen delivery system",
@@ -1586,8 +1322,6 @@
   {
     "sn": "Tobacco Use History",
     "si": 2000030149,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Observation",
     "sc": "227687",
     "ti": 3012697,
     "tn": "History of Tobacco use",
@@ -1598,8 +1332,6 @@
   {
     "sn": "Cerebral Perfusion Pressure Alarm - High",
     "si": 2000030150,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227716",
     "ti": 21490695,
     "tn": "Cerebral perfusion pressure",
@@ -1610,8 +1342,6 @@
   {
     "sn": "Cerebral Perfusion Pressure Alarm - Low",
     "si": 2000030151,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227717",
     "ti": 21490695,
     "tn": "Cerebral perfusion pressure",
@@ -1622,8 +1352,6 @@
   {
     "sn": "ScvO2 (Presep) SQI",
     "si": 2000030152,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227806",
     "ti": 3018465,
     "tn": "Oxygen saturation in Mixed venous blood",
@@ -1634,8 +1362,6 @@
   {
     "sn": "Intra Cranial Pressure #2",
     "si": 2000030153,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "227989",
     "ti": 21490653,
     "tn": "Intracranial pressure (ICP)",
@@ -1646,8 +1372,6 @@
   {
     "sn": "CI (PiCCO)",
     "si": 2000030155,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228177",
     "ti": 21490712,
     "tn": "Left ventricular Cardiac index",
@@ -1658,8 +1382,6 @@
   {
     "sn": "CO (PiCCO)",
     "si": 2000030156,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228178",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -1670,8 +1392,6 @@
   {
     "sn": "SVI (PiCCO)",
     "si": 2000030157,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228182",
     "ti": 21490880,
     "tn": "Left ventricular Stroke volume index",
@@ -1682,8 +1402,6 @@
   {
     "sn": "SVRI (PiCCO)",
     "si": 2000030159,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228185",
     "ti": 3008047,
     "tn": "Systemic vascular Resistance index",
@@ -1694,8 +1412,6 @@
   {
     "sn": "CO-Tandem Heart Flow",
     "si": 2000030160,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228189",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -1706,8 +1422,6 @@
   {
     "sn": "PAR-Oxygen saturation",
     "si": 2000030161,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228232",
     "ti": 3016502,
     "tn": "Oxygen saturation in Arterial blood",
@@ -1718,8 +1432,6 @@
   {
     "sn": "Insulin pump",
     "si": 2000030162,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Device",
     "sc": "228236",
     "ti": 4321388,
     "tn": "Insulin pump",
@@ -1730,8 +1442,6 @@
   {
     "sn": "Cardiac Index (CI NICOM)",
     "si": 2000030163,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228368",
     "ti": 21490712,
     "tn": "Left ventricular Cardiac index",
@@ -1742,8 +1452,6 @@
   {
     "sn": "Cardiac Output (CO NICOM)",
     "si": 2000030164,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228369",
     "ti": 3005555,
     "tn": "Left ventricular Cardiac output",
@@ -1754,8 +1462,6 @@
   {
     "sn": "Stroke Volume (SV NICOM)",
     "si": 2000030165,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228374",
     "ti": 3036518,
     "tn": "Left ventricular Stroke volume",
@@ -1766,8 +1472,6 @@
   {
     "sn": "Stroke Volume Index (SVI NICOM)",
     "si": 2000030166,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Measurement",
     "sc": "228375",
     "ti": 21490880,
     "tn": "Left ventricular Stroke volume index",
@@ -1778,8 +1482,6 @@
   {
     "sn": "Pain Assessment Method",
     "si": 2000030169,
-    "sv": "mimiciv_meas_chart",
-    "sd": "Procedure",
     "sc": "229687",
     "ti": 4021323,
     "tn": "Pain assessment",
@@ -1790,8 +1492,6 @@
   {
     "sn": "Alveolar-arterial Gradient|Blood|Blood Gas",
     "si": 2000051001,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50801",
     "ti": 3007913,
     "tn": "Alveolar-arterial oxygen Partial pressure difference",
@@ -1802,8 +1502,6 @@
   {
     "sn": "Base Excess|Blood|Blood Gas",
     "si": 2000051002,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50802",
     "ti": 3012501,
     "tn": "Base excess in Blood by calculation",
@@ -1814,8 +1512,6 @@
   {
     "sn": "Calculated Total CO2|Blood|Blood Gas",
     "si": 2000051004,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50804",
     "ti": 3031147,
     "tn": "Carbon dioxide, total [Moles/volume] in Blood by calculation",
@@ -1826,8 +1522,6 @@
   {
     "sn": "Chloride, Whole Blood|Blood|Blood Gas",
     "si": 2000051006,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50806",
     "ti": 3018572,
     "tn": "Chloride [Moles/volume] in Blood",
@@ -1838,8 +1532,6 @@
   {
     "sn": "Free Calcium|Blood|Blood Gas",
     "si": 2000051007,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50808",
     "ti": 3021119,
     "tn": "Calcium.ionized [Moles/volume] in Blood",
@@ -1850,8 +1542,6 @@
   {
     "sn": "Glucose|Blood|Blood Gas",
     "si": 2000051008,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50809",
     "ti": 3000483,
     "tn": "Glucose [Mass/volume] in Blood",
@@ -1862,8 +1552,6 @@
   {
     "sn": "Hemoglobin|Blood|Blood Gas",
     "si": 2000051010,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50811",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -1874,8 +1562,6 @@
   {
     "sn": "Lactate|Blood|Blood Gas",
     "si": 2000051011,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50813",
     "ti": 3047181,
     "tn": "Lactate [Moles/volume] in Blood",
@@ -1886,8 +1572,6 @@
   {
     "sn": "O2 Flow|Blood|Blood Gas",
     "si": 2000051013,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50815",
     "ti": 3005629,
     "tn": "Inhaled oxygen flow rate",
@@ -1898,8 +1582,6 @@
   {
     "sn": "Oxygen|Blood|Blood Gas",
     "si": 2000051014,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50816",
     "ti": 3020716,
     "tn": "Inhaled oxygen concentration",
@@ -1910,8 +1592,6 @@
   {
     "sn": "Oxygen Saturation|Blood|Blood Gas",
     "si": 2000051015,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50817",
     "ti": 3013502,
     "tn": "Oxygen saturation in Blood",
@@ -1922,8 +1602,6 @@
   {
     "sn": "pCO2|Blood|Blood Gas",
     "si": 2000051016,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50818",
     "ti": 3013290,
     "tn": "Carbon dioxide [Partial pressure] in Blood",
@@ -1934,8 +1612,6 @@
   {
     "sn": "PEEP|Blood|Blood Gas",
     "si": 2000051017,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50819",
     "ti": 3022875,
     "tn": "Positive end expiratory pressure setting Ventilator",
@@ -1946,8 +1622,6 @@
   {
     "sn": "pH|Blood|Blood Gas",
     "si": 2000051018,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50820",
     "ti": 3010421,
     "tn": "pH of Blood",
@@ -1958,8 +1632,6 @@
   {
     "sn": "pO2|Blood|Blood Gas",
     "si": 2000051019,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50821",
     "ti": 3027315,
     "tn": "Oxygen [Partial pressure] in Blood",
@@ -1970,8 +1642,6 @@
   {
     "sn": "Potassium, Whole Blood|Blood|Blood Gas",
     "si": 2000051020,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50822",
     "ti": 3005456,
     "tn": "Potassium [Moles/volume] in Blood",
@@ -1982,8 +1652,6 @@
   {
     "sn": "Required O2|Blood|Blood Gas",
     "si": 2000051021,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50823",
     "ti": 3020716,
     "tn": "Inhaled oxygen concentration",
@@ -1994,8 +1662,6 @@
   {
     "sn": "Sodium, Whole Blood|Blood|Blood Gas",
     "si": 2000051022,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50824",
     "ti": 3000285,
     "tn": "Sodium [Moles/volume] in Blood",
@@ -2006,8 +1672,6 @@
   {
     "sn": "Temperature|Blood|Blood Gas",
     "si": 2000051023,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50825",
     "ti": 3020891,
     "tn": "Body temperature",
@@ -2018,8 +1682,6 @@
   {
     "sn": "Tidal Volume|Blood|Blood Gas",
     "si": 2000051024,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50826",
     "ti": 3012410,
     "tn": "Tidal volume setting Ventilator",
@@ -2030,8 +1692,6 @@
   {
     "sn": "Ventilator|Blood|Blood Gas",
     "si": 2000051026,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50828",
     "ti": 3004921,
     "tn": "Ventilation mode Ventilator",
@@ -2042,8 +1702,6 @@
   {
     "sn": "pH|Other Body Fluid|Blood Gas",
     "si": 2000051028,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50831",
     "ti": 3018672,
     "tn": "pH of Body fluid",
@@ -2054,8 +1712,6 @@
   {
     "sn": "Albumin, Ascites|Ascites|Chemistry",
     "si": 2000051032,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50835",
     "ti": 3026692,
     "tn": "Albumin [Mass/volume] in Peritoneal fluid",
@@ -2066,8 +1722,6 @@
   {
     "sn": "Amylase, Ascites|Ascites|Chemistry",
     "si": 2000051033,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50836",
     "ti": 3008691,
     "tn": "Amylase [Enzymatic activity/volume] in Peritoneal fluid",
@@ -2078,8 +1732,6 @@
   {
     "sn": "Creatinine, Ascites|Ascites|Chemistry",
     "si": 2000051038,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50841",
     "ti": 3016647,
     "tn": "Creatinine [Mass/volume] in Peritoneal fluid",
@@ -2090,8 +1742,6 @@
   {
     "sn": "Total Protein, Ascites|Ascites|Chemistry",
     "si": 2000051045,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50849",
     "ti": 3002331,
     "tn": "Protein [Mass/volume] in Peritoneal fluid",
@@ -2102,8 +1752,6 @@
   {
     "sn": "% Hemoglobin A1c|Blood|Chemistry",
     "si": 2000051048,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50852",
     "ti": 3004410,
     "tn": "Hemoglobin A1c/Hemoglobin.total in Blood",
@@ -2114,8 +1762,6 @@
   {
     "sn": "25-OH Vitamin D|Blood|Chemistry",
     "si": 2000051049,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50853",
     "ti": 3020149,
     "tn": "25-hydroxyvitamin D3 [Mass/volume] in Serum or Plasma",
@@ -2126,8 +1772,6 @@
   {
     "sn": "Absolute Hemoglobin|Blood|Chemistry",
     "si": 2000051051,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50855",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -2138,8 +1782,6 @@
   {
     "sn": "AFP, Maternal Screen|Blood|Chemistry",
     "si": 2000051056,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50860",
     "ti": 3009306,
     "tn": "Alpha-1-Fetoprotein [Mass/volume] in Serum or Plasma",
@@ -2150,8 +1792,6 @@
   {
     "sn": "Alanine Aminotransferase (ALT)|Blood|Chemistry",
     "si": 2000051057,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50861",
     "ti": 3006923,
     "tn": "Alanine aminotransferase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2162,8 +1802,6 @@
   {
     "sn": "Albumin|Blood|Chemistry",
     "si": 2000051058,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50862",
     "ti": 3024561,
     "tn": "Albumin [Mass/volume] in Serum or Plasma",
@@ -2174,8 +1812,6 @@
   {
     "sn": "Alkaline Phosphatase|Blood|Chemistry",
     "si": 2000051059,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50863",
     "ti": 3035995,
     "tn": "Alkaline phosphatase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2186,8 +1822,6 @@
   {
     "sn": "Alpha-Fetoprotein|Blood|Chemistry",
     "si": 2000051060,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50864",
     "ti": 3009306,
     "tn": "Alpha-1-Fetoprotein [Mass/volume] in Serum or Plasma",
@@ -2198,8 +1832,6 @@
   {
     "sn": "Amylase|Blood|Chemistry",
     "si": 2000051063,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50867",
     "ti": 3016771,
     "tn": "Amylase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2210,8 +1842,6 @@
   {
     "sn": "Anion Gap|Blood|Chemistry",
     "si": 2000051064,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50868",
     "ti": 3037278,
     "tn": "Anion gap 4 in Serum or Plasma",
@@ -2222,8 +1852,6 @@
   {
     "sn": "Anti-Nuclear Antibody|Blood|Chemistry",
     "si": 2000051069,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50873",
     "ti": 3004616,
     "tn": "Nuclear Ab [Presence] in Serum",
@@ -2234,8 +1862,6 @@
   {
     "sn": "Asparate Aminotransferase (AST)|Blood|Chemistry",
     "si": 2000051074,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50878",
     "ti": 3013721,
     "tn": "Aspartate aminotransferase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2246,8 +1872,6 @@
   {
     "sn": "Barbiturate Screen|Blood|Chemistry",
     "si": 2000051075,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50879",
     "ti": 3003132,
     "tn": "Barbiturates [Presence] in Serum, Plasma or Blood",
@@ -2258,8 +1882,6 @@
   {
     "sn": "Benzodiazepine Screen|Blood|Chemistry",
     "si": 2000051076,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50880",
     "ti": 3031951,
     "tn": "Benzodiazepines [Presence] in Blood",
@@ -2270,8 +1892,6 @@
   {
     "sn": "Bicarbonate|Blood|Chemistry",
     "si": 2000051078,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50882",
     "ti": 3016293,
     "tn": "Bicarbonate [Moles/volume] in Serum or Plasma",
@@ -2282,8 +1902,6 @@
   {
     "sn": "Bilirubin, Direct|Blood|Chemistry",
     "si": 2000051079,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50883",
     "ti": 3027597,
     "tn": "Bilirubin.direct [Mass/volume] in Serum or Plasma",
@@ -2294,8 +1912,6 @@
   {
     "sn": "Bilirubin, Indirect|Blood|Chemistry",
     "si": 2000051080,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50884",
     "ti": 3007359,
     "tn": "Bilirubin.indirect [Mass/volume] in Serum or Plasma",
@@ -2306,8 +1922,6 @@
   {
     "sn": "Bilirubin, Total|Blood|Chemistry",
     "si": 2000051081,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50885",
     "ti": 3024128,
     "tn": "Bilirubin.total [Mass/volume] in Serum or Plasma",
@@ -2318,8 +1932,6 @@
   {
     "sn": "C-Reactive Protein|Blood|Chemistry",
     "si": 2000051082,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50889",
     "ti": 3020460,
     "tn": "C reactive protein [Mass/volume] in Serum or Plasma",
@@ -2330,8 +1942,6 @@
   {
     "sn": "Calculated TBG|Blood|Chemistry",
     "si": 2000051088,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50895",
     "ti": 3017523,
     "tn": "Thyroxine (T4)/Thyroxine binding globulin [Mass Ratio] in Serum or Plasma",
@@ -2342,8 +1952,6 @@
   {
     "sn": "Carbamazepine|Blood|Chemistry",
     "si": 2000051091,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50899",
     "ti": 3028639,
     "tn": "carBAMazepine [Mass/volume] in Serum or Plasma",
@@ -2354,8 +1962,6 @@
   {
     "sn": "Carcinoembyronic Antigen (CEA)|Blood|Chemistry",
     "si": 2000051092,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50900",
     "ti": 3003785,
     "tn": "Carcinoembryonic Ag [Mass/volume] in Serum or Plasma",
@@ -2366,8 +1972,6 @@
   {
     "sn": "Chloride|Blood|Chemistry",
     "si": 2000051094,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50902",
     "ti": 3014576,
     "tn": "Chloride [Moles/volume] in Serum or Plasma",
@@ -2378,8 +1982,6 @@
   {
     "sn": "Cholesterol, HDL|Blood|Chemistry",
     "si": 2000051096,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50904",
     "ti": 3007070,
     "tn": "Cholesterol in HDL [Mass/volume] in Serum or Plasma",
@@ -2390,8 +1992,6 @@
   {
     "sn": "Cholesterol, Total|Blood|Chemistry",
     "si": 2000051099,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50907",
     "ti": 3027114,
     "tn": "Cholesterol [Mass/volume] in Serum or Plasma",
@@ -2402,8 +2002,6 @@
   {
     "sn": "Cortisol|Blood|Chemistry",
     "si": 2000051101,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50909",
     "ti": 3009682,
     "tn": "Cortisol [Mass/volume] in Serum or Plasma",
@@ -2414,8 +2012,6 @@
   {
     "sn": "Creatine Kinase (CK)|Blood|Chemistry",
     "si": 2000051102,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50910",
     "ti": 3007220,
     "tn": "Creatine kinase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2426,8 +2022,6 @@
   {
     "sn": "Creatinine|Blood|Chemistry",
     "si": 2000051104,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50912",
     "ti": 3016723,
     "tn": "Creatinine [Mass/volume] in Serum or Plasma",
@@ -2438,8 +2032,6 @@
   {
     "sn": "D-Dimer|Blood|Chemistry",
     "si": 2000051107,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50915",
     "ti": 3051714,
     "tn": "Fibrin D-dimer FEU [Mass/volume] in Platelet poor plasma",
@@ -2450,8 +2042,6 @@
   {
     "sn": "Digoxin|Blood|Chemistry",
     "si": 2000051109,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50917",
     "ti": 3011335,
     "tn": "Digoxin [Mass/volume] in Serum or Plasma",
@@ -2462,8 +2052,6 @@
   {
     "sn": "Estimated GFR (MDRD equation)|Blood|Chemistry",
     "si": 2000051111,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50920",
     "ti": 46236952,
     "tn": "Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)",
@@ -2474,8 +2062,6 @@
   {
     "sn": "Ferritin|Blood|Chemistry",
     "si": 2000051114,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50924",
     "ti": 3001122,
     "tn": "Ferritin [Mass/volume] in Serum or Plasma",
@@ -2486,8 +2072,6 @@
   {
     "sn": "Folate|Blood|Chemistry",
     "si": 2000051115,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50925",
     "ti": 3036987,
     "tn": "Folate [Mass/volume] in Serum or Plasma",
@@ -2498,8 +2082,6 @@
   {
     "sn": "Gamma Glutamyltransferase|Blood|Chemistry",
     "si": 2000051117,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50927",
     "ti": 3026910,
     "tn": "Gamma glutamyl transferase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2510,8 +2092,6 @@
   {
     "sn": "Globulin|Blood|Chemistry",
     "si": 2000051120,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50930",
     "ti": 3021886,
     "tn": "Globulin [Mass/volume] in Serum",
@@ -2522,8 +2102,6 @@
   {
     "sn": "Glucose|Blood|Chemistry",
     "si": 2000051121,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50931",
     "ti": 3004501,
     "tn": "Glucose [Mass/volume] in Serum or Plasma",
@@ -2534,8 +2112,6 @@
   {
     "sn": "Haptoglobin|Blood|Chemistry",
     "si": 2000051122,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50935",
     "ti": 3012336,
     "tn": "Haptoglobin [Mass/volume] in Serum or Plasma",
@@ -2546,8 +2122,6 @@
   {
     "sn": "Hepatitis B Surface Antigen|Blood|Chemistry",
     "si": 2000051128,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50941",
     "ti": 3019510,
     "tn": "Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay",
@@ -2558,8 +2132,6 @@
   {
     "sn": "HIV Antibody|Blood|Chemistry",
     "si": 2000051131,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50944",
     "ti": 3037274,
     "tn": "HIV 1 Ab [Units/volume] in Serum or Plasma by Immunoassay",
@@ -2570,8 +2142,6 @@
   {
     "sn": "Immunoglobulin A|Blood|Chemistry",
     "si": 2000051135,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50949",
     "ti": 3007164,
     "tn": "IgA [Mass/volume] in Serum or Plasma",
@@ -2582,8 +2152,6 @@
   {
     "sn": "Immunoglobulin G|Blood|Chemistry",
     "si": 2000051136,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50950",
     "ti": 3005719,
     "tn": "IgG [Mass/volume] in Serum or Plasma",
@@ -2594,8 +2162,6 @@
   {
     "sn": "Immunoglobulin M|Blood|Chemistry",
     "si": 2000051137,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50951",
     "ti": 3028026,
     "tn": "IgM [Mass/volume] in Serum or Plasma",
@@ -2606,8 +2172,6 @@
   {
     "sn": "Iron|Blood|Chemistry",
     "si": 2000051138,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50952",
     "ti": 3002400,
     "tn": "Iron [Mass/volume] in Serum or Plasma",
@@ -2618,8 +2182,6 @@
   {
     "sn": "Iron Binding Capacity, Total|Blood|Chemistry",
     "si": 2000051139,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50953",
     "ti": 3021044,
     "tn": "Iron binding capacity [Mass/volume] in Serum or Plasma",
@@ -2630,8 +2192,6 @@
   {
     "sn": "Lipase|Blood|Chemistry",
     "si": 2000051141,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50956",
     "ti": 3004905,
     "tn": "Lipase [Enzymatic activity/volume] in Serum or Plasma",
@@ -2642,8 +2202,6 @@
   {
     "sn": "NTproBNP|Blood|Chemistry",
     "si": 2000051148,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50963",
     "ti": 3029187,
     "tn": "Natriuretic peptide.B prohormone N-Terminal [Mass/volume] in Serum or Plasma",
@@ -2654,8 +2212,6 @@
   {
     "sn": "Osmolality, Measured|Blood|Chemistry",
     "si": 2000051149,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50964",
     "ti": 3008295,
     "tn": "Osmolality of Serum or Plasma",
@@ -2666,8 +2222,6 @@
   {
     "sn": "Parathyroid Hormone|Blood|Chemistry",
     "si": 2000051150,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50965",
     "ti": 3000067,
     "tn": "Parathyrin.intact [Mass/volume] in Serum or Plasma",
@@ -2678,8 +2232,6 @@
   {
     "sn": "Phosphate|Blood|Chemistry",
     "si": 2000051155,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50970",
     "ti": 3011904,
     "tn": "Phosphate [Mass/volume] in Serum or Plasma",
@@ -2690,8 +2242,6 @@
   {
     "sn": "Potassium|Blood|Chemistry",
     "si": 2000051156,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50971",
     "ti": 3023103,
     "tn": "Potassium [Moles/volume] in Serum or Plasma",
@@ -2702,8 +2252,6 @@
   {
     "sn": "Prolactin|Blood|Chemistry",
     "si": 2000051158,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50973",
     "ti": 3004722,
     "tn": "Prolactin [Mass/volume] in Serum or Plasma",
@@ -2714,8 +2262,6 @@
   {
     "sn": "Prostate Specific Antigen|Blood|Chemistry",
     "si": 2000051159,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50974",
     "ti": 3013603,
     "tn": "Prostate specific Ag [Mass/volume] in Serum or Plasma",
@@ -2726,8 +2272,6 @@
   {
     "sn": "Protein, Total|Blood|Chemistry",
     "si": 2000051161,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50976",
     "ti": 3020630,
     "tn": "Protein [Mass/volume] in Serum or Plasma",
@@ -2738,8 +2282,6 @@
   {
     "sn": "Sodium|Blood|Chemistry",
     "si": 2000051167,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50983",
     "ti": 3019550,
     "tn": "Sodium [Moles/volume] in Serum or Plasma",
@@ -2750,8 +2292,6 @@
   {
     "sn": "tacroFK|Blood|Chemistry",
     "si": 2000051168,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50986",
     "ti": 3026250,
     "tn": "Tacrolimus [Mass/volume] in Blood",
@@ -2762,8 +2302,6 @@
   {
     "sn": "Thyroglobulin|Blood|Chemistry",
     "si": 2000051172,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50991",
     "ti": 3036535,
     "tn": "Thyroglobulin [Mass/volume] in Serum or Plasma",
@@ -2774,8 +2312,6 @@
   {
     "sn": "Thyroid Stimulating Hormone|Blood|Chemistry",
     "si": 2000051174,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50993",
     "ti": 3009201,
     "tn": "Thyrotropin [Units/volume] in Serum or Plasma",
@@ -2786,8 +2322,6 @@
   {
     "sn": "Thyroxine (T4)|Blood|Chemistry",
     "si": 2000051175,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50994",
     "ti": 3016991,
     "tn": "Thyroxine (T4) [Mass/volume] in Serum or Plasma",
@@ -2798,8 +2332,6 @@
   {
     "sn": "Thyroxine (T4), Free|Blood|Chemistry",
     "si": 2000051176,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50995",
     "ti": 3008598,
     "tn": "Thyroxine (T4) free [Mass/volume] in Serum or Plasma",
@@ -2810,8 +2342,6 @@
   {
     "sn": "Tobramycin|Blood|Chemistry",
     "si": 2000051178,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "50997",
     "ti": 3035509,
     "tn": "Tobramycin [Mass/volume] in Serum or Plasma",
@@ -2822,8 +2352,6 @@
   {
     "sn": "Triiodothyronine (T3)|Blood|Chemistry",
     "si": 2000051182,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51001",
     "ti": 3010340,
     "tn": "Triiodothyronine (T3) [Mass/volume] in Serum or Plasma",
@@ -2834,8 +2362,6 @@
   {
     "sn": "Troponin T|Blood|Chemistry",
     "si": 2000051184,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51003",
     "ti": 3019800,
     "tn": "Troponin T.cardiac [Mass/volume] in Serum or Plasma",
@@ -2846,8 +2372,6 @@
   {
     "sn": "Uptake Ratio|Blood|Chemistry",
     "si": 2000051186,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51005",
     "ti": 3021717,
     "tn": "Triiodothyronine resin uptake (T3RU) in Serum or Plasma",
@@ -2858,8 +2382,6 @@
   {
     "sn": "Urea Nitrogen|Blood|Chemistry",
     "si": 2000051187,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51006",
     "ti": 3013682,
     "tn": "Urea nitrogen [Mass/volume] in Serum or Plasma",
@@ -2870,8 +2392,6 @@
   {
     "sn": "Uric Acid|Blood|Chemistry",
     "si": 2000051188,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51007",
     "ti": 3037556,
     "tn": "Urate [Mass/volume] in Serum or Plasma",
@@ -2882,8 +2402,6 @@
   {
     "sn": "Vancomycin|Blood|Chemistry",
     "si": 2000051190,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51009",
     "ti": 3005715,
     "tn": "Vancomycin [Mass/volume] in Serum or Plasma",
@@ -2894,8 +2412,6 @@
   {
     "sn": "Vitamin B12|Blood|Chemistry",
     "si": 2000051191,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51010",
     "ti": 3000593,
     "tn": "Cobalamin (Vitamin B12) [Mass/volume] in Serum or Plasma",
@@ -2906,8 +2422,6 @@
   {
     "sn": "Albumin, Pleural|Pleural|Chemistry",
     "si": 2000051218,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51046",
     "ti": 3011544,
     "tn": "Albumin [Mass/volume] in Pleural fluid",
@@ -2918,8 +2432,6 @@
   {
     "sn": "Cholesterol, Pleural|Pleural|Chemistry",
     "si": 2000051223,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51051",
     "ti": 3033364,
     "tn": "Cholesterol [Mass/volume] in Pleural fluid",
@@ -2930,8 +2442,6 @@
   {
     "sn": "Glucose, Pleural|Pleural|Chemistry",
     "si": 2000051225,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51053",
     "ti": 3003403,
     "tn": "Glucose [Mass/volume] in Pleural fluid",
@@ -2942,8 +2452,6 @@
   {
     "sn": "Total Protein, Pleural|Pleural|Chemistry",
     "si": 2000051230,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51059",
     "ti": 3003434,
     "tn": "Protein [Mass/volume] in Pleural fluid",
@@ -2954,8 +2462,6 @@
   {
     "sn": "Albumin/Creatinine, Urine|Urine|Chemistry",
     "si": 2000051241,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51070",
     "ti": 3002827,
     "tn": "Microalbumin/Creatinine [Mass Ratio] in 24 hour Urine",
@@ -2966,8 +2472,6 @@
   {
     "sn": "Bicarbonate, Urine|Urine|Chemistry",
     "si": 2000051247,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51076",
     "ti": 3008251,
     "tn": "Bicarbonate [Moles/volume] in Urine",
@@ -2978,8 +2482,6 @@
   {
     "sn": "Chloride, Urine|Urine|Chemistry",
     "si": 2000051249,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51078",
     "ti": 3007733,
     "tn": "Chloride [Moles/volume] in Urine",
@@ -2990,8 +2492,6 @@
   {
     "sn": "Cocaine, Urine|Urine|Chemistry",
     "si": 2000051250,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51079",
     "ti": 3016879,
     "tn": "Cocaine [Presence] in Urine",
@@ -3002,8 +2502,6 @@
   {
     "sn": "Creatinine, Serum|Urine|Chemistry",
     "si": 2000051252,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51081",
     "ti": 3016723,
     "tn": "Creatinine [Mass/volume] in Serum or Plasma",
@@ -3014,8 +2512,6 @@
   {
     "sn": "Creatinine, Urine|Urine|Chemistry",
     "si": 2000051253,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51082",
     "ti": 3017250,
     "tn": "Creatinine [Mass/volume] in Urine",
@@ -3026,8 +2522,6 @@
   {
     "sn": "HCG, Urine, Qualitative|Urine|Chemistry",
     "si": 2000051256,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51085",
     "ti": 3018954,
     "tn": "Choriogonadotropin (pregnancy test) [Presence] in Urine",
@@ -3038,8 +2532,6 @@
   {
     "sn": "Length of Urine Collection|Urine|Chemistry",
     "si": 2000051258,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51087",
     "ti": 3016750,
     "tn": "Collection duration of Urine",
@@ -3050,8 +2542,6 @@
   {
     "sn": "Methadone, Urine|Urine|Chemistry",
     "si": 2000051261,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51090",
     "ti": 3036180,
     "tn": "Methadone [Presence] in Urine",
@@ -3062,8 +2552,6 @@
   {
     "sn": "Osmolality, Urine|Urine|Chemistry",
     "si": 2000051264,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51093",
     "ti": 3026782,
     "tn": "Osmolality of Urine",
@@ -3074,8 +2562,6 @@
   {
     "sn": "pH|Urine|Chemistry",
     "si": 2000051265,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51094",
     "ti": 3015736,
     "tn": "pH of Urine",
@@ -3086,8 +2572,6 @@
   {
     "sn": "Phosphate, Urine|Urine|Chemistry",
     "si": 2000051266,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51095",
     "ti": 3026729,
     "tn": "Phosphate [Mass/volume] in Urine",
@@ -3098,8 +2582,6 @@
   {
     "sn": "Potassium, Urine|Urine|Chemistry",
     "si": 2000051268,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51097",
     "ti": 3016038,
     "tn": "Potassium [Moles/volume] in Urine",
@@ -3110,8 +2592,6 @@
   {
     "sn": "Protein/Creatinine Ratio|Urine|Chemistry",
     "si": 2000051270,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51099",
     "ti": 3001582,
     "tn": "Protein/Creatinine [Mass Ratio] in Urine",
@@ -3122,8 +2602,6 @@
   {
     "sn": "Sodium, Urine|Urine|Chemistry",
     "si": 2000051271,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51100",
     "ti": 3003181,
     "tn": "Sodium [Moles/volume] in Urine",
@@ -3134,8 +2612,6 @@
   {
     "sn": "Total Collection Time|Urine|Chemistry",
     "si": 2000051272,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51101",
     "ti": 3016750,
     "tn": "Collection duration of Urine",
@@ -3146,8 +2622,6 @@
   {
     "sn": "Urea Nitrogen, Urine|Urine|Chemistry",
     "si": 2000051274,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51104",
     "ti": 3011965,
     "tn": "Urea nitrogen [Mass/volume] in Urine",
@@ -3158,8 +2632,6 @@
   {
     "sn": "Uric Acid, Urine|Urine|Chemistry",
     "si": 2000051275,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51105",
     "ti": 3033526,
     "tn": "Urate [Mass/volume] in Urine",
@@ -3170,8 +2642,6 @@
   {
     "sn": "Urine Creatinine|Urine|Chemistry",
     "si": 2000051276,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51106",
     "ti": 3017250,
     "tn": "Creatinine [Mass/volume] in Urine",
@@ -3182,8 +2652,6 @@
   {
     "sn": "Eosinophils|Ascites|Hematology",
     "si": 2000051283,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51114",
     "ti": 3019298,
     "tn": "Eosinophils/100 leukocytes in Peritoneal fluid",
@@ -3194,8 +2662,6 @@
   {
     "sn": "Macrophage|Ascites|Hematology",
     "si": 2000051286,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51117",
     "ti": 3041635,
     "tn": "Macrophages/100 leukocytes in Peritoneal fluid by Manual count",
@@ -3206,8 +2672,6 @@
   {
     "sn": "Monocytes|Ascites|Hematology",
     "si": 2000051289,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51120",
     "ti": 3033483,
     "tn": "Monocytes/100 leukocytes in Peritoneal fluid",
@@ -3218,8 +2682,6 @@
   {
     "sn": "Other|Ascites|Hematology",
     "si": 2000051292,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51123",
     "ti": 3008855,
     "tn": "Leukocytes other/100 leukocytes in Peritoneal fluid",
@@ -3230,8 +2692,6 @@
   {
     "sn": "RBC, Ascites|Ascites|Hematology",
     "si": 2000051296,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51127",
     "ti": 3009613,
     "tn": "Erythrocytes [#/volume] in Peritoneal fluid",
@@ -3242,8 +2702,6 @@
   {
     "sn": "Absolute CD3 Count|Blood|Hematology",
     "si": 2000051297,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51130",
     "ti": 3011412,
     "tn": "CD3 cells [#/volume] in Blood",
@@ -3254,8 +2712,6 @@
   {
     "sn": "Absolute CD4 Count|Blood|Hematology",
     "si": 2000051298,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51131",
     "ti": 3028167,
     "tn": "CD3+CD4+ (T4 helper) cells [#/volume] in Blood",
@@ -3266,8 +2722,6 @@
   {
     "sn": "Absolute CD8 Count|Blood|Hematology",
     "si": 2000051299,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51132",
     "ti": 3001405,
     "tn": "CD3+CD8+ (T8 suppressor) cells [#/volume] in Blood",
@@ -3278,8 +2732,6 @@
   {
     "sn": "Absolute Lymphocyte Count|Blood|Hematology",
     "si": 2000051300,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51133",
     "ti": 3004327,
     "tn": "Lymphocytes [#/volume] in Blood by Automated count",
@@ -3290,8 +2742,6 @@
   {
     "sn": "Acanthocytes|Blood|Hematology",
     "si": 2000051301,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51134",
     "ti": 3019416,
     "tn": "Acanthocytes [Presence] in Blood by Light microscopy",
@@ -3302,8 +2752,6 @@
   {
     "sn": "Basophilic Stippling|Blood|Hematology",
     "si": 2000051312,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51145",
     "ti": 3026904,
     "tn": "Basophilic stippling [Presence] in Blood by Light microscopy",
@@ -3314,8 +2762,6 @@
   {
     "sn": "Bite Cells|Blood|Hematology",
     "si": 2000051314,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51147",
     "ti": 3005686,
     "tn": "Bite cells [Presence] in Blood by Light microscopy",
@@ -3326,8 +2772,6 @@
   {
     "sn": "CD20|Blood|Hematology",
     "si": 2000051333,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51168",
     "ti": 3022878,
     "tn": "CD20 cells/100 cells in Blood",
@@ -3338,8 +2782,6 @@
   {
     "sn": "CD20 %|Blood|Hematology",
     "si": 2000051334,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51169",
     "ti": 3022878,
     "tn": "CD20 cells/100 cells in Blood",
@@ -3350,8 +2792,6 @@
   {
     "sn": "CD3 %|Blood|Hematology",
     "si": 2000051339,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51174",
     "ti": 3022533,
     "tn": "CD3 cells/100 cells in Blood",
@@ -3362,8 +2802,6 @@
   {
     "sn": "CD3 Absolute Count|Blood|Hematology",
     "si": 2000051340,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51175",
     "ti": 3011412,
     "tn": "CD3 cells [#/volume] in Blood",
@@ -3374,8 +2812,6 @@
   {
     "sn": "CD3 Cells, Percent|Blood|Hematology",
     "si": 2000051341,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51176",
     "ti": 3022533,
     "tn": "CD3 cells/100 cells in Blood",
@@ -3386,8 +2822,6 @@
   {
     "sn": "CD34|Blood|Hematology",
     "si": 2000051343,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51178",
     "ti": 3023256,
     "tn": "CD34 cells/100 cells in Blood",
@@ -3398,8 +2832,6 @@
   {
     "sn": "CD4 Cells, Percent|Blood|Hematology",
     "si": 2000051345,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51180",
     "ti": 3014037,
     "tn": "CD3+CD4+ (T4 helper) cells/100 cells in Blood",
@@ -3410,8 +2842,6 @@
   {
     "sn": "CD4/CD8 Ratio|Blood|Hematology",
     "si": 2000051346,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51181",
     "ti": 40757349,
     "tn": "CD3+CD4+ (T4 helper) cells/CD3+CD8+ (T8 suppressor cells) cells [# Ratio] in Blood",
@@ -3422,8 +2852,6 @@
   {
     "sn": "CD56|Blood|Hematology",
     "si": 2000051353,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51188",
     "ti": 3005460,
     "tn": "CD56 cells/100 cells in Blood",
@@ -3434,8 +2862,6 @@
   {
     "sn": "CD71|Blood|Hematology",
     "si": 2000051358,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51193",
     "ti": 3002153,
     "tn": "CD71 cells/100 cells in Blood",
@@ -3446,8 +2872,6 @@
   {
     "sn": "CD8 Cells, Percent|Blood|Hematology",
     "si": 2000051359,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51194",
     "ti": 3007449,
     "tn": "CD3+CD8+ (T8 suppressor) cells/100 cells in Blood",
@@ -3458,8 +2882,6 @@
   {
     "sn": "D-Dimer|Blood|Hematology",
     "si": 2000051361,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51196",
     "ti": 3051714,
     "tn": "Fibrin D-dimer FEU [Mass/volume] in Platelet poor plasma",
@@ -3470,8 +2892,6 @@
   {
     "sn": "Envelope Cells|Blood|Hematology",
     "si": 2000051363,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51198",
     "ti": 3017196,
     "tn": "Microscopic observation [Identifier] in Specimen by Wright stain",
@@ -3482,8 +2902,6 @@
   {
     "sn": "Eosinophil Count|Blood|Hematology",
     "si": 2000051364,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51199",
     "ti": 3028615,
     "tn": "Eosinophils [#/volume] in Blood by Automated count",
@@ -3494,8 +2912,6 @@
   {
     "sn": "Fibrinogen, Functional|Blood|Hematology",
     "si": 2000051379,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51214",
     "ti": 3016407,
     "tn": "Fibrinogen [Mass/volume] in Platelet poor plasma by Coagulation assay",
@@ -3506,8 +2922,6 @@
   {
     "sn": "Fragmented Cells|Blood|Hematology",
     "si": 2000051381,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51216",
     "ti": 3028468,
     "tn": "Fragments [Presence] in Blood by Light microscopy",
@@ -3518,8 +2932,6 @@
   {
     "sn": "Granulocyte Count|Blood|Hematology",
     "si": 2000051383,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51218",
     "ti": 3035715,
     "tn": "Granulocytes [#/volume] in Blood",
@@ -3530,8 +2942,6 @@
   {
     "sn": "H/O Smear|Blood|Hematology",
     "si": 2000051384,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51219",
     "ti": 3018760,
     "tn": "Blood smear finding [Identifier] in Blood by Light microscopy",
@@ -3542,8 +2952,6 @@
   {
     "sn": "Hematocrit|Blood|Hematology",
     "si": 2000051386,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51221",
     "ti": 3023314,
     "tn": "Hematocrit [Volume Fraction] of Blood by Automated count",
@@ -3554,8 +2962,6 @@
   {
     "sn": "Hemoglobin|Blood|Hematology",
     "si": 2000051387,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51222",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -3566,8 +2972,6 @@
   {
     "sn": "Howell-Jolly Bodies|Blood|Hematology",
     "si": 2000051396,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51231",
     "ti": 3002620,
     "tn": "Howell-Jolly bodies [Presence] in Blood by Light microscopy",
@@ -3578,8 +2982,6 @@
   {
     "sn": "Hypochromia|Blood|Hematology",
     "si": 2000051398,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51233",
     "ti": 3021303,
     "tn": "Hypochromia [Presence] in Blood by Light microscopy",
@@ -3590,8 +2992,6 @@
   {
     "sn": "Inpatient Hematology/Oncology Smear|Blood|Hematology",
     "si": 2000051401,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51236",
     "ti": 3018760,
     "tn": "Blood smear finding [Identifier] in Blood by Light microscopy",
@@ -3602,8 +3002,6 @@
   {
     "sn": "INR(PT)|Blood|Hematology",
     "si": 2000051402,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51237",
     "ti": 3022217,
     "tn": "INR in Platelet poor plasma by Coagulation assay",
@@ -3614,8 +3012,6 @@
   {
     "sn": "MacroOvalocytes|Blood|Hematology",
     "si": 2000051412,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51247",
     "ti": 3010950,
     "tn": "Oval macrocytes [Presence] in Blood by Light microscopy",
@@ -3626,8 +3022,6 @@
   {
     "sn": "MCH|Blood|Hematology",
     "si": 2000051413,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51248",
     "ti": 3012030,
     "tn": "MCH [Entitic mass] by Automated count",
@@ -3638,8 +3032,6 @@
   {
     "sn": "MCHC|Blood|Hematology",
     "si": 2000051414,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51249",
     "ti": 3009744,
     "tn": "MCHC [Mass/volume] by Automated count",
@@ -3650,8 +3042,6 @@
   {
     "sn": "MCV|Blood|Hematology",
     "si": 2000051415,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51250",
     "ti": 3023599,
     "tn": "MCV [Entitic volume] by Automated count",
@@ -3662,8 +3052,6 @@
   {
     "sn": "Metamyelocytes|Blood|Hematology",
     "si": 2000051416,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51251",
     "ti": 3002179,
     "tn": "Metamyelocytes/100 leukocytes in Blood",
@@ -3674,8 +3062,6 @@
   {
     "sn": "Monocyte Count|Blood|Hematology",
     "si": 2000051418,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51253",
     "ti": 3033575,
     "tn": "Monocytes [#/volume] in Blood by Automated count",
@@ -3686,8 +3072,6 @@
   {
     "sn": "Myelocytes|Blood|Hematology",
     "si": 2000051420,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51255",
     "ti": 3017181,
     "tn": "Myelocytes/100 leukocytes in Blood",
@@ -3698,8 +3082,6 @@
   {
     "sn": "Ovalocytes|Blood|Hematology",
     "si": 2000051425,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51260",
     "ti": 3027920,
     "tn": "Ovalocytes [Presence] in Blood by Light microscopy",
@@ -3710,8 +3092,6 @@
   {
     "sn": "Pappenheimer Bodies|Blood|Hematology",
     "si": 2000051426,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51261",
     "ti": 3019761,
     "tn": "Pappenheimer bodies [Presence] in Blood by Light microscopy",
@@ -3722,8 +3102,6 @@
   {
     "sn": "Platelet Count|Blood|Hematology",
     "si": 2000051430,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51265",
     "ti": 3024929,
     "tn": "Platelets [#/volume] in Blood by Automated count",
@@ -3734,8 +3112,6 @@
   {
     "sn": "Poikilocytosis|Blood|Hematology",
     "si": 2000051432,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51267",
     "ti": 3011368,
     "tn": "Poikilocytosis [Presence] in Blood by Light microscopy",
@@ -3746,8 +3122,6 @@
   {
     "sn": "Polychromasia|Blood|Hematology",
     "si": 2000051433,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51268",
     "ti": 3011987,
     "tn": "Polychromasia [Presence] in Blood by Light microscopy",
@@ -3758,8 +3132,6 @@
   {
     "sn": "PT|Blood|Hematology",
     "si": 2000051439,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51274",
     "ti": 3034426,
     "tn": "Prothrombin time (PT)",
@@ -3770,8 +3142,6 @@
   {
     "sn": "RDW|Blood|Hematology",
     "si": 2000051442,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51277",
     "ti": 3019897,
     "tn": "Erythrocyte distribution width [Ratio] by Automated count",
@@ -3782,8 +3152,6 @@
   {
     "sn": "Red Blood Cell Fragments|Blood|Hematology",
     "si": 2000051443,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51278",
     "ti": 3019880,
     "tn": "Schistocytes [Presence] in Blood by Light microscopy",
@@ -3794,8 +3162,6 @@
   {
     "sn": "Red Blood Cells|Blood|Hematology",
     "si": 2000051444,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51279",
     "ti": 3020416,
     "tn": "Erythrocytes [#/volume] in Blood by Automated count",
@@ -3806,8 +3172,6 @@
   {
     "sn": "Reticulocyte Count, Absolute|Blood|Hematology",
     "si": 2000051447,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51282",
     "ti": 3023520,
     "tn": "Reticulocytes [#/volume] in Blood",
@@ -3818,8 +3182,6 @@
   {
     "sn": "Schistocytes|Blood|Hematology",
     "si": 2000051452,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51287",
     "ti": 3019880,
     "tn": "Schistocytes [Presence] in Blood by Light microscopy",
@@ -3830,8 +3192,6 @@
   {
     "sn": "Sedimentation Rate|Blood|Hematology",
     "si": 2000051453,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51288",
     "ti": 3013707,
     "tn": "Erythrocyte sedimentation rate by Westergren method",
@@ -3842,8 +3202,6 @@
   {
     "sn": "Spherocytes|Blood|Hematology",
     "si": 2000051457,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51292",
     "ti": 3005481,
     "tn": "Spherocytes [Presence] in Blood by Light microscopy",
@@ -3854,8 +3212,6 @@
   {
     "sn": "Target Cells|Blood|Hematology",
     "si": 2000051459,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51294",
     "ti": 3025616,
     "tn": "Target cells [Presence] in Blood by Light microscopy",
@@ -3866,8 +3222,6 @@
   {
     "sn": "Teardrop Cells|Blood|Hematology",
     "si": 2000051461,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51296",
     "ti": 3000456,
     "tn": "Dacrocytes [Presence] in Blood by Light microscopy",
@@ -3878,8 +3232,6 @@
   {
     "sn": "WBC Count|Blood|Hematology",
     "si": 2000051465,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51300",
     "ti": 3000905,
     "tn": "Leukocytes [#/volume] in Blood by Automated count",
@@ -3890,8 +3242,6 @@
   {
     "sn": "White Blood Cells|Blood|Hematology",
     "si": 2000051466,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51301",
     "ti": 3000905,
     "tn": "Leukocytes [#/volume] in Blood by Automated count",
@@ -3902,8 +3252,6 @@
   {
     "sn": "CD34|Bone Marrow|Hematology",
     "si": 2000051486,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51321",
     "ti": 40760512,
     "tn": "CD34 cells/100 cells in Bone marrow",
@@ -3914,8 +3262,6 @@
   {
     "sn": "CD71|Bone Marrow|Hematology",
     "si": 2000051498,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51333",
     "ti": 3009872,
     "tn": "CD71 cells/100 cells in Specimen",
@@ -3926,8 +3272,6 @@
   {
     "sn": "Hematocrit, Joint Fluid|Joint Fluid|Hematology",
     "si": 2000051512,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51369",
     "ti": 42868642,
     "tn": "Hematocrit [Volume Fraction] of Synovial fluid",
@@ -3938,8 +3282,6 @@
   {
     "sn": "Macrophage|Joint Fluid|Hematology",
     "si": 2000051519,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51376",
     "ti": 3029170,
     "tn": "Macrophages/100 leukocytes in Synovial fluid",
@@ -3950,8 +3292,6 @@
   {
     "sn": "Monocytes|Joint Fluid|Hematology",
     "si": 2000051522,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51379",
     "ti": 3009361,
     "tn": "Monocytes/100 leukocytes in Synovial fluid",
@@ -3962,8 +3302,6 @@
   {
     "sn": "RBC, Joint Fluid|Joint Fluid|Hematology",
     "si": 2000051526,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51383",
     "ti": 3010144,
     "tn": "Erythrocytes [#/volume] in Synovial fluid",
@@ -3974,8 +3312,6 @@
   {
     "sn": "Bands|Other Body Fluid|Hematology",
     "si": 2000051528,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51386",
     "ti": 3017161,
     "tn": "Band form neutrophils/100 leukocytes in Body fluid",
@@ -3986,8 +3322,6 @@
   {
     "sn": "CD20|Other Body Fluid|Hematology",
     "si": 2000051542,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51400",
     "ti": 40760530,
     "tn": "CD20 cells/100 cells in Body fluid",
@@ -3998,8 +3332,6 @@
   {
     "sn": "Eosinophils|Other Body Fluid|Hematology",
     "si": 2000051561,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51419",
     "ti": 3021453,
     "tn": "Eosinophils/100 leukocytes in Body fluid",
@@ -4010,8 +3342,6 @@
   {
     "sn": "Monos|Other Body Fluid|Hematology",
     "si": 2000051573,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51431",
     "ti": 3038104,
     "tn": "Monocytes/100 leukocytes in Body fluid",
@@ -4022,8 +3352,6 @@
   {
     "sn": "Eosinophils|Pleural|Hematology",
     "si": 2000051585,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51444",
     "ti": 3001893,
     "tn": "Eosinophils/100 leukocytes in Pleural fluid",
@@ -4034,8 +3362,6 @@
   {
     "sn": "Monos|Pleural|Hematology",
     "si": 2000051591,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51450",
     "ti": 3043387,
     "tn": "Monocytes/100 leukocytes in Pleural fluid",
@@ -4046,8 +3372,6 @@
   {
     "sn": "Other|Pleural|Hematology",
     "si": 2000051594,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51453",
     "ti": 3015094,
     "tn": "Leukocytes other/100 leukocytes in Pleural fluid",
@@ -4058,8 +3382,6 @@
   {
     "sn": "RBC, Pleural|Pleural|Hematology",
     "si": 2000051598,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51457",
     "ti": 3028308,
     "tn": "Erythrocytes [#/volume] in Pleural fluid",
@@ -4070,8 +3392,6 @@
   {
     "sn": "Blood, Occult|Stool|Hematology",
     "si": 2000051600,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51460",
     "ti": 3016251,
     "tn": "Hemoglobin.gastrointestinal [Presence] in Stool",
@@ -4082,8 +3402,6 @@
   {
     "sn": "Bacteria|Urine|Hematology",
     "si": 2000051603,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51463",
     "ti": 3025255,
     "tn": "Bacteria [#/area] in Urine sediment by Microscopy high power field",
@@ -4094,8 +3412,6 @@
   {
     "sn": "Bilirubin|Urine|Hematology",
     "si": 2000051604,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51464",
     "ti": 3018834,
     "tn": "Bilirubin.total [Presence] in Urine by Test strip",
@@ -4106,8 +3422,6 @@
   {
     "sn": "Calcium Oxalate Crystals|Urine|Hematology",
     "si": 2000051609,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51469",
     "ti": 3006490,
     "tn": "Calcium oxalate crystals [Presence] in Urine sediment by Light microscopy",
@@ -4118,8 +3432,6 @@
   {
     "sn": "Eosinophils|Urine|Hematology",
     "si": 2000051614,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51474",
     "ti": 3037579,
     "tn": "Eosinophils [Presence] in Urine sediment by Light microscopy",
@@ -4130,8 +3442,6 @@
   {
     "sn": "Epithelial Cells|Urine|Hematology",
     "si": 2000051616,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51476",
     "ti": 3010189,
     "tn": "Epithelial cells [#/area] in Urine sediment by Microscopy high power field",
@@ -4142,8 +3452,6 @@
   {
     "sn": "Glucose|Urine|Hematology",
     "si": 2000051618,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51478",
     "ti": 3024629,
     "tn": "Glucose [Mass/volume] in Urine by Test strip",
@@ -4154,8 +3462,6 @@
   {
     "sn": "Granular Casts|Urine|Hematology",
     "si": 2000051619,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51479",
     "ti": 3011483,
     "tn": "Granular casts [#/area] in Urine sediment by Microscopy low power field",
@@ -4166,8 +3472,6 @@
   {
     "sn": "Hyaline Casts|Urine|Hematology",
     "si": 2000051622,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51482",
     "ti": 3022509,
     "tn": "Hyaline casts [#/area] in Urine sediment by Microscopy low power field",
@@ -4178,8 +3482,6 @@
   {
     "sn": "Ketone|Urine|Hematology",
     "si": 2000051624,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51484",
     "ti": 3023539,
     "tn": "Ketones [Mass/volume] in Urine by Test strip",
@@ -4190,8 +3492,6 @@
   {
     "sn": "Nitrite|Urine|Hematology",
     "si": 2000051627,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51487",
     "ti": 3021601,
     "tn": "Nitrite [Presence] in Urine by Test strip",
@@ -4202,8 +3502,6 @@
   {
     "sn": "pH|Urine|Hematology",
     "si": 2000051631,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51491",
     "ti": 3022621,
     "tn": "pH of Urine by Test strip",
@@ -4214,8 +3512,6 @@
   {
     "sn": "Protein|Urine|Hematology",
     "si": 2000051632,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51492",
     "ti": 3005897,
     "tn": "Protein [Mass/volume] in Urine by Test strip",
@@ -4226,8 +3522,6 @@
   {
     "sn": "Specific Gravity|Urine|Hematology",
     "si": 2000051638,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51498",
     "ti": 3000330,
     "tn": "Specific gravity of Urine by Test strip",
@@ -4238,8 +3532,6 @@
   {
     "sn": "Transitional Epithelial Cells|Urine|Hematology",
     "si": 2000051641,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51501",
     "ti": 3035851,
     "tn": "Transitional cells [#/area] in Urine sediment by Microscopy high power field",
@@ -4250,8 +3542,6 @@
   {
     "sn": "Triple Phosphate Crystals|Urine|Hematology",
     "si": 2000051643,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51503",
     "ti": 3001137,
     "tn": "Triple phosphate crystals [Presence] in Urine sediment by Light microscopy",
@@ -4262,8 +3552,6 @@
   {
     "sn": "Uric Acid Crystals|Urine|Hematology",
     "si": 2000051645,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51505",
     "ti": 3036882,
     "tn": "Urate crystals [Presence] in Urine sediment by Light microscopy",
@@ -4274,8 +3562,6 @@
   {
     "sn": "Urine Appearance|Urine|Hematology",
     "si": 2000051646,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51506",
     "ti": 3007876,
     "tn": "Appearance of Urine",
@@ -4286,8 +3572,6 @@
   {
     "sn": "Urine Color|Urine|Hematology",
     "si": 2000051648,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51508",
     "ti": 3027162,
     "tn": "Color of Urine",
@@ -4298,8 +3582,6 @@
   {
     "sn": "Urine Mucous|Urine|Hematology",
     "si": 2000051652,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51512",
     "ti": 3006175,
     "tn": "Mucus [Presence] in Urine sediment by Light microscopy",
@@ -4310,8 +3592,6 @@
   {
     "sn": "Waxy Casts|Urine|Hematology",
     "si": 2000051655,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51515",
     "ti": 3020851,
     "tn": "Waxy casts [#/area] in Urine sediment by Microscopy low power field",
@@ -4322,8 +3602,6 @@
   {
     "sn": "WBC|Urine|Hematology",
     "si": 2000051656,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51516",
     "ti": 3035583,
     "tn": "Leukocytes [#/area] in Urine sediment by Microscopy high power field",
@@ -4334,8 +3612,6 @@
   {
     "sn": "Yeast|Urine|Hematology",
     "si": 2000051659,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51519",
     "ti": 3037244,
     "tn": "Yeast [#/area] in Urine sediment by Microscopy high power field",
@@ -4346,8 +3622,6 @@
   {
     "sn": "Bilirubin, Neonatal, Indirect|Blood|Chemistry",
     "si": 2000051673,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51570",
     "ti": 3007359,
     "tn": "Bilirubin.indirect [Mass/volume] in Serum or Plasma",
@@ -4358,8 +3632,6 @@
   {
     "sn": "Conj Bili|Blood|Chemistry",
     "si": 2000051693,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51592",
     "ti": 3027597,
     "tn": "Bilirubin.direct [Mass/volume] in Serum or Plasma",
@@ -4370,8 +3642,6 @@
   {
     "sn": "Creatine Kinase, Isoenzyme MB|Blood|Chemistry",
     "si": 2000051696,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51595",
     "ti": 3016311,
     "tn": "Creatine kinase.MB/Creatine kinase.total in Serum or Plasma",
@@ -4382,8 +3652,6 @@
   {
     "sn": "eAG|Blood|Chemistry",
     "si": 2000051704,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51613",
     "ti": 3005131,
     "tn": "Glucose mean value [Mass/volume] in Blood Estimated from glycated hemoglobin",
@@ -4394,8 +3662,6 @@
   {
     "sn": "Fibrinogen|Blood|Chemistry",
     "si": 2000051714,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51623",
     "ti": 3016407,
     "tn": "Fibrinogen [Mass/volume] in Platelet poor plasma by Coagulation assay",
@@ -4406,8 +3672,6 @@
   {
     "sn": "Free Calcium|Blood|Chemistry",
     "si": 2000051715,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51624",
     "ti": 3021119,
     "tn": "Calcium.ionized [Moles/volume] in Blood",
@@ -4418,8 +3682,6 @@
   {
     "sn": "Glycated Hemoglobin|Blood|Chemistry",
     "si": 2000051722,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51631",
     "ti": 3004410,
     "tn": "Hemoglobin A1c/Hemoglobin.total in Blood",
@@ -4430,8 +3692,6 @@
   {
     "sn": "Hbsag|Blood|Chemistry",
     "si": 2000051725,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51634",
     "ti": 3019510,
     "tn": "Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay",
@@ -4442,8 +3702,6 @@
   {
     "sn": "Hbsag|Blood|Chemistry",
     "si": 2000051726,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51635",
     "ti": 3019510,
     "tn": "Hepatitis B virus surface Ag [Presence] in Serum or Plasma by Immunoassay",
@@ -4454,8 +3712,6 @@
   {
     "sn": "Hematocrit|Blood|Chemistry",
     "si": 2000051728,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51638",
     "ti": 3023314,
     "tn": "Hematocrit [Volume Fraction] of Blood by Automated count",
@@ -4466,8 +3722,6 @@
   {
     "sn": "Hematocrit|Blood|Chemistry",
     "si": 2000051729,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51639",
     "ti": 3023314,
     "tn": "Hematocrit [Volume Fraction] of Blood by Automated count",
@@ -4478,8 +3732,6 @@
   {
     "sn": "Hemoglobin|Blood|Chemistry",
     "si": 2000051730,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51640",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -4490,8 +3742,6 @@
   {
     "sn": "INR(PT)|Blood|Chemistry",
     "si": 2000051755,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51675",
     "ti": 3022217,
     "tn": "INR in Platelet poor plasma by Coagulation assay",
@@ -4502,8 +3752,6 @@
   {
     "sn": "K (GREEN)|Blood|Chemistry",
     "si": 2000051757,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51677",
     "ti": 3023103,
     "tn": "Potassium [Moles/volume] in Serum or Plasma",
@@ -4514,8 +3762,6 @@
   {
     "sn": "MCV|Blood|Chemistry",
     "si": 2000051769,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51691",
     "ti": 3023599,
     "tn": "MCV [Entitic volume] by Automated count",
@@ -4526,8 +3772,6 @@
   {
     "sn": "Neutrophils|Blood|Chemistry",
     "si": 2000051775,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51697",
     "ti": 3013650,
     "tn": "Neutrophils [#/volume] in Blood by Automated count",
@@ -4538,8 +3782,6 @@
   {
     "sn": "Platelet Count|Blood|Chemistry",
     "si": 2000051777,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51704",
     "ti": 3024929,
     "tn": "Platelets [#/volume] in Blood by Automated count",
@@ -4550,8 +3792,6 @@
   {
     "sn": "Red Blood Cells|Blood|Chemistry",
     "si": 2000051783,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51711",
     "ti": 3020416,
     "tn": "Erythrocytes [#/volume] in Blood by Automated count",
@@ -4562,8 +3802,6 @@
   {
     "sn": "RFXLDLM|Blood|Chemistry",
     "si": 2000051789,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51722",
     "ti": 3028437,
     "tn": "Cholesterol in LDL [Mass/volume] in Serum or Plasma",
@@ -4574,8 +3812,6 @@
   {
     "sn": "Serum B12|Blood|Chemistry",
     "si": 2000051794,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51728",
     "ti": 3000593,
     "tn": "Cobalamin (Vitamin B12) [Mass/volume] in Serum or Plasma",
@@ -4586,8 +3822,6 @@
   {
     "sn": "Serum B12|Blood|Chemistry",
     "si": 2000051795,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51729",
     "ti": 3000593,
     "tn": "Cobalamin (Vitamin B12) [Mass/volume] in Serum or Plasma",
@@ -4598,8 +3832,6 @@
   {
     "sn": "Serum Folate|Blood|Chemistry",
     "si": 2000051796,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51730",
     "ti": 3036987,
     "tn": "Folate [Mass/volume] in Serum or Plasma",
@@ -4610,8 +3842,6 @@
   {
     "sn": "Uncon Bil|Blood|Chemistry",
     "si": 2000051811,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51751",
     "ti": 3007359,
     "tn": "Bilirubin.indirect [Mass/volume] in Serum or Plasma",
@@ -4622,8 +3852,6 @@
   {
     "sn": "White Blood Cells|Blood|Chemistry",
     "si": 2000051814,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51755",
     "ti": 3000905,
     "tn": "Leukocytes [#/volume] in Blood by Automated count",
@@ -4634,8 +3862,6 @@
   {
     "sn": "White Blood Cells|Blood|Chemistry",
     "si": 2000051815,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51756",
     "ti": 3000905,
     "tn": "Leukocytes [#/volume] in Blood by Automated count",
@@ -4646,8 +3872,6 @@
   {
     "sn": "MDRDgfr|Blood|Chemistry",
     "si": 2000051819,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51770",
     "ti": 46236952,
     "tn": "Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)",
@@ -4658,8 +3882,6 @@
   {
     "sn": "Glucose, CSF|Cerebrospinal Fluid|Chemistry",
     "si": 2000051836,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51790",
     "ti": 3022548,
     "tn": "Glucose [Mass/volume] in Cerebral spinal fluid",
@@ -4670,8 +3892,6 @@
   {
     "sn": "Total Protein, CSF|Cerebrospinal Fluid|Chemistry",
     "si": 2000051847,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51802",
     "ti": 3019473,
     "tn": "Protein [Mass/volume] in Cerebral spinal fluid",
@@ -4682,8 +3902,6 @@
   {
     "sn": "Blood, Occult|Other Body Fluid|Chemistry",
     "si": 2000051879,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51841",
     "ti": 3016251,
     "tn": "Hemoglobin.gastrointestinal [Presence] in Stool",
@@ -4694,8 +3912,6 @@
   {
     "sn": "Chlamydia trachomatis|Other Body Fluid|Chemistry",
     "si": 2000051884,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51846",
     "ti": 3043310,
     "tn": "Chlamydia trachomatis rRNA [Presence] in Specimen by NAA with probe detection",
@@ -4706,8 +3922,6 @@
   {
     "sn": "Influenza A by PCR|Other Body Fluid|Chemistry",
     "si": 2000051896,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51864",
     "ti": 3044938,
     "tn": "Influenza virus A RNA [Presence] in Specimen by NAA with probe detection",
@@ -4718,8 +3932,6 @@
   {
     "sn": "Influenza A by PCR|Other Body Fluid|Chemistry",
     "si": 2000051897,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51865",
     "ti": 3044938,
     "tn": "Influenza virus A RNA [Presence] in Specimen by NAA with probe detection",
@@ -4730,8 +3942,6 @@
   {
     "sn": "Influenza B by PCR|Other Body Fluid|Chemistry",
     "si": 2000051904,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51872",
     "ti": 3038288,
     "tn": "Influenza virus B RNA [Presence] in Specimen by NAA with probe detection",
@@ -4742,8 +3952,6 @@
   {
     "sn": "Influenza B by PCR|Other Body Fluid|Chemistry",
     "si": 2000051905,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51873",
     "ti": 3038288,
     "tn": "Influenza virus B RNA [Presence] in Specimen by NAA with probe detection",
@@ -4754,8 +3962,6 @@
   {
     "sn": "(Albumin)|Pleural|Chemistry",
     "si": 2000051933,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51910",
     "ti": 3011544,
     "tn": "Albumin [Mass/volume] in Pleural fluid",
@@ -4766,8 +3972,6 @@
   {
     "sn": "Norovirus Genogroup I|Stool|Chemistry",
     "si": 2000051965,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51945",
     "ti": 40758035,
     "tn": "Norovirus genogroup I RNA [Presence] in Stool by NAA with probe detection",
@@ -4778,8 +3982,6 @@
   {
     "sn": "Norovirus Genogroup II|Stool|Chemistry",
     "si": 2000051966,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51946",
     "ti": 40758036,
     "tn": "Norovirus genogroup II RNA [Presence] in Stool by NAA with probe detection",
@@ -4790,8 +3992,6 @@
   {
     "sn": "Creatinine, Blood|Urine|Chemistry",
     "si": 2000051990,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51977",
     "ti": 3017250,
     "tn": "Creatinine [Mass/volume] in Urine",
@@ -4802,8 +4002,6 @@
   {
     "sn": "Oxycodone|Urine|Chemistry",
     "si": 2000052001,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "51989",
     "ti": 3000068,
     "tn": "oxyCODONE [Presence] in Urine",
@@ -4814,8 +4012,6 @@
   {
     "sn": "Urine  Creatinine|Urine|Chemistry",
     "si": 2000052008,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52000",
     "ti": 3017250,
     "tn": "Creatinine [Mass/volume] in Urine",
@@ -4826,8 +4022,6 @@
   {
     "sn": "Albumin, Blood|Blood|Blood Gas",
     "si": 2000052015,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52022",
     "ti": 3024561,
     "tn": "Albumin [Mass/volume] in Serum or Plasma",
@@ -4838,8 +4032,6 @@
   {
     "sn": "Estimated GFR (MDRD equation)|Blood|Blood Gas",
     "si": 2000052017,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52026",
     "ti": 46236952,
     "tn": "Glomerular filtration rate/1.73 sq M.predicted [Volume Rate/Area] in Serum, Plasma or Blood by Creatinine-based formula (MDRD)",
@@ -4850,8 +4042,6 @@
   {
     "sn": "Glucose, Whole Blood|Blood|Blood Gas",
     "si": 2000052018,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52027",
     "ti": 3000483,
     "tn": "Glucose [Mass/volume] in Blood",
@@ -4862,8 +4052,6 @@
   {
     "sn": "Osmolality|Blood|Blood Gas",
     "si": 2000052022,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52031",
     "ti": 3008295,
     "tn": "Osmolality of Serum or Plasma",
@@ -4874,8 +4062,6 @@
   {
     "sn": "Base Excess|Fluid|Blood Gas",
     "si": 2000052028,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52038",
     "ti": 3003396,
     "tn": "Base excess in Arterial blood by calculation",
@@ -4886,8 +4072,6 @@
   {
     "sn": "pCO2|Fluid|Blood Gas",
     "si": 2000052030,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52040",
     "ti": 3027946,
     "tn": "Carbon dioxide [Partial pressure] in Arterial blood",
@@ -4898,8 +4082,6 @@
   {
     "sn": "pH|Fluid|Blood Gas",
     "si": 2000052031,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52041",
     "ti": 3019977,
     "tn": "pH of Arterial blood",
@@ -4910,8 +4092,6 @@
   {
     "sn": "pO2|Fluid|Blood Gas",
     "si": 2000052032,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52042",
     "ti": 3027801,
     "tn": "Oxygen [Partial pressure] in Arterial blood",
@@ -4922,8 +4102,6 @@
   {
     "sn": "Osmolality, Urine|Urine|Blood Gas",
     "si": 2000052033,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52044",
     "ti": 3026782,
     "tn": "Osmolality of Urine",
@@ -4934,8 +4112,6 @@
   {
     "sn": "pH, Urine|Urine|Blood Gas",
     "si": 2000052034,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52045",
     "ti": 3015736,
     "tn": "pH of Urine",
@@ -4946,8 +4122,6 @@
   {
     "sn": "Potassium, Urine|Urine|Blood Gas",
     "si": 2000052035,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52046",
     "ti": 3016038,
     "tn": "Potassium [Moles/volume] in Urine",
@@ -4958,8 +4132,6 @@
   {
     "sn": "Sodium, Urine|Urine|Blood Gas",
     "si": 2000052036,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52047",
     "ti": 3003181,
     "tn": "Sodium [Moles/volume] in Urine",
@@ -4970,8 +4142,6 @@
   {
     "sn": "Absolute Basophil Count|Blood|Hematology",
     "si": 2000052055,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52069",
     "ti": 3013429,
     "tn": "Basophils [#/volume] in Blood by Automated count",
@@ -4982,8 +4152,6 @@
   {
     "sn": "Absolute Eosinophil Count|Blood|Hematology",
     "si": 2000052059,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52073",
     "ti": 3028615,
     "tn": "Eosinophils [#/volume] in Blood by Automated count",
@@ -4994,8 +4162,6 @@
   {
     "sn": "Absolute Monocyte Count|Blood|Hematology",
     "si": 2000052060,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52074",
     "ti": 3033575,
     "tn": "Monocytes [#/volume] in Blood by Automated count",
@@ -5006,8 +4172,6 @@
   {
     "sn": "Absolute Neutrophil Count|Blood|Hematology",
     "si": 2000052061,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52075",
     "ti": 3013650,
     "tn": "Neutrophils [#/volume] in Blood by Automated count",
@@ -5018,8 +4182,6 @@
   {
     "sn": "Acidserum|Blood|Hematology",
     "si": 2000052063,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52077",
     "ti": 3037556,
     "tn": "Urate [Mass/volume] in Serum or Plasma",
@@ -5030,8 +4192,6 @@
   {
     "sn": "CD56 %|Blood|Hematology",
     "si": 2000052074,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52092",
     "ti": 3005460,
     "tn": "CD56 cells/100 cells in Blood",
@@ -5042,8 +4202,6 @@
   {
     "sn": "Crenated Cells|Blood|Hematology",
     "si": 2000052084,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52102",
     "ti": 3005854,
     "tn": "Burr cells [Presence] in Blood by Light microscopy",
@@ -5054,8 +4212,6 @@
   {
     "sn": "Echinocytes|Blood|Hematology",
     "si": 2000052092,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52111",
     "ti": 3005854,
     "tn": "Burr cells [Presence] in Blood by Light microscopy",
@@ -5066,8 +4222,6 @@
   {
     "sn": "Fibrinoge|Blood|Hematology",
     "si": 2000052096,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52115",
     "ti": 3016407,
     "tn": "Fibrinogen [Mass/volume] in Platelet poor plasma by Coagulation assay",
@@ -5078,8 +4232,6 @@
   {
     "sn": "Fibrinogen|Blood|Hematology",
     "si": 2000052097,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52116",
     "ti": 3016407,
     "tn": "Fibrinogen [Mass/volume] in Platelet poor plasma by Coagulation assay",
@@ -5090,8 +4242,6 @@
   {
     "sn": "PT Mean|Blood|Hematology",
     "si": 2000052138,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52164",
     "ti": 3034426,
     "tn": "Prothrombin time (PT)",
@@ -5102,8 +4252,6 @@
   {
     "sn": "Rbc|Blood|Hematology",
     "si": 2000052143,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52170",
     "ti": 3020416,
     "tn": "Erythrocytes [#/volume] in Blood by Automated count",
@@ -5114,8 +4262,6 @@
   {
     "sn": "ErytFlg|Blood|Hematology",
     "si": 2000052167,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52198",
     "ti": 3020416,
     "tn": "Erythrocytes [#/volume] in Blood by Automated count",
@@ -5126,8 +4272,6 @@
   {
     "sn": "FragFlg|Blood|Hematology",
     "si": 2000052168,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52199",
     "ti": 3019880,
     "tn": "Schistocytes [Presence] in Blood by Light microscopy",
@@ -5138,8 +4282,6 @@
   {
     "sn": "PltScat|Blood|Hematology",
     "si": 2000052170,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52201",
     "ti": 3024929,
     "tn": "Platelets [#/volume] in Blood by Automated count",
@@ -5150,8 +4292,6 @@
   {
     "sn": "RBCDist|Blood|Hematology",
     "si": 2000052173,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52204",
     "ti": 3019897,
     "tn": "Erythrocyte distribution width [Ratio] by Automated count",
@@ -5162,8 +4302,6 @@
   {
     "sn": "RetScat|Blood|Hematology",
     "si": 2000052174,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52205",
     "ti": 3023520,
     "tn": "Reticulocytes [#/volume] in Blood",
@@ -5174,8 +4312,6 @@
   {
     "sn": "TurbHbI|Blood|Hematology",
     "si": 2000052176,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52207",
     "ti": 3000963,
     "tn": "Hemoglobin [Mass/volume] in Blood",
@@ -5186,8 +4322,6 @@
   {
     "sn": "BasoFlg|Blood|Hematology",
     "si": 2000052177,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52208",
     "ti": 3013429,
     "tn": "Basophils [#/volume] in Blood by Automated count",
@@ -5198,8 +4332,6 @@
   {
     "sn": "EosFlg|Blood|Hematology",
     "si": 2000052178,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52209",
     "ti": 3028615,
     "tn": "Eosinophils [#/volume] in Blood by Automated count",
@@ -5210,8 +4342,6 @@
   {
     "sn": "LymFlg|Blood|Hematology",
     "si": 2000052180,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52211",
     "ti": 3004327,
     "tn": "Lymphocytes [#/volume] in Blood by Automated count",
@@ -5222,8 +4352,6 @@
   {
     "sn": "WBCScat|Blood|Hematology",
     "si": 2000052186,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52219",
     "ti": 3000905,
     "tn": "Leukocytes [#/volume] in Blood by Automated count",
@@ -5234,8 +4362,6 @@
   {
     "sn": "Monocytes|Cerebrospinal Fluid|Hematology",
     "si": 2000052213,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52272",
     "ti": 3037577,
     "tn": "Monocytes/100 leukocytes in Cerebral spinal fluid",
@@ -5246,8 +4372,6 @@
   {
     "sn": "Total Nucleated Cells, Pleural|Pleural|Hematology",
     "si": 2000052317,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52391",
     "ti": 3041079,
     "tn": "Nucleated cells [#/volume] in Pleural fluid by Automated count",
@@ -5258,8 +4382,6 @@
   {
     "sn": "Hgb|Urine|Hematology",
     "si": 2000052324,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52411",
     "ti": 3011397,
     "tn": "Hemoglobin [Presence] in Urine by Test strip",
@@ -5270,8 +4392,6 @@
   {
     "sn": "Leuks|Urine|Hematology",
     "si": 2000052325,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52413",
     "ti": 3035583,
     "tn": "Leukocytes [#/area] in Urine sediment by Microscopy high power field",
@@ -5282,8 +4402,6 @@
   {
     "sn": "LEUKS|Urine|Hematology",
     "si": 2000052326,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52414",
     "ti": 3035583,
     "tn": "Leukocytes [#/area] in Urine sediment by Microscopy high power field",
@@ -5294,8 +4412,6 @@
   {
     "sn": "Lactate|Blood|Blood Gas",
     "si": 2000052330,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52442",
     "ti": 3018405,
     "tn": "Lactate [Moles/volume] in Arterial blood",
@@ -5306,8 +4422,6 @@
   {
     "sn": "Chloride|Blood|Chemistry",
     "si": 2000052334,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52535",
     "ti": 3014576,
     "tn": "Chloride [Moles/volume] in Serum or Plasma",
@@ -5318,8 +4432,6 @@
   {
     "sn": "Creatinine|Blood|Chemistry",
     "si": 2000052335,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52546",
     "ti": 3016723,
     "tn": "Creatinine [Mass/volume] in Serum or Plasma",
@@ -5330,8 +4442,6 @@
   {
     "sn": "Folate|Blood|Chemistry",
     "si": 2000052338,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52562",
     "ti": 3036987,
     "tn": "Folate [Mass/volume] in Serum or Plasma",
@@ -5342,8 +4452,6 @@
   {
     "sn": "Glucose|Blood|Chemistry",
     "si": 2000052339,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52569",
     "ti": 3004501,
     "tn": "Glucose [Mass/volume] in Serum or Plasma",
@@ -5354,8 +4462,6 @@
   {
     "sn": "Potassium|Blood|Chemistry",
     "si": 2000052340,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52610",
     "ti": 3023103,
     "tn": "Potassium [Moles/volume] in Serum or Plasma",
@@ -5366,8 +4472,6 @@
   {
     "sn": "Sodium|Blood|Chemistry",
     "si": 2000052341,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52623",
     "ti": 3019550,
     "tn": "Sodium [Moles/volume] in Serum or Plasma",
@@ -5378,8 +4482,6 @@
   {
     "sn": "Urea Nitrogen|Blood|Chemistry",
     "si": 2000052343,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52647",
     "ti": 3013682,
     "tn": "Urea nitrogen [Mass/volume] in Serum or Plasma",
@@ -5390,8 +4492,6 @@
   {
     "sn": "HCG, Urine, Qualitative|Urine|Chemistry",
     "si": 2000052345,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52720",
     "ti": 3018954,
     "tn": "Choriogonadotropin (pregnancy test) [Presence] in Urine",
@@ -5402,8 +4502,6 @@
   {
     "sn": "pH|Urine|Chemistry",
     "si": 2000052346,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52730",
     "ti": 3015736,
     "tn": "pH of Urine",
@@ -5414,8 +4512,6 @@
   {
     "sn": "Absolute Lymphocyte Count|Blood|Hematology",
     "si": 2000052347,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52769",
     "ti": 3004327,
     "tn": "Lymphocytes [#/volume] in Blood by Automated count",
@@ -5426,8 +4522,6 @@
   {
     "sn": "PT|Blood|Hematology",
     "si": 2000052360,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52921",
     "ti": 3034426,
     "tn": "Prothrombin time (PT)",
@@ -5438,8 +4532,6 @@
   {
     "sn": "PTT|Blood|Hematology",
     "si": 2000052361,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "52923",
     "ti": 3013466,
     "tn": "aPTT in Blood by Coagulation assay",
@@ -5450,8 +4542,6 @@
   {
     "sn": "(Albumin)|Ascites|Chemistry",
     "si": 2000052369,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53116",
     "ti": 3026692,
     "tn": "Albumin [Mass/volume] in Peritoneal fluid",
@@ -5462,8 +4552,6 @@
   {
     "sn": "3t|Blood|Chemistry",
     "si": 2000052380,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53129",
     "ti": 3010340,
     "tn": "Triiodothyronine (T3) [Mass/volume] in Serum or Plasma",
@@ -5474,8 +4562,6 @@
   {
     "sn": "4t|Blood|Chemistry",
     "si": 2000052381,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53130",
     "ti": 3016991,
     "tn": "Thyroxine (T4) [Mass/volume] in Serum or Plasma",
@@ -5486,8 +4572,6 @@
   {
     "sn": "Absolute Lymphocyte Count|Blood|Chemistry",
     "si": 2000052383,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53132",
     "ti": 3004327,
     "tn": "Lymphocytes [#/volume] in Blood by Automated count",
@@ -5498,8 +4582,6 @@
   {
     "sn": "Absolute Neutrophil|Blood|Chemistry",
     "si": 2000052384,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53133",
     "ti": 3013650,
     "tn": "Neutrophils [#/volume] in Blood by Automated count",
@@ -5510,8 +4592,6 @@
   {
     "sn": "Anti-hbs|Blood|Chemistry",
     "si": 2000052400,
-    "sv": "mimiciv_meas_lab_loinc",
-    "sd": "Measurement",
     "sc": "53149",
     "ti": 3013731,
     "tn": "Hepatitis B virus surface Ab [Units/volume] in Serum or Plasma by Immunoassay",
@@ -5522,8 +4602,6 @@
   {
     "sn": "PENICILLIN G",
     "si": 2000025001,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90003",
     "ti": 3023307,
     "tn": "Penicillin G [Susceptibility] by Disk diffusion (KB)",
@@ -5534,8 +4612,6 @@
   {
     "sn": "AMPICILLIN",
     "si": 2000025002,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90004",
     "ti": 3017595,
     "tn": "Ampicillin [Susceptibility] by Disk diffusion (KB)",
@@ -5546,8 +4622,6 @@
   {
     "sn": "CEFAZOLIN",
     "si": 2000025003,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90005",
     "ti": 3004354,
     "tn": "ceFAZolin [Susceptibility] by Disk diffusion (KB)",
@@ -5558,8 +4632,6 @@
   {
     "sn": "ERYTHROMYCIN",
     "si": 2000025004,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90006",
     "ti": 3008308,
     "tn": "Erythromycin [Susceptibility] by Disk diffusion (KB)",
@@ -5570,8 +4642,6 @@
   {
     "sn": "CLINDAMYCIN",
     "si": 2000025005,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90007",
     "ti": 3005158,
     "tn": "Clindamycin [Susceptibility] by Disk diffusion (KB)",
@@ -5582,8 +4652,6 @@
   {
     "sn": "TRIMETHOPRIM/SULFA",
     "si": 2000025006,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90008",
     "ti": 3012222,
     "tn": "Trimethoprim+Sulfamethoxazole [Susceptibility] by Disk diffusion (KB)",
@@ -5594,8 +4662,6 @@
   {
     "sn": "NITROFURANTOIN",
     "si": 2000025008,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90010",
     "ti": 3038047,
     "tn": "Nitrofurantoin [Susceptibility] by Disk diffusion (KB)",
@@ -5606,8 +4672,6 @@
   {
     "sn": "TETRACYCLINE",
     "si": 2000025009,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90011",
     "ti": 3002850,
     "tn": "Tetracycline [Susceptibility] by Disk diffusion (KB)",
@@ -5618,8 +4682,6 @@
   {
     "sn": "GENTAMICIN",
     "si": 2000025010,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90012",
     "ti": 3003105,
     "tn": "Gentamicin [Susceptibility] by Disk diffusion (KB)",
@@ -5630,8 +4692,6 @@
   {
     "sn": "TOBRAMYCIN",
     "si": 2000025011,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90013",
     "ti": 3022094,
     "tn": "Tobramycin [Susceptibility] by Disk diffusion (KB)",
@@ -5642,8 +4702,6 @@
   {
     "sn": "AMIKACIN",
     "si": 2000025012,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90014",
     "ti": 3001950,
     "tn": "Amikacin [Susceptibility] by Disk diffusion (KB)",
@@ -5654,8 +4712,6 @@
   {
     "sn": "VANCOMYCIN",
     "si": 2000025013,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90015",
     "ti": 3008504,
     "tn": "Vancomycin [Susceptibility] by Disk diffusion (KB)",
@@ -5666,8 +4722,6 @@
   {
     "sn": "OXACILLIN",
     "si": 2000025014,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90016",
     "ti": 3003906,
     "tn": "Oxacillin [Susceptibility] by Disk diffusion (KB)",
@@ -5678,8 +4732,6 @@
   {
     "sn": "CEFTAZIDIME",
     "si": 2000025015,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90017",
     "ti": 3038086,
     "tn": "cefTAZidime [Susceptibility] by Disk diffusion (KB)",
@@ -5690,8 +4742,6 @@
   {
     "sn": "CEFTRIAXONE",
     "si": 2000025016,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90018",
     "ti": 3022747,
     "tn": "cefTRIAXone [Susceptibility] by Disk diffusion (KB)",
@@ -5702,8 +4752,6 @@
   {
     "sn": "CIPROFLOXACIN",
     "si": 2000025017,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90019",
     "ti": 3020153,
     "tn": "Ciprofloxacin [Susceptibility] by Disk diffusion (KB)",
@@ -5714,8 +4762,6 @@
   {
     "sn": "IMIPENEM",
     "si": 2000025018,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90020",
     "ti": 3003793,
     "tn": "Imipenem [Susceptibility] by Disk diffusion (KB)",
@@ -5726,8 +4772,6 @@
   {
     "sn": "AMPICILLIN/SULBACTAM",
     "si": 2000025020,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90022",
     "ti": 3016573,
     "tn": "Ampicillin+Sulbactam [Susceptibility] by Disk diffusion (KB)",
@@ -5738,8 +4782,6 @@
   {
     "sn": "LEVOFLOXACIN",
     "si": 2000025023,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90025",
     "ti": 3015862,
     "tn": "levoFLOXacin [Susceptibility] by Disk diffusion (KB)",
@@ -5750,8 +4792,6 @@
   {
     "sn": "PIPERACILLIN/TAZO",
     "si": 2000025024,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90026",
     "ti": 3016242,
     "tn": "Piperacillin+Tazobactam [Susceptibility] by Disk diffusion (KB)",
@@ -5762,8 +4802,6 @@
   {
     "sn": "RIFAMPIN",
     "si": 2000025025,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90027",
     "ti": 3037153,
     "tn": "rifAMPin [Susceptibility] by Disk diffusion (KB)",
@@ -5774,8 +4812,6 @@
   {
     "sn": "CEFEPIME",
     "si": 2000025026,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90028",
     "ti": 3009314,
     "tn": "Cefepime [Susceptibility] by Disk diffusion (KB)",
@@ -5786,8 +4822,6 @@
   {
     "sn": "MEROPENEM",
     "si": 2000025027,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90029",
     "ti": 3006122,
     "tn": "Meropenem [Susceptibility] by Disk diffusion (KB)",
@@ -5798,8 +4832,6 @@
   {
     "sn": "DAPTOMYCIN",
     "si": 2000025028,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90030",
     "ti": 3034593,
     "tn": "DAPTOmycin [Susceptibility] by Disk diffusion (KB)",
@@ -5810,8 +4842,6 @@
   {
     "sn": "LINEZOLID",
     "si": 2000025029,
-    "sv": "mimiciv_micro_antibiotic",
-    "sd": "Measurement",
     "sc": "90031",
     "ti": 3000941,
     "tn": "Linezolid [Susceptibility] by Disk diffusion (KB)",
@@ -5822,8 +4852,6 @@
   {
     "sn": "ESCHERICHIA COLI",
     "si": 2000026001,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80002",
     "ti": 4011683,
     "tn": "Escherichia coli",
@@ -5834,8 +4862,6 @@
   {
     "sn": "KLEBSIELLA PNEUMONIAE",
     "si": 2000026003,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80004",
     "ti": 4209452,
     "tn": "Klebsiella pneumoniae",
@@ -5846,8 +4872,6 @@
   {
     "sn": "KLEBSIELLA OXYTOCA",
     "si": 2000026004,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80005",
     "ti": 4254213,
     "tn": "Klebsiella oxytoca",
@@ -5858,8 +4882,6 @@
   {
     "sn": "STAPH AUREUS COAG +",
     "si": 2000026022,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80023",
     "ti": 4149419,
     "tn": "Staphylococcus aureus",
@@ -5870,8 +4892,6 @@
   {
     "sn": "BETA STREPTOCOCCUS GROUP B",
     "si": 2000026042,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80045",
     "ti": 4183468,
     "tn": "Group B streptococcus",
@@ -5882,8 +4902,6 @@
   {
     "sn": "ENTEROCOCCUS SP.",
     "si": 2000026049,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80053",
     "ti": 4101235,
     "tn": "Genus Enterococcus",
@@ -5894,8 +4912,6 @@
   {
     "sn": "BETA STREPTOCOCCUS GROUP A",
     "si": 2000026050,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80054",
     "ti": 4187877,
     "tn": "Beta-hemolytic Streptococcus, group A",
@@ -5906,8 +4922,6 @@
   {
     "sn": "ENTEROCOCCUS FAECIUM",
     "si": 2000026158,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80168",
     "ti": 4234555,
     "tn": "Enterococcus faecium",
@@ -5918,8 +4932,6 @@
   {
     "sn": "ENTEROCOCCUS FAECALIS",
     "si": 2000026162,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80172",
     "ti": 4302157,
     "tn": "Enterococcus faecalis",
@@ -5930,8 +4942,6 @@
   {
     "sn": "ACINETOBACTER BAUMANNII",
     "si": 2000026180,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80194",
     "ti": 4235587,
     "tn": "Acinetobacter baumannii",
@@ -5942,8 +4952,6 @@
   {
     "sn": "PROBABLE ENTEROCOCCUS",
     "si": 2000026205,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80223",
     "ti": 4101235,
     "tn": "Genus Enterococcus",
@@ -5954,8 +4962,6 @@
   {
     "sn": "POSITIVE FOR METHICILLIN RESISTANT STAPH AUREUS",
     "si": 2000026271,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80293",
     "ti": 4019195,
     "tn": "Methicillin resistant Staphylococcus aureus",
@@ -5966,8 +4972,6 @@
   {
     "sn": "ACINETOBACTER BAUMANNII COMPLEX",
     "si": 2000026282,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "80304",
     "ti": 4034422,
     "tn": "Acinetobacter calcoaceticus-Acinetobacter baumannii complex",
@@ -5978,8 +4982,6 @@
   {
     "sn": "BETA STREPTOCOCCUS GROUP A",
     "si": 2000026297,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "90311",
     "ti": 4187877,
     "tn": "Beta-hemolytic Streptococcus, group A",
@@ -5990,8 +4992,6 @@
   {
     "sn": "MIXED BACTERIAL FLORA",
     "si": 2000026358,
-    "sv": "mimiciv_micro_organism",
-    "sd": "Observation",
     "sc": "90785",
     "ti": 4095714,
     "tn": "Mixed",
@@ -6002,8 +5002,6 @@
   {
     "sn": "ABSCESS",
     "si": 2000025502,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70003",
     "ti": 4001183,
     "tn": "Specimen from abscess",
@@ -6014,8 +5012,6 @@
   {
     "sn": "BLOOD BAG FLUID",
     "si": 2000025505,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70007",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6026,8 +5022,6 @@
   {
     "sn": "BLOOD CULTURE ( MYCO/F LYTIC BOTTLE)",
     "si": 2000025509,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70011",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6038,8 +5032,6 @@
   {
     "sn": "BLOOD CULTURE",
     "si": 2000025510,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70012",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6050,8 +5042,6 @@
   {
     "sn": "BLOOD CULTURE - NEONATE",
     "si": 2000025512,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70014",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6062,8 +5052,6 @@
   {
     "sn": "BLOOD",
     "si": 2000025513,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70015",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6074,8 +5062,6 @@
   {
     "sn": "BLOOD CULTURE (POST-MORTEM)",
     "si": 2000025514,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70016",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6086,8 +5072,6 @@
   {
     "sn": "SEROLOGY/BLOOD",
     "si": 2000025515,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70017",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6098,8 +5082,6 @@
   {
     "sn": "BRONCHOALVEOLAR LAVAGE",
     "si": 2000025519,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70021",
     "ti": 4121345,
     "tn": "Bronchoalveolar lavage fluid sample",
@@ -6110,8 +5092,6 @@
   {
     "sn": "BRONCHIAL WASHINGS",
     "si": 2000025520,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70022",
     "ti": 4048961,
     "tn": "Specimen from lung obtained by bronchial washing procedure",
@@ -6122,8 +5102,6 @@
   {
     "sn": "CATHETER OR LINE",
     "si": 2000025521,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70023",
     "ti": 4001349,
     "tn": "Catheter submitted as specimen",
@@ -6134,8 +5112,6 @@
   {
     "sn": "EAR",
     "si": 2000025525,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70031",
     "ti": 40491350,
     "tn": "Body substance specimen from ear",
@@ -6146,8 +5122,6 @@
   {
     "sn": "Blood (EBV)",
     "si": 2000025526,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70032",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6158,8 +5132,6 @@
   {
     "sn": "FOREIGN BODY",
     "si": 2000025528,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70034",
     "ti": 40490923,
     "tn": "Foreign body submitted as specimen",
@@ -6170,8 +5142,6 @@
   {
     "sn": "FOOT CULTURE",
     "si": 2000025531,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70037",
     "ti": 43531265,
     "tn": "Specimen from skin",
@@ -6182,8 +5152,6 @@
   {
     "sn": "SWAB",
     "si": 2000025534,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70040",
     "ti": 4120698,
     "tn": "Swab",
@@ -6194,8 +5162,6 @@
   {
     "sn": "Influenza A/B by DFA - Bronch Wash",
     "si": 2000025535,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70044",
     "ti": 4048961,
     "tn": "Specimen from lung obtained by bronchial washing procedure",
@@ -6206,8 +5172,6 @@
   {
     "sn": "NEOPLASTIC BLOOD",
     "si": 2000025538,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70049",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6218,8 +5182,6 @@
   {
     "sn": "PERIPHERAL BLOOD LYMPHOCYTES",
     "si": 2000025541,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70052",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6230,8 +5192,6 @@
   {
     "sn": "PERITONEAL FLUID",
     "si": 2000025542,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70053",
     "ti": 4043942,
     "tn": "Peritoneal fluid sample",
@@ -6242,8 +5202,6 @@
   {
     "sn": "PLEURAL FLUID",
     "si": 2000025543,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70054",
     "ti": 4302933,
     "tn": "Pleural fluid specimen",
@@ -6254,8 +5212,6 @@
   {
     "sn": "Stem Cell - Blood Culture",
     "si": 2000025546,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70060",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6266,8 +5222,6 @@
   {
     "sn": "SPUTUM",
     "si": 2000025548,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70062",
     "ti": 4002876,
     "tn": "Sputum specimen",
@@ -6278,8 +5232,6 @@
   {
     "sn": "STOOL",
     "si": 2000025549,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70064",
     "ti": 4002879,
     "tn": "Stool specimen",
@@ -6290,8 +5242,6 @@
   {
     "sn": "STOOL (RECEIVED IN TRANSPORT SYSTEM)",
     "si": 2000025550,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70066",
     "ti": 4002879,
     "tn": "Stool specimen",
@@ -6302,8 +5252,6 @@
   {
     "sn": "SWAB",
     "si": 2000025551,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70067",
     "ti": 4120698,
     "tn": "Swab",
@@ -6314,8 +5262,6 @@
   {
     "sn": "SWAB",
     "si": 2000025552,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70068",
     "ti": 4120698,
     "tn": "Swab",
@@ -6326,8 +5272,6 @@
   {
     "sn": "SWAB",
     "si": 2000025553,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70069",
     "ti": 4120698,
     "tn": "Swab",
@@ -6338,8 +5282,6 @@
   {
     "sn": "SWAB",
     "si": 2000025554,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70070",
     "ti": 4120698,
     "tn": "Swab",
@@ -6350,8 +5292,6 @@
   {
     "sn": "SWAB - R/O YEAST",
     "si": 2000025555,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70071",
     "ti": 4120698,
     "tn": "Swab",
@@ -6362,8 +5302,6 @@
   {
     "sn": "TISSUE",
     "si": 2000025557,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70073",
     "ti": 4002890,
     "tn": "Tissue specimen",
@@ -6374,8 +5312,6 @@
   {
     "sn": "TISSUE",
     "si": 2000025560,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70076",
     "ti": 4002890,
     "tn": "Tissue specimen",
@@ -6386,8 +5322,6 @@
   {
     "sn": "URINE",
     "si": 2000025561,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70077",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6398,8 +5332,6 @@
   {
     "sn": "URINE,PROSTATIC MASSAGE",
     "si": 2000025562,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70078",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6410,8 +5342,6 @@
   {
     "sn": "URINE",
     "si": 2000025563,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70079",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6422,8 +5352,6 @@
   {
     "sn": "URINE,KIDNEY",
     "si": 2000025564,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70080",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6434,8 +5362,6 @@
   {
     "sn": "URINE",
     "si": 2000025565,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70081",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6446,8 +5372,6 @@
   {
     "sn": "URINE,SUPRAPUBIC ASPIRATE",
     "si": 2000025566,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70082",
     "ti": 4046280,
     "tn": "Urine specimen",
@@ -6458,8 +5382,6 @@
   {
     "sn": "SWAB",
     "si": 2000025567,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70084",
     "ti": 4120698,
     "tn": "Swab",
@@ -6470,8 +5392,6 @@
   {
     "sn": "Blood (CMV AB)",
     "si": 2000025569,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70087",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6482,8 +5402,6 @@
   {
     "sn": "Blood (EBV)",
     "si": 2000025570,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70088",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6494,8 +5412,6 @@
   {
     "sn": "Blood (Malaria)",
     "si": 2000025571,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70089",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6506,8 +5422,6 @@
   {
     "sn": "Mini-BAL",
     "si": 2000025572,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70090",
     "ti": 4001349,
     "tn": "Catheter submitted as specimen",
@@ -6518,8 +5432,6 @@
   {
     "sn": "SWAB, R/O GC",
     "si": 2000025574,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70092",
     "ti": 4120698,
     "tn": "Swab",
@@ -6530,8 +5442,6 @@
   {
     "sn": "Blood (Toxo)",
     "si": 2000025575,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "70093",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6542,8 +5452,6 @@
   {
     "sn": "TISSUE",
     "si": 2000025579,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "90272",
     "ti": 4002890,
     "tn": "Tissue specimen",
@@ -6554,8 +5462,6 @@
   {
     "sn": "BLOOD",
     "si": 2000025583,
-    "sv": "mimiciv_micro_specimen",
-    "sd": "Specimen",
     "sc": "90924",
     "ti": 4001225,
     "tn": "Blood specimen",
@@ -6566,8 +5472,6 @@
   {
     "sn": "PICC Line Insertion Date",
     "si": 2000004002,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "224184",
     "ti": 4322380,
     "tn": "Insertion of peripherally inserted central catheter",
@@ -6578,8 +5482,6 @@
   {
     "sn": "PICC Line Change over Wire Date",
     "si": 2000004003,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "224185",
     "ti": 4322380,
     "tn": "Insertion of peripherally inserted central catheter",
@@ -6590,8 +5492,6 @@
   {
     "sn": "Multi Lumen Change over Wire Date",
     "si": 2000004007,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "224262",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6602,8 +5502,6 @@
   {
     "sn": "Multi Lumen Insertion Date",
     "si": 2000004009,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "224280",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6614,8 +5512,6 @@
   {
     "sn": "Cordis/Introducer Insertion Date",
     "si": 2000004019,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "224296",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6626,8 +5522,6 @@
   {
     "sn": "Dialysis Catheter Change over Wire Date",
     "si": 2000004035,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225319",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6638,8 +5532,6 @@
   {
     "sn": "Dialysis Catheter Insertion Date",
     "si": 2000004037,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225322",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6650,8 +5542,6 @@
   {
     "sn": "Pheresis Catheter Change over Wire Date",
     "si": 2000004059,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225368",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6662,8 +5552,6 @@
   {
     "sn": "Pheresis Catheter Insertion Date",
     "si": 2000004061,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225370",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6674,8 +5562,6 @@
   {
     "sn": "Indwelling Port (PortaCath) Insertion Date",
     "si": 2000004064,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225378",
     "ti": 4197894,
     "tn": "Insertion of implantable venous access port",
@@ -6686,8 +5572,6 @@
   {
     "sn": "Presep Catheter Change over Wire Date",
     "si": 2000004067,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225384",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6698,8 +5582,6 @@
   {
     "sn": "Presep Catheter Insertion Date",
     "si": 2000004069,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225386",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6710,8 +5592,6 @@
   {
     "sn": "RIC Insertion Date",
     "si": 2000004081,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "225758",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6722,8 +5602,6 @@
   {
     "sn": "AVA Change over Wire Date",
     "si": 2000004103,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "227721",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6734,8 +5612,6 @@
   {
     "sn": "AVA Insertion Date",
     "si": 2000004105,
-    "sv": "mimiciv_proc_datetimeevents",
-    "sd": "Procedure",
     "sc": "227724",
     "ti": 4141149,
     "tn": "Open insertion of central venous catheter",
@@ -6746,8 +5622,6 @@
   {
     "sn": "X-ray",
     "si": 2000003002,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "221216",
     "ti": 4056681,
     "tn": "Plain radiography",
@@ -6758,8 +5632,6 @@
   {
     "sn": "Ultrasound",
     "si": 2000003003,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "221217",
     "ti": 4037672,
     "tn": "Ultrasonography",
@@ -6770,8 +5642,6 @@
   {
     "sn": "EEG",
     "si": 2000003005,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "221223",
     "ti": 4181917,
     "tn": "Electroencephalogram",
@@ -6782,8 +5652,6 @@
   {
     "sn": "Trans Esophageal Echo",
     "si": 2000003006,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "221255",
     "ti": 4019824,
     "tn": "Transesophageal echocardiography",
@@ -6794,8 +5662,6 @@
   {
     "sn": "Magnetic Resonance Imaging",
     "si": 2000003007,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "223253",
     "ti": 4013636,
     "tn": "Magnetic resonance imaging",
@@ -6806,8 +5672,6 @@
   {
     "sn": "Multi Lumen",
     "si": 2000003008,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "224263",
     "ti": 4052413,
     "tn": "Central venous cannula insertion",
@@ -6818,8 +5682,6 @@
   {
     "sn": "PICC Line",
     "si": 2000003009,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "224264",
     "ti": 4322380,
     "tn": "Insertion of peripherally inserted central catheter",
@@ -6830,8 +5692,6 @@
   {
     "sn": "Cordis/Introducer",
     "si": 2000003010,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "224267",
     "ti": 4052413,
     "tn": "Central venous cannula insertion",
@@ -6842,8 +5702,6 @@
   {
     "sn": "Trauma line",
     "si": 2000003011,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "224268",
     "ti": 4052413,
     "tn": "Central venous cannula insertion",
@@ -6854,8 +5712,6 @@
   {
     "sn": "IABP line",
     "si": 2000003014,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "224272",
     "ti": 4060257,
     "tn": "Insertion of intra-aortic balloon counterpulsation",
@@ -6866,8 +5722,6 @@
   {
     "sn": "Triple Introducer",
     "si": 2000003023,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225199",
     "ti": 4052413,
     "tn": "Central venous cannula insertion",
@@ -6878,8 +5732,6 @@
   {
     "sn": "Midline",
     "si": 2000003026,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225204",
     "ti": 4322380,
     "tn": "Insertion of peripherally inserted central catheter",
@@ -6890,8 +5742,6 @@
   {
     "sn": "Bronchoscopy",
     "si": 2000003030,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225400",
     "ti": 4032404,
     "tn": "Bronchoscopy",
@@ -6902,8 +5752,6 @@
   {
     "sn": "EKG",
     "si": 2000003032,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225402",
     "ti": 4163951,
     "tn": "Electrocardiographic procedure",
@@ -6914,8 +5762,6 @@
   {
     "sn": "Angiography",
     "si": 2000003033,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225427",
     "ti": 4299523,
     "tn": "Angiography",
@@ -6926,8 +5772,6 @@
   {
     "sn": "Transthoracic Echo",
     "si": 2000003036,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225432",
     "ti": 4335825,
     "tn": "Transthoracic echocardiography",
@@ -6938,8 +5782,6 @@
   {
     "sn": "Chest Tube Placed",
     "si": 2000003037,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225433",
     "ti": 4141919,
     "tn": "Insertion of pleural tube drain",
@@ -6950,8 +5792,6 @@
   {
     "sn": "Endoscopy",
     "si": 2000003040,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225439",
     "ti": 4313889,
     "tn": "Endoscopy",
@@ -6962,8 +5802,6 @@
   {
     "sn": "Chest X-Ray",
     "si": 2000003055,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225459",
     "ti": 4163872,
     "tn": "Plain chest X-ray",
@@ -6974,8 +5812,6 @@
   {
     "sn": "Chest Pain",
     "si": 2000003060,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225465",
     "ti": 77670,
     "tn": "Chest pain",
@@ -6986,8 +5822,6 @@
   {
     "sn": "Unplanned Extubation (patient-initiated)",
     "si": 2000003063,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225468",
     "ti": 4150627,
     "tn": "Removal of endotracheal tube",
@@ -6998,8 +5832,6 @@
   {
     "sn": "Fall",
     "si": 2000003067,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225474",
     "ti": 436583,
     "tn": "Fall",
@@ -7010,8 +5842,6 @@
   {
     "sn": "Unplanned Extubation (non-patient initiated)",
     "si": 2000003070,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225477",
     "ti": 4150627,
     "tn": "Removal of endotracheal tube",
@@ -7022,8 +5852,6 @@
   {
     "sn": "Thoracentesis",
     "si": 2000003071,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "225479",
     "ti": 4240305,
     "tn": "Thoracentesis",
@@ -7034,8 +5862,6 @@
   {
     "sn": "Extubation",
     "si": 2000003093,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "227194",
     "ti": 4150627,
     "tn": "Removal of endotracheal tube",
@@ -7046,8 +5872,6 @@
   {
     "sn": "ERCP (Travel to)",
     "si": 2000003094,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "227550",
     "ti": 4304943,
     "tn": "Endoscopic retrograde cholangiopancreatography",
@@ -7058,8 +5882,6 @@
   {
     "sn": "Epidural Placement",
     "si": 2000003098,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "227713",
     "ti": 4078199,
     "tn": "Epidural anesthesia",
@@ -7070,8 +5892,6 @@
   {
     "sn": "AVA",
     "si": 2000003101,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "227719",
     "ti": 4052413,
     "tn": "Central venous cannula insertion",
@@ -7082,8 +5902,6 @@
   {
     "sn": "Family meeting held",
     "si": 2000003102,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "228125",
     "ti": 46272666,
     "tn": "Coordination of family conference",
@@ -7094,8 +5912,6 @@
   {
     "sn": "Family updated by MD",
     "si": 2000003105,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "228128",
     "ti": 46273928,
     "tn": "Liaising with family",
@@ -7106,8 +5922,6 @@
   {
     "sn": "Family updated by RN",
     "si": 2000003106,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "228129",
     "ti": 46273928,
     "tn": "Liaising with family",
@@ -7118,8 +5932,6 @@
   {
     "sn": "Family notified of transfer",
     "si": 2000003108,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "228136",
     "ti": 46273928,
     "tn": "Liaising with family",
@@ -7130,8 +5942,6 @@
   {
     "sn": "Family meeting attempted, unable",
     "si": 2000003112,
-    "sv": "mimiciv_proc_itemid",
-    "sd": "Procedure",
     "sc": "228228",
     "ti": 46272666,
     "tn": "Coordination of family conference",

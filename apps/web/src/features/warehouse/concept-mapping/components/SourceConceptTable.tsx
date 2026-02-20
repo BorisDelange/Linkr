@@ -67,6 +67,8 @@ interface SourceConceptTableProps {
   mappingStatusMap: Map<number, string>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
+  /** Database name used as fallback when no terminology name is available. */
+  dataSourceName?: string
   onPageChange: (page: number) => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
@@ -152,6 +154,7 @@ export function SourceConceptTable({
   mappingStatusMap,
   mappingStatusFilter,
   selectedConceptId,
+  dataSourceName,
   onPageChange,
   onFiltersChange,
   onSortingChange,
@@ -177,7 +180,6 @@ export function SourceConceptTable({
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'approved', 'rejected', 'flagged']
 
   // Determine which optional columns are available based on the schema dicts
-  const hasTerminologyName = conceptDicts.some((d) => !!d.terminologyNameColumn)
   const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
   const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn)
   const hasExtraColumns = conceptDicts.some((d) => d.extraColumns && Object.keys(d.extraColumns).length > 0)
@@ -250,16 +252,14 @@ export function SourceConceptTable({
       },
     ]
 
-    if (hasTerminologyName) {
-      cols.push({
-        id: 'terminology_name',
-        header: () => t('concept_mapping.col_terminology'),
-        accessorFn: (row) => row.terminology_name,
-        cell: ({ row }) => row.original.terminology_name ?? '',
-        size: 110,
-        minSize: 60,
-      })
-    }
+    cols.push({
+      id: 'terminology_name',
+      header: () => t('concept_mapping.col_terminology'),
+      accessorFn: (row) => row.terminology_name,
+      cell: ({ row }) => row.original.terminology_name || dataSourceName || '',
+      size: 110,
+      minSize: 60,
+    })
 
     if (hasCategory) {
       cols.push({
@@ -339,7 +339,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, hasTerminologyName, hasCategory, hasSubcategory, hasExtraColumns])
+  }, [t, mappingStatusMap, dataSourceName, hasCategory, hasSubcategory, hasExtraColumns])
 
   const table = useReactTable({
     data: rows,
