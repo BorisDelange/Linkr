@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -35,6 +35,7 @@ interface Props {
 export function EtlPipelinePage({ pipelineId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { wsUid } = useParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
@@ -57,7 +58,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
         <p className="text-sm text-muted-foreground">{t('etl.pipeline_not_found')}</p>
-        <Button variant="ghost" size="sm" className="mt-2" onClick={() => navigate('..')}>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/etl`)}>
           <ArrowLeft size={14} />
           {t('etl.back_to_list')}
         </Button>
@@ -76,7 +77,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header with back button + pipeline name + tabs */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        <Button variant="ghost" size="icon-xs" onClick={() => navigate('..')}>
+        <Button variant="ghost" size="icon-xs" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/etl`)}>
           <ArrowLeft size={14} />
         </Button>
         <span className="truncate text-sm font-medium">{pipeline.name}</span>

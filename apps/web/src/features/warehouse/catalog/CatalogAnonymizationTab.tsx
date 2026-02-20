@@ -33,28 +33,43 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   // Compute anonymization impact
   const impact = useMemo(() => {
     const allRows = [...cache.concepts, ...cache.dimensions]
-    const belowThreshold = allRows.filter((r) => r.patientCount < previewThreshold)
-    const aboveThreshold = allRows.filter((r) => r.patientCount >= previewThreshold)
+    const affectedRows = allRows.filter((r) => r.patientCount < previewThreshold).length
+    const unaffectedRows = allRows.length - affectedRows
 
-    const allConcepts = cache.concepts
-    const aboveConcepts = allConcepts.filter((r) => r.patientCount >= previewThreshold)
-    const lostConcepts = allConcepts.filter((r) => r.patientCount < previewThreshold && !aboveConcepts.some((a) => a.conceptId === r.conceptId))
+    // Per-concept analysis: a concept can have rows both above and below threshold
+    // (e.g. from different dictionaries). "Partial" = has both above and below rows.
+    const conceptBuckets = new Map<string | number, { above: number; below: number }>()
+    for (const row of cache.concepts) {
+      const key = row.conceptId
+      const bucket = conceptBuckets.get(key) ?? { above: 0, below: 0 }
+      if (row.patientCount < previewThreshold) bucket.below++
+      else bucket.above++
+      conceptBuckets.set(key, bucket)
+    }
+    let lostConcepts = 0
+    let partialConcepts = 0
+    for (const bucket of conceptBuckets.values()) {
+      if (bucket.above === 0) lostConcepts++ // all rows below threshold
+      else if (bucket.below > 0) partialConcepts++ // some rows below, some above
+    }
+
+    const affectedPct = allRows.length > 0 ? Math.round((affectedRows / allRows.length) * 100) : 0
+    const unaffectedPct = allRows.length > 0 ? Math.round((unaffectedRows / allRows.length) * 100) : 100
+    const partialPct = cache.concepts.length > 0 ? Math.round((partialConcepts / conceptBuckets.size) * 100) : 0
 
     return {
       totalRows: allRows.length,
-      affectedRows: belowThreshold.length,
-      unaffectedRows: aboveThreshold.length,
-      totalConcepts: allConcepts.length,
-      retainedConcepts: aboveConcepts.length,
-      lostConcepts: lostConcepts.length,
-      partialConcepts: 0,
-      retainedPct: allRows.length > 0
-        ? Math.round((mode === 'suppress'
-          ? aboveThreshold.length / allRows.length
-          : 1) * 100)
-        : 100,
+      affectedRows,
+      affectedPct,
+      unaffectedRows,
+      unaffectedPct,
+      totalConcepts: conceptBuckets.size,
+      lostConcepts,
+      partialConcepts,
+      partialPct,
+      retainedPct: unaffectedPct,
     }
-  }, [cache.concepts, cache.dimensions, previewThreshold, mode])
+  }, [cache.concepts, cache.dimensions, previewThreshold])
 
   const handleSave = async () => {
     await updateCatalog(catalog.id, {
@@ -116,6 +131,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           <p className="text-xs text-muted-foreground">
             {mode === 'replace' ? t('data_catalog.anon_replaced_rows') : t('data_catalog.anon_suppressed_rows')}
           </p>
+          <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">{impact.affectedPct}%</p>
         </Card>
         <Card className="p-3 text-center">
           <div className="flex items-center justify-center gap-1.5">
@@ -123,24 +139,18 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
             <p className="text-2xl font-bold">{impact.unaffectedRows.toLocaleString()}</p>
           </div>
           <p className="text-xs text-muted-foreground">{t('data_catalog.anon_retained_rows')}</p>
+          <p className="mt-1 text-xs font-medium text-green-600 dark:text-green-400">{impact.unaffectedPct}%</p>
         </Card>
-        {mode === 'suppress' ? (
-          <Card className="p-3 text-center">
-            <div className="flex items-center justify-center gap-1.5">
-              <AlertTriangle size={14} className="text-amber-500" />
-              <p className="text-2xl font-bold">{impact.lostConcepts.toLocaleString()}</p>
-            </div>
-            <p className="text-xs text-muted-foreground">{t('data_catalog.anon_lost_concepts')}</p>
-          </Card>
-        ) : (
-          <Card className="p-3 text-center">
-            <div className="flex items-center justify-center gap-1.5">
-              <AlertTriangle size={14} className="text-amber-500" />
-              <p className="text-2xl font-bold">{impact.partialConcepts.toLocaleString()}</p>
-            </div>
-            <p className="text-xs text-muted-foreground">{t('data_catalog.anon_partial_concepts')}</p>
-          </Card>
-        )}
+        <Card className="p-3 text-center">
+          <div className="flex items-center justify-center gap-1.5">
+            <AlertTriangle size={14} className="text-amber-500" />
+            <p className="text-2xl font-bold">{mode === 'suppress' ? impact.lostConcepts.toLocaleString() : impact.partialConcepts.toLocaleString()}</p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_partial_concepts')}
+          </p>
+          <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">{impact.partialPct}%</p>
+        </Card>
         <Card className="p-3 text-center">
           <p className="text-2xl font-bold">{impact.retainedPct}%</p>
           <p className="text-xs text-muted-foreground">{t('data_catalog.anon_retained_pct')}</p>
@@ -150,7 +160,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
 
       {/* Detail breakdown */}
       <Card className="p-4">
-        <div className="grid grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-4 gap-4 text-sm">
           <div>
             <span className="text-xs text-muted-foreground">{t('data_catalog.anon_total_rows')}</span>
             <p className="font-medium">{impact.totalRows.toLocaleString()}</p>
@@ -161,7 +171,11 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           </div>
           <div>
             <span className="text-xs text-muted-foreground">{t('data_catalog.anon_partial_concepts')}</span>
-            <p className="font-medium">{impact.partialConcepts.toLocaleString()}</p>
+            <p className="font-medium">{impact.partialConcepts.toLocaleString()} ({impact.partialPct}%)</p>
+          </div>
+          <div>
+            <span className="text-xs text-muted-foreground">{t('data_catalog.anon_lost_concepts')}</span>
+            <p className="font-medium">{impact.lostConcepts.toLocaleString()}</p>
           </div>
         </div>
       </Card>

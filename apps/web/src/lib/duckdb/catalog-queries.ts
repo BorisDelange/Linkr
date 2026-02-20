@@ -7,6 +7,17 @@ function esc(value: string): string {
   return value.replace(/'/g, "''")
 }
 
+/**
+ * Resolve a column alias (e.g. 'domain_id') to the actual SQL column name for a concept dictionary.
+ * Checks dict.categoryColumn / dict.subcategoryColumn first (direct match on value),
+ * then falls back to extraColumns[alias].
+ */
+function resolveDictColumn(dict: ConceptDictionary, alias: string): string | undefined {
+  if (dict.categoryColumn === alias) return alias
+  if (dict.subcategoryColumn === alias) return alias
+  return dict.extraColumns?.[alias]
+}
+
 // ---------------------------------------------------------------------------
 // Dimension SQL expression builders
 // ---------------------------------------------------------------------------
@@ -374,9 +385,8 @@ function buildConceptNameSql(
   categoryColumn?: string,
   subcategoryColumn?: string,
 ): string {
-  const extras = dict.extraColumns ?? {}
-  const catCol = categoryColumn ? extras[categoryColumn] : undefined
-  const subcatCol = subcategoryColumn ? extras[subcategoryColumn] : undefined
+  const catCol = categoryColumn ? resolveDictColumn(dict, categoryColumn) : undefined
+  const subcatCol = subcategoryColumn ? resolveDictColumn(dict, subcategoryColumn) : undefined
   const catExpr = catCol ? `"${catCol}"` : 'NULL'
   const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
   return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM "${dict.table}"`
@@ -523,8 +533,7 @@ export function buildPeriodRowQuery(
   const allEventParts: string[] = []
   if (conceptCategories.length > 0 && categoryColumn && mapping.conceptTables) {
     for (const dict of mapping.conceptTables) {
-      const extras = dict.extraColumns ?? {}
-      const catCol = extras[categoryColumn]
+      const catCol = resolveDictColumn(dict, categoryColumn)
       if (!catCol) continue
       const eventEntries = getEventTablesForDictionary(mapping, dict.key)
       for (const { eventTable: et } of eventEntries) {
@@ -664,8 +673,7 @@ export function buildCategoryLabelsQuery(
   if (!mapping.conceptTables) return null
   const dict = mapping.conceptTables[0]
   if (!dict) return null
-  const extras = dict.extraColumns ?? {}
-  const catCol = extras[categoryColumn]
+  const catCol = resolveDictColumn(dict, categoryColumn)
   if (!catCol) return null
   return `SELECT DISTINCT "${catCol}" AS cat_label FROM "${dict.table}" WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
 }

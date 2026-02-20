@@ -82,6 +82,7 @@ const omop54: SchemaMapping = {
     patientIdColumn: 'person_id',
     startDateColumn: 'visit_start_datetime',
     endDateColumn: 'visit_end_datetime',
+    typeColumn: 'visit_source_value',
   },
   noteTable: {
     table: 'note',

@@ -146,7 +146,7 @@ function MultiSelect({ label, values, selected, onChange, placeholder }: MultiSe
 
 export function CatalogConfigTab({ catalog }: Props) {
   const { t } = useTranslation()
-  const { updateCatalog, computeRunning, computeProgress, startCompute, setComputeProgress, finishCompute, failCompute, serviceMappings } = useCatalogStore()
+  const { updateCatalog, computeRunning, computeProgress, startCompute, setComputeProgress, finishCompute, failCompute } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSource = dataSources.find((ds) => ds.id === catalog.dataSourceId)
@@ -164,11 +164,14 @@ export function CatalogConfigTab({ catalog }: Props) {
     return null
   }, [currentBrackets])
 
-  // --- Extra columns for concept classification ---
+  // --- Available columns for concept classification ---
+  // Collect from dict.categoryColumn, dict.subcategoryColumn, and extraColumns keys
   const availableExtraColumns: string[] = (() => {
     const keys = new Set<string>()
     const dicts = dataSource?.schemaMapping?.conceptTables ?? []
     for (const d of dicts) {
+      if (d.categoryColumn) keys.add(d.categoryColumn)
+      if (d.subcategoryColumn) keys.add(d.subcategoryColumn)
       if (d.extraColumns) {
         for (const key of Object.keys(d.extraColumns)) keys.add(key)
       }
@@ -181,7 +184,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const [availableCategoryValues, setAvailableCategoryValues] = useState<string[]>([])
   const [availableServiceLabels, setAvailableServiceLabels] = useState<string[]>([])
 
-  // Load distinct category values
+  // Load distinct category values (ensure data source is mounted first)
   useEffect(() => {
     if (!catalog.categoryColumn || !dataSource?.schemaMapping) {
       setAvailableCategoryValues([])
@@ -189,25 +192,29 @@ export function CatalogConfigTab({ catalog }: Props) {
     }
     const sql = buildCategoryLabelsQuery(dataSource.schemaMapping, catalog.categoryColumn)
     if (!sql) { setAvailableCategoryValues([]); return }
-    queryDataSource(catalog.dataSourceId, sql)
-      .then((rows) => setAvailableCategoryValues(rows.map((r) => String(r.cat_label)).filter(Boolean)))
-      .catch(() => setAvailableCategoryValues([]))
-  }, [catalog.categoryColumn, catalog.dataSourceId, dataSource?.schemaMapping])
+    let cancelled = false
+    ensureMounted(catalog.dataSourceId)
+      .then(() => queryDataSource(catalog.dataSourceId, sql))
+      .then((rows) => { if (!cancelled) setAvailableCategoryValues(rows.map((r) => String(r.cat_label)).filter(Boolean)) })
+      .catch(() => { if (!cancelled) setAvailableCategoryValues([]) })
+    return () => { cancelled = true }
+  }, [catalog.categoryColumn, catalog.dataSourceId, dataSource?.schemaMapping, ensureMounted])
 
-  // Load distinct service labels when service config changes
+  // Load distinct service labels when service config changes (ensure data source is mounted first)
   useEffect(() => {
     if (!periodConfig || !dataSource?.schemaMapping) {
       setAvailableServiceLabels([])
       return
     }
-    const smId = periodConfig.serviceMappingId
-    const smRules = smId ? serviceMappings.find((m) => m.id === smId)?.rules : undefined
-    const sql = buildServiceLabelsQuery(dataSource.schemaMapping, periodConfig.serviceLevel, smRules)
+    const sql = buildServiceLabelsQuery(dataSource.schemaMapping, periodConfig.serviceLevel)
     if (!sql) { setAvailableServiceLabels([]); return }
-    queryDataSource(catalog.dataSourceId, sql)
-      .then((rows) => setAvailableServiceLabels(rows.map((r) => String(r.svc_label)).filter(Boolean)))
-      .catch(() => setAvailableServiceLabels([]))
-  }, [periodConfig?.serviceLevel, periodConfig?.serviceMappingId, catalog.dataSourceId, dataSource?.schemaMapping, serviceMappings])
+    let cancelled = false
+    ensureMounted(catalog.dataSourceId)
+      .then(() => queryDataSource(catalog.dataSourceId, sql))
+      .then((rows) => { if (!cancelled) setAvailableServiceLabels(rows.map((r) => String(r.svc_label)).filter(Boolean)) })
+      .catch(() => { if (!cancelled) setAvailableServiceLabels([]) })
+    return () => { cancelled = true }
+  }, [periodConfig?.serviceLevel, catalog.dataSourceId, dataSource?.schemaMapping, ensureMounted])
 
   const hasVisitServiceColumn = !!dataSource?.schemaMapping?.visitTable?.typeColumn
   const hasVisitDetailServiceColumn = !!dataSource?.schemaMapping?.visitDetailTable?.unitColumn
@@ -311,7 +318,6 @@ export function CatalogConfigTab({ catalog }: Props) {
         catalog,
         catalog.dataSourceId,
         dataSource.schemaMapping,
-        serviceMappings,
         (progress) => setComputeProgress(progress),
       )
       await updateCatalog(catalog.id, {
@@ -500,58 +506,33 @@ export function CatalogConfigTab({ catalog }: Props) {
                 </div>
                 {careSiteDim?.enabled && (
                   <div className="space-y-2 border-t px-3 py-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <Label className="text-xs text-muted-foreground">{t('data_catalog.period_service_level')}</Label>
-                        <Select
-                          value={periodConfig.serviceLevel}
-                          onValueChange={(v) => {
-                            const level = v as 'visit' | 'visit_detail'
-                            handlePeriodConfigChange({ serviceLevel: level })
-                            handleDimensionConfigChange(careSiteDim.id, {
-                              careSite: { ...careSiteDim.careSite, level },
-                            })
-                          }}
-                        >
-                          <SelectTrigger className="mt-1 h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="visit" disabled={!hasVisitServiceColumn}>
-                              {t('data_catalog.level_visit')}
-                            </SelectItem>
-                            <SelectItem value="visit_detail" disabled={!hasVisitDetailServiceColumn}>
-                              {t('data_catalog.level_visit_detail')}
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="text-xs text-muted-foreground">{t('data_catalog.period_service_mapping')}</Label>
-                        <Select
-                          value={periodConfig.serviceMappingId ?? '__none__'}
-                          onValueChange={(v) => {
-                            const smId = v === '__none__' ? undefined : v
-                            handlePeriodConfigChange({ serviceMappingId: smId })
-                            handleDimensionConfigChange(careSiteDim.id, {
-                              careSite: { ...careSiteDim.careSite, serviceMappingId: smId },
-                            })
-                          }}
-                        >
-                          <SelectTrigger className="mt-1 h-8">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="__none__">{t('data_catalog.none')}</SelectItem>
-                            {serviceMappings.map((sm) => (
-                              <SelectItem key={sm.id} value={sm.id}>{sm.name}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                    <div>
+                      <Label className="text-xs text-muted-foreground">{t('data_catalog.period_service_level')}</Label>
+                      <Select
+                        value={periodConfig.serviceLevel}
+                        onValueChange={(v) => {
+                          const level = v as 'visit' | 'visit_detail'
+                          handlePeriodConfigChange({ serviceLevel: level })
+                          handleDimensionConfigChange(careSiteDim.id, {
+                            careSite: { ...careSiteDim.careSite, level },
+                          })
+                        }}
+                      >
+                        <SelectTrigger className="mt-1 h-8 w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="visit" disabled={!hasVisitServiceColumn}>
+                            {t('data_catalog.level_visit')}{!hasVisitServiceColumn ? ` (${t('data_catalog.no_type_column')})` : ''}
+                          </SelectItem>
+                          <SelectItem value="visit_detail" disabled={!hasVisitDetailServiceColumn}>
+                            {t('data_catalog.level_visit_detail')}{!hasVisitDetailServiceColumn ? ` (${t('data_catalog.no_unit_column')})` : ''}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
-                    {/* Service multi-select (optional filter) */}
-                    {availableServiceLabels.length > 0 && (
+                    {/* Service multi-select (optional filter — only for visit_detail level) */}
+                    {periodConfig.serviceLevel === 'visit_detail' && availableServiceLabels.length > 0 && (
                       <div>
                         <Label className="text-xs text-muted-foreground">{t('data_catalog.period_services_select')}</Label>
                         <div className="mt-1">

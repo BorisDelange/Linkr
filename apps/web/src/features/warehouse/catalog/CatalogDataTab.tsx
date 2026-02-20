@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Search, ArrowUpDown, ChevronDown, X, Check } from 'lucide-react'
 import { Card } from '@/components/ui/card'
@@ -32,6 +32,16 @@ function fuzzyMatch(target: string, query: string): boolean {
   const lower = target.toLowerCase()
   const tokens = query.toLowerCase().split(/\s+/).filter(Boolean)
   return tokens.every((tok) => lower.includes(tok))
+}
+
+/** Debounce hook: returns debounced value after `delay` ms of inactivity. */
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay)
+    return () => clearTimeout(timer)
+  }, [value, delay])
+  return debounced
 }
 
 // ── Multi-select filter dropdown ─────────────────────────────────
@@ -158,11 +168,38 @@ function formatCount(count: number, threshold: number): string {
 
 // ── Concepts sub-tab ─────────────────────────────────────────────
 
+type SortKey = 'conceptId' | 'conceptName' | 'dictionaryKey' | 'category' | 'subcategory' | 'patientCount' | 'visitCount' | 'recordCount'
+
+function getSortValue(row: CatalogConceptRow, key: SortKey): string | number | null {
+  switch (key) {
+    case 'conceptId': return typeof row.conceptId === 'number' ? row.conceptId : String(row.conceptId)
+    case 'conceptName': return row.conceptName
+    case 'dictionaryKey': return row.dictionaryKey ?? null
+    case 'category': return row.category ?? null
+    case 'subcategory': return row.subcategory ?? null
+    case 'patientCount': return row.patientCount
+    case 'visitCount': return row.visitCount
+    case 'recordCount': return row.recordCount
+  }
+}
+
+function compareRows(a: CatalogConceptRow, b: CatalogConceptRow, sortKey: SortKey, sortDesc: boolean): number {
+  const aVal = getSortValue(a, sortKey)
+  const bVal = getSortValue(b, sortKey)
+  if (aVal == null && bVal == null) return 0
+  if (aVal == null) return 1
+  if (bVal == null) return -1
+  if (typeof aVal === 'number' && typeof bVal === 'number') return sortDesc ? bVal - aVal : aVal - bVal
+  const cmp = String(aVal).localeCompare(String(bVal))
+  return sortDesc ? -cmp : cmp
+}
+
 function ConceptsView({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const threshold = catalog.anonymization.threshold
   const [search, setSearch] = useState('')
-  const [sortKey, setSortKey] = useState('patientCount')
+  const debouncedSearch = useDebouncedValue(search, 250)
+  const [sortKey, setSortKey] = useState<SortKey>('patientCount')
   const [sortDesc, setSortDesc] = useState(true)
   const [page, setPage] = useState(0)
   const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({})
@@ -216,12 +253,20 @@ function ConceptsView({ catalog, cache }: Props) {
     return result
   }, [cache.concepts, filterColumns, hasCategory, activeFilters])
 
-  const filteredRows = useMemo(() => {
-    let rows = cache.concepts as CatalogConceptRow[]
+  // Pre-sort the full dataset whenever sort key/direction changes (avoid re-sorting on search/filter changes)
+  const sortedConcepts = useMemo(() => {
+    const arr = [...cache.concepts]
+    arr.sort((a, b) => compareRows(a, b, sortKey, sortDesc))
+    return arr
+  }, [cache.concepts, sortKey, sortDesc])
 
-    if (search.trim()) {
+  // Filter from the pre-sorted array
+  const filteredRows = useMemo(() => {
+    let rows = sortedConcepts
+
+    if (debouncedSearch.trim()) {
       rows = rows.filter(
-        (r) => fuzzyMatch(r.conceptName, search) || fuzzyMatch(String(r.conceptId), search),
+        (r) => fuzzyMatch(r.conceptName, debouncedSearch) || fuzzyMatch(String(r.conceptId), debouncedSearch),
       )
     }
 
@@ -235,36 +280,15 @@ function ConceptsView({ catalog, cache }: Props) {
       }
     }
 
-    rows = [...rows].sort((a, b) => {
-      let aVal: string | number | null
-      let bVal: string | number | null
-
-      if (sortKey === 'conceptName') { aVal = a.conceptName; bVal = b.conceptName }
-      else if (sortKey === 'dictionaryKey') { aVal = a.dictionaryKey ?? null; bVal = b.dictionaryKey ?? null }
-      else if (sortKey === 'category') { aVal = a.category ?? null; bVal = b.category ?? null }
-      else if (sortKey === 'subcategory') { aVal = a.subcategory ?? null; bVal = b.subcategory ?? null }
-      else if (sortKey === 'patientCount') { aVal = a.patientCount; bVal = b.patientCount }
-      else if (sortKey === 'visitCount') { aVal = a.visitCount; bVal = b.visitCount }
-      else if (sortKey === 'recordCount') { aVal = a.recordCount; bVal = b.recordCount }
-      else { aVal = null; bVal = null }
-
-      if (aVal == null && bVal == null) return 0
-      if (aVal == null) return 1
-      if (bVal == null) return -1
-      if (typeof aVal === 'number' && typeof bVal === 'number') return sortDesc ? bVal - aVal : aVal - bVal
-      const cmp = String(aVal).localeCompare(String(bVal))
-      return sortDesc ? -cmp : cmp
-    })
-
     return rows
-  }, [cache.concepts, search, sortKey, sortDesc, activeFilters, filterColumns])
+  }, [sortedConcepts, debouncedSearch, activeFilters, filterColumns])
 
   const totalPages = Math.ceil(filteredRows.length / pageSize)
   const pageRows = filteredRows.slice(page * pageSize, (page + 1) * pageSize)
 
   const handleSort = (key: string) => {
     if (sortKey === key) setSortDesc(!sortDesc)
-    else { setSortKey(key); setSortDesc(true) }
+    else { setSortKey(key as SortKey); setSortDesc(true) }
     setPage(0)
   }
 
@@ -287,6 +311,15 @@ function ConceptsView({ catalog, cache }: Props) {
 
   const clearAllFilters = useCallback(() => { setActiveFilters({}); setPage(0) }, [])
 
+  // Reset page when search changes
+  const prevSearchRef = useRef(debouncedSearch)
+  useEffect(() => {
+    if (prevSearchRef.current !== debouncedSearch) {
+      setPage(0)
+      prevSearchRef.current = debouncedSearch
+    }
+  }, [debouncedSearch])
+
   const activeFilterCount = Object.values(activeFilters).reduce((sum, s) => sum + (s.size > 0 ? 1 : 0), 0)
 
   const colSpan = 4 + (hasDictionary ? 1 : 0) + (hasCategory ? 1 : 0) + (hasSubcategory ? 1 : 0)
@@ -299,7 +332,7 @@ function ConceptsView({ catalog, cache }: Props) {
           <Search size={14} className="absolute left-2.5 top-2.5 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(0) }}
+            onChange={(e) => setSearch(e.target.value)}
             placeholder={t('data_catalog.search_concepts')}
             className="h-8 pl-8 text-xs"
           />
@@ -415,12 +448,17 @@ function PeriodsView({ catalog, cache }: Props) {
   const reliabilityScore = cache.periodReliabilityScore ?? 0
 
   const allRow = periods.find((r) => r.period_granularity === 'all')
-  const dataRows = periods.filter((r) => r.period_granularity !== 'all')
+  const dataRows = useMemo(() => periods.filter((r) => r.period_granularity !== 'all'), [periods])
+
+  const [page, setPage] = useState(0)
+  const pageSize = 50
+  const totalPages = Math.ceil(dataRows.length / pageSize)
+  const pageRows = dataRows.slice(page * pageSize, (page + 1) * pageSize)
 
   if (periods.length === 0) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
-        {t('data_catalog.no_dimensions_enabled')}
+        {t('data_catalog.no_data')}
       </div>
     )
   }
@@ -428,8 +466,6 @@ function PeriodsView({ catalog, cache }: Props) {
   // Collect all service labels and category labels from the data
   const serviceLabels = allRow ? Object.keys(allRow.services) : []
   const categoryLabels = allRow ? Object.keys(allRow.concept_categories) : []
-
-  // Get all age bucket labels from data (sorted)
   const ageBucketLabels = allRow ? Object.keys(allRow.age_buckets) : []
 
   const maskedPct = Math.round(reliabilityScore * 100)
@@ -489,7 +525,7 @@ function PeriodsView({ catalog, cache }: Props) {
             )}
           </TableHeader>
           <TableBody>
-            {/* ALL row first */}
+            {/* ALL row — always visible (sticky, not paginated) */}
             {allRow && (
               <TableRow className="bg-muted/20 font-medium">
                 <TableCell className="sticky left-0 z-10 bg-muted/20 text-xs font-semibold">{allRow.period_label}</TableCell>
@@ -515,8 +551,8 @@ function PeriodsView({ catalog, cache }: Props) {
                 ))}
               </TableRow>
             )}
-            {/* Period rows */}
-            {dataRows.map((row) => (
+            {/* Paginated period rows */}
+            {pageRows.map((row) => (
               <TableRow key={row.period_start}>
                 <TableCell className="sticky left-0 z-10 bg-background text-xs">{row.period_label}</TableCell>
                 <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.n_patients} threshold={threshold} /></TableCell>
@@ -544,6 +580,17 @@ function PeriodsView({ catalog, cache }: Props) {
           </TableBody>
         </Table>
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{t('data_catalog.showing_rows', { from: page * pageSize + 1, to: Math.min((page + 1) * pageSize, dataRows.length), total: dataRows.length })}</span>
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" disabled={page === 0} onClick={() => setPage(page - 1)}>{t('common.back')}</Button>
+            <Button variant="outline" size="sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>{t('data_catalog.next')}</Button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -568,10 +615,6 @@ export function CatalogDataTab({ catalog, cache }: Props) {
         <Card className="flex-1 p-3 text-center">
           <p className="text-2xl font-bold">{cache.totalVisits.toLocaleString()}</p>
           <p className="text-xs text-muted-foreground">{t('data_catalog.total_visits')}</p>
-        </Card>
-        <Card className="flex-1 p-3 text-center">
-          <p className="text-2xl font-bold">{cache.grandTotal.totalRecords.toLocaleString()}</p>
-          <p className="text-xs text-muted-foreground">{t('data_catalog.total_records')}</p>
         </Card>
       </div>
 

@@ -82,8 +82,6 @@ export interface PeriodConfig {
   granularity: 'month' | 'quarter' | 'year'
   /** Whether to use visit_occurrence.typeColumn or visitDetailTable.unitColumn as service. */
   serviceLevel: 'visit' | 'visit_detail'
-  /** Reference to a ServiceMapping entity for renaming/grouping service values. */
-  serviceMappingId?: string
   /**
    * Subset of service labels to include. If undefined or empty, all services are included.
    */

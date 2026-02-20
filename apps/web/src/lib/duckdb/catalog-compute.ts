@@ -8,7 +8,7 @@ import {
   type PeriodInterval,
 } from './catalog-queries'
 import { getStorage } from '@/lib/storage'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogPeriodRow, ServiceMapping } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogPeriodRow } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
@@ -30,7 +30,6 @@ export async function computeCatalog(
   catalog: DataCatalog,
   dataSourceId: string,
   mapping: SchemaMapping,
-  serviceMappings: ServiceMapping[],
   onProgress?: (progress: ComputeProgress) => void,
 ): Promise<CatalogResultCache> {
   const startTime = performance.now()
@@ -38,16 +37,10 @@ export async function computeCatalog(
   // Step 1: Building queries
   onProgress?.({ step: 'building', fraction: 0 })
 
-  const careSiteDim = catalog.dimensions.find((d) => d.type === 'care_site' && d.enabled)
-  const smId = careSiteDim?.careSite?.serviceMappingId
-  const smRules = smId
-    ? serviceMappings.find((m) => m.id === smId)?.rules
-    : undefined
-
   const queries = buildBatchedCatalogQueries(
     mapping,
     catalog.dimensions,
-    smRules,
+    undefined,
     catalog.categoryColumn,
     catalog.subcategoryColumn,
   )
@@ -155,7 +148,6 @@ export async function computeCatalog(
       catalog,
       dataSourceId,
       mapping,
-      serviceMappings,
       (frac) => onProgress?.({ step: 'processing', fraction: frac * 0.9 }),
     )
     periods = periodResult.rows
@@ -275,18 +267,13 @@ async function computePeriodTable(
   catalog: DataCatalog,
   dataSourceId: string,
   mapping: SchemaMapping,
-  serviceMappings: ServiceMapping[],
   onProgress?: (fraction: number) => void,
 ): Promise<{ rows: CatalogPeriodRow[]; reliabilityScore: number }> {
   const periodConfig = catalog.periodConfig!
   const threshold = catalog.anonymization.threshold
   const ageBrackets = getAgeBrackets(catalog)
 
-  // 1. Get service mapping rules
-  const smId = periodConfig.serviceMappingId
-  const smRules = smId ? serviceMappings.find((m) => m.id === smId)?.rules : undefined
-
-  // 2. Get date range
+  // 1. Get date range
   const dateRangeQuery = buildDateRangeQuery(mapping)
   if (!dateRangeQuery) return { rows: [], reliabilityScore: 0 }
 
@@ -299,7 +286,7 @@ async function computePeriodTable(
   const intervals = generatePeriodIntervals(minDate, maxDate, periodConfig.granularity)
 
   // 4. Get distinct service labels (filtered if serviceLabels is specified)
-  const svcQuery = buildServiceLabelsQuery(mapping, periodConfig.serviceLevel, smRules)
+  const svcQuery = buildServiceLabelsQuery(mapping, periodConfig.serviceLevel)
   let serviceLabels: string[] = []
   if (svcQuery) {
     const svcRows = await queryDataSource(dataSourceId, svcQuery)
@@ -325,7 +312,7 @@ async function computePeriodTable(
       periodConfig,
       ageBrackets,
       serviceLabels,
-      smRules,
+      undefined,
       catalog.categoryColumn,
       conceptCategories,
     )
