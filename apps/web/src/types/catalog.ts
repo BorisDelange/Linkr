@@ -75,6 +75,57 @@ export interface ServiceMapping {
   updatedAt: string
 }
 
+// --- Period Configuration ---
+
+export interface PeriodConfig {
+  /** Time granularity for the period table. Minimum is 'month' (no 'day'). */
+  granularity: 'month' | 'quarter' | 'year'
+  /** Whether to use visit_occurrence.typeColumn or visitDetailTable.unitColumn as service. */
+  serviceLevel: 'visit' | 'visit_detail'
+  /** Reference to a ServiceMapping entity for renaming/grouping service values. */
+  serviceMappingId?: string
+  /**
+   * Subset of service labels to include. If undefined or empty, all services are included.
+   */
+  serviceLabels?: string[]
+  /**
+   * Values of categoryColumn to include as columns in the period table.
+   * E.g. ['Measurement', 'Condition', 'Drug'] for OMOP domain_id.
+   * Empty or undefined = no concept category columns.
+   */
+  conceptCategories?: string[]
+}
+
+// --- Period Result Row ---
+
+/**
+ * One row of the period table.
+ * null values = masked (patient count below anonymization threshold).
+ */
+export interface CatalogPeriodRow {
+  period_granularity: 'month' | 'quarter' | 'year' | 'all'
+  /** ISO date '2025-01-01' (first day of the period), or '' for ALL. */
+  period_start: string
+  /** Human-readable label: 'Jan 2025', 'Q1 2025', '2025', or 'ALL'. */
+  period_label: string
+
+  n_patients: number | null
+  n_sejours: number | null
+
+  sex_m: number | null
+  sex_f: number | null
+  sex_other: number | null
+
+  /** Age bucket counts keyed by bracket label, e.g. '[0;18[' → 45 or null. */
+  age_buckets: Record<string, number | null>
+
+  /** Per-service counts keyed by service label. */
+  services: Record<string, { n_patients: number | null; n_sejours: number | null }>
+
+  /** Per-concept-category counts keyed by category value. */
+  concept_categories: Record<string, { n_patients: number | null; n_rows: number | null }>
+}
+
 // --- Data Catalog ---
 
 export interface DataCatalog {
@@ -95,6 +146,8 @@ export interface DataCatalog {
    * E.g. 'concept_class_id' for OMOP.
    */
   subcategoryColumn?: string
+  /** Optional period table configuration. */
+  periodConfig?: PeriodConfig
   status: CatalogStatus
   lastError?: string
   lastComputedAt?: string
@@ -149,6 +202,16 @@ export interface CatalogResultCache {
   totalConcepts: number
   totalPatients: number
   totalVisits: number
+  /**
+   * Period table: one row per time period (+ one ALL row).
+   * Only present when catalog.periodConfig is set.
+   */
+  periods?: CatalogPeriodRow[]
+  /**
+   * Period reliability score: fraction of n_patients cells that are masked (null).
+   * 0 = no masking, 1 = all masked. Only present when periods is set.
+   */
+  periodReliabilityScore?: number
 }
 
 // --- Default dimension presets ---

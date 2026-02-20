@@ -8,7 +8,7 @@
  * - Anonymization: rows below threshold are either capped (replace) or removed (suppress)
  */
 
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, SchemaMapping, AnonymizationMode } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, CatalogPeriodRow, SchemaMapping, AnonymizationMode } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { buildJsonLd } from './jsonld'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
@@ -72,6 +72,10 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
   // Collect enabled dimension IDs for charts + sub-tables
   const enabledDims = catalog.dimensions.filter((d) => d.enabled)
   const dimIds = enabledDims.map((d) => d.id)
+
+  // Period data for the Timeline tab
+  const periods = cache.periods ?? []
+  const hasPeriods = periods.length > 0
 
   // JSON-LD
   const metadata = catalog.dcatApMetadata ?? {}
@@ -172,6 +176,7 @@ ${CSS}
     <button class="tab" data-tab="schema">Schema</button>
     <button class="tab" data-tab="dashboard">Dashboard</button>
     <button class="tab" data-tab="datatable">Data Table</button>
+    ${hasPeriods ? '<button class="tab" data-tab="timeline">Timeline</button>' : ''}
   </div>
 
   <!-- Metadata tab: rendered UI + JSON-LD viewer button -->
@@ -258,6 +263,22 @@ ${dimTablesHtml || '      <p class="schema-empty">No dimensions enabled.</p>'}
     </div>
   </div>
 
+  ${hasPeriods ? `<!-- Timeline tab -->
+  <div id="tab-timeline" class="tab-content" style="display:none">
+    <div class="timeline-section">
+      <div class="timeline-controls">
+        <span class="timeline-label">Granularity:</span>
+        <div class="granularity-toggle" id="granularity-toggle">
+          <button class="gran-btn active" data-gran="month">Month</button>
+          <button class="gran-btn" data-gran="quarter">Quarter</button>
+          <button class="gran-btn" data-gran="year">Year</button>
+        </div>
+        ${(cache.periodReliabilityScore ?? 0) > 0.2 ? `<span class="reliability-warn">⚠ ${Math.round((cache.periodReliabilityScore ?? 0) * 100)}% of cells masked — consider larger granularity</span>` : `<span class="reliability-ok">${Math.round((cache.periodReliabilityScore ?? 0) * 100)}% cells masked</span>`}
+      </div>
+      <div id="timeline-charts"></div>
+    </div>
+  </div>` : ''}
+
   <footer>
     <p>Anonymization: threshold = ${threshold} patients · mode = ${mode === 'suppress' ? 'suppress (rows removed)' : 'replace (counts capped)'} · ${totalAnonymized} row${totalAnonymized !== 1 ? 's' : ''} affected.</p>
     <p>Health-DCAT-AP Release 6 · EHDS Regulation (EU) 2025/327</p>
@@ -270,7 +291,10 @@ var DIMENSIONS = ${JSON.stringify(buildDimensionsJson(dimensions as (CatalogDime
 var CATALOG_META = ${JSON.stringify({ totalConcepts, totalPatients, totalVisits, totalRecords: cache.grandTotal.totalRecords, anonymizedConcepts: anonConceptCount, anonymizedDimensions: anonDimCount, threshold, mode })};
 var CHART_DEFS = ${JSON.stringify(chartDefs)};
 var DIM_IDS = ${JSON.stringify(dimIds)};
+var PERIODS = ${JSON.stringify(periods)};
+var PERIOD_THRESHOLD = ${threshold};
 ${buildJS(conceptFilterCols)}
+${hasPeriods ? buildTimelineJS() : ''}
 </script>
 </body>
 </html>`
@@ -761,6 +785,38 @@ footer p { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
   .table-wrapper { border: none; overflow: visible; }
   footer { page-break-inside: avoid; }
 }
+
+/* Timeline tab */
+.timeline-section { }
+.timeline-controls { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.timeline-label { font-size: 0.8125rem; color: var(--muted); }
+.granularity-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.gran-btn { padding: 0.3rem 0.8rem; font-size: 0.8125rem; border: none; background: var(--card-bg); color: var(--fg); cursor: pointer; }
+.gran-btn.active { background: var(--accent); color: #fff; }
+.gran-btn:hover:not(.active) { background: var(--accent-20); }
+.reliability-warn { font-size: 0.75rem; color: var(--warn); font-weight: 500; }
+.reliability-ok { font-size: 0.75rem; color: var(--muted); }
+.tl-chart-block { margin-bottom: 2rem; }
+.tl-chart-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.75rem; }
+
+/* Stacked bar chart for age/sex */
+.tl-bar-chart { display: flex; flex-direction: column; gap: 0; }
+.tl-bar-row { display: flex; align-items: center; gap: 0.5rem; min-height: 24px; }
+.tl-bar-label { width: 80px; font-size: 0.7rem; color: var(--muted); text-align: right; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-bar-track { flex: 1; display: flex; height: 20px; border-radius: 3px; overflow: hidden; background: var(--card-bg); border: 1px solid var(--border); }
+.tl-bar-seg { height: 100%; transition: width 0.2s; }
+.tl-bar-masked { background: repeating-linear-gradient(45deg, var(--border), var(--border) 3px, var(--card-bg) 3px, var(--card-bg) 6px); width: 100%; }
+.tl-bar-count { width: 60px; font-size: 0.7rem; color: var(--muted); flex-shrink: 0; }
+
+/* Heatmap */
+.tl-heatmap { overflow-x: auto; }
+.tl-heatmap table { border-collapse: collapse; font-size: 0.7rem; }
+.tl-heatmap th { padding: 4px 8px; background: var(--card-bg); border: 1px solid var(--border); font-weight: 500; white-space: nowrap; }
+.tl-heatmap td { padding: 4px 8px; border: 1px solid var(--border); text-align: center; min-width: 56px; white-space: nowrap; }
+.tl-heatmap td.masked { background: repeating-linear-gradient(45deg, var(--border), var(--border) 3px, var(--card-bg) 3px, var(--card-bg) 6px); color: var(--muted); font-style: italic; }
+.tl-legend { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.tl-legend-item { display: flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; }
+.tl-legend-swatch { width: 12px; height: 12px; border-radius: 2px; }
 `
 
 // ---------------------------------------------------------------------------
@@ -1153,6 +1209,228 @@ export function buildConceptsCsv(
   }
 
   return rows.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Timeline JS builder
+// ---------------------------------------------------------------------------
+
+function buildTimelineJS(): string {
+  return `
+(function() {
+  if (!PERIODS || !PERIODS.length) return;
+
+  var COLORS_AGE = ['#6366f1','#8b5cf6','#a78bfa','#c4b5fd','#ddd6fe','#818cf8','#4f46e5','#3730a3','#312e81'];
+  var COLORS_SEX = { sex_m: '#0ea5e9', sex_f: '#ec4899', sex_other: '#94a3b8' };
+  var SEX_LABELS = { sex_m: 'Male', sex_f: 'Female', sex_other: 'Other' };
+  var HEATMAP_BASE = [255,247,230]; // warm light amber
+  var HEATMAP_TOP  = [13, 148, 136]; // teal accent
+
+  function heatColor(val, max) {
+    if (val === null || max === 0) return null;
+    var t = Math.min(val / max, 1);
+    var r = Math.round(HEATMAP_BASE[0] + t * (HEATMAP_TOP[0] - HEATMAP_BASE[0]));
+    var g = Math.round(HEATMAP_BASE[1] + t * (HEATMAP_TOP[1] - HEATMAP_BASE[1]));
+    var b = Math.round(HEATMAP_BASE[2] + t * (HEATMAP_TOP[2] - HEATMAP_BASE[2]));
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
+
+  function fmt(v) { return v === null ? '< ' + PERIOD_THRESHOLD : v.toLocaleString(); }
+
+  function getRows(gran) {
+    if (gran === 'all') return PERIODS;
+    return PERIODS.filter(function(r) { return r.period_granularity === gran || r.period_granularity === 'all'; });
+  }
+
+  function getDataRows(gran) {
+    return PERIODS.filter(function(r) { return r.period_granularity === gran; });
+  }
+
+  function renderTimeline(gran) {
+    var container = document.getElementById('timeline-charts');
+    if (!container) return;
+    var rows = getDataRows(gran);
+    if (!rows.length) { container.innerHTML = '<p style="color:var(--muted);font-size:0.875rem;">No data for this granularity.</p>'; return; }
+
+    var allRow = PERIODS.find(function(r) { return r.period_granularity === 'all'; });
+    var html = '';
+
+    // --- Chart 1: Patients by age group (stacked bars) ---
+    var ageBuckets = allRow ? Object.keys(allRow.age_buckets) : [];
+    if (ageBuckets.length) {
+      var maxPat = 0;
+      rows.forEach(function(r) { if (r.n_patients !== null && r.n_patients > maxPat) maxPat = r.n_patients; });
+      html += '<div class="tl-chart-block">';
+      html += '<div class="tl-chart-title">Patients by age group</div>';
+      html += '<div class="tl-bar-chart">';
+      rows.forEach(function(r) {
+        var total = r.n_patients;
+        html += '<div class="tl-bar-row">';
+        html += '<div class="tl-bar-label" title="' + r.period_label + '">' + r.period_label + '</div>';
+        html += '<div class="tl-bar-track">';
+        if (total === null) {
+          html += '<div class="tl-bar-masked" title="Masked (< ' + PERIOD_THRESHOLD + ')"></div>';
+        } else {
+          ageBuckets.forEach(function(bucket, i) {
+            var bv = r.age_buckets[bucket];
+            if (bv === null || bv === 0) return;
+            var pct = maxPat > 0 ? (bv / maxPat * 100).toFixed(1) : 0;
+            var color = COLORS_AGE[i % COLORS_AGE.length];
+            html += '<div class="tl-bar-seg" style="width:' + pct + '%;background:' + color + '" title="' + bucket + ': ' + bv.toLocaleString() + '"></div>';
+          });
+        }
+        html += '</div>';
+        html += '<div class="tl-bar-count">' + fmt(total) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      // Legend
+      html += '<div class="tl-legend">';
+      ageBuckets.forEach(function(bucket, i) {
+        html += '<div class="tl-legend-item"><div class="tl-legend-swatch" style="background:' + COLORS_AGE[i % COLORS_AGE.length] + '"></div><span>' + bucket + '</span></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // --- Chart 2: Patients by sex (stacked bars) ---
+    var sexKeys = ['sex_m', 'sex_f', 'sex_other'];
+    var hasSex = rows.some(function(r) { return r.sex_m !== null || r.sex_f !== null; });
+    if (hasSex) {
+      var maxSex = 0;
+      rows.forEach(function(r) { if (r.n_patients !== null && r.n_patients > maxSex) maxSex = r.n_patients; });
+      html += '<div class="tl-chart-block">';
+      html += '<div class="tl-chart-title">Patients by sex</div>';
+      html += '<div class="tl-bar-chart">';
+      rows.forEach(function(r) {
+        html += '<div class="tl-bar-row">';
+        html += '<div class="tl-bar-label" title="' + r.period_label + '">' + r.period_label + '</div>';
+        html += '<div class="tl-bar-track">';
+        if (r.n_patients === null) {
+          html += '<div class="tl-bar-masked" title="Masked"></div>';
+        } else {
+          sexKeys.forEach(function(key) {
+            var sv = r[key];
+            if (sv === null || sv === 0) return;
+            var pct = maxSex > 0 ? (sv / maxSex * 100).toFixed(1) : 0;
+            html += '<div class="tl-bar-seg" style="width:' + pct + '%;background:' + COLORS_SEX[key] + '" title="' + SEX_LABELS[key] + ': ' + sv.toLocaleString() + '"></div>';
+          });
+        }
+        html += '</div>';
+        html += '<div class="tl-bar-count">' + fmt(r.n_patients) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      html += '<div class="tl-legend">';
+      sexKeys.forEach(function(key) {
+        html += '<div class="tl-legend-item"><div class="tl-legend-swatch" style="background:' + COLORS_SEX[key] + '"></div><span>' + SEX_LABELS[key] + '</span></div>';
+      });
+      html += '</div></div>';
+    }
+
+    // --- Chart 3: Heatmap services ---
+    var svcLabels = allRow ? Object.keys(allRow.services) : [];
+    if (svcLabels.length) {
+      var svcMaxes = {};
+      svcLabels.forEach(function(svc) {
+        var m = 0;
+        rows.forEach(function(r) { var v = r.services[svc] && r.services[svc].n_patients; if (v !== null && v > m) m = v; });
+        svcMaxes[svc] = m;
+      });
+      html += '<div class="tl-chart-block">';
+      html += '<div class="tl-chart-title">Patients by service</div>';
+      html += '<div class="tl-heatmap"><table><thead><tr><th>Service</th>';
+      rows.forEach(function(r) { html += '<th>' + r.period_label + '</th>'; });
+      html += '</tr></thead><tbody>';
+      svcLabels.forEach(function(svc) {
+        html += '<tr><td>' + svc + '</td>';
+        rows.forEach(function(r) {
+          var v = r.services[svc] ? r.services[svc].n_patients : null;
+          if (v === null) {
+            html += '<td class="masked" title="< ' + PERIOD_THRESHOLD + '">*</td>';
+          } else {
+            var bg = heatColor(v, svcMaxes[svc]);
+            html += '<td style="background:' + bg + '" title="' + v.toLocaleString() + '">' + v.toLocaleString() + '</td>';
+          }
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    // --- Chart 4: Heatmap concept categories ---
+    var catLabels = allRow ? Object.keys(allRow.concept_categories) : [];
+    if (catLabels.length) {
+      var catMaxes = {};
+      catLabels.forEach(function(cat) {
+        var m = 0;
+        rows.forEach(function(r) { var v = r.concept_categories[cat] && r.concept_categories[cat].n_patients; if (v !== null && v > m) m = v; });
+        catMaxes[cat] = m;
+      });
+      html += '<div class="tl-chart-block">';
+      html += '<div class="tl-chart-title">Patients by concept category</div>';
+      html += '<div class="tl-heatmap"><table><thead><tr><th>Category</th>';
+      rows.forEach(function(r) { html += '<th>' + r.period_label + '</th>'; });
+      html += '</tr></thead><tbody>';
+      catLabels.forEach(function(cat) {
+        html += '<tr><td>' + cat + '</td>';
+        rows.forEach(function(r) {
+          var v = r.concept_categories[cat] ? r.concept_categories[cat].n_patients : null;
+          if (v === null) {
+            html += '<td class="masked" title="< ' + PERIOD_THRESHOLD + '">*</td>';
+          } else {
+            var bg = heatColor(v, catMaxes[cat]);
+            html += '<td style="background:' + bg + '" title="' + v.toLocaleString() + '">' + v.toLocaleString() + '</td>';
+          }
+        });
+        html += '</tr>';
+      });
+      html += '</tbody></table></div></div>';
+    }
+
+    container.innerHTML = html || '<p style="color:var(--muted);font-size:0.875rem;">No period data configured.</p>';
+  }
+
+  // Initial render
+  var currentGran = 'month';
+  // Check which granularities are actually present
+  var availGrans = ['month','quarter','year'].filter(function(g) {
+    return PERIODS.some(function(r) { return r.period_granularity === g; });
+  });
+  if (availGrans.length > 0) {
+    currentGran = availGrans[0];
+    // Update button states
+    document.querySelectorAll('.gran-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.dataset.gran === currentGran);
+      if (!availGrans.includes(btn.dataset.gran)) {
+        btn.disabled = true;
+        btn.style.opacity = '0.4';
+        btn.style.cursor = 'not-allowed';
+      }
+    });
+  }
+
+  var togEl = document.getElementById('granularity-toggle');
+  if (togEl) {
+    togEl.addEventListener('click', function(e) {
+      var btn = e.target.closest('.gran-btn');
+      if (!btn || btn.disabled) return;
+      currentGran = btn.dataset.gran;
+      document.querySelectorAll('.gran-btn').forEach(function(b) { b.classList.toggle('active', b === btn); });
+      renderTimeline(currentGran);
+    });
+  }
+
+  // Render when Timeline tab is activated
+  var tabEls = document.querySelectorAll('.tab[data-tab]');
+  tabEls.forEach(function(t) {
+    t.addEventListener('click', function() {
+      if (t.dataset.tab === 'timeline') {
+        renderTimeline(currentGran);
+      }
+    });
+  });
+})();
+`
 }
 
 /** Build CSV string from dimension rows with anonymization applied. */

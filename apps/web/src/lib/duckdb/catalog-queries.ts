@@ -1,5 +1,5 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
-import type { DimensionConfig, ServiceMappingRule } from '@/types/catalog'
+import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
 import { getEventTablesForDictionary } from '@/lib/schema-helpers'
 
 /** Escape a string value for SQL. */
@@ -380,4 +380,292 @@ function buildConceptNameSql(
   const catExpr = catCol ? `"${catCol}"` : 'NULL'
   const subcatExpr = subcatCol ? `"${subcatCol}"` : 'NULL'
   return `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${hasCategory ? `, ${catExpr} AS ccat` : ''}${hasSubcategory ? `, ${subcatExpr} AS csubcat` : ''} FROM "${dict.table}"`
+}
+
+// ---------------------------------------------------------------------------
+// Period table queries
+// ---------------------------------------------------------------------------
+
+export interface PeriodInterval {
+  granularity: 'month' | 'quarter' | 'year' | 'all'
+  /** ISO date of the first day of the period, or '' for ALL. */
+  start: string
+  /** ISO date of the last day of the period (inclusive), or '' for ALL. */
+  end: string
+  /** Human-readable label. */
+  label: string
+}
+
+/**
+ * Generate the list of period intervals between minDate and maxDate
+ * for the given granularity, plus one 'all' interval at the start.
+ */
+export function generatePeriodIntervals(
+  minDate: string,
+  maxDate: string,
+  granularity: 'month' | 'quarter' | 'year',
+): PeriodInterval[] {
+  const intervals: PeriodInterval[] = []
+
+  // ALL row first
+  intervals.push({ granularity: 'all', start: '', end: '', label: 'ALL' })
+
+  const start = new Date(minDate)
+  const end = new Date(maxDate)
+
+  if (granularity === 'month') {
+    const cur = new Date(start.getFullYear(), start.getMonth(), 1)
+    while (cur <= end) {
+      const y = cur.getFullYear()
+      const m = cur.getMonth()
+      const periodStart = `${y}-${String(m + 1).padStart(2, '0')}-01`
+      const lastDay = new Date(y, m + 1, 0).getDate()
+      const periodEnd = `${y}-${String(m + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      const label = cur.toLocaleDateString('en-US', { year: 'numeric', month: 'short' })
+      intervals.push({ granularity: 'month', start: periodStart, end: periodEnd, label })
+      cur.setMonth(cur.getMonth() + 1)
+    }
+  } else if (granularity === 'quarter') {
+    const startQ = Math.floor(start.getMonth() / 3)
+    const cur = new Date(start.getFullYear(), startQ * 3, 1)
+    while (cur <= end) {
+      const y = cur.getFullYear()
+      const q = Math.floor(cur.getMonth() / 3) + 1
+      const qStartMonth = (q - 1) * 3
+      const qEndMonth = qStartMonth + 2
+      const periodStart = `${y}-${String(qStartMonth + 1).padStart(2, '0')}-01`
+      const lastDay = new Date(y, qEndMonth + 1, 0).getDate()
+      const periodEnd = `${y}-${String(qEndMonth + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+      intervals.push({ granularity: 'quarter', start: periodStart, end: periodEnd, label: `Q${q} ${y}` })
+      cur.setMonth(cur.getMonth() + 3)
+    }
+  } else {
+    // year
+    for (let y = start.getFullYear(); y <= end.getFullYear(); y++) {
+      intervals.push({
+        granularity: 'year',
+        start: `${y}-01-01`,
+        end: `${y}-12-31`,
+        label: String(y),
+      })
+    }
+  }
+
+  return intervals
+}
+
+/** SQL query to get the min and max visit start date from the visit table. */
+export function buildDateRangeQuery(mapping: SchemaMapping): string | null {
+  const vt = mapping.visitTable
+  if (!vt) return null
+  return `SELECT MIN("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS min_date, MAX("${vt.startDateColumn}"::TIMESTAMP)::VARCHAR AS max_date FROM "${vt.table}" WHERE "${vt.startDateColumn}" IS NOT NULL`
+}
+
+/**
+ * Build the SQL query for one period row (or the ALL row).
+ * Returns a query that produces exactly one row with columns:
+ *   n_patients, n_sejours, sex_m, sex_f, sex_other,
+ *   age_<label> for each age bracket,
+ *   svc_<label>_pat, svc_<label>_sej for each service,
+ *   cat_<label>_pat, cat_<label>_rows for each concept category.
+ */
+export function buildPeriodRowQuery(
+  mapping: SchemaMapping,
+  interval: PeriodInterval,
+  periodConfig: PeriodConfig,
+  ageBrackets: number[],
+  serviceLabels: string[],
+  smRules: ServiceMappingRule[] | undefined,
+  categoryColumn: string | undefined,
+  conceptCategories: string[],
+): string | null {
+  const pt = mapping.patientTable
+  const vt = mapping.visitTable
+  if (!pt || !vt) return null
+
+  const gv = mapping.genderValues
+
+  // WHERE clause for the period
+  const whereClause = interval.granularity === 'all'
+    ? '1=1'
+    : `"${vt.startDateColumn}"::TIMESTAMP BETWEEN '${interval.start}'::TIMESTAMP AND '${interval.end} 23:59:59'::TIMESTAMP`
+
+  // Age expression (at visit time)
+  const birthExpr = pt.birthDateColumn
+    ? `EXTRACT(YEAR FROM AGE(v."${vt.startDateColumn}"::TIMESTAMP, p."${pt.birthDateColumn}"::TIMESTAMP))`
+    : pt.birthYearColumn
+      ? `EXTRACT(YEAR FROM v."${vt.startDateColumn}"::TIMESTAMP) - p."${pt.birthYearColumn}"`
+      : null
+
+  // Service column expression
+  let serviceExpr: string | null = null
+  let serviceJoin = ''
+  if (periodConfig.serviceLevel === 'visit_detail' && mapping.visitDetailTable) {
+    const vd = mapping.visitDetailTable
+    if (vd.unitColumn) {
+      if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
+        serviceJoin = `LEFT JOIN "${vd.unitNameTable}" csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}"`
+        serviceExpr = applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)
+      } else {
+        serviceExpr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
+      }
+    }
+  } else if (periodConfig.serviceLevel === 'visit' && vt.typeColumn) {
+    serviceExpr = applyPeriodServiceMapping(`v."${vt.typeColumn}"`, smRules)
+  }
+
+  // visit_detail JOIN (if needed for service)
+  const vdJoin = periodConfig.serviceLevel === 'visit_detail' && mapping.visitDetailTable
+    ? `LEFT JOIN "${mapping.visitDetailTable.table}" vd ON v."${vt.idColumn}" = vd."${mapping.visitDetailTable.visitIdColumn}"`
+    : ''
+
+  // Event tables union for concept categories
+  const allEventParts: string[] = []
+  if (conceptCategories.length > 0 && categoryColumn && mapping.conceptTables) {
+    for (const dict of mapping.conceptTables) {
+      const extras = dict.extraColumns ?? {}
+      const catCol = extras[categoryColumn]
+      if (!catCol) continue
+      const eventEntries = getEventTablesForDictionary(mapping, dict.key)
+      for (const { eventTable: et } of eventEntries) {
+        const patCol = et.patientIdColumn ?? pt.idColumn
+        allEventParts.push(
+          `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM "${et.table}" e JOIN "${dict.table}" d ON e."${et.conceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
+        )
+        if (et.sourceConceptIdColumn) {
+          allEventParts.push(
+            `SELECT e."${patCol}" AS pid, d."${catCol}" AS cat FROM "${et.table}" e JOIN "${dict.table}" d ON e."${et.sourceConceptIdColumn}" = d."${dict.idColumn}" WHERE d."${catCol}" IS NOT NULL`,
+          )
+        }
+      }
+    }
+  }
+
+  const patIdCol = vt.patientIdColumn
+
+  // Build SELECT columns
+  const selects: string[] = [
+    `COUNT(DISTINCT v."${vt.idColumn}")::INTEGER AS n_sejours`,
+    `COUNT(DISTINCT v."${patIdCol}")::INTEGER AS n_patients`,
+  ]
+
+  // Sex columns
+  if (gv && pt.genderColumn) {
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.male)}' THEN v."${patIdCol}" END)::INTEGER AS sex_m`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" = '${esc(gv.female)}' THEN v."${patIdCol}" END)::INTEGER AS sex_f`)
+    selects.push(`COUNT(DISTINCT CASE WHEN p."${pt.genderColumn}" NOT IN ('${esc(gv.male)}', '${esc(gv.female)}') THEN v."${patIdCol}" END)::INTEGER AS sex_other`)
+  } else {
+    selects.push('NULL::INTEGER AS sex_m', 'NULL::INTEGER AS sex_f', 'NULL::INTEGER AS sex_other')
+  }
+
+  // Age bucket columns
+  if (birthExpr && ageBrackets.length > 0) {
+    const sorted = [...ageBrackets].sort((a, b) => a - b)
+    const bucketDefs: Array<{ lo: number; hi: number | null; label: string }> = []
+    if (sorted[0] > 0) bucketDefs.push({ lo: 0, hi: sorted[0], label: `[0;${sorted[0]}[` })
+    for (let i = 0; i < sorted.length; i++) {
+      const lo = sorted[i]
+      const hi = i < sorted.length - 1 ? sorted[i + 1] : null
+      const label = hi != null ? `[${lo};${hi}[` : `[${lo};+inf[`
+      bucketDefs.push({ lo, hi, label })
+    }
+    for (const b of bucketDefs) {
+      const cond = b.hi != null
+        ? `${birthExpr} >= ${b.lo} AND ${birthExpr} < ${b.hi}`
+        : `${birthExpr} >= ${b.lo}`
+      const alias = `age_${b.label.replace(/[^a-zA-Z0-9]/g, '_')}`
+      selects.push(`COUNT(DISTINCT CASE WHEN ${cond} THEN v."${patIdCol}" END)::INTEGER AS "${alias}"`)
+    }
+  }
+
+  // Service columns
+  if (serviceExpr && serviceLabels.length > 0) {
+    for (const svcLabel of serviceLabels) {
+      const escapedLabel = esc(svcLabel)
+      const aliasBase = svcLabel.replace(/[^a-zA-Z0-9]/g, '_')
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${patIdCol}" END)::INTEGER AS "svc_${aliasBase}_pat"`)
+      selects.push(`COUNT(DISTINCT CASE WHEN ${serviceExpr} = '${escapedLabel}' THEN v."${vt.idColumn}" END)::INTEGER AS "svc_${aliasBase}_sej"`)
+    }
+  }
+
+  // Concept category columns (via subquery join)
+  if (allEventParts.length > 0 && conceptCategories.length > 0) {
+    for (const cat of conceptCategories) {
+      const escapedCat = esc(cat)
+      const aliasBase = cat.replace(/[^a-zA-Z0-9]/g, '_')
+      selects.push(`COUNT(DISTINCT CASE WHEN ev.cat = '${escapedCat}' THEN v."${patIdCol}" END)::INTEGER AS "cat_${aliasBase}_pat"`)
+      selects.push(`SUM(CASE WHEN ev.cat = '${escapedCat}' THEN 1 ELSE 0 END)::INTEGER AS "cat_${aliasBase}_rows"`)
+    }
+  }
+
+  const eventsCte = allEventParts.length > 0
+    ? `,\nevents_cat AS (\n  SELECT DISTINCT pid, cat FROM (\n    ${allEventParts.join('\n    UNION ALL\n    ')}\n  ) _ev\n)`
+    : ''
+
+  const evJoin = allEventParts.length > 0
+    ? `LEFT JOIN events_cat ev ON v."${patIdCol}" = ev.pid`
+    : ''
+
+  return `WITH base_visits AS (
+  SELECT v."${vt.idColumn}" AS vid, v."${patIdCol}" AS pid
+  FROM "${vt.table}" v
+  WHERE ${whereClause}
+)${eventsCte}
+SELECT
+  ${selects.join(',\n  ')}
+FROM "${vt.table}" v
+JOIN "${pt.table}" p ON v."${patIdCol}" = p."${pt.idColumn}"
+${vdJoin}
+${serviceJoin}
+${evJoin}
+WHERE ${whereClause}`
+}
+
+function applyPeriodServiceMapping(expr: string, rules?: ServiceMappingRule[]): string {
+  if (!rules || rules.length === 0) return expr
+  const cases = rules
+    .filter((r) => r.rawValues.length > 0)
+    .map((r) => {
+      const inList = r.rawValues.map((v) => `'${esc(v)}'`).join(', ')
+      return `WHEN ${expr} IN (${inList}) THEN '${esc(r.groupLabel)}'`
+    })
+  if (cases.length === 0) return expr
+  return `CASE ${cases.join(' ')} ELSE ${expr} END`
+}
+
+/** Query to get all distinct service values (for building service columns). */
+export function buildServiceLabelsQuery(
+  mapping: SchemaMapping,
+  serviceLevel: 'visit' | 'visit_detail',
+  smRules?: ServiceMappingRule[],
+): string | null {
+  if (serviceLevel === 'visit_detail' && mapping.visitDetailTable) {
+    const vd = mapping.visitDetailTable
+    if (!vd.unitColumn) return null
+    let expr: string
+    if (vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
+      return `SELECT DISTINCT ${applyPeriodServiceMapping(`csn."${vd.unitNameColumn}"`, smRules)} AS svc_label FROM "${vd.table}" vd JOIN "${vd.unitNameTable}" csn ON vd."${vd.unitColumn}" = csn."${vd.unitNameIdColumn}" WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
+    } else {
+      expr = applyPeriodServiceMapping(`vd."${vd.unitColumn}"`, smRules)
+      return `SELECT DISTINCT ${expr} AS svc_label FROM "${vd.table}" vd WHERE vd."${vd.unitColumn}" IS NOT NULL ORDER BY svc_label`
+    }
+  }
+  const vt = mapping.visitTable
+  if (!vt?.typeColumn) return null
+  const expr = applyPeriodServiceMapping(`v."${vt.typeColumn}"`, smRules)
+  return `SELECT DISTINCT ${expr} AS svc_label FROM "${vt.table}" v WHERE v."${vt.typeColumn}" IS NOT NULL ORDER BY svc_label`
+}
+
+/** Query to get all distinct category values for a given category column key. */
+export function buildCategoryLabelsQuery(
+  mapping: SchemaMapping,
+  categoryColumn: string,
+): string | null {
+  if (!mapping.conceptTables) return null
+  const dict = mapping.conceptTables[0]
+  if (!dict) return null
+  const extras = dict.extraColumns ?? {}
+  const catCol = extras[categoryColumn]
+  if (!catCol) return null
+  return `SELECT DISTINCT "${catCol}" AS cat_label FROM "${dict.table}" WHERE "${catCol}" IS NOT NULL ORDER BY cat_label`
 }

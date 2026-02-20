@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, DimensionType } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogPeriodRow } from '@/types'
 
 interface Props {
   catalog: DataCatalog
@@ -401,43 +401,23 @@ function ConceptsView({ catalog, cache }: Props) {
   )
 }
 
-// ── Dimensions sub-tab ───────────────────────────────────────────
+// ── Periods sub-tab ──────────────────────────────────────────────
 
-const DIM_LABELS: Record<DimensionType, string> = {
-  age_group: 'dim_age_group',
-  sex: 'dim_sex',
-  admission_date: 'dim_admission_date',
-  care_site: 'dim_care_site',
+function MaskedCell({ value, threshold }: { value: number | null; threshold: number }) {
+  if (value === null) return <span className="text-amber-600 dark:text-amber-400">{'< ' + threshold}</span>
+  return <span>{value.toLocaleString()}</span>
 }
 
-function DimensionsView({ catalog, cache }: Props) {
+function PeriodsView({ catalog, cache }: Props) {
   const { t } = useTranslation()
   const threshold = catalog.anonymization.threshold
+  const periods = cache.periods ?? []
+  const reliabilityScore = cache.periodReliabilityScore ?? 0
 
-  const enabledDims = useMemo(
-    () => catalog.dimensions.filter((d) => d.enabled),
-    [catalog.dimensions],
-  )
+  const allRow = periods.find((r) => r.period_granularity === 'all')
+  const dataRows = periods.filter((r) => r.period_granularity !== 'all')
 
-  // Group dimension rows by dimensionId
-  const dimGroups = useMemo(() => {
-    const groups: Record<string, CatalogDimensionRow[]> = {}
-    for (const dim of enabledDims) {
-      groups[dim.id] = []
-    }
-    for (const row of cache.dimensions) {
-      if (groups[row.dimensionId]) {
-        groups[row.dimensionId].push(row)
-      }
-    }
-    // Sort each group by patientCount descending
-    for (const id in groups) {
-      groups[id].sort((a, b) => b.patientCount - a.patientCount)
-    }
-    return groups
-  }, [cache.dimensions, enabledDims])
-
-  if (enabledDims.length === 0) {
+  if (periods.length === 0) {
     return (
       <div className="py-12 text-center text-sm text-muted-foreground">
         {t('data_catalog.no_dimensions_enabled')}
@@ -445,49 +425,125 @@ function DimensionsView({ catalog, cache }: Props) {
     )
   }
 
+  // Collect all service labels and category labels from the data
+  const serviceLabels = allRow ? Object.keys(allRow.services) : []
+  const categoryLabels = allRow ? Object.keys(allRow.concept_categories) : []
+
+  // Get all age bucket labels from data (sorted)
+  const ageBucketLabels = allRow ? Object.keys(allRow.age_buckets) : []
+
+  const maskedPct = Math.round(reliabilityScore * 100)
+
   return (
-    <div className="space-y-6">
-      {enabledDims.map((dim) => {
-        const rows = dimGroups[dim.id] ?? []
-        return (
-          <div key={dim.id}>
-            <h3 className="mb-2 text-sm font-semibold">{t(`data_catalog.${DIM_LABELS[dim.type]}`)}</h3>
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('data_catalog.col_value')}</TableHead>
-                    <TableHead className="w-28 text-right">{t('data_catalog.col_patients')}</TableHead>
-                    <TableHead className="w-28 text-right">{t('data_catalog.col_visits')}</TableHead>
-                    <TableHead className="w-28 text-right">{t('data_catalog.col_records')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={4} className="py-4 text-center text-xs text-muted-foreground">
-                        {t('data_catalog.no_results')}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    rows.map((row, i) => {
-                      const isAnon = row.patientCount < threshold
-                      return (
-                        <TableRow key={`${row.value}-${i}`} className={isAnon ? 'text-amber-600 dark:text-amber-400' : undefined}>
-                          <TableCell className="text-sm">{row.value}</TableCell>
-                          <TableCell className="text-right font-mono text-xs">{formatCount(row.patientCount, threshold)}</TableCell>
-                          <TableCell className="text-right font-mono text-xs">{formatCount(row.visitCount, threshold)}</TableCell>
-                          <TableCell className="text-right font-mono text-xs">{formatCount(row.recordCount, threshold)}</TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          </div>
-        )
-      })}
+    <div className="space-y-3">
+      {/* Reliability indicator */}
+      <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${maskedPct > 20 ? 'border-amber-400/50 bg-amber-50 dark:bg-amber-950/20' : 'bg-muted/30'}`}>
+        <span className={maskedPct > 20 ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}>
+          {t('data_catalog.period_reliability_score', { pct: maskedPct })}
+        </span>
+        {maskedPct > 20 && (
+          <span className="text-amber-600 dark:text-amber-400">— {t('data_catalog.period_reliability_warning')}</span>
+        )}
+      </div>
+
+      {/* Scrollable table */}
+      <div className="overflow-x-auto rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="sticky left-0 z-10 min-w-28 bg-background">{t('data_catalog.period_col_period')}</TableHead>
+              <TableHead className="min-w-24 text-right">{t('data_catalog.period_col_n_patients')}</TableHead>
+              <TableHead className="min-w-24 text-right">{t('data_catalog.period_col_n_sejours')}</TableHead>
+              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_m')}</TableHead>
+              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_f')}</TableHead>
+              <TableHead className="min-w-16 text-right">{t('data_catalog.period_col_sex_other')}</TableHead>
+              {ageBucketLabels.map((label) => (
+                <TableHead key={label} className="min-w-20 text-right text-xs">{label}</TableHead>
+              ))}
+              {serviceLabels.map((svc) => (
+                <TableHead key={svc} className="min-w-28 text-right text-xs" colSpan={2}>{svc}</TableHead>
+              ))}
+              {categoryLabels.map((cat) => (
+                <TableHead key={cat} className="min-w-28 text-right text-xs" colSpan={2}>{cat}</TableHead>
+              ))}
+            </TableRow>
+            {/* Sub-header for services and categories */}
+            {(serviceLabels.length > 0 || categoryLabels.length > 0) && (
+              <TableRow className="bg-muted/30">
+                <TableHead className="sticky left-0 z-10 bg-muted/30" />
+                <TableHead /><TableHead /><TableHead /><TableHead /><TableHead />
+                {ageBucketLabels.map((label) => <TableHead key={label} />)}
+                {serviceLabels.map((svc) => (
+                  <>
+                    <TableHead key={`${svc}-pat`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_patients')}</TableHead>
+                    <TableHead key={`${svc}-sej`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_sejours')}</TableHead>
+                  </>
+                ))}
+                {categoryLabels.map((cat) => (
+                  <>
+                    <TableHead key={`${cat}-pat`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.period_col_n_patients')}</TableHead>
+                    <TableHead key={`${cat}-rows`} className="text-right text-[10px] text-muted-foreground">{t('data_catalog.col_records')}</TableHead>
+                  </>
+                ))}
+              </TableRow>
+            )}
+          </TableHeader>
+          <TableBody>
+            {/* ALL row first */}
+            {allRow && (
+              <TableRow className="bg-muted/20 font-medium">
+                <TableCell className="sticky left-0 z-10 bg-muted/20 text-xs font-semibold">{allRow.period_label}</TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.n_patients} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.n_sejours} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_m} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_f} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={allRow.sex_other} threshold={threshold} /></TableCell>
+                {ageBucketLabels.map((label) => (
+                  <TableCell key={label} className="text-right font-mono text-xs"><MaskedCell value={allRow.age_buckets[label] ?? null} threshold={threshold} /></TableCell>
+                ))}
+                {serviceLabels.map((svc) => (
+                  <>
+                    <TableCell key={`${svc}-pat`} className="text-right font-mono text-xs"><MaskedCell value={allRow.services[svc]?.n_patients ?? null} threshold={threshold} /></TableCell>
+                    <TableCell key={`${svc}-sej`} className="text-right font-mono text-xs"><MaskedCell value={allRow.services[svc]?.n_sejours ?? null} threshold={threshold} /></TableCell>
+                  </>
+                ))}
+                {categoryLabels.map((cat) => (
+                  <>
+                    <TableCell key={`${cat}-pat`} className="text-right font-mono text-xs"><MaskedCell value={allRow.concept_categories[cat]?.n_patients ?? null} threshold={threshold} /></TableCell>
+                    <TableCell key={`${cat}-rows`} className="text-right font-mono text-xs"><MaskedCell value={allRow.concept_categories[cat]?.n_rows ?? null} threshold={threshold} /></TableCell>
+                  </>
+                ))}
+              </TableRow>
+            )}
+            {/* Period rows */}
+            {dataRows.map((row) => (
+              <TableRow key={row.period_start}>
+                <TableCell className="sticky left-0 z-10 bg-background text-xs">{row.period_label}</TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.n_patients} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.n_sejours} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_m} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_f} threshold={threshold} /></TableCell>
+                <TableCell className="text-right font-mono text-xs"><MaskedCell value={row.sex_other} threshold={threshold} /></TableCell>
+                {ageBucketLabels.map((label) => (
+                  <TableCell key={label} className="text-right font-mono text-xs"><MaskedCell value={row.age_buckets[label] ?? null} threshold={threshold} /></TableCell>
+                ))}
+                {serviceLabels.map((svc) => (
+                  <>
+                    <TableCell key={`${svc}-pat`} className="text-right font-mono text-xs"><MaskedCell value={row.services[svc]?.n_patients ?? null} threshold={threshold} /></TableCell>
+                    <TableCell key={`${svc}-sej`} className="text-right font-mono text-xs"><MaskedCell value={row.services[svc]?.n_sejours ?? null} threshold={threshold} /></TableCell>
+                  </>
+                ))}
+                {categoryLabels.map((cat) => (
+                  <>
+                    <TableCell key={`${cat}-pat`} className="text-right font-mono text-xs"><MaskedCell value={row.concept_categories[cat]?.n_patients ?? null} threshold={threshold} /></TableCell>
+                    <TableCell key={`${cat}-rows`} className="text-right font-mono text-xs"><MaskedCell value={row.concept_categories[cat]?.n_rows ?? null} threshold={threshold} /></TableCell>
+                  </>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   )
 }
@@ -519,17 +575,19 @@ export function CatalogDataTab({ catalog, cache }: Props) {
         </Card>
       </div>
 
-      {/* Sub-tabs: Concepts / Dimensions */}
-      <Tabs defaultValue="concepts">
+      {/* Sub-tabs: Periods / Concepts */}
+      <Tabs defaultValue={cache.periods ? 'periods' : 'concepts'}>
         <TabsList>
+          {cache.periods && <TabsTrigger value="periods">{t('data_catalog.subtab_periods')}</TabsTrigger>}
           <TabsTrigger value="concepts">{t('data_catalog.subtab_concepts')}</TabsTrigger>
-          <TabsTrigger value="dimensions">{t('data_catalog.subtab_dimensions')}</TabsTrigger>
         </TabsList>
+        {cache.periods && (
+          <TabsContent value="periods" className="mt-4">
+            <PeriodsView catalog={catalog} cache={cache} />
+          </TabsContent>
+        )}
         <TabsContent value="concepts" className="mt-4">
           <ConceptsView catalog={catalog} cache={cache} />
-        </TabsContent>
-        <TabsContent value="dimensions" className="mt-4">
-          <DimensionsView catalog={catalog} cache={cache} />
         </TabsContent>
       </Tabs>
     </div>
