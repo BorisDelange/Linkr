@@ -417,6 +417,9 @@ const mimicIV: SchemaMapping = {
       nameColumn: 'label',
       categoryColumn: 'category',
     },
+    // Note: d_hcpcs, d_icd_diagnoses, d_icd_procedures are in knownTables (ERD, stats)
+    // but NOT in conceptTables — ICD/HCPCS codes map to OMOP via ATHENA vocabularies
+    // directly in ETL scripts, not through the STCM/mapping editor.
   ],
   eventTables: {
     'Chart events': {

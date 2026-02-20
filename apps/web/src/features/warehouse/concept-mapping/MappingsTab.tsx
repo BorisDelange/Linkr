@@ -54,11 +54,10 @@ import {
 } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import type { MappingProject, ConceptMapping, MappingComment, MappingStatus, DataSource } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
   project: MappingProject
-  dataSource?: DataSource
 }
 
 const PAGE_SIZE = 50
@@ -139,7 +138,7 @@ function ColumnFilterSelect({
 /** Column filter state for MappingsTab. */
 interface MappingColumnFilters {
   sourceConceptName?: string
-  sourceConceptId?: string
+  sourceConceptCode?: string
   sourceVocabularyId?: string | null
   targetConceptName?: string
   targetConceptId?: string
@@ -253,7 +252,7 @@ function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
   )
 }
 
-export function MappingsTab({ project, dataSource }: MappingsTabProps) {
+export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
 
@@ -292,7 +291,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const filtered = projectMappings.filter((m) => {
     const f = colFilters
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
-    if (f.sourceConceptId && !String(m.sourceConceptId).includes(f.sourceConceptId)) return false
+    if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
     if (f.sourceVocabularyId && m.sourceVocabularyId !== f.sourceVocabularyId) return false
     if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
@@ -344,8 +343,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (columnId === 'sourceConceptName') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
     }
-    if (columnId === 'sourceConceptId') {
-      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={colFilters.sourceConceptId ?? ''} onChange={(e) => updateFilter('sourceConceptId', e.target.value || null)} />
+    if (columnId === 'sourceConceptCode') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={colFilters.sourceConceptCode ?? ''} onChange={(e) => updateFilter('sourceConceptCode', e.target.value || null)} />
     }
     if (columnId === 'targetConceptName') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.targetConceptName ?? ''} onChange={(e) => updateFilter('targetConceptName', e.target.value || null)} />
@@ -458,18 +457,18 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         enableHiding: false,
       },
       {
-        id: 'sourceConceptId',
-        header: 'Source ID',
-        accessorFn: (row) => row.sourceConceptId,
-        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptId}</span>,
-        size: 70,
+        id: 'sourceConceptCode',
+        header: 'Code',
+        accessorFn: (row) => row.sourceConceptCode,
+        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptCode || row.original.sourceConceptId || ''}</span>,
+        size: 80,
         minSize: 50,
       },
       {
         id: 'sourceVocabularyId',
         header: () => t('concept_mapping.col_terminology'),
         accessorFn: (row) => row.sourceVocabularyId,
-        cell: ({ row }) => row.original.sourceVocabularyId || dataSource?.name || '',
+        cell: ({ row }) => row.original.sourceVocabularyId || '',
         size: 90,
         minSize: 50,
       },
@@ -656,7 +655,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, dataSource?.name])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect])
 
   const table = useReactTable({
     data: pageItems,

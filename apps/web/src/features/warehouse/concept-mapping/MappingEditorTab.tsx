@@ -268,7 +268,6 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             conceptDicts={dataSource.schemaMapping.conceptTables ?? []}
             mappingStatusMap={mappingStatusMap}
             mappingStatusFilter={mappingStatusFilter}
-            dataSourceName={dataSource.name}
             selectedConceptId={selectedSourceConceptId}
             onPageChange={setPage}
             onFiltersChange={setFilters}

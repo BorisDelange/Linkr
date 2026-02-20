@@ -140,8 +140,8 @@ export interface ConceptDictionary {
   key: string
   /** Table name (concept, d_items, dwh_thesaurus_data, concept). */
   table: string
-  /** Primary key column (concept_id, itemid, thesaurus_data_num). */
-  idColumn: string
+  /** Primary key column (concept_id, itemid, thesaurus_data_num). Optional for code-only tables (e.g. d_icd_diagnoses). */
+  idColumn?: string
   /** Human-readable name column (concept_name, label, concept_str). */
   nameColumn: string
   /** Optional code column within a vocabulary (concept_code). */

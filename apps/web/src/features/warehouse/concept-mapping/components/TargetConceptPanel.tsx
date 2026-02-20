@@ -170,9 +170,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   // Import batches for catalog dropdown
   const importBatches = project.importBatches ?? []
 
-  // Existing mappings for selected source concept
+  // Existing mappings for selected source concept (match by ID or by code for code-only tables)
   const existingMappings = sourceConcept
-    ? mappings.filter((m) => m.sourceConceptId === sourceConcept.concept_id)
+    ? mappings.filter((m) =>
+        m.sourceConceptId === sourceConcept.concept_id ||
+        (m.sourceConceptCode && sourceConcept.concept_code && m.sourceConceptCode === sourceConcept.concept_code)
+      )
     : []
 
   // Compute unique catalog source names from import batches

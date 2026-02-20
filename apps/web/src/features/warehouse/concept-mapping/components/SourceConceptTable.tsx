@@ -67,8 +67,6 @@ interface SourceConceptTableProps {
   mappingStatusMap: Map<number, string>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
-  /** Database name used as fallback when no terminology name is available. */
-  dataSourceName?: string
   onPageChange: (page: number) => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
@@ -154,7 +152,6 @@ export function SourceConceptTable({
   mappingStatusMap,
   mappingStatusFilter,
   selectedConceptId,
-  dataSourceName,
   onPageChange,
   onFiltersChange,
   onSortingChange,
@@ -203,8 +200,13 @@ export function SourceConceptTable({
     if (columnId === 'concept_name') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchText: e.target.value || undefined })} />
     }
-    if (columnId === 'terminology_name' && filterOptions.terminology_name?.length > 0) {
-      return <ColumnFilterSelect value={filters.terminologyName ?? null} options={filterOptions.terminology_name} placeholder="Terminology" onChange={(v) => onFiltersChange({ ...filters, terminologyName: v ?? undefined })} />
+    if (columnId === 'terminology_name') {
+      const termOpts = filterOptions.terminology_name?.length ? filterOptions.terminology_name : filterOptions.vocabulary_id
+      if (termOpts?.length) {
+        const filterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
+        const value = filterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId
+        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder="Terminology" onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} />
+      }
     }
     if (columnId === 'category' && filterOptions.category?.length > 0) {
       return <ColumnFilterSelect value={filters.category ?? null} options={filterOptions.category} placeholder="Category" onChange={(v) => onFiltersChange({ ...filters, category: v ?? undefined })} />
@@ -256,7 +258,7 @@ export function SourceConceptTable({
       id: 'terminology_name',
       header: () => t('concept_mapping.col_terminology'),
       accessorFn: (row) => row.terminology_name,
-      cell: ({ row }) => row.original.terminology_name || dataSourceName || '',
+      cell: ({ row }) => row.original.terminology_name || row.original.vocabulary_id || '',
       size: 110,
       minSize: 60,
     })
@@ -339,7 +341,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, dataSourceName, hasCategory, hasSubcategory, hasExtraColumns])
+  }, [t, mappingStatusMap, hasCategory, hasSubcategory, hasExtraColumns])
 
   const table = useReactTable({
     data: rows,

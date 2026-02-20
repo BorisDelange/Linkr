@@ -136,27 +136,33 @@ export function buildSourceConceptsCountQuery(
 /** Build SELECT parts for concept dictionaries (no counts). */
 function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
   return dicts.map((dict) => {
-    const idCol = dict.idColumn ?? 'concept_id'
+    // When idColumn is absent (code-only tables like d_icd_diagnoses), generate a
+    // deterministic integer hash from the code column so the rest of the pipeline
+    // (which expects concept_id as number) keeps working.
+    const idExpr = dict.idColumn
+      ? `d.${dict.idColumn} AS concept_id`
+      : `(hash(d.${dict.codeColumn ?? 'id'}) % 2147483647)::INTEGER AS concept_id`
     const nameCol = dict.nameColumn ?? 'concept_name'
-    const codeCol = dict.codeColumn ? `, ${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
+    const codeCol = dict.codeColumn ? `, d.${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
 
-    // Backward compat: support both terminologyIdColumn and deprecated vocabularyColumn
+    // Backward compat: support both terminologyIdColumn and deprecated vocabularyColumn.
+    // When neither exists, use the table name as a stable vocabulary identifier.
     const termIdCol = dict.terminologyIdColumn ?? dict.vocabularyColumn
-    const vocabCol = termIdCol ? `, ${termIdCol} AS vocabulary_id` : ", '' AS vocabulary_id"
+    const vocabCol = termIdCol ? `, d.${termIdCol} AS vocabulary_id` : `, '${dict.table}' AS vocabulary_id`
 
-    const termNameCol = dict.terminologyNameColumn ? `, ${dict.terminologyNameColumn} AS terminology_name` : ''
-    const categoryCol = dict.categoryColumn ? `, ${dict.categoryColumn} AS category` : ''
-    const subcategoryCol = dict.subcategoryColumn ? `, ${dict.subcategoryColumn} AS subcategory` : ''
+    const termNameCol = dict.terminologyNameColumn ? `, d.${dict.terminologyNameColumn} AS terminology_name` : ''
+    const categoryCol = dict.categoryColumn ? `, d.${dict.categoryColumn} AS category` : ''
+    const subcategoryCol = dict.subcategoryColumn ? `, d.${dict.subcategoryColumn} AS subcategory` : ''
 
     const extraCols: string[] = []
     if (dict.extraColumns) {
       for (const [alias, col] of Object.entries(dict.extraColumns)) {
-        extraCols.push(`, ${col} AS ${alias}`)
+        extraCols.push(`, d.${col} AS ${alias}`)
       }
     }
 
     return `SELECT
-      d.${idCol} AS concept_id,
+      ${idExpr},
       d.${nameCol} AS concept_name
       ${codeCol}
       ${vocabCol}
@@ -323,7 +329,11 @@ export function buildFilterOptionsQuery(
     else if (columnAlias === 'category') col = dict.categoryColumn
     else if (columnAlias === 'subcategory') col = dict.subcategoryColumn
     else if (dict.extraColumns?.[columnAlias]) col = dict.extraColumns[columnAlias]
-    if (!col) return null
+    // When no column exists for vocabulary_id, use the table name as a static value
+    if (!col) {
+      if (columnAlias === 'vocabulary_id') return `SELECT '${dict.table}' AS val`
+      return null
+    }
     return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${col} IS NOT NULL`
   }).filter(Boolean)
 

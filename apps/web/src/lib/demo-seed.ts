@@ -285,6 +285,8 @@ export async function seedMimicIVRawDatabase(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const SEED_KEY_VOCAB = 'linkr-demo-omop-vocab-seeded'
+/** Bump this version whenever omop-vocabulary Parquet files are updated to force re-seed. */
+const VOCAB_VERSION = 2
 const DEMO_VOCAB_DATASOURCE_ID = '00000000-0000-0000-0000-000000000004'
 const PARQUET_BASE_VOCAB = '/data/omop-vocabulary'
 
@@ -329,17 +331,29 @@ const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
  * and can be used as the vocabulary reference in any MappingProject.
  */
 export async function seedOmopVocabulary(): Promise<void> {
-  if (localStorage.getItem(SEED_KEY_VOCAB)) return
+  const seededVersion = Number(localStorage.getItem(SEED_KEY_VOCAB) || '0')
+  if (seededVersion >= VOCAB_VERSION) return
 
   try {
     const storage = getStorage()
 
-    // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
-    const existing = await storage.dataSources.getById(DEMO_VOCAB_DATASOURCE_ID)
-    if (existing) {
-      localStorage.setItem(SEED_KEY_VOCAB, '1')
-      console.info('[demo-seed] OMOP vocabulary already exists, skipping seed')
-      return
+    // Remove old vocabulary data source if upgrading from a previous version
+    if (seededVersion > 0) {
+      try {
+        await engine.unmountDataSource(DEMO_VOCAB_DATASOURCE_ID)
+      } catch { /* may not be mounted */ }
+      await storage.files.deleteByDataSource(DEMO_VOCAB_DATASOURCE_ID)
+      await storage.databaseStatsCache.delete(DEMO_VOCAB_DATASOURCE_ID)
+      await storage.dataSources.delete(DEMO_VOCAB_DATASOURCE_ID)
+      console.info(`[demo-seed] Removed old OMOP vocabulary (v${seededVersion} → v${VOCAB_VERSION})`)
+    } else {
+      // First-time guard: skip if datasource already exists in IndexedDB (localStorage/IDB desync)
+      const existing = await storage.dataSources.getById(DEMO_VOCAB_DATASOURCE_ID)
+      if (existing) {
+        localStorage.setItem(SEED_KEY_VOCAB, String(VOCAB_VERSION))
+        console.info('[demo-seed] OMOP vocabulary already exists, skipping seed')
+        return
+      }
     }
 
     const now = new Date().toISOString()
@@ -380,7 +394,7 @@ export async function seedOmopVocabulary(): Promise<void> {
       id: DEMO_VOCAB_DATASOURCE_ID,
       alias: 'omop_vocab',
       name: 'OMOP Vocabulary (MIMIC-IV Demo)',
-      description: 'Bundled OMOP vocabulary reference — 3 249 concepts from MIMIC-IV Demo OMOP. Use as vocabulary reference in concept mapping.',
+      description: 'Bundled OMOP vocabulary reference — 6 234 concepts from ATHENA. Use as vocabulary reference in concept mapping.',
       sourceType: 'database',
       connectionConfig,
       schemaMapping: ATHENA_SCHEMA_MAPPING,
@@ -401,7 +415,7 @@ export async function seedOmopVocabulary(): Promise<void> {
       stats,
     })
 
-    localStorage.setItem(SEED_KEY_VOCAB, '1')
+    localStorage.setItem(SEED_KEY_VOCAB, String(VOCAB_VERSION))
     console.info('[demo-seed] OMOP vocabulary reference seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed OMOP vocabulary:', err)
@@ -702,35 +716,46 @@ export async function seedDemoEtlFiles(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const SEED_KEY_CONCEPT_MAPPINGS = 'linkr-demo-concept-mappings-seeded'
+/** Bump this version whenever mimic-iv-concept-mappings.json is updated to force re-seed. */
+const CONCEPT_MAPPINGS_VERSION = 3
 
 /** Compact mapping row from mimic-iv-concept-mappings.json */
 interface CompactMapping {
-  sn: string; si: number; sc: string
+  sn: string; sc: string; sv: string
   ti: number; tn: string; tv: string; td: string; tc: string
 }
 
 /**
- * Seed 1 064 concept mappings from OHDSI's MIMIC-IV custom mapping CSVs.
+ * Seed 1 786 concept mappings from OHDSI's MIMIC-IV custom mapping CSVs.
  *
- * Fetches a compact JSON file produced from the 21 custom_mapping_csv files
- * in the mimic-iv-demo-omop repository (Apache 2.0 / OHDSI).
- * Only mappings whose target concept exists in our bundled OMOP vocabulary
- * are included.
+ * Only includes mappings whose source concept (itemid) exists in the bundled
+ * MIMIC-IV Demo d_items or d_labitems tables. The sv field contains the source
+ * table name (d_items or d_labitems) used as sourceVocabularyId for STCM generation.
  *
  * Must run after seedDemoMappingProject().
  */
 export async function seedDemoConceptMappings(): Promise<void> {
-  if (localStorage.getItem(SEED_KEY_CONCEPT_MAPPINGS)) return
+  const seededVersion = Number(localStorage.getItem(SEED_KEY_CONCEPT_MAPPINGS) || '0')
+  if (seededVersion >= CONCEPT_MAPPINGS_VERSION) return
 
   try {
     const storage = getStorage()
 
-    // Check if concept mappings already exist in IndexedDB (guard against localStorage/IDB desync)
-    const existingMappings = await storage.conceptMappings.getByProject(DEMO_MAPPING_PROJECT_ID)
-    if (existingMappings.length > 0) {
-      localStorage.setItem(SEED_KEY_CONCEPT_MAPPINGS, '1')
-      console.info('[demo-seed] Demo concept mappings already exist, skipping seed')
-      return
+    // Delete old mappings if upgrading from a previous version
+    if (seededVersion > 0) {
+      const old = await storage.conceptMappings.getByProject(DEMO_MAPPING_PROJECT_ID)
+      if (old.length > 0) {
+        await Promise.all(old.map((m) => storage.conceptMappings.delete(m.id)))
+        console.info(`[demo-seed] Removed ${old.length} old concept mappings (v${seededVersion} → v${CONCEPT_MAPPINGS_VERSION})`)
+      }
+    } else {
+      // First-time guard: skip if mappings already exist in IndexedDB (localStorage/IDB desync)
+      const existingMappings = await storage.conceptMappings.getByProject(DEMO_MAPPING_PROJECT_ID)
+      if (existingMappings.length > 0) {
+        localStorage.setItem(SEED_KEY_CONCEPT_MAPPINGS, String(CONCEPT_MAPPINGS_VERSION))
+        console.info('[demo-seed] Demo concept mappings already exist, skipping seed')
+        return
+      }
     }
 
     const now = new Date().toISOString()
@@ -742,11 +767,9 @@ export async function seedDemoConceptMappings(): Promise<void> {
     const mappings: ConceptMapping[] = raw.map((m, i) => ({
       id: `demo-mapping-${String(i).padStart(4, '0')}`,
       projectId: DEMO_MAPPING_PROJECT_ID,
-      // Use concept_code (sc) as sourceConceptId when it's numeric (= itemid in d_items/d_labitems),
-      // otherwise fall back to the OMOP custom vocabulary concept_id (si).
-      sourceConceptId: /^\d+$/.test(m.sc) ? Number(m.sc) : m.si,
+      sourceConceptId: Number(m.sc),
       sourceConceptName: m.sn,
-      sourceVocabularyId: '',
+      sourceVocabularyId: m.sv,
       sourceDomainId: '',
       sourceConceptCode: m.sc,
       targetConceptId: m.ti,
@@ -765,8 +788,8 @@ export async function seedDemoConceptMappings(): Promise<void> {
 
     await storage.conceptMappings.createBatch(mappings)
 
-    localStorage.setItem(SEED_KEY_CONCEPT_MAPPINGS, '1')
-    console.info(`[demo-seed] ${mappings.length} concept mappings seeded successfully`)
+    localStorage.setItem(SEED_KEY_CONCEPT_MAPPINGS, String(CONCEPT_MAPPINGS_VERSION))
+    console.info(`[demo-seed] ${mappings.length} concept mappings seeded successfully (v${CONCEPT_MAPPINGS_VERSION})`)
   } catch (err) {
     console.error('[demo-seed] Failed to seed concept mappings:', err)
   }
