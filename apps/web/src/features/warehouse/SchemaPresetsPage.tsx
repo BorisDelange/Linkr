@@ -825,9 +825,17 @@ function SchemaCard({
 }) {
   const { t } = useTranslation()
 
-  const tableCount = [mapping.patientTable, mapping.visitTable].filter(Boolean).length
-  const dictCount = mapping.conceptTables?.length ?? 0
-  const eventCount = mapping.eventTables ? Object.keys(mapping.eventTables).length : 0
+  // Count mapped tables (all distinct table names referenced in the mapping)
+  const mappedTableNames = new Set<string>()
+  if (mapping.patientTable) mappedTableNames.add(mapping.patientTable.table)
+  if (mapping.visitTable) mappedTableNames.add(mapping.visitTable.table)
+  if (mapping.visitDetailTable) mappedTableNames.add(mapping.visitDetailTable.table)
+  if (mapping.noteTable) mappedTableNames.add(mapping.noteTable.table)
+  if (mapping.visitDetailTable?.unitNameTable) mappedTableNames.add(mapping.visitDetailTable.unitNameTable)
+  mapping.conceptTables?.forEach((d) => mappedTableNames.add(d.table))
+  if (mapping.eventTables) Object.values(mapping.eventTables).forEach((e) => mappedTableNames.add(e.table))
+  const mappedCount = mappedTableNames.size
+  const totalCount = mapping.knownTables?.length ?? 0
 
   return (
     <div
@@ -846,12 +854,10 @@ function SchemaCard({
           <div className="flex-1 min-w-0">
             <span className="text-sm font-medium text-foreground">{mapping.presetLabel}</span>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {tableCount > 0 || dictCount > 0 || eventCount > 0
+              {totalCount > 0 || mappedCount > 0
                 ? [
-                    tableCount > 0 ? `${tableCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
-                    dictCount > 0 ? `${dictCount} ${t('settings.schema_preset_concept_dictionaries').toLowerCase()}` : null,
-                    eventCount > 0 ? `${eventCount} ${t('settings.schema_preset_event_tables').toLowerCase()}` : null,
-                    mapping.ddl ? 'DDL' : null,
+                    totalCount > 0 ? `${totalCount} ${t('settings.schema_preset_tables').toLowerCase()}` : null,
+                    mappedCount > 0 ? `${mappedCount} ${t('settings.schema_preset_mapped_tables').toLowerCase()}` : null,
                   ].filter(Boolean).join(', ')
                 : t('settings.schema_preset_no_mapping')}
             </p>
