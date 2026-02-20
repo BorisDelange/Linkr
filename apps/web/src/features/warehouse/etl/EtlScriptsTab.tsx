@@ -616,33 +616,53 @@ export function EtlScriptsTab({ pipelineId }: Props) {
 
                       if (isConsole) {
                         return (
-                          <button
-                            key={tabId}
-                            onClick={() => {
-                              setActiveOutputTab(tabId)
-                              if (!outputVisible) setOutputVisible(true)
-                            }}
-                            className={cn(
-                              'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                              isActive && outputVisible
-                                ? 'bg-primary/10 text-foreground'
-                                : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                            )}
-                          >
-                            <span>{t('files.console')}</span>
-                            <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                              {executionResults.length}
-                            </span>
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                clearExecutionResults()
-                              }}
-                              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                            >
-                              <X size={10} />
-                            </span>
-                          </button>
+                          <ContextMenu key={tabId}>
+                            <ContextMenuTrigger asChild>
+                              <button
+                                onClick={() => {
+                                  setActiveOutputTab(tabId)
+                                  if (!outputVisible) setOutputVisible(true)
+                                }}
+                                className={cn(
+                                  'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                  isActive && outputVisible
+                                    ? 'bg-primary/10 text-foreground'
+                                    : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                )}
+                              >
+                                <span>{t('files.console')}</span>
+                                <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
+                                  {executionResults.length}
+                                </span>
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    clearExecutionResults()
+                                  }}
+                                  className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                                >
+                                  <X size={10} />
+                                </span>
+                              </button>
+                            </ContextMenuTrigger>
+                            <ContextMenuContent>
+                              <ContextMenuItem onClick={() => clearExecutionResults()}>{t('files.close')}</ContextMenuItem>
+                              <ContextMenuItem onClick={() => {
+                                for (const id of outputTabOrder) {
+                                  if (id === '__exec_console__') clearExecutionResults()
+                                  else closeOutputTab(id)
+                                }
+                              }}>{t('files.close_all')}</ContextMenuItem>
+                              <ContextMenuItem onClick={() => {
+                                for (const id of outputTabOrder) {
+                                  if (id !== tabId) {
+                                    if (id === '__exec_console__') clearExecutionResults()
+                                    else closeOutputTab(id)
+                                  }
+                                }
+                              }}>{t('files.close_others')}</ContextMenuItem>
+                            </ContextMenuContent>
+                          </ContextMenu>
                         )
                       }
 
@@ -650,31 +670,51 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       if (!tab) return null
 
                       return (
-                        <button
-                          key={tab.id}
-                          onClick={() => {
-                            setActiveOutputTab(tab.id)
-                            if (!outputVisible) setOutputVisible(true)
-                          }}
-                          className={cn(
-                            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                            tab.id === activeOutputTab && outputVisible
-                              ? 'bg-primary/10 text-foreground'
-                              : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
-                          )}
-                        >
-                          {getTabIcon(tab.type)}
-                          <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
-                          <span
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              closeOutputTab(tab.id)
-                            }}
-                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                          >
-                            <X size={10} />
-                          </span>
-                        </button>
+                        <ContextMenu key={tab.id}>
+                          <ContextMenuTrigger asChild>
+                            <button
+                              onClick={() => {
+                                setActiveOutputTab(tab.id)
+                                if (!outputVisible) setOutputVisible(true)
+                              }}
+                              className={cn(
+                                'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                                tab.id === activeOutputTab && outputVisible
+                                  ? 'bg-primary/10 text-foreground'
+                                  : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                              )}
+                            >
+                              {getTabIcon(tab.type)}
+                              <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
+                              <span
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  closeOutputTab(tab.id)
+                                }}
+                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                              >
+                                <X size={10} />
+                              </span>
+                            </button>
+                          </ContextMenuTrigger>
+                          <ContextMenuContent>
+                            <ContextMenuItem onClick={() => closeOutputTab(tab.id)}>{t('files.close')}</ContextMenuItem>
+                            <ContextMenuItem onClick={() => {
+                              for (const id of outputTabOrder) {
+                                if (id === '__exec_console__') clearExecutionResults()
+                                else closeOutputTab(id)
+                              }
+                            }}>{t('files.close_all')}</ContextMenuItem>
+                            <ContextMenuItem onClick={() => {
+                              for (const id of outputTabOrder) {
+                                if (id !== tab.id) {
+                                  if (id === '__exec_console__') clearExecutionResults()
+                                  else closeOutputTab(id)
+                                }
+                              }
+                            }}>{t('files.close_others')}</ContextMenuItem>
+                          </ContextMenuContent>
+                        </ContextMenu>
                       )
                     })}
                   </div>

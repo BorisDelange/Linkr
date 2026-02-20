@@ -438,6 +438,31 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => { for (const f of sqlFiles) { if (f.disabled) updateFile(f.id, { disabled: false }) } }}
+                >
+                  <Power size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('etl.enable_all')}</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => { for (const f of sqlFiles) { if (!f.disabled) updateFile(f.id, { disabled: true }) } }}
+                >
+                  <Ban size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('etl.disable_all')}</TooltipContent>
+            </Tooltip>
+            <div className="mx-0.5 h-4 w-px bg-border" />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
                   variant={viewMode === 'list' ? 'secondary' : 'ghost'}
                   size="icon-xs"
                   onClick={() => setViewMode(viewMode === 'list' ? 'dag' : 'list')}
