@@ -1247,6 +1247,7 @@
     "schema_preset_tables": "Tables",
     "schema_preset_patient_table": "Table patient",
     "schema_preset_visit_table": "Table visite",
+    "schema_preset_visit_detail_table": "Table séjour en unité",
     "schema_preset_concept_dictionaries": "Dictionnaires de concepts",
     "schema_preset_event_tables": "Tables d'événements",
     "schema_preset_gender_values": "Valeurs de genre",

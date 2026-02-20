@@ -1246,6 +1246,7 @@
     "schema_preset_tables": "Tables",
     "schema_preset_patient_table": "Patient table",
     "schema_preset_visit_table": "Visit table",
+    "schema_preset_visit_detail_table": "Visit detail table",
     "schema_preset_concept_dictionaries": "Concept dictionaries",
     "schema_preset_event_tables": "Event tables",
     "schema_preset_gender_values": "Gender values",

@@ -326,6 +326,11 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
           mapping={mapping.visitTable as unknown as Record<string, string | undefined>}
         />
 
+        <TableSection
+          title={t('settings.schema_preset_visit_detail_table')}
+          mapping={mapping.visitDetailTable as unknown as Record<string, string | undefined>}
+        />
+
         {mapping.conceptTables && mapping.conceptTables.length > 0 && (
           <div>
             <h5 className="text-xs font-medium text-foreground mb-1">
@@ -525,6 +530,39 @@ function EditableEventTable({
   )
 }
 
+function EditableVisitDetailTable({
+  table,
+  onChange,
+}: {
+  table: SchemaMapping['visitDetailTable']
+  onChange: (t: SchemaMapping['visitDetailTable']) => void
+}) {
+  const { t } = useTranslation()
+  const val = table ?? { table: '', idColumn: '', visitIdColumn: '', patientIdColumn: '', startDateColumn: '' }
+
+  const update = (key: string, v: string) => {
+    onChange({ ...val, [key]: v || undefined } as typeof val)
+  }
+
+  return (
+    <div>
+      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_detail_table')}</h5>
+      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_detail" />
+        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_detail_id" />
+        <EditableField label="Visit ID" value={val.visitIdColumn} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
+        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
+        <EditableField label="Start date" value={val.startDateColumn} onChange={(v) => update('startDateColumn', v)} placeholder="visit_detail_start_datetime" />
+        <EditableField label="End date" value={val.endDateColumn ?? ''} onChange={(v) => update('endDateColumn', v)} placeholder="visit_detail_end_datetime" />
+        <EditableField label="Unit column" value={val.unitColumn ?? ''} onChange={(v) => update('unitColumn', v)} placeholder="care_site_id" />
+        <EditableField label="Unit name table" value={val.unitNameTable ?? ''} onChange={(v) => update('unitNameTable', v)} placeholder="care_site" />
+        <EditableField label="Unit name ID" value={val.unitNameIdColumn ?? ''} onChange={(v) => update('unitNameIdColumn', v)} placeholder="care_site_id" />
+        <EditableField label="Unit name column" value={val.unitNameColumn ?? ''} onChange={(v) => update('unitNameColumn', v)} placeholder="care_site_name" />
+      </div>
+    </div>
+  )
+}
+
 function EditableExtraColumns({
   extraColumns,
   onChange,
@@ -703,6 +741,11 @@ function PresetEditor({
           <EditableVisitTable
             table={mapping.visitTable}
             onChange={(visitTable) => onChange({ ...mapping, visitTable })}
+          />
+
+          <EditableVisitDetailTable
+            table={mapping.visitDetailTable}
+            onChange={(visitDetailTable) => onChange({ ...mapping, visitDetailTable })}
           />
 
           {/* Concept dictionaries */}
