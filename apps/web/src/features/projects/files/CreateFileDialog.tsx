@@ -59,12 +59,20 @@ const fileTypes = [
     iconColor: 'text-amber-500',
   },
   {
-    id: 'marimo',
-    label: 'files.type_marimo',
-    ext: '.py',
-    lang: 'python',
+    id: 'rmd',
+    label: 'files.type_rmd',
+    ext: '.Rmd',
+    lang: 'markdown',
     icon: Notebook,
-    iconColor: 'text-emerald-500',
+    iconColor: 'text-blue-500',
+  },
+  {
+    id: 'qmd',
+    label: 'files.type_qmd',
+    ext: '.qmd',
+    lang: 'markdown',
+    icon: Notebook,
+    iconColor: 'text-violet-500',
   },
   {
     id: 'md',
@@ -118,14 +126,19 @@ export function CreateFileDialog({
     e.preventDefault()
     if (!finalName || isDuplicate) return
     createFile(finalName, actualParentId, selectedType.lang)
-    // If creating a marimo notebook, inject boilerplate so it's detected as marimo
-    if (fileType === 'marimo') {
+
+    // Inject boilerplate for notebook file types
+    if (fileType === 'rmd' || fileType === 'qmd') {
       const { files: currentFiles, updateFileContent } = useFileStore.getState()
       const created = currentFiles.find((f) => f.name === finalName && f.parentId === actualParentId)
       if (created) {
-        updateFileContent(created.id, 'import marimo\n\napp = marimo.App()\n\n@app.cell\ndef __():\n    print("Hello from marimo!")\n    return\n')
+        const boilerplate = fileType === 'rmd'
+          ? '---\ntitle: "Untitled"\noutput: html_document\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{r setup}\nlibrary(dplyr)\n```\n'
+          : '---\ntitle: "Untitled"\nformat: html\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{python}\nimport pandas as pd\n```\n'
+        updateFileContent(created.id, boilerplate)
       }
     }
+
     setName('')
     setFileType('py')
     onOpenChange(false)

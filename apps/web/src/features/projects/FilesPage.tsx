@@ -72,7 +72,8 @@ import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
 
-const LazyMarimoNotebook = lazy(() => import('./files/MarimoNotebook').then(m => ({ default: m.MarimoNotebook })))
+const LazyIpynbViewer = lazy(() => import('./files/IpynbViewer').then(m => ({ default: m.IpynbViewer })))
+const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -205,10 +206,8 @@ export function FilesPage() {
   const undoAction = peekUndo()
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
-  const isMarimoNotebook = useMemo(() => {
-    if (!selectedNode?.content || !selectedNode.name.endsWith('.py')) return false
-    return selectedNode.content.includes('import marimo') || selectedNode.content.includes('marimo.App')
-  }, [selectedNode?.content, selectedNode?.name])
+  const isIpynbFile = selectedNode?.name.endsWith('.ipynb') ?? false
+  const isRmdNotebook = /\.(rmd|qmd)$/i.test(selectedNode?.name ?? '')
 
   // When a dataset file is selected, redirect it to an output tab instead of a file tab
   useEffect(() => {
@@ -698,7 +697,7 @@ export function FilesPage() {
                   <TooltipContent>{t('files.toggle_editor')}</TooltipContent>
                 </Tooltip>
 
-                {editorVisible && selectedNode && !isVirtualFile && (
+                {editorVisible && selectedNode && !isVirtualFile && !isIpynbFile && !isRmdNotebook && (
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <RunButton
@@ -1142,13 +1141,24 @@ export function FilesPage() {
                     <Allotment>
                       {/* Editor panel */}
                       <Allotment.Pane minSize={150} visible={editorVisible}>
-                        {selectedNode && isMarimoNotebook ? (
+                        {selectedNode && isIpynbFile ? (
                           <Suspense fallback={
                             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                              Loading Marimo...
+                              Loading notebook...
                             </div>
                           }>
-                            <LazyMarimoNotebook
+                            <LazyIpynbViewer
+                              key={selectedFileId}
+                              content={selectedNode.content ?? ''}
+                            />
+                          </Suspense>
+                        ) : selectedNode && isRmdNotebook ? (
+                          <Suspense fallback={
+                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                              Loading notebook...
+                            </div>
+                          }>
+                            <LazyRmdNotebook
                               key={selectedFileId}
                               content={selectedNode.content ?? ''}
                               onChange={isVirtualFile ? undefined : (v) =>

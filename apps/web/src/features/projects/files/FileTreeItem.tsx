@@ -48,7 +48,7 @@ interface FileTreeItemProps {
   selectedFileId: string | null
 }
 
-function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, content?: string) {
+function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, _content?: string) {
   if (type === 'folder') {
     return isOpen ? (
       <FolderOpen size={14} className="shrink-0 text-blue-400" />
@@ -57,21 +57,21 @@ function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, con
     )
   }
   const ext = name.split('.').pop()?.toLowerCase()
-  // Detect marimo notebooks before the generic .py case
-  if (ext === 'py' && content && (content.includes('import marimo') || content.includes('marimo.App'))) {
-    return <Notebook size={14} className="shrink-0 text-teal-500" />
-  }
+
   switch (ext) {
     case 'py':
       return <FileCode size={14} className="shrink-0 text-yellow-500" />
     case 'r':
-    case 'rmd':
-    case 'qmd':
       return <FileCode size={14} className="shrink-0 text-blue-500" />
+    case 'rmd':
+      return <Notebook size={14} className="shrink-0 text-blue-500" />
+    case 'qmd':
+      return <Notebook size={14} className="shrink-0 text-violet-500" />
+    case 'ipynb':
+      return <Notebook size={14} className="shrink-0 text-amber-500" />
     case 'sql':
       return <FileCode size={14} className="shrink-0 text-orange-400" />
     case 'json':
-    case 'ipynb':
       return <FileJson size={14} className="shrink-0 text-green-400" />
     case 'md':
       return <FileText size={14} className="shrink-0 text-muted-foreground" />
