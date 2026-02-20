@@ -1,4 +1,4 @@
-import { queryDataSource, discoverTables } from './engine'
+import { queryDataSource, discoverTables, schemaName } from './engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
 
@@ -83,9 +83,10 @@ interface ColumnInfo {
 }
 
 async function discoverColumns(dataSourceId: string, tableName: string): Promise<ColumnInfo[]> {
+  const schema = schemaName(dataSourceId)
   const rows = await queryDataSource(
     dataSourceId,
-    `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${tableName}' ORDER BY ordinal_position`,
+    `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_schema = '${schema}' AND table_name = '${tableName}' ORDER BY ordinal_position`,
   )
   return rows.map((r) => ({
     tableName,
@@ -398,7 +399,13 @@ export async function generateChecks(
     }
   }
 
-  return checks
+  // Deduplicate by ID (can happen if event tables share the same physical table)
+  const seen = new Set<string>()
+  return checks.filter((c) => {
+    if (seen.has(c.id)) return false
+    seen.add(c.id)
+    return true
+  })
 }
 
 // ---------------------------------------------------------------------------

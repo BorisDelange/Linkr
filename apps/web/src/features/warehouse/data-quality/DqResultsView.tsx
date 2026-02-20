@@ -86,7 +86,12 @@ export function DqResultsView({ dataSourceId, schemaMapping, customChecks, onSca
       const check = checkMap.get(r.checkId)
       if (!check) continue
       if (!filters.statuses.has(r.status)) continue
-      if (searchLower && !check.description.toLowerCase().includes(searchLower)) continue
+      if (
+        searchLower &&
+        !check.description.toLowerCase().includes(searchLower) &&
+        !check.name.toLowerCase().includes(searchLower) &&
+        !(check.tableName ?? '').toLowerCase().includes(searchLower)
+      ) continue
       if (!filters.categories.has(check.category)) continue
       if (filters.tables.size > 0 && (!check.tableName || !filters.tables.has(check.tableName))) continue
       if (!filters.severities.has(check.severity)) continue

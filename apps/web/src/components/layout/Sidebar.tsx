@@ -212,9 +212,12 @@ export function AppSidebar() {
   const buildPath = (segment: string) =>
     level === 'project' ? `${projBase}/${segment}` : `${wsBase}/${segment}`
 
+  const isPathActive = (path: string) =>
+    location.pathname === path || location.pathname.startsWith(path + '/')
+
   const renderSegmentSubItem = (item: SegmentNavItem) => {
     const path = buildPath(item.segment)
-    const isActive = location.pathname === path
+    const isActive = isPathActive(path)
     return (
       <SidebarMenuSubItem key={item.segment}>
         <SidebarMenuSubButton asChild isActive={isActive}>
@@ -229,7 +232,7 @@ export function AppSidebar() {
 
   const renderSegmentTopItem = (item: SegmentNavItem) => {
     const path = buildPath(item.segment)
-    const isActive = location.pathname === path
+    const isActive = isPathActive(path)
     return (
       <SidebarMenuItem key={item.segment}>
         <SidebarMenuButton asChild isActive={isActive} tooltip={t(item.labelKey)}>
@@ -244,7 +247,7 @@ export function AppSidebar() {
 
   const renderSegmentGroup = (entry: SegmentNavGroup) => {
     const isChildActive = entry.children.some(
-      (child) => location.pathname === buildPath(child.segment),
+      (child) => isPathActive(buildPath(child.segment)),
     )
 
     if (isCollapsed) {
@@ -260,7 +263,7 @@ export function AppSidebar() {
             <DropdownMenuContent side="right" align="start" className="min-w-[180px]">
               {entry.children.map((child) => {
                 const path = buildPath(child.segment)
-                const isActive = location.pathname === path
+                const isActive = isPathActive(path)
                 return (
                   <DropdownMenuItem
                     key={child.segment}

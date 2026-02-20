@@ -183,13 +183,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
       const pct = total > 0 ? ((violated / total) * 100).toFixed(1) : '0'
       const passed = threshold === 0 ? violated === 0 : Number(pct) <= threshold
 
+      const stats = `${violated} / ${total} violated rows (${pct}%) · threshold: ${threshold}%`
       if (passed) {
-        setTestResult({ success: true, message: t('data_quality.test_result_pass') })
+        setTestResult({ success: true, message: `${t('data_quality.test_result_pass')}\n${stats}` })
       } else {
-        setTestResult({
-          success: false,
-          message: t('data_quality.test_result_fail', { pct, violated, total }),
-        })
+        setTestResult({ success: false, message: `${t('data_quality.test_result_fail', { pct, violated, total })}\n${stats}` })
       }
     } catch (err) {
       setTestResult({
@@ -272,7 +270,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
           <Allotment proportionalLayout={false}>
             {/* Check list sidebar */}
             <Allotment.Pane preferredSize={280} minSize={180} maxSize={600} visible={sidebarVisible}>
-              <div className="flex h-full flex-col border-r">
+              <div className="flex h-full min-h-0 flex-col border-r">
                 <div className="flex items-center justify-between border-b px-3 py-1.5">
                   <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {t('data_quality.checks')}
@@ -324,7 +322,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   </div>
                 </div>
 
-                <ScrollArea className="flex-1">
+                <ScrollArea className="min-h-0 flex-1 overflow-hidden">
                   <div className="space-y-0.5 p-1.5">
                     {filterCount === 0 ? (
                       <div className="py-8 text-center">
