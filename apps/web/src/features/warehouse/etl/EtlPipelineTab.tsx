@@ -299,9 +299,16 @@ export function EtlPipelineTab({ pipelineId, onSelectFile }: Props) {
     const abort = useEtlStore.getState().pipelineRunAbort
     const { testConnection } = useDataSourceStore.getState()
 
-    // Ensure source + target are mounted
+    // Ensure source + target + vocabulary databases are mounted
     if (pipeline.sourceDataSourceId) await testConnection(pipeline.sourceDataSourceId)
     await testConnection(pipeline.targetDataSourceId)
+
+    // Mount any vocabulary reference databases (needed by 00a_vocabulary_tables)
+    const allDs = useDataSourceStore.getState().dataSources
+    const vocabSources = allDs.filter((ds) => ds.isVocabularyReference && ds.status === 'connected')
+    for (const vs of vocabSources) {
+      await testConnection(vs.id)
+    }
 
     let hasError = false
     for (const file of sqlFiles) {

@@ -15,7 +15,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import type { ConceptMapping, EtlFile, MappingStatus } from '@/types'
 
-const VOCAB_SCRIPT_NAME = '00_vocabulary_source_to_concept_map.sql'
+const VOCAB_SCRIPT_NAME = '00a_vocabulary_source_to_concept_map.sql'
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
@@ -89,7 +89,7 @@ function parseCsv(csv: string): ConceptMapping[] {
  * Create or update the vocabulary pipeline script with the given SQL content.
  * Always placed at order -1 so it appears first (before user scripts starting at 0+).
  */
-async function upsertVocabScript(pipelineId: string, sql: string) {
+async function upsertVocabScript(pipelineId: string, sql: string): Promise<'created' | 'updated'> {
   const { files, createFile, updateFile } = useEtlStore.getState()
   const existing = files.find((f) => f.name === VOCAB_SCRIPT_NAME && f.pipelineId === pipelineId)
 
@@ -97,6 +97,7 @@ async function upsertVocabScript(pipelineId: string, sql: string) {
 
   if (existing) {
     await updateFile(existing.id, { content: fullSql })
+    return 'updated'
   } else {
     const file: EtlFile = {
       id: crypto.randomUUID(),
@@ -110,6 +111,7 @@ async function upsertVocabScript(pipelineId: string, sql: string) {
       createdAt: new Date().toISOString(),
     }
     await createFile(file)
+    return 'created'
   }
 }
 
@@ -148,11 +150,10 @@ function filterMappings(
 
 export function EtlVocabularyTab({ pipelineId }: Props) {
   const { t } = useTranslation()
-  const { etlPipelines, files } = useEtlStore()
+  const { etlPipelines } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings } = useConceptMappingStore()
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
-  const existingScript = files.find((f) => f.name === VOCAB_SCRIPT_NAME && f.pipelineId === pipelineId)
 
   // Ensure mapping projects are loaded
   useEffect(() => {
@@ -161,7 +162,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('')
   const [creating, setCreating] = useState(false)
-  const [result, setResult] = useState<{ success: boolean; count: number; error?: string } | null>(null)
+  const [result, setResult] = useState<{ success: boolean; count: number; action?: 'created' | 'updated'; error?: string } | null>(null)
 
   // Status filter state (same pattern as ExportTab)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
@@ -213,8 +214,8 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
 
     try {
       const insertSql = buildInsertSql(filteredMappings)
-      if (insertSql) await upsertVocabScript(pipelineId, insertSql)
-      setResult({ success: true, count: filteredMappings.length })
+      const action = insertSql ? await upsertVocabScript(pipelineId, insertSql) : 'created'
+      setResult({ success: true, count: filteredMappings.length, action })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)
       setResult({ success: false, count: 0, error: msg })
@@ -244,8 +245,8 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         }
 
         const insertSql = buildInsertSql(parsed)
-        if (insertSql) await upsertVocabScript(pipelineId, insertSql)
-        setResult({ success: true, count: parsed.length })
+        const action = insertSql ? await upsertVocabScript(pipelineId, insertSql) : 'created'
+        setResult({ success: true, count: parsed.length, action })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         setResult({ success: false, count: 0, error: msg })
@@ -266,14 +267,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             {t('etl.vocab_description')}
           </p>
         </div>
-
-        {/* Existing script indicator */}
-        {existingScript && (
-          <div className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
-            <FileCode size={14} />
-            {t('etl.vocab_script_exists', { name: VOCAB_SCRIPT_NAME })}
-          </div>
-        )}
 
         {/* Option 1: From mapping project */}
         <div className="space-y-2">
@@ -298,7 +291,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
               <div className="space-y-1.5">
                 {STATUSES.map((status) => {
                   const count = statusCounts[status] ?? 0
-                  if (count === 0) return null
                   const checked = includedStatuses.has(status)
                   return (
                     <div key={status}>
@@ -388,7 +380,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             {result.success ? (
               <span className="flex items-center gap-1.5">
                 <Check size={14} />
-                {t('etl.vocab_script_created', { count: result.count })}
+                {t(result.action === 'updated' ? 'etl.vocab_script_updated' : 'etl.vocab_script_created', { count: result.count })}
               </span>
             ) : (
               <span className="flex items-center gap-1.5">
