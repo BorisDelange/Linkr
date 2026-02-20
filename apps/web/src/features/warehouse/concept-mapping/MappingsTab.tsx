@@ -73,15 +73,20 @@ const STATUS_BADGE: Record<MappingStatus, string> = {
   ignored: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
 }
 
-// ─── Equivalence short labels ────────────────────────────────────────
+// ─── Equivalence badge styling ────────────────────────────────────────
 
-const EQUIV_SHORT: Record<string, string> = {
-  'skos:exactMatch': 'Exact',
-  'skos:closeMatch': 'Close',
-  'skos:broadMatch': 'Broad',
-  'skos:narrowMatch': 'Narrow',
-  'skos:relatedMatch': 'Related',
-  equal: 'Exact', equivalent: 'Close', wider: 'Broad', narrower: 'Narrow', inexact: 'Related',
+const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
+  'skos:exactMatch':   { label: 'Exact',    className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
+  'skos:closeMatch':   { label: 'Close',    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' },
+  'skos:broadMatch':   { label: 'Broad',    className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400' },
+  'skos:narrowMatch':  { label: 'Narrow',   className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400' },
+  'skos:relatedMatch': { label: 'Related',  className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
+  // Legacy aliases
+  equal: { label: 'Exact', className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
+  equivalent: { label: 'Close', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' },
+  wider: { label: 'Broad', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400' },
+  narrower: { label: 'Narrow', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400' },
+  inexact: { label: 'Related', className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
 }
 
 /** Get human-readable label for a TanStack column def. */
@@ -142,7 +147,6 @@ interface MappingColumnFilters {
   targetDomainId?: string | null
   status?: string | null
   equivalence?: string | null
-  mappingType?: string | null
   mappedBy?: string
 }
 
@@ -259,15 +263,24 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [editMode, setEditMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ createdAt: false, mappedBy: false })
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    createdAt: false,
+    mappedBy: false,
+    sourceConceptClassId: false,
+    sourceDomainId: false,
+    sourceCategoryId: false,
+    sourceSubcategoryId: false,
+    targetConceptClassId: false,
+    targetDomainId: false,
+  })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
   const projectMappings = mappings.filter((m) => m.projectId === project.id)
 
   // Compute distinct values for dropdown filters
   const filterOptions = useMemo(() => {
-    const unique = (fn: (m: ConceptMapping) => string) =>
-      [...new Set(projectMappings.map(fn))].filter(Boolean).sort()
+    const unique = (fn: (m: ConceptMapping) => string | undefined) =>
+      [...new Set(projectMappings.map(fn))].filter((v): v is string => Boolean(v)).sort()
     return {
       sourceVocabularyId: unique((m) => m.sourceVocabularyId),
       sourceDomainId: unique((m) => m.sourceDomainId),
@@ -275,7 +288,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
       targetDomainId: unique((m) => m.targetDomainId),
       status: unique((m) => m.status),
       equivalence: unique((m) => m.equivalence),
-      mappingType: unique((m) => m.mappingType),
     }
   }, [projectMappings])
 
@@ -292,7 +304,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (f.targetDomainId && m.targetDomainId !== f.targetDomainId) return false
     if (f.status && m.status !== f.status) return false
     if (f.equivalence && m.equivalence !== f.equivalence) return false
-    if (f.mappingType && m.mappingType !== f.mappingType) return false
     if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
     return true
   })
@@ -367,9 +378,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     }
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
       return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={filterOptions.equivalence} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
-    }
-    if (columnId === 'mappingType' && filterOptions.mappingType.length > 0) {
-      return <ColumnFilterSelect value={colFilters.mappingType ?? null} options={filterOptions.mappingType} placeholder="Type" onChange={(v) => updateFilter('mappingType', v)} />
     }
     return null
   }
@@ -466,19 +474,44 @@ export function MappingsTab({ project }: MappingsTabProps) {
       },
       {
         id: 'sourceVocabularyId',
-        header: () => t('concept_mapping.col_source') + ' Vocab',
+        header: () => t('concept_mapping.col_terminology'),
         accessorFn: (row) => row.sourceVocabularyId,
         cell: ({ row }) => row.original.sourceVocabularyId,
-        size: 80,
+        size: 90,
         minSize: 50,
+      },
+      // Hidden by default: source OMOP-specific columns
+      {
+        id: 'sourceConceptClassId',
+        header: () => t('concept_mapping.col_concept_class_id'),
+        accessorFn: (row) => row.sourceConceptClassId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceConceptClassId ?? ''}</span>,
+        size: 90,
+        minSize: 60,
       },
       {
         id: 'sourceDomainId',
-        header: () => t('concept_mapping.col_source') + ' Domain',
+        header: () => t('concept_mapping.col_domain_id'),
         accessorFn: (row) => row.sourceDomainId,
-        cell: ({ row }) => row.original.sourceDomainId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceDomainId ?? ''}</span>,
         size: 90,
         minSize: 50,
+      },
+      {
+        id: 'sourceCategoryId',
+        header: () => t('concept_mapping.col_category'),
+        accessorFn: (row) => row.sourceCategoryId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceCategoryId ?? ''}</span>,
+        size: 90,
+        minSize: 60,
+      },
+      {
+        id: 'sourceSubcategoryId',
+        header: () => t('concept_mapping.col_subcategory'),
+        accessorFn: (row) => row.sourceSubcategoryId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.sourceSubcategoryId ?? ''}</span>,
+        size: 90,
+        minSize: 60,
       },
       {
         id: 'targetConceptName',
@@ -507,18 +540,47 @@ export function MappingsTab({ project }: MappingsTabProps) {
       },
       {
         id: 'targetVocabularyId',
-        header: () => t('concept_mapping.col_vocab'),
+        header: () => t('concept_mapping.col_terminology'),
         accessorFn: (row) => row.targetVocabularyId,
         cell: ({ row }) => row.original.targetVocabularyId,
-        size: 80,
+        size: 90,
         minSize: 50,
+      },
+      // Hidden by default: target OMOP-specific columns
+      {
+        id: 'targetConceptClassId',
+        header: () => t('concept_mapping.col_concept_class_id'),
+        accessorFn: (row) => row.targetConceptClassId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.targetConceptClassId ?? ''}</span>,
+        size: 90,
+        minSize: 60,
       },
       {
         id: 'targetDomainId',
-        header: () => t('concept_mapping.col_target') + ' Domain',
+        header: () => t('concept_mapping.col_domain_id'),
         accessorFn: (row) => row.targetDomainId,
-        cell: ({ row }) => row.original.targetDomainId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.targetDomainId ?? ''}</span>,
         size: 90,
+        minSize: 50,
+      },
+      {
+        id: 'equivalence',
+        header: () => t('concept_mapping.col_equiv'),
+        accessorFn: (row) => row.equivalence,
+        cell: ({ row }) => {
+          const equiv = row.original.equivalence
+          const badge = EQUIV_BADGE[equiv]
+          if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
+          return (
+            <Badge
+              variant="secondary"
+              className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}
+            >
+              {badge.label}
+            </Badge>
+          )
+        },
+        size: 70,
         minSize: 50,
       },
       {
@@ -536,30 +598,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 80,
         minSize: 60,
         enableHiding: false,
-      },
-      {
-        id: 'equivalence',
-        header: () => t('concept_mapping.col_equiv'),
-        accessorFn: (row) => row.equivalence,
-        cell: ({ row }) => (
-          <span className="text-[10px] text-muted-foreground">
-            {EQUIV_SHORT[row.original.equivalence] ?? row.original.equivalence}
-          </span>
-        ),
-        size: 70,
-        minSize: 50,
-      },
-      {
-        id: 'mappingType',
-        header: 'Type',
-        accessorFn: (row) => row.mappingType,
-        cell: ({ row }) => (
-          <span className="text-[10px] text-muted-foreground">
-            {row.original.mappingType}
-          </span>
-        ),
-        size: 90,
-        minSize: 50,
       },
       {
         id: 'createdAt',

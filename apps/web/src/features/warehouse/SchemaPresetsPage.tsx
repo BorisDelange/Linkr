@@ -238,7 +238,12 @@ function ConceptDictionarySection({ dict }: { dict: ConceptDictionary }) {
         <DetailRow label="ID column" value={dict.idColumn} />
         <DetailRow label="Name column" value={dict.nameColumn} />
         {dict.codeColumn && <DetailRow label="Code column" value={dict.codeColumn} />}
-        {dict.vocabularyColumn && <DetailRow label="Vocabulary column" value={dict.vocabularyColumn} />}
+        {(dict.terminologyIdColumn ?? dict.vocabularyColumn) && (
+          <DetailRow label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn} />
+        )}
+        {dict.terminologyNameColumn && <DetailRow label="Terminology name" value={dict.terminologyNameColumn} />}
+        {dict.categoryColumn && <DetailRow label="Category column" value={dict.categoryColumn} />}
+        {dict.subcategoryColumn && <DetailRow label="Subcategory column" value={dict.subcategoryColumn} />}
         {dict.extraColumns && Object.entries(dict.extraColumns).map(([k, v]) => (
           <DetailRow key={k} label={`Extra: ${k}`} value={v} />
         ))}
@@ -294,21 +299,8 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left column: known tables, patient, gender, visit, concept dictionaries */}
+      {/* Left column: patient, gender, visit, concept dictionaries */}
       <div className="space-y-4">
-        {mapping.knownTables && mapping.knownTables.length > 0 && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_known_tables')} ({mapping.knownTables.length})
-            </h5>
-            <div className="rounded-md border bg-muted/30 px-3 py-2">
-              <p className="text-xs font-mono text-muted-foreground leading-relaxed">
-                {mapping.knownTables.join(', ')}
-              </p>
-            </div>
-          </div>
-        )}
-
         <TableSection
           title={t('settings.schema_preset_patient_table')}
           mapping={mapping.patientTable as unknown as Record<string, string | undefined>}
@@ -348,7 +340,7 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
         )}
       </div>
 
-      {/* Right column: event tables */}
+      {/* Right column: event tables + known tables */}
       <div className="space-y-4">
         {mapping.eventTables && Object.keys(mapping.eventTables).length > 0 && (
           <div>
@@ -359,6 +351,19 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
               {Object.entries(mapping.eventTables).map(([label, et]) => (
                 <EventTableSection key={label} label={label} et={et} />
               ))}
+            </div>
+          </div>
+        )}
+
+        {mapping.knownTables && mapping.knownTables.length > 0 && (
+          <div>
+            <h5 className="text-xs font-medium text-foreground mb-1">
+              {t('settings.schema_preset_known_tables')} ({mapping.knownTables.length})
+            </h5>
+            <div className="rounded-md border bg-muted/30 px-3 py-2">
+              <p className="text-xs font-mono text-muted-foreground leading-relaxed">
+                {mapping.knownTables.join(', ')}
+              </p>
             </div>
           </div>
         )}
@@ -520,6 +525,75 @@ function EditableEventTable({
   )
 }
 
+function EditableExtraColumns({
+  extraColumns,
+  onChange,
+}: {
+  extraColumns: Record<string, string> | undefined
+  onChange: (ec: Record<string, string> | undefined) => void
+}) {
+  const entries = Object.entries(extraColumns ?? {})
+
+  const addEntry = () => {
+    onChange({ ...(extraColumns ?? {}), '': '' })
+  }
+
+  const updateKey = (oldKey: string, newKey: string, index: number) => {
+    const newEc: Record<string, string> = {}
+    let i = 0
+    for (const [k, v] of Object.entries(extraColumns ?? {})) {
+      if (i === index) {
+        newEc[newKey] = v
+      } else {
+        newEc[k] = v
+      }
+      i++
+    }
+    onChange(Object.keys(newEc).length > 0 ? newEc : undefined)
+  }
+
+  const updateValue = (key: string, value: string) => {
+    onChange({ ...(extraColumns ?? {}), [key]: value })
+  }
+
+  const removeEntry = (key: string) => {
+    const newEc = { ...(extraColumns ?? {}) }
+    delete newEc[key]
+    onChange(Object.keys(newEc).length > 0 ? newEc : undefined)
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <Label className="text-xs text-muted-foreground">Extra columns</Label>
+        <Button variant="ghost" size="sm" onClick={addEntry} className="h-5 text-[10px] gap-0.5 px-1.5">
+          <Plus size={9} />
+          Add
+        </Button>
+      </div>
+      {entries.map(([key, val], i) => (
+        <div key={i} className="flex items-center gap-1">
+          <Input
+            value={key}
+            onChange={(e) => updateKey(key, e.target.value, i)}
+            placeholder="alias"
+            className="h-6 text-[11px] font-mono flex-1"
+          />
+          <Input
+            value={val}
+            onChange={(e) => updateValue(key, e.target.value)}
+            placeholder="column_name"
+            className="h-6 text-[11px] font-mono flex-1"
+          />
+          <Button variant="ghost" size="icon-sm" onClick={() => removeEntry(key)} className="h-5 w-5 shrink-0">
+            <X size={10} />
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function EditableConceptDict({
   dict,
   onChange,
@@ -550,7 +624,14 @@ function EditableConceptDict({
       <EditableField label="ID column" value={dict.idColumn} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
       <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />
       <EditableField label="Code column" value={dict.codeColumn ?? ''} onChange={(v) => update('codeColumn', v)} />
-      <EditableField label="Vocabulary" value={dict.vocabularyColumn ?? ''} onChange={(v) => update('vocabularyColumn', v)} />
+      <EditableField label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn ?? ''} onChange={(v) => update('terminologyIdColumn', v)} placeholder="vocabulary_id" />
+      <EditableField label="Terminology name" value={dict.terminologyNameColumn ?? ''} onChange={(v) => update('terminologyNameColumn', v)} placeholder="vocabulary_name" />
+      <EditableField label="Category column" value={dict.categoryColumn ?? ''} onChange={(v) => update('categoryColumn', v)} placeholder="category" />
+      <EditableField label="Subcategory column" value={dict.subcategoryColumn ?? ''} onChange={(v) => update('subcategoryColumn', v)} placeholder="subcategory" />
+      <EditableExtraColumns
+        extraColumns={dict.extraColumns}
+        onChange={(ec) => onChange({ ...dict, extraColumns: ec })}
+      />
     </div>
   )
 }
@@ -607,11 +688,16 @@ function PresetEditor({
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left column: structural tables + gender */}
+        {/* Left column: patient, gender, visit, concept dictionaries */}
         <div className="space-y-4">
           <EditablePatientTable
             table={mapping.patientTable}
             onChange={(patientTable) => onChange({ ...mapping, patientTable })}
+          />
+
+          <EditableGenderValues
+            genderValues={mapping.genderValues}
+            onChange={(genderValues) => onChange({ ...mapping, genderValues })}
           />
 
           <EditableVisitTable
@@ -619,14 +705,6 @@ function PresetEditor({
             onChange={(visitTable) => onChange({ ...mapping, visitTable })}
           />
 
-          <EditableGenderValues
-            genderValues={mapping.genderValues}
-            onChange={(genderValues) => onChange({ ...mapping, genderValues })}
-          />
-        </div>
-
-        {/* Right column: concept dictionaries + event tables */}
-        <div className="space-y-4">
           {/* Concept dictionaries */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -649,7 +727,10 @@ function PresetEditor({
               ))}
             </div>
           </div>
+        </div>
 
+        {/* Right column: event tables */}
+        <div className="space-y-4">
           {/* Event tables */}
           <div>
             <div className="flex items-center justify-between mb-2">

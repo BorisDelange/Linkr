@@ -19,8 +19,11 @@ import type { MappingProject, DataSource } from '@/types'
 export interface SourceConceptRow {
   concept_id: number
   concept_name: string
-  concept_code: string
-  vocabulary_id: string
+  concept_code?: string
+  vocabulary_id?: string
+  terminology_name?: string
+  category?: string
+  subcategory?: string
   domain_id?: string
   concept_class_id?: string
   standard_concept?: string
@@ -100,7 +103,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
     const loadOptions = async () => {
       await ensureMounted(dataSource.id)
       const opts: Record<string, string[]> = {}
-      for (const col of ['vocabulary_id', 'domain_id', 'concept_class_id']) {
+      for (const col of ['vocabulary_id', 'terminology_name', 'category', 'subcategory', 'domain_id', 'concept_class_id']) {
         const sql = buildFilterOptionsQuery(mapping, col)
         if (!sql) continue
         try {
@@ -262,6 +265,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             filters={filters}
             sorting={sorting}
             filterOptions={filterOptions}
+            conceptDicts={dataSource.schemaMapping.conceptTables ?? []}
             mappingStatusMap={mappingStatusMap}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}

@@ -133,15 +133,24 @@ export interface ConceptMapping {
   sourceDomainId: string
   sourceConceptCode: string
   sourceFrequency?: number
+  /** Source concept category (from categoryColumn in concept dictionary). */
+  sourceCategoryId?: string
+  /** Source concept subcategory (from subcategoryColumn in concept dictionary). */
+  sourceSubcategoryId?: string
+  /** Source concept class (from extraColumns.concept_class_id, OMOP-specific). */
+  sourceConceptClassId?: string
   // Target
   targetConceptId: number
   targetConceptName: string
   targetVocabularyId: string
   targetDomainId: string
   targetConceptCode: string
+  /** Target concept class (e.g. concept_class_id in OMOP vocabulary). */
+  targetConceptClassId?: string
   // Mapping metadata
   conceptSetId?: string
-  mappingType: MappingType
+  /** @deprecated Not used in UI or exports. Kept for data compatibility. */
+  mappingType?: MappingType
   equivalence: MappingEquivalence
   status: MappingStatus
   matchScore?: number

@@ -112,10 +112,10 @@ const omop54: SchemaMapping = {
       idColumn: 'concept_id',
       nameColumn: 'concept_name',
       codeColumn: 'concept_code',
-      vocabularyColumn: 'vocabulary_id',
+      terminologyIdColumn: 'vocabulary_id',
+      categoryColumn: 'domain_id',
+      subcategoryColumn: 'concept_class_id',
       extraColumns: {
-        domain_id: 'domain_id',
-        concept_class_id: 'concept_class_id',
         standard_concept: 'standard_concept',
       },
     },
@@ -277,19 +277,15 @@ const mimicIII: SchemaMapping = {
       table: 'd_items',
       idColumn: 'itemid',
       nameColumn: 'label',
-      vocabularyColumn: 'dbsource',
-      extraColumns: {
-        category: 'category',
-      },
+      terminologyIdColumn: 'dbsource',
+      categoryColumn: 'category',
     },
     {
       key: 'd_labitems',
       table: 'd_labitems',
       idColumn: 'itemid',
       nameColumn: 'label',
-      extraColumns: {
-        category: 'category',
-      },
+      categoryColumn: 'category',
     },
   ],
   eventTables: {
@@ -411,18 +407,14 @@ const mimicIV: SchemaMapping = {
       table: 'd_items',
       idColumn: 'itemid',
       nameColumn: 'label',
-      extraColumns: {
-        category: 'category',
-      },
+      categoryColumn: 'category',
     },
     {
       key: 'd_labitems',
       table: 'd_labitems',
       idColumn: 'itemid',
       nameColumn: 'label',
-      extraColumns: {
-        category: 'category',
-      },
+      categoryColumn: 'category',
     },
   ],
   eventTables: {

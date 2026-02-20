@@ -7,6 +7,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -154,6 +155,13 @@ export function Header() {
       if (cmMatch) {
         const mp = mappingProjects.find((p) => p.id === cmMatch[1])
         return mp?.name ?? t('app_warehouse.nav_concept_mapping')
+      }
+
+      // Schema detail: show preset label
+      const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
+      if (schemaMatch) {
+        const preset = SCHEMA_PRESETS[schemaMatch[1]]
+        return preset?.presetLabel ?? schemaMatch[1]
       }
 
       const key = workspaceSegmentTitleKeys[segment]

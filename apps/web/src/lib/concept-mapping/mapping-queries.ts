@@ -17,6 +17,9 @@ export interface SourceConceptFilters {
   searchId?: string
   searchCode?: string
   vocabularyId?: string
+  terminologyName?: string
+  category?: string
+  subcategory?: string
   domainId?: string
   conceptClassId?: string
 }
@@ -83,7 +86,6 @@ export function buildAllConceptCountsQuery(
   const allParts: string[] = []
 
   for (const dict of dicts) {
-    const idCol = dict.idColumn ?? 'concept_id'
     const eventTables = getEventTablesForDictionary(mapping, dict.key)
     if (eventTables.length === 0) continue
 
@@ -137,7 +139,14 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
     const idCol = dict.idColumn ?? 'concept_id'
     const nameCol = dict.nameColumn ?? 'concept_name'
     const codeCol = dict.codeColumn ? `, ${dict.codeColumn} AS concept_code` : ", '' AS concept_code"
-    const vocabCol = dict.vocabularyColumn ? `, ${dict.vocabularyColumn} AS vocabulary_id` : ", '' AS vocabulary_id"
+
+    // Backward compat: support both terminologyIdColumn and deprecated vocabularyColumn
+    const termIdCol = dict.terminologyIdColumn ?? dict.vocabularyColumn
+    const vocabCol = termIdCol ? `, ${termIdCol} AS vocabulary_id` : ", '' AS vocabulary_id"
+
+    const termNameCol = dict.terminologyNameColumn ? `, ${dict.terminologyNameColumn} AS terminology_name` : ''
+    const categoryCol = dict.categoryColumn ? `, ${dict.categoryColumn} AS category` : ''
+    const subcategoryCol = dict.subcategoryColumn ? `, ${dict.subcategoryColumn} AS subcategory` : ''
 
     const extraCols: string[] = []
     if (dict.extraColumns) {
@@ -151,6 +160,9 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
       d.${nameCol} AS concept_name
       ${codeCol}
       ${vocabCol}
+      ${termNameCol}
+      ${categoryCol}
+      ${subcategoryCol}
       ${extraCols.join('')}
     FROM ${dict.table} d`
   })
@@ -172,6 +184,9 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
   }
   if (filters.vocabularyId) conditions.push(`vocabulary_id = '${esc(filters.vocabularyId)}'`)
+  if (filters.terminologyName) conditions.push(`terminology_name = '${esc(filters.terminologyName)}'`)
+  if (filters.category) conditions.push(`category = '${esc(filters.category)}'`)
+  if (filters.subcategory) conditions.push(`subcategory = '${esc(filters.subcategory)}'`)
   if (filters.domainId) conditions.push(`domain_id = '${esc(filters.domainId)}'`)
   if (filters.conceptClassId) conditions.push(`concept_class_id = '${esc(filters.conceptClassId)}'`)
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
@@ -210,7 +225,7 @@ export function buildStandardConceptSearchQuery(
   const idCol = dict.idColumn ?? 'concept_id'
   const nameCol = dict.nameColumn ?? 'concept_name'
   const codeCol = dict.codeColumn ?? 'concept_code'
-  const vocabCol = dict.vocabularyColumn ?? 'vocabulary_id'
+  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
 
   const conditions: string[] = []
 
@@ -229,14 +244,16 @@ export function buildStandardConceptSearchQuery(
       conditions.push(`d.${dict.extraColumns.standard_concept} = '${esc(filters.standardConcept)}'`)
     }
   }
-  if (filters?.domainId && dict.extraColumns?.domain_id) {
-    conditions.push(`d.${dict.extraColumns.domain_id} = '${esc(filters.domainId)}'`)
+  if (filters?.domainId) {
+    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
+    if (domainCol) conditions.push(`d.${domainCol} = '${esc(filters.domainId)}'`)
   }
   if (filters?.vocabularyId) {
     conditions.push(`d.${vocabCol} = '${esc(filters.vocabularyId)}'`)
   }
-  if (filters?.conceptClassId && dict.extraColumns?.concept_class_id) {
-    conditions.push(`d.${dict.extraColumns.concept_class_id} = '${esc(filters.conceptClassId)}'`)
+  if (filters?.conceptClassId) {
+    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
+    if (classCol) conditions.push(`d.${classCol} = '${esc(filters.conceptClassId)}'`)
   }
   if (filters?.validConcept && dict.extraColumns?.valid_start_date) {
     // valid_end_date > current_date means the concept is still valid
@@ -252,8 +269,8 @@ export function buildStandardConceptSearchQuery(
     d.${nameCol} AS concept_name,
     d.${codeCol} AS concept_code,
     d.${vocabCol} AS vocabulary_id
-    ${dict.extraColumns?.domain_id ? `, d.${dict.extraColumns.domain_id} AS domain_id` : ''}
-    ${dict.extraColumns?.concept_class_id ? `, d.${dict.extraColumns.concept_class_id} AS concept_class_id` : ''}
+    ${(dict.extraColumns?.domain_id ?? dict.categoryColumn) ? `, d.${dict.extraColumns?.domain_id ?? dict.categoryColumn} AS domain_id` : ''}
+    ${(dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn) ? `, d.${dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn} AS concept_class_id` : ''}
     ${dict.extraColumns?.standard_concept ? `, d.${dict.extraColumns.standard_concept} AS standard_concept` : ''}
   FROM ${dict.table} d
   WHERE ${conditions.join(' AND ')}
@@ -301,7 +318,10 @@ export function buildFilterOptionsQuery(
 
   const unionParts = dicts.map((dict) => {
     let col: string | undefined
-    if (columnAlias === 'vocabulary_id') col = dict.vocabularyColumn
+    if (columnAlias === 'vocabulary_id') col = dict.terminologyIdColumn ?? dict.vocabularyColumn
+    else if (columnAlias === 'terminology_name') col = dict.terminologyNameColumn
+    else if (columnAlias === 'category') col = dict.categoryColumn
+    else if (columnAlias === 'subcategory') col = dict.subcategoryColumn
     else if (dict.extraColumns?.[columnAlias]) col = dict.extraColumns[columnAlias]
     if (!col) return null
     return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${col} IS NOT NULL`

@@ -146,13 +146,23 @@ export interface ConceptDictionary {
   nameColumn: string
   /** Optional code column within a vocabulary (concept_code). */
   codeColumn?: string
-  /** Optional vocabulary/terminology identifier column (vocabulary_id, dbsource, thesaurus_code, terminology_code). */
-  vocabularyColumn?: string
   /**
-   * Extra filterable columns specific to this CDM.
-   * Key = semantic name, value = actual column name.
-   * OMOP: { domain_id: 'domain_id', concept_class_id: 'concept_class_id', standard_concept: 'standard_concept' }
-   * MIMIC: { category: 'category' }
+   * @deprecated Use terminologyIdColumn instead.
+   * Kept for backward compatibility with saved custom presets.
+   */
+  vocabularyColumn?: string
+  /** Optional column containing the terminology/vocabulary identifier (vocabulary_id, dbsource, thesaurus_code, terminology_code). */
+  terminologyIdColumn?: string
+  /** Optional column containing the human-readable terminology/vocabulary name (e.g. vocabulary_name). */
+  terminologyNameColumn?: string
+  /** Optional column for the category of this concept (e.g. category in MIMIC d_items). */
+  categoryColumn?: string
+  /** Optional column for the subcategory of this concept. */
+  subcategoryColumn?: string
+  /**
+   * Extra filterable columns specific to this CDM (e.g. OMOP domain_id, concept_class_id, standard_concept).
+   * Key = SQL alias used in queries, value = actual column name in the table.
+   * These are displayed as additional hidden columns in the mapping editor.
    */
   extraColumns?: Record<string, string>
 }

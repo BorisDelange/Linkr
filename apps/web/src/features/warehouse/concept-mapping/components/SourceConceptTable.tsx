@@ -49,6 +49,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import type { SourceConceptRow } from '../MappingEditorTab'
+import type { ConceptDictionary } from '@/types/schema-mapping'
 
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'approved' | 'rejected' | 'flagged'
 
@@ -62,6 +63,7 @@ interface SourceConceptTableProps {
   filters: SourceConceptFilters
   sorting: SourceConceptSorting | null
   filterOptions: Record<string, string[]>
+  conceptDicts: ConceptDictionary[]
   mappingStatusMap: Map<number, string>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
@@ -146,6 +148,7 @@ export function SourceConceptTable({
   filters,
   sorting,
   filterOptions,
+  conceptDicts,
   mappingStatusMap,
   mappingStatusFilter,
   selectedConceptId,
@@ -157,7 +160,6 @@ export function SourceConceptTable({
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [filterOpen, setFilterOpen] = useState(false)
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
 
@@ -174,21 +176,39 @@ export function SourceConceptTable({
 
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'approved', 'rejected', 'flagged']
 
+  // Determine which optional columns are available based on the schema dicts
+  const hasTerminologyName = conceptDicts.some((d) => !!d.terminologyNameColumn)
+  const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
+  const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn)
+  const hasExtraColumns = conceptDicts.some((d) => d.extraColumns && Object.keys(d.extraColumns).length > 0)
+
+  // Initial column visibility: hide extra OMOP columns by default
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
+    const hidden: VisibilityState = {}
+    if (hasExtraColumns) {
+      // domain_id and concept_class_id are hidden by default (available via toggle)
+      hidden['domain_id'] = false
+      hidden['concept_class_id'] = false
+    }
+    return hidden
+  })
+
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
-    // Text inputs
     if (columnId === 'concept_id') {
       return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchId: e.target.value || undefined })} />
     }
     if (columnId === 'concept_name') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchText: e.target.value || undefined })} />
     }
-    if (columnId === 'concept_code') {
-      return <input className={FILTER_INPUT_CLASS} placeholder="Code..." value={filters.searchCode ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchCode: e.target.value || undefined })} />
+    if (columnId === 'terminology_name' && filterOptions.terminology_name?.length > 0) {
+      return <ColumnFilterSelect value={filters.terminologyName ?? null} options={filterOptions.terminology_name} placeholder="Terminology" onChange={(v) => onFiltersChange({ ...filters, terminologyName: v ?? undefined })} />
     }
-    // Dropdowns
-    if (columnId === 'vocabulary_id' && filterOptions.vocabulary_id?.length > 0) {
-      return <ColumnFilterSelect value={filters.vocabularyId ?? null} options={filterOptions.vocabulary_id} placeholder="Vocab" onChange={(v) => onFiltersChange({ ...filters, vocabularyId: v ?? undefined })} />
+    if (columnId === 'category' && filterOptions.category?.length > 0) {
+      return <ColumnFilterSelect value={filters.category ?? null} options={filterOptions.category} placeholder="Category" onChange={(v) => onFiltersChange({ ...filters, category: v ?? undefined })} />
+    }
+    if (columnId === 'subcategory' && filterOptions.subcategory?.length > 0) {
+      return <ColumnFilterSelect value={filters.subcategory ?? null} options={filterOptions.subcategory} placeholder="Subcategory" onChange={(v) => onFiltersChange({ ...filters, subcategory: v ?? undefined })} />
     }
     if (columnId === 'domain_id' && filterOptions.domain_id?.length > 0) {
       return <ColumnFilterSelect value={filters.domainId ?? null} options={filterOptions.domain_id} placeholder="Domain" onChange={(v) => onFiltersChange({ ...filters, domainId: v ?? undefined })} />
@@ -199,9 +219,9 @@ export function SourceConceptTable({
     return null
   }
 
-  // Build columns dynamically
+  // Build columns dynamically based on available schema columns
   const columns = useMemo<ColumnDef<SourceConceptRow>[]>(() => {
-    return [
+    const cols: ColumnDef<SourceConceptRow>[] = [
       {
         id: '_status',
         header: '',
@@ -228,46 +248,61 @@ export function SourceConceptTable({
         minSize: 50,
         enableHiding: false,
       },
+    ]
+
+    if (hasTerminologyName) {
+      cols.push({
+        id: 'terminology_name',
+        header: () => t('concept_mapping.col_terminology'),
+        accessorFn: (row) => row.terminology_name,
+        cell: ({ row }) => row.original.terminology_name ?? '',
+        size: 110,
+        minSize: 60,
+      })
+    }
+
+    if (hasCategory) {
+      cols.push({
+        id: 'category',
+        header: () => t('concept_mapping.col_category'),
+        accessorFn: (row) => row.category,
+        cell: ({ row }) => row.original.category ?? '',
+        size: 110,
+        minSize: 60,
+      })
+    }
+
+    if (hasSubcategory) {
+      cols.push({
+        id: 'subcategory',
+        header: () => t('concept_mapping.col_subcategory'),
+        accessorFn: (row) => row.subcategory,
+        cell: ({ row }) => row.original.subcategory ?? '',
+        size: 110,
+        minSize: 60,
+      })
+    }
+
+    cols.push({
+      id: 'concept_name',
+      header: () => t('concept_mapping.col_name'),
+      accessorFn: (row) => row.concept_name,
+      cell: ({ row }) => row.original.concept_name,
+      size: 220,
+      minSize: 100,
+      enableHiding: false,
+    })
+
+    cols.push(
       {
-        id: 'concept_name',
-        header: () => t('concept_mapping.col_name'),
-        accessorFn: (row) => row.concept_name,
-        cell: ({ row }) => row.original.concept_name,
-        size: 220,
-        minSize: 100,
-        enableHiding: false,
-      },
-      {
-        id: 'concept_code',
-        header: 'Code',
-        accessorFn: (row) => row.concept_code,
-        cell: ({ row }) => <span className="font-mono">{row.original.concept_code}</span>,
-        size: 90,
+        id: 'patient_count',
+        header: () => t('concept_mapping.col_patients'),
+        accessorFn: (row) => row.patient_count,
+        cell: ({ row }) => (
+          <span className="tabular-nums">{Number(row.original.patient_count ?? 0).toLocaleString()}</span>
+        ),
+        size: 80,
         minSize: 50,
-      },
-      {
-        id: 'vocabulary_id',
-        header: () => t('concept_mapping.col_vocab'),
-        accessorFn: (row) => row.vocabulary_id,
-        cell: ({ row }) => row.original.vocabulary_id,
-        size: 90,
-        minSize: 60,
-      },
-      {
-        id: 'domain_id',
-        header: () => t('concept_mapping.col_domain'),
-        accessorFn: (row) => row.domain_id,
-        cell: ({ row }) => row.original.domain_id ?? '',
-        size: 90,
-        minSize: 60,
-      },
-      {
-        id: 'concept_class_id',
-        header: () => t('concept_mapping.col_concept_class'),
-        accessorFn: (row) => row.concept_class_id,
-        cell: ({ row }) => row.original.concept_class_id ?? '',
-        size: 100,
-        minSize: 60,
       },
       {
         id: 'record_count',
@@ -279,18 +314,32 @@ export function SourceConceptTable({
         size: 80,
         minSize: 50,
       },
-      {
-        id: 'patient_count',
-        header: () => t('concept_mapping.col_patients'),
-        accessorFn: (row) => row.patient_count,
-        cell: ({ row }) => (
-          <span className="tabular-nums">{Number(row.original.patient_count ?? 0).toLocaleString()}</span>
-        ),
-        size: 80,
-        minSize: 50,
-      },
-    ]
-  }, [t, mappingStatusMap])
+    )
+
+    // Extra OMOP-specific columns (domain_id, concept_class_id) — hidden by default
+    if (hasExtraColumns) {
+      cols.push(
+        {
+          id: 'domain_id',
+          header: () => t('concept_mapping.col_domain_id'),
+          accessorFn: (row) => row.domain_id,
+          cell: ({ row }) => row.original.domain_id ?? '',
+          size: 90,
+          minSize: 60,
+        },
+        {
+          id: 'concept_class_id',
+          header: () => t('concept_mapping.col_concept_class'),
+          accessorFn: (row) => row.concept_class_id,
+          cell: ({ row }) => row.original.concept_class_id ?? '',
+          size: 100,
+          minSize: 60,
+        },
+      )
+    }
+
+    return cols
+  }, [t, mappingStatusMap, hasTerminologyName, hasCategory, hasSubcategory, hasExtraColumns])
 
   const table = useReactTable({
     data: rows,
