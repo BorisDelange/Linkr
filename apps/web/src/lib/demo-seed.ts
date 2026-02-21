@@ -10,6 +10,7 @@ import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getDefaultDimensions } from '@/types/catalog'
+import { buildVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, EtlFile, DataCatalog } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
@@ -651,7 +652,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
 /** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
-const ETL_FILES_VERSION = 3
+const ETL_FILES_VERSION = 5
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {
@@ -700,14 +701,29 @@ export async function seedDemoEtlFiles(): Promise<void> {
     if (!res.ok) throw new Error(`Failed to fetch ETL scripts: ${res.status}`)
     const scripts: EtlScriptRow[] = await res.json()
 
+    // Generate 00_vocabulary.sql content from concept mappings + vocab schema
+    let vocabContent: string | null = null
+    try {
+      const mappings = await storage.conceptMappings.getByProject(DEMO_MAPPING_PROJECT_ID)
+      if (mappings.length > 0) {
+        const vocabSchema = engine.schemaName(DEMO_VOCAB_DATASOURCE_ID)
+        vocabContent = buildVocabularyScript(mappings, vocabSchema)
+      }
+    } catch {
+      console.warn('[demo-seed] Could not generate 00_vocabulary.sql content, using placeholder')
+    }
+
     for (const script of scripts) {
+      const content = script.name === '00_vocabulary.sql' && vocabContent
+        ? vocabContent
+        : script.content
       const file: EtlFile = {
         id: `demo-etl-${script.name.replace('.sql', '')}`,
         pipelineId: DEMO_ETL_PIPELINE_ID,
         name: script.name,
         type: 'file',
         parentId: null,
-        content: script.content,
+        content,
         language: 'sql',
         order: script.order,
         createdAt: now,
@@ -716,7 +732,8 @@ export async function seedDemoEtlFiles(): Promise<void> {
     }
 
     localStorage.setItem(SEED_KEY_ETL_FILES, String(ETL_FILES_VERSION))
-    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully (v${ETL_FILES_VERSION})`)
+    const vocabInfo = vocabContent ? ' (00_vocabulary.sql generated)' : ''
+    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully (v${ETL_FILES_VERSION})${vocabInfo}`)
   } catch (err) {
     console.error('[demo-seed] Failed to seed ETL files:', err)
   }
@@ -834,7 +851,6 @@ export async function seedDemoDashboard(): Promise<void> {
       id: dashboardId,
       projectUid: DEMO_PROJECT_UID,
       name: 'Overview',
-      datasetFileId: null,
       filterConfig: [],
       createdAt: now,
       updatedAt: now,

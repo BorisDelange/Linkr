@@ -3,11 +3,13 @@ import { useTranslation } from 'react-i18next'
 import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
-import type { DashboardWidget } from '@/types'
+import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
 import { WidgetCard } from './WidgetCard'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
+import { DashboardDataProvider } from './DashboardDataProvider'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
 import {
   AlertDialog,
@@ -24,22 +26,75 @@ interface WidgetGridProps {
   widgets: DashboardWidget[]
   editMode: boolean
   hideTitleBars?: boolean
+  dashboard: Dashboard
+  projectUid: string
 }
 
-function renderWidgetContent(widget: DashboardWidget) {
-  switch (widget.source.type) {
-    case 'plugin':
-      return <PluginWidgetRenderer widget={widget} />
-    case 'inline':
-      return <InlineCodeWidgetRenderer widget={widget} />
-    default:
-      return <div className="text-xs text-muted-foreground">Unknown widget type</div>
+/** Resolve which filters apply to a given widget, keyed by column ID. */
+function resolveWidgetFilters(
+  widget: DashboardWidget,
+  dashboard: Dashboard,
+  activeFilters: Record<string, FilterValue>,
+  widgetColumns: Set<string>,
+): Record<string, FilterValue> | undefined {
+  const result: Record<string, FilterValue> = {}
+  let hasAny = false
+
+  for (const filter of dashboard.filterConfig) {
+    const filterValue = activeFilters[filter.id]
+    if (!filterValue) continue
+
+    if (filter.datasetFileId === widget.datasetFileId) {
+      // Direct match: filter targets this widget's dataset
+      result[filter.columnId] = filterValue
+      hasAny = true
+    } else if (filter.propagate && widgetColumns.has(filter.columnName)) {
+      // Propagation: filter propagates to matching column name
+      result[filter.columnName] = filterValue
+      hasAny = true
+    }
   }
+
+  return hasAny ? result : undefined
 }
 
-export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps) {
+function WidgetWithData({
+  widget,
+  dashboard,
+  activeFilters,
+}: {
+  widget: DashboardWidget
+  dashboard: Dashboard
+  activeFilters: Record<string, FilterValue>
+}) {
+  const { files } = useDatasetStore()
+  const datasetFile = files.find((f) => f.id === widget.datasetFileId)
+  const widgetColumns = useMemo(
+    () => new Set((datasetFile?.columns ?? []).map((c) => c.name)),
+    [datasetFile?.columns]
+  )
+
+  const filters = useMemo(
+    () => resolveWidgetFilters(widget, dashboard, activeFilters, widgetColumns),
+    [widget, dashboard, activeFilters, widgetColumns]
+  )
+
+  return (
+    <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null} filters={filters}>
+      {widget.source.type === 'plugin' ? (
+        <PluginWidgetRenderer widget={widget} />
+      ) : widget.source.type === 'inline' ? (
+        <InlineCodeWidgetRenderer widget={widget} />
+      ) : (
+        <div className="text-xs text-muted-foreground">Unknown widget type</div>
+      )}
+    </DashboardDataProvider>
+  )
+}
+
+export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget } = useDashboardStore()
+  const { updateWidgetLayout, removeWidget, activeFilters } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
@@ -126,7 +181,11 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps
               editMode={editMode}
               hideTitleBar={hideTitleBars}
             >
-              {renderWidgetContent(widget)}
+              <WidgetWithData
+                widget={widget}
+                dashboard={dashboard}
+                activeFilters={activeFilters}
+              />
             </WidgetCard>
           </div>
         ))}
@@ -136,6 +195,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars }: WidgetGridProps
         widget={editingWidget}
         open={editingWidgetId !== null}
         onOpenChange={(open) => { if (!open) setEditingWidgetId(null) }}
+        projectUid={projectUid}
       />
 
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>

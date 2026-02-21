@@ -1,14 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Code2, ArrowLeft } from 'lucide-react'
+import { Code2, ArrowLeft, Database } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
-import { useDashboardData } from './DashboardDataProvider'
+import { useDatasetStore } from '@/stores/dataset-store'
 import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
 import type { AnalysisPlugin } from '@/types/analysis-plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -17,20 +18,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface AddWidgetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   tabId: string
+  projectUid: string
 }
 
-export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogProps) {
+export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const { addWidget } = useDashboardStore()
-  const { columns } = useDashboardData()
+  const { files: datasetFiles } = useDatasetStore()
   const [activeTab, setActiveTab] = useState('plugin')
   const lang = i18n.language as 'en' | 'fr'
+
+  const [datasetFileId, setDatasetFileId] = useState<string | null>(null)
+
+  const projectDatasetFiles = datasetFiles.filter(
+    (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
+  )
+
+  const selectedDatasetFile = datasetFiles.find((f) => f.id === datasetFileId)
+  const columns = selectedDatasetFile?.columns ?? []
 
   const plugins = useMemo(() => getAllAnalysisPlugins(), [])
   const [selectedPluginId, setSelectedPluginId] = useState('')
@@ -43,6 +61,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
     setConfigPlugin(null)
     setPluginConfig({})
     setSelectedPluginId('')
+    setDatasetFileId(null)
     onOpenChange(false)
   }
 
@@ -61,7 +80,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
         pluginId: plugin.manifest.id,
         config: {},
       }
-      addWidget(tabId, source, name)
+      addWidget(tabId, source, name, datasetFileId)
       resetAndClose()
     }
   }
@@ -74,7 +93,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
       pluginId: configPlugin.manifest.id,
       config: { ...pluginConfig },
     }
-    addWidget(tabId, source, name)
+    addWidget(tabId, source, name, datasetFileId)
     resetAndClose()
   }
 
@@ -85,9 +104,35 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
       code: `# ${language} code here\n`,
       config: {},
     }
-    addWidget(tabId, source, `Custom ${language}`)
+    addWidget(tabId, source, `Custom ${language}`, datasetFileId)
     resetAndClose()
   }
+
+  // Dataset selector shared between views
+  const datasetSelector = (
+    <div className="space-y-1">
+      <Label className="text-xs">{t('dashboard.widget_dataset')}</Label>
+      <Select
+        value={datasetFileId ?? '__none__'}
+        onValueChange={(v) => setDatasetFileId(v === '__none__' ? null : v)}
+      >
+        <SelectTrigger className="h-8 text-sm">
+          <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
+        </SelectTrigger>
+        <SelectContent position="popper" sideOffset={4}>
+          <SelectItem value="__none__">{t('dashboard.widget_dataset_none')}</SelectItem>
+          {projectDatasetFiles.map((f) => (
+            <SelectItem key={f.id} value={f.id}>
+              <div className="flex items-center gap-2">
+                <Database size={12} className="text-muted-foreground" />
+                {f.name}
+              </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
 
   // Plugin config step view
   if (configPlugin) {
@@ -142,6 +187,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId }: AddWidgetDialogPr
             {t('dashboard.add_widget_description')}
           </DialogDescription>
         </DialogHeader>
+
+        {datasetSelector}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
           <TabsList>

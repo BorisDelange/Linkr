@@ -325,18 +325,28 @@ export interface WikiAttachment {
 
 // --- Dashboard Types ---
 
+/** @deprecated Use DashboardFilter instead */
 export interface DashboardFilterColumn {
   columnId: string
   type: 'categorical' | 'numeric' | 'date'
   label?: string
 }
 
+export interface DashboardFilter {
+  id: string
+  datasetFileId: string
+  columnId: string
+  columnName: string
+  type: 'categorical' | 'numeric' | 'date'
+  inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range'
+  propagate: boolean
+}
+
 export interface Dashboard {
   id: string
   projectUid: string
   name: string
-  datasetFileId: string | null
-  filterConfig: DashboardFilterColumn[]
+  filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
   createdAt: string
   updatedAt: string
@@ -357,6 +367,7 @@ export interface DashboardWidget {
   id: string
   tabId: string
   name: string
+  datasetFileId?: string | null
   layout: { x: number; y: number; w: number; h: number }
   source: DashboardWidgetSource
 }

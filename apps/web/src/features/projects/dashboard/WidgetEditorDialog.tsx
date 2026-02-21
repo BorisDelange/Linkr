@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Play, RotateCcw, Settings, Code2, X } from 'lucide-react'
+import { Play, RotateCcw, Settings, Code2, X, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -11,13 +11,21 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
 import { getAnalysisPlugin, ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
 import { useDashboardStore } from '@/stores/dashboard-store'
-import { useDashboardData } from './DashboardDataProvider'
+import { useDatasetStore } from '@/stores/dataset-store'
+import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
 import type { DashboardWidget, DashboardWidgetSource } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/analysis-plugin'
@@ -26,9 +34,10 @@ interface WidgetEditorDialogProps {
   widget: DashboardWidget | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  projectUid: string
 }
 
-export function WidgetEditorDialog({ widget, open, onOpenChange }: WidgetEditorDialogProps) {
+export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid }: WidgetEditorDialogProps) {
   if (!widget) return null
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -37,7 +46,9 @@ export function WidgetEditorDialog({ widget, open, onOpenChange }: WidgetEditorD
         showCloseButton={false}
         className="w-[80vw] max-w-5xl sm:max-w-5xl p-0 gap-0"
       >
-        <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} />
+        <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null}>
+          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} />
+        </DashboardDataProvider>
       </SheetContent>
     </Sheet>
   )
@@ -47,10 +58,15 @@ export function WidgetEditorDialog({ widget, open, onOpenChange }: WidgetEditorD
 // Editor content
 // ---------------------------------------------------------------------------
 
-function WidgetEditorContent({ widget, onClose }: { widget: DashboardWidget; onClose: () => void }) {
+function WidgetEditorContent({ widget, onClose, projectUid }: { widget: DashboardWidget; onClose: () => void; projectUid: string }) {
   const { t } = useTranslation()
-  const { updateWidgetSource } = useDashboardStore()
+  const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
   const { filteredRows, columns } = useDashboardData()
+  const { files: datasetFiles } = useDatasetStore()
+
+  const projectDatasetFiles = datasetFiles.filter(
+    (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
+  )
 
   const source = widget.source
   const isPlugin = source.type === 'plugin'
@@ -185,7 +201,23 @@ function WidgetEditorContent({ widget, onClose }: { widget: DashboardWidget; onC
     <div className="flex h-full flex-col">
       {/* Header */}
       <SheetHeader className="flex-row items-center gap-2 border-b px-3 py-2 space-y-0">
-        <SheetTitle className="text-sm flex-1 truncate">{widget.name}</SheetTitle>
+        <SheetTitle className="text-sm truncate">{widget.name}</SheetTitle>
+        <div className="flex-1" />
+        <Select
+          value={widget.datasetFileId ?? '__none__'}
+          onValueChange={(v) => updateWidgetDataset(widget.id, v === '__none__' ? null : v)}
+        >
+          <SelectTrigger className="h-6 w-auto max-w-48 gap-1 text-xs border-dashed">
+            <Database size={11} className="text-muted-foreground shrink-0" />
+            <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
+          </SelectTrigger>
+          <SelectContent position="popper" sideOffset={4}>
+            <SelectItem value="__none__">{t('dashboard.widget_dataset_none')}</SelectItem>
+            {projectDatasetFiles.map((f) => (
+              <SelectItem key={f.id} value={f.id}>{f.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button variant="ghost" size="icon-xs" onClick={onClose}>
           <X size={14} />
         </Button>

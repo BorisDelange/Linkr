@@ -219,7 +219,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 24
+const DB_VERSION = 25
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -471,6 +471,51 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         db.createObjectStore('catalog_results', { keyPath: 'catalogId' })
         const smStore = db.createObjectStore('service_mappings', { keyPath: 'id' })
         smStore.createIndex('by-workspace', 'workspaceId')
+      }
+      // Version 25: Move datasetFileId from dashboards to widgets, new filter format
+      if (oldVersion < 25 && oldVersion >= 15) {
+        const dashStore = transaction.objectStore('dashboards')
+        const tabStore = transaction.objectStore('dashboard_tabs')
+        const widgetStore = transaction.objectStore('dashboard_widgets')
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        ;(dashStore.getAll() as Promise<any[]>).then(async (dashboards) => {
+          for (const dash of dashboards) {
+            const datasetFileId = dash.datasetFileId ?? null
+            // Migrate widgets: copy datasetFileId from dashboard to each widget
+            if (datasetFileId) {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const tabs = await (tabStore.index('by-dashboard').getAll(dash.id) as Promise<any[]>)
+              for (const tab of tabs) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const widgets = await (widgetStore.index('by-tab').getAll(tab.id) as Promise<any[]>)
+                for (const widget of widgets) {
+                  if (!widget.datasetFileId) {
+                    widget.datasetFileId = datasetFileId
+                    widgetStore.put(widget)
+                  }
+                }
+              }
+            }
+            // Convert old filterConfig (DashboardFilterColumn[]) to new DashboardFilter[]
+            const oldFilters = dash.filterConfig ?? []
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            dash.filterConfig = oldFilters.map((fc: any, i: number) => {
+              const type = fc.type ?? 'categorical'
+              return {
+                id: `df-migrated-${i}`,
+                datasetFileId: datasetFileId ?? '',
+                columnId: fc.columnId,
+                columnName: fc.label ?? fc.columnId,
+                type,
+                inputType: type === 'categorical' ? 'multi-select' : 'range',
+                propagate: false,
+              }
+            })
+            // Remove datasetFileId from dashboard
+            delete dash.datasetFileId
+            dashStore.put(dash)
+          }
+        })
       }
     },
   })

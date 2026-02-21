@@ -203,7 +203,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
         }))
         virtual.push(
           vFile(`virtual:dashboards/${dash.id}`, `${slug}.json`, dashFolderId,
-            JSON.stringify({ id: dash.id, name: dash.name, datasetFileId: dash.datasetFileId, tabs: tabsWithWidgets, createdAt: dash.createdAt, updatedAt: dash.updatedAt }, null, 2)),
+            JSON.stringify({ id: dash.id, name: dash.name, tabs: tabsWithWidgets, createdAt: dash.createdAt, updatedAt: dash.updatedAt }, null, 2)),
         )
       }
     }

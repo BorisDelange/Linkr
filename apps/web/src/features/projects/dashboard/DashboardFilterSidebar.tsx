@@ -1,19 +1,33 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X } from 'lucide-react'
+import { X, Plus, Database, ArrowRightLeft, ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Sheet,
   SheetClose,
   SheetContent,
-  SheetFooter,
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { Dashboard, FilterValue } from '@/types'
+import type { Dashboard, DashboardFilter, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 
@@ -21,40 +35,131 @@ interface DashboardFilterSidebarProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   dashboard: Dashboard
+  widgets: DashboardWidget[]
+  editMode: boolean
 }
 
-export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: DashboardFilterSidebarProps) {
+let filterIdCounter = 0
+
+export function DashboardFilterSidebar({ open, onOpenChange, dashboard, widgets, editMode }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
-  const { activeFilters, setAllFilters } = useDashboardStore()
-  const { files, getFileRows } = useDatasetStore()
+  const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
+  const { files: datasetFiles, getFileRows } = useDatasetStore()
 
-  // Local deferred filter state
-  const [localFilters, setLocalFilters] = useState<Record<string, FilterValue>>({})
+  // "Add filter" flow state
+  const [addingFilter, setAddingFilter] = useState(false)
+  const [newFilterDatasetId, setNewFilterDatasetId] = useState<string | null>(null)
+  const [newFilterColumnId, setNewFilterColumnId] = useState<string | null>(null)
+  const [newFilterInputType, setNewFilterInputType] = useState<DashboardFilter['inputType']>('multi-select')
 
-  // Sync from store when sidebar opens
-  useEffect(() => {
-    if (open) {
-      setLocalFilters({ ...activeFilters })
+  // Collect unique dataset IDs used by widgets
+  const widgetDatasetIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const w of widgets) {
+      if (w.datasetFileId) ids.add(w.datasetFileId)
     }
-  }, [open, activeFilters])
+    return ids
+  }, [widgets])
 
-  const datasetFile = files.find((f) => f.id === dashboard.datasetFileId)
-  const columns = datasetFile?.columns ?? []
-  const rows = dashboard.datasetFileId ? getFileRows(dashboard.datasetFileId) : []
+  const availableDatasets = useMemo(
+    () => datasetFiles.filter((f) => widgetDatasetIds.has(f.id)),
+    [datasetFiles, widgetDatasetIds]
+  )
 
-  const localFilterCount = Object.keys(localFilters).length
+  const newFilterDataset = newFilterDatasetId ? datasetFiles.find((f) => f.id === newFilterDatasetId) : null
+  const newFilterColumns = newFilterDataset?.columns ?? []
 
-  const handleLocalFilterChange = (columnId: string, value: FilterValue) => {
-    setLocalFilters(prev => ({ ...prev, [columnId]: value }))
+  const resetAddFlow = () => {
+    setAddingFilter(false)
+    setNewFilterDatasetId(null)
+    setNewFilterColumnId(null)
+    setNewFilterInputType('multi-select')
+  }
+
+  // Auto-detect column type and pick default inputType
+  const detectDefaults = (columnId: string) => {
+    const col = newFilterColumns.find((c) => c.id === columnId)
+    if (!col) return { type: 'categorical' as const, inputType: 'multi-select' as const }
+
+    if (col.type === 'number') return { type: 'numeric' as const, inputType: 'range' as const }
+    if (col.type === 'date') return { type: 'date' as const, inputType: 'range' as const }
+    return { type: 'categorical' as const, inputType: 'multi-select' as const }
+  }
+
+  const handleColumnChange = (columnId: string) => {
+    setNewFilterColumnId(columnId)
+    const { inputType } = detectDefaults(columnId)
+    setNewFilterInputType(inputType)
+  }
+
+  const handleAddFilter = () => {
+    if (!newFilterDatasetId || !newFilterColumnId) return
+    const col = newFilterColumns.find((c) => c.id === newFilterColumnId)
+    if (!col) return
+
+    const { type } = detectDefaults(newFilterColumnId)
+
+    const newFilter: DashboardFilter = {
+      id: `df-${Date.now()}-${filterIdCounter++}`,
+      datasetFileId: newFilterDatasetId,
+      columnId: newFilterColumnId,
+      columnName: col.name,
+      type,
+      inputType: newFilterInputType,
+      propagate: false,
+    }
+
+    updateDashboard(dashboard.id, {
+      filterConfig: [...dashboard.filterConfig, newFilter],
+    })
+    resetAddFlow()
+  }
+
+  const handleRemoveFilter = (filterId: string) => {
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.filter((f) => f.id !== filterId),
+    })
+    clearFilter(filterId)
+  }
+
+  const handleTogglePropagate = (filterId: string, propagate: boolean) => {
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.map((f) =>
+        f.id === filterId ? { ...f, propagate } : f
+      ),
+    })
+  }
+
+  const handleChangeInputType = (filterId: string, inputType: DashboardFilter['inputType']) => {
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.map((f) =>
+        f.id === filterId ? { ...f, inputType } : f
+      ),
+    })
+    // Clear the active filter value since input type changed
+    clearFilter(filterId)
+  }
+
+  const handleFilterChange = (filterId: string, value: FilterValue) => {
+    setFilter(filterId, value)
   }
 
   const handleClearAll = () => {
-    setLocalFilters({})
+    clearAllFilters()
   }
 
-  const handleApply = () => {
-    setAllFilters(localFilters)
-    onOpenChange(false)
+  const activeFilterCount = Object.keys(activeFilters).length
+
+  // Available inputType options per filter type
+  const getInputTypeOptions = (filterType: DashboardFilter['type']) => {
+    if (filterType === 'categorical') {
+      return [
+        { value: 'checkbox' as const, label: t('dashboard.input_type_checkbox') },
+        { value: 'multi-select' as const, label: t('dashboard.input_type_multi_select') },
+        { value: 'single-select' as const, label: t('dashboard.input_type_single_select') },
+      ]
+    }
+    return [{ value: 'range' as const, label: t('dashboard.input_type_range') }]
   }
 
   return (
@@ -64,7 +169,7 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
           <div className="flex items-center justify-between">
             <SheetTitle className="text-sm">{t('dashboard.filter_title')}</SheetTitle>
             <div className="flex items-center gap-1">
-              {localFilterCount > 0 && (
+              {activeFilterCount > 0 && (
                 <Button variant="ghost" size="xs" onClick={handleClearAll}>
                   {t('dashboard.filter_clear_all')}
                 </Button>
@@ -80,78 +185,253 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard }: Dashbo
 
         <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-4">
-            {dashboard.filterConfig.length === 0 ? (
+            {dashboard.filterConfig.length === 0 && !addingFilter && (
               <p className="text-xs text-muted-foreground">
                 {t('dashboard.filter_no_columns')}
               </p>
-            ) : (
-              dashboard.filterConfig.map((fc) => {
-                const col = columns.find((c) => c.id === fc.columnId)
-                const label = fc.label ?? col?.name ?? fc.columnId
+            )}
 
-                switch (fc.type) {
-                  case 'categorical':
-                    return (
-                      <CategoricalFilter
-                        key={fc.columnId}
-                        label={label}
-                        columnId={fc.columnId}
-                        rows={rows}
-                        value={localFilters[fc.columnId] as FilterValue & { type: 'categorical' } | undefined}
-                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
-                      />
-                    )
-                  case 'numeric':
-                    return (
-                      <NumericFilter
-                        key={fc.columnId}
-                        label={label}
-                        columnId={fc.columnId}
-                        rows={rows}
-                        value={localFilters[fc.columnId] as FilterValue & { type: 'numeric' } | undefined}
-                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
-                      />
-                    )
-                  case 'date':
-                    return (
-                      <DateFilter
-                        key={fc.columnId}
-                        label={label}
-                        columnId={fc.columnId}
-                        value={localFilters[fc.columnId] as FilterValue & { type: 'date' } | undefined}
-                        onChange={(v) => handleLocalFilterChange(fc.columnId, v)}
-                      />
-                    )
-                  default:
-                    return null
-                }
-              })
+            {dashboard.filterConfig.map((fc) => {
+              const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
+              const rows = getFileRows(fc.datasetFileId)
+              const inputTypeOptions = getInputTypeOptions(fc.type)
+
+              return (
+                <div key={fc.id} className="space-y-2 rounded-lg border p-3">
+                  {/* Header: column name + remove button */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium truncate flex-1">{fc.columnName}</span>
+                    {editMode && (
+                      <Button variant="ghost" size="icon-xs" onClick={() => handleRemoveFilter(fc.id)}>
+                        <X size={12} />
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Edit mode only: dataset badge, input type selector, propagate toggle */}
+                  {editMode && (
+                    <div className="space-y-2">
+                      <Badge variant="secondary" className="text-[10px] gap-1">
+                        <Database size={9} />
+                        {dsFile?.name ?? '?'}
+                      </Badge>
+
+                      {/* Input type selector — only if multiple options */}
+                      {inputTypeOptions.length > 1 && (
+                        <Select
+                          value={fc.inputType}
+                          onValueChange={(v) => handleChangeInputType(fc.id, v as DashboardFilter['inputType'])}
+                        >
+                          <SelectTrigger className="h-6 text-[10px] w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent position="popper" sideOffset={4}>
+                            {inputTypeOptions.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
+                      {/* Propagate toggle */}
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={fc.propagate}
+                          onCheckedChange={(v) => handleTogglePropagate(fc.id, v)}
+                          className="scale-75 origin-left"
+                        />
+                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                          <ArrowRightLeft size={9} />
+                          {t('dashboard.filter_propagate')}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Filter control */}
+                  <FilterControl
+                    fc={fc}
+                    rows={rows}
+                    value={activeFilters[fc.id]}
+                    onChange={(v) => handleFilterChange(fc.id, v)}
+                  />
+                </div>
+              )
+            })}
+
+            {/* Add filter flow — edit mode only */}
+            {editMode && (
+              addingFilter ? (
+                <div className="space-y-2 rounded-lg border border-dashed p-3">
+                  <Label className="text-xs font-medium">{t('dashboard.filter_select_dataset')}</Label>
+                  <Select
+                    value={newFilterDatasetId ?? ''}
+                    onValueChange={(v) => {
+                      setNewFilterDatasetId(v)
+                      setNewFilterColumnId(null)
+                    }}
+                  >
+                    <SelectTrigger className="h-7 text-xs">
+                      <SelectValue placeholder={t('dashboard.filter_select_dataset')} />
+                    </SelectTrigger>
+                    <SelectContent position="popper" sideOffset={4}>
+                      {availableDatasets.map((f) => (
+                        <SelectItem key={f.id} value={f.id}>
+                          <div className="flex items-center gap-2">
+                            <Database size={11} className="text-muted-foreground" />
+                            {f.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                      {availableDatasets.length === 0 && (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          {t('dashboard.filter_no_datasets')}
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
+
+                  {newFilterDatasetId && (
+                    <>
+                      <Label className="text-xs font-medium">{t('dashboard.filter_select_column')}</Label>
+                      <Select
+                        value={newFilterColumnId ?? ''}
+                        onValueChange={handleColumnChange}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue placeholder={t('dashboard.filter_select_column')} />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={4}>
+                          {newFilterColumns.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
+
+                  {newFilterColumnId && (
+                    <>
+                      <Label className="text-xs font-medium">{t('dashboard.filter_input_type')}</Label>
+                      <Select
+                        value={newFilterInputType}
+                        onValueChange={(v) => setNewFilterInputType(v as DashboardFilter['inputType'])}
+                      >
+                        <SelectTrigger className="h-7 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper" sideOffset={4}>
+                          {getInputTypeOptions(detectDefaults(newFilterColumnId).type).map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </>
+                  )}
+
+                  <div className="flex gap-1.5 pt-1">
+                    <Button variant="outline" size="xs" onClick={resetAddFlow}>
+                      {t('common.cancel')}
+                    </Button>
+                    <Button size="xs" onClick={handleAddFilter} disabled={!newFilterColumnId}>
+                      {t('common.add')}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full gap-1.5 text-xs text-muted-foreground"
+                  onClick={() => setAddingFilter(true)}
+                >
+                  <Plus size={12} />
+                  {t('dashboard.filter_add')}
+                </Button>
+              )
             )}
           </div>
         </ScrollArea>
-
-        {dashboard.filterConfig.length > 0 && (
-          <SheetFooter className="border-t px-4 py-3">
-            <Button size="sm" className="w-full" onClick={handleApply}>
-              {t('dashboard.filter_apply')}
-            </Button>
-          </SheetFooter>
-        )}
       </SheetContent>
     </Sheet>
   )
 }
 
-// --- Categorical Filter ---
+// --- Filter control dispatcher ---
 
-function CategoricalFilter({
-  label,
+function FilterControl({
+  fc,
+  rows,
+  value,
+  onChange,
+}: {
+  fc: DashboardFilter
+  rows: Record<string, unknown>[]
+  value?: FilterValue
+  onChange: (value: FilterValue) => void
+}) {
+  if (fc.type === 'numeric') {
+    return (
+      <NumericFilter
+        columnId={fc.columnId}
+        rows={rows}
+        value={value as (FilterValue & { type: 'numeric' }) | undefined}
+        onChange={onChange}
+      />
+    )
+  }
+  if (fc.type === 'date') {
+    return (
+      <DateFilter
+        value={value as (FilterValue & { type: 'date' }) | undefined}
+        onChange={onChange}
+      />
+    )
+  }
+  // Categorical — dispatch by inputType
+  if (fc.inputType === 'checkbox') {
+    return (
+      <CategoricalCheckbox
+        columnId={fc.columnId}
+        rows={rows}
+        value={value as (FilterValue & { type: 'categorical' }) | undefined}
+        onChange={onChange}
+      />
+    )
+  }
+  if (fc.inputType === 'single-select') {
+    return (
+      <CategoricalSingleSelect
+        columnId={fc.columnId}
+        rows={rows}
+        value={value as (FilterValue & { type: 'categorical' }) | undefined}
+        onChange={onChange}
+      />
+    )
+  }
+  // Default: multi-select
+  return (
+    <CategoricalMultiSelect
+      columnId={fc.columnId}
+      rows={rows}
+      value={value as (FilterValue & { type: 'categorical' }) | undefined}
+      onChange={onChange}
+    />
+  )
+}
+
+// --- Categorical: Checkbox list ---
+
+function CategoricalCheckbox({
   columnId,
   rows,
   value,
   onChange,
 }: {
-  label: string
   columnId: string
   rows: Record<string, unknown>[]
   value?: { type: 'categorical'; selected: string[] }
@@ -171,31 +451,26 @@ function CategoricalFilter({
 
   const toggle = (val: string) => {
     const next = new Set(selected)
-    if (next.has(val)) {
-      next.delete(val)
-    } else {
-      next.add(val)
-    }
+    if (next.has(val)) next.delete(val)
+    else next.add(val)
     onChange({ type: 'categorical', selected: Array.from(next) })
   }
 
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium">{label}</Label>
-      <div className="space-y-1 max-h-40 overflow-y-auto">
+    <div className="space-y-1">
+      <div className="space-y-0.5 max-h-32 overflow-y-auto">
         {uniqueValues.map((val) => (
           <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1 py-0.5">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={allSelected || selected.has(val)}
-              onChange={() => toggle(val)}
-              className="h-3 w-3 rounded border-input"
+              onCheckedChange={() => toggle(val)}
+              className="h-3 w-3"
             />
             <span className="truncate">{val}</span>
           </label>
         ))}
         {uniqueValues.length === 0 && (
-          <p className="text-xs text-muted-foreground italic">No values</p>
+          <p className="text-[10px] text-muted-foreground italic">No values</p>
         )}
       </div>
       {selected.size > 0 && (
@@ -213,16 +488,160 @@ function CategoricalFilter({
   )
 }
 
-// --- Numeric Filter ---
+// --- Categorical: Multi-select (popover with search + checkboxes) ---
 
-function NumericFilter({
-  label,
+function CategoricalMultiSelect({
   columnId,
   rows,
   value,
   onChange,
 }: {
-  label: string
+  columnId: string
+  rows: Record<string, unknown>[]
+  value?: { type: 'categorical'; selected: string[] }
+  onChange: (value: FilterValue) => void
+}) {
+  const { t } = useTranslation()
+  const [popoverOpen, setPopoverOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const uniqueValues = useMemo(() => {
+    const vals = new Set<string>()
+    for (const row of rows) {
+      const v = row[columnId]
+      if (v != null && v !== '') vals.add(String(v))
+    }
+    return Array.from(vals).sort()
+  }, [rows, columnId])
+
+  const filteredValues = useMemo(() => {
+    if (!search) return uniqueValues
+    const lower = search.toLowerCase()
+    return uniqueValues.filter((v) => v.toLowerCase().includes(lower))
+  }, [uniqueValues, search])
+
+  const selected = new Set(value?.selected ?? [])
+
+  const toggle = (val: string) => {
+    const next = new Set(selected)
+    if (next.has(val)) next.delete(val)
+    else next.add(val)
+    onChange({ type: 'categorical', selected: Array.from(next) })
+  }
+
+  const label = selected.size === 0
+    ? t('dashboard.filter_all')
+    : selected.size === 1
+      ? Array.from(selected)[0]
+      : `${selected.size} selected`
+
+  return (
+    <div className="space-y-1">
+      <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+        <PopoverTrigger asChild>
+          <Button variant="outline" size="xs" className="w-full justify-between text-xs font-normal h-7">
+            <span className="truncate">{label}</span>
+            <ChevronsUpDown size={10} className="shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-56 p-2" align="start">
+          <Input
+            placeholder={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-7 text-xs mb-2"
+            autoFocus
+          />
+          <div className="max-h-40 overflow-y-auto space-y-0.5">
+            {filteredValues.map((val) => (
+              <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                <Checkbox
+                  checked={selected.has(val)}
+                  onCheckedChange={() => toggle(val)}
+                  className="h-3 w-3"
+                />
+                <span className="truncate">{val}</span>
+              </label>
+            ))}
+            {filteredValues.length === 0 && (
+              <p className="text-[10px] text-muted-foreground italic text-center py-2">No values</p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+      {selected.size > 0 && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="text-xs h-5"
+          onClick={() => onChange({ type: 'categorical', selected: [] })}
+        >
+          <X size={10} />
+          Clear
+        </Button>
+      )}
+    </div>
+  )
+}
+
+// --- Categorical: Single-select dropdown ---
+
+function CategoricalSingleSelect({
+  columnId,
+  rows,
+  value,
+  onChange,
+}: {
+  columnId: string
+  rows: Record<string, unknown>[]
+  value?: { type: 'categorical'; selected: string[] }
+  onChange: (value: FilterValue) => void
+}) {
+  const { t } = useTranslation()
+
+  const uniqueValues = useMemo(() => {
+    const vals = new Set<string>()
+    for (const row of rows) {
+      const v = row[columnId]
+      if (v != null && v !== '') vals.add(String(v))
+    }
+    return Array.from(vals).sort()
+  }, [rows, columnId])
+
+  const currentValue = value?.selected?.[0] ?? '__all__'
+
+  return (
+    <Select
+      value={currentValue}
+      onValueChange={(v) => {
+        if (v === '__all__') {
+          onChange({ type: 'categorical', selected: [] })
+        } else {
+          onChange({ type: 'categorical', selected: [v] })
+        }
+      }}
+    >
+      <SelectTrigger className="h-7 text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent position="popper" sideOffset={4}>
+        <SelectItem value="__all__" className="text-xs">{t('dashboard.filter_all')}</SelectItem>
+        {uniqueValues.map((val) => (
+          <SelectItem key={val} value={val} className="text-xs">{val}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+}
+
+// --- Numeric Filter ---
+
+function NumericFilter({
+  columnId,
+  rows,
+  value,
+  onChange,
+}: {
   columnId: string
   rows: Record<string, unknown>[]
   value?: { type: 'numeric'; min: number | null; max: number | null }
@@ -242,35 +661,32 @@ function NumericFilter({
   }, [rows, columnId])
 
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium">{label}</Label>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-muted-foreground">Min ({range.min})</span>
-          <Input
-            type="number"
-            className="h-7 text-xs"
-            placeholder={String(range.min)}
-            value={value?.min ?? ''}
-            onChange={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value)
-              onChange({ type: 'numeric', min: v, max: value?.max ?? null })
-            }}
-          />
-        </div>
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-muted-foreground">Max ({range.max})</span>
-          <Input
-            type="number"
-            className="h-7 text-xs"
-            placeholder={String(range.max)}
-            value={value?.max ?? ''}
-            onChange={(e) => {
-              const v = e.target.value === '' ? null : Number(e.target.value)
-              onChange({ type: 'numeric', min: value?.min ?? null, max: v })
-            }}
-          />
-        </div>
+    <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">Min ({range.min})</span>
+        <Input
+          type="number"
+          className="h-6 text-xs"
+          placeholder={String(range.min)}
+          value={value?.min ?? ''}
+          onChange={(e) => {
+            const v = e.target.value === '' ? null : Number(e.target.value)
+            onChange({ type: 'numeric', min: v, max: value?.max ?? null })
+          }}
+        />
+      </div>
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">Max ({range.max})</span>
+        <Input
+          type="number"
+          className="h-6 text-xs"
+          placeholder={String(range.max)}
+          value={value?.max ?? ''}
+          onChange={(e) => {
+            const v = e.target.value === '' ? null : Number(e.target.value)
+            onChange({ type: 'numeric', min: value?.min ?? null, max: v })
+          }}
+        />
       </div>
     </div>
   )
@@ -279,42 +695,35 @@ function NumericFilter({
 // --- Date Filter ---
 
 function DateFilter({
-  label,
-  columnId: _columnId,
   value,
   onChange,
 }: {
-  label: string
-  columnId: string
   value?: { type: 'date'; from: string | null; to: string | null }
   onChange: (value: FilterValue) => void
 }) {
   return (
-    <div className="space-y-1.5">
-      <Label className="text-xs font-medium">{label}</Label>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-muted-foreground">From</span>
-          <Input
-            type="date"
-            className="h-7 text-xs"
-            value={value?.from ?? ''}
-            onChange={(e) => {
-              onChange({ type: 'date', from: e.target.value || null, to: value?.to ?? null })
-            }}
-          />
-        </div>
-        <div className="space-y-0.5">
-          <span className="text-[10px] text-muted-foreground">To</span>
-          <Input
-            type="date"
-            className="h-7 text-xs"
-            value={value?.to ?? ''}
-            onChange={(e) => {
-              onChange({ type: 'date', from: value?.from ?? null, to: e.target.value || null })
-            }}
-          />
-        </div>
+    <div className="grid grid-cols-2 gap-2">
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">From</span>
+        <Input
+          type="date"
+          className="h-6 text-xs"
+          value={value?.from ?? ''}
+          onChange={(e) => {
+            onChange({ type: 'date', from: e.target.value || null, to: value?.to ?? null })
+          }}
+        />
+      </div>
+      <div className="space-y-0.5">
+        <span className="text-[10px] text-muted-foreground">To</span>
+        <Input
+          type="date"
+          className="h-6 text-xs"
+          value={value?.to ?? ''}
+          onChange={(e) => {
+            onChange({ type: 'date', from: value?.from ?? null, to: e.target.value || null })
+          }}
+        />
       </div>
     </div>
   )

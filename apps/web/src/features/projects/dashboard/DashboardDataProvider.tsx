@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { DatasetColumn, FilterValue } from '@/types'
-import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 
 interface DashboardDataContextValue {
@@ -59,12 +58,13 @@ export function applyFilters(
 
 interface DashboardDataProviderProps {
   datasetFileId: string | null
+  /** Filters to apply, keyed by column ID (not filter ID). */
+  filters?: Record<string, FilterValue>
   children: React.ReactNode
 }
 
-export function DashboardDataProvider({ datasetFileId, children }: DashboardDataProviderProps) {
+export function DashboardDataProvider({ datasetFileId, filters, children }: DashboardDataProviderProps) {
   const { files, getFileRows, loadFileData } = useDatasetStore()
-  const { activeFilters } = useDashboardStore()
   const [dataReady, setDataReady] = useState(false)
 
   // Ensure row data is loaded from IDB (needed after app restart)
@@ -79,8 +79,8 @@ export function DashboardDataProvider({ datasetFileId, children }: DashboardData
   const rows = dataReady && datasetFileId ? getFileRows(datasetFileId) : []
 
   const filteredRows = useMemo(
-    () => applyFilters(rows, activeFilters),
-    [rows, activeFilters]
+    () => filters ? applyFilters(rows, filters) : rows,
+    [rows, filters]
   )
 
   const value = useMemo(

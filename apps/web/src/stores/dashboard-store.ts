@@ -14,12 +14,12 @@ interface DashboardState {
   activeDashboardId: string | null
   activeTabId: Record<string, string> // dashboardId → tabId
 
-  // Runtime filter state (not persisted)
+  // Runtime filter state (not persisted) — keyed by DashboardFilter.id
   activeFilters: Record<string, FilterValue>
 
   // Dashboard CRUD
   loadProjectDashboards: (projectUid: string) => Promise<void>
-  createDashboard: (projectUid: string, name: string, datasetFileId?: string | null) => Promise<string>
+  createDashboard: (projectUid: string, name: string) => Promise<string>
   updateDashboard: (id: string, changes: Partial<Dashboard>) => void
   deleteDashboard: (id: string) => void
   setActiveDashboard: (id: string | null) => void
@@ -32,16 +32,17 @@ interface DashboardState {
   setActiveTab: (dashboardId: string, tabId: string) => void
 
   // Widget CRUD
-  addWidget: (tabId: string, source: DashboardWidgetSource, name: string) => void
+  addWidget: (tabId: string, source: DashboardWidgetSource, name: string, datasetFileId?: string | null) => void
   removeWidget: (widgetId: string) => void
   updateWidgetLayout: (widgetId: string, layout: { x: number; y: number; w: number; h: number }) => void
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
   updateWidgetName: (widgetId: string, name: string) => void
+  updateWidgetDataset: (widgetId: string, datasetFileId: string | null) => void
 
   // Filter runtime state
-  setFilter: (columnId: string, value: FilterValue) => void
+  setFilter: (filterId: string, value: FilterValue) => void
   setAllFilters: (filters: Record<string, FilterValue>) => void
-  clearFilter: (columnId: string) => void
+  clearFilter: (filterId: string) => void
   clearAllFilters: () => void
 }
 
@@ -129,14 +130,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
   },
 
-  createDashboard: async (projectUid, name, datasetFileId) => {
+  createDashboard: async (projectUid, name) => {
     const id = `dashboard-${dashboardCounter++}`
     const now = new Date().toISOString()
     const dashboard: Dashboard = {
       id,
       projectUid,
       name,
-      datasetFileId: datasetFileId ?? null,
       filterConfig: [],
       createdAt: now,
       updatedAt: now,
@@ -271,10 +271,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   // --- Widget CRUD ---
 
-  addWidget: (tabId, source, name) => {
+  addWidget: (tabId, source, name, datasetFileId) => {
     const id = `dw-${widgetCounter++}`
     const layout = { x: 0, y: Infinity, ...getDefaultLayout(source) }
-    const widget: DashboardWidget = { id, tabId, name, layout, source }
+    const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source }
 
     set((s) => ({ widgets: [...s.widgets, widget] }))
     getStorage().dashboardWidgets.create(widget).catch(() => {})
@@ -306,18 +306,25 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     getStorage().dashboardWidgets.update(widgetId, { name }).catch(() => {})
   },
 
+  updateWidgetDataset: (widgetId, datasetFileId) => {
+    set((s) => ({
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, datasetFileId } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { datasetFileId }).catch(() => {})
+  },
+
   // --- Filter runtime state ---
 
-  setFilter: (columnId, value) =>
+  setFilter: (filterId, value) =>
     set((s) => ({
-      activeFilters: { ...s.activeFilters, [columnId]: value },
+      activeFilters: { ...s.activeFilters, [filterId]: value },
     })),
 
   setAllFilters: (filters) => set({ activeFilters: filters }),
 
-  clearFilter: (columnId) =>
+  clearFilter: (filterId) =>
     set((s) => {
-      const { [columnId]: _, ...rest } = s.activeFilters
+      const { [filterId]: _, ...rest } = s.activeFilters
       return { activeFilters: rest }
     }),
 

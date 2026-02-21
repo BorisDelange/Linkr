@@ -1,18 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
-import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil, Database } from 'lucide-react'
+import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   Dialog,
   DialogContent,
@@ -47,11 +40,10 @@ export function LabDashboardsPage() {
   const projectUid = uid ?? ''
 
   const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard, updateDashboard } = useDashboardStore()
-  const { files: datasetFiles, loadProjectDatasets } = useDatasetStore()
+  const { loadProjectDatasets } = useDatasetStore()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
-  const [createDatasetId, setCreateDatasetId] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
 
@@ -70,23 +62,12 @@ export function LabDashboardsPage() {
     return widgets.filter((w) => tabIds.has(w.tabId)).length
   }
 
-  const getDatasetName = (datasetFileId: string | null) => {
-    if (!datasetFileId) return null
-    const file = datasetFiles.find((f) => f.id === datasetFileId)
-    return file?.name ?? null
-  }
-
-  const projectDatasetFiles = datasetFiles.filter(
-    (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
-  )
-
   const handleCreate = async () => {
     const name = createName.trim()
     if (!name) return
-    const id = await createDashboard(projectUid, name, createDatasetId)
+    const id = await createDashboard(projectUid, name)
     setCreateOpen(false)
     setCreateName('')
-    setCreateDatasetId(null)
     navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${id}`)
   }
 
@@ -144,7 +125,6 @@ export function LabDashboardsPage() {
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             {projectDashboards.map((dash) => {
               const widgetCount = getWidgetCount(dash.id)
-              const datasetName = getDatasetName(dash.datasetFileId)
               return (
                 <Card
                   key={dash.id}
@@ -184,9 +164,8 @@ export function LabDashboardsPage() {
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
-                    <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+                    <div className="mt-2 text-xs text-muted-foreground">
                       <span>{t('dashboard.card_widgets', { count: widgetCount })}</span>
-                      <span>{datasetName ?? t('dashboard.card_no_dataset')}</span>
                     </div>
                   </div>
                 </Card>
@@ -214,29 +193,6 @@ export function LabDashboardsPage() {
                 onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
                 autoFocus
               />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">{t('dashboard.field_dataset')}</Label>
-              <Select
-                value={createDatasetId ?? '__none__'}
-                onValueChange={(v) => setCreateDatasetId(v === '__none__' ? null : v)}
-              >
-                <SelectTrigger className="h-8 text-sm">
-                  <SelectValue placeholder={t('dashboard.field_dataset_placeholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t('dashboard.field_dataset_none')}</SelectItem>
-                  {projectDatasetFiles.map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      <div className="flex items-center gap-2">
-                        <Database size={12} className="text-muted-foreground" />
-                        {f.name}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.field_dataset_hint')}</p>
             </div>
           </div>
           <DialogFooter>
