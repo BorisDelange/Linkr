@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ArrowRightLeft, ChevronsUpDown } from 'lucide-react'
+import { X, Plus, Database, ArrowRightLeft, ChevronsUpDown, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -152,14 +152,15 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard, widgets,
 
   // Available inputType options per filter type
   const getInputTypeOptions = (filterType: DashboardFilter['type']) => {
-    if (filterType === 'categorical') {
-      return [
-        { value: 'checkbox' as const, label: t('dashboard.input_type_checkbox') },
-        { value: 'multi-select' as const, label: t('dashboard.input_type_multi_select') },
-        { value: 'single-select' as const, label: t('dashboard.input_type_single_select') },
-      ]
+    const options = [
+      { value: 'checkbox' as const, label: t('dashboard.input_type_checkbox') },
+      { value: 'multi-select' as const, label: t('dashboard.input_type_multi_select') },
+      { value: 'single-select' as const, label: t('dashboard.input_type_single_select') },
+    ]
+    if (filterType === 'numeric' || filterType === 'date') {
+      options.push({ value: 'range' as const, label: t('dashboard.input_type_range') })
     }
-    return [{ value: 'range' as const, label: t('dashboard.input_type_range') }]
+    return options
   }
 
   return (
@@ -374,7 +375,16 @@ function FilterControl({
   value?: FilterValue
   onChange: (value: FilterValue) => void
 }) {
-  if (fc.type === 'numeric') {
+  // Range inputs for numeric / date
+  if (fc.inputType === 'range') {
+    if (fc.type === 'date') {
+      return (
+        <DateFilter
+          value={value as (FilterValue & { type: 'date' }) | undefined}
+          onChange={onChange}
+        />
+      )
+    }
     return (
       <NumericFilter
         columnId={fc.columnId}
@@ -384,15 +394,8 @@ function FilterControl({
       />
     )
   }
-  if (fc.type === 'date') {
-    return (
-      <DateFilter
-        value={value as (FilterValue & { type: 'date' }) | undefined}
-        onChange={onChange}
-      />
-    )
-  }
-  // Categorical — dispatch by inputType
+
+  // Discrete inputs (checkbox, multi-select, single-select) — works for any column type
   if (fc.inputType === 'checkbox') {
     return (
       <CategoricalCheckbox
@@ -426,6 +429,9 @@ function FilterControl({
 
 // --- Categorical: Checkbox list ---
 
+const CHECKBOX_WARN_THRESHOLD = 20
+const DROPDOWN_WARN_THRESHOLD = 1000
+
 function CategoricalCheckbox({
   columnId,
   rows,
@@ -437,6 +443,8 @@ function CategoricalCheckbox({
   value?: { type: 'categorical'; selected: string[] }
   onChange: (value: FilterValue) => void
 }) {
+  const { t } = useTranslation()
+
   const uniqueValues = useMemo(() => {
     const vals = new Set<string>()
     for (const row of rows) {
@@ -458,6 +466,14 @@ function CategoricalCheckbox({
 
   return (
     <div className="space-y-1">
+      {uniqueValues.length > CHECKBOX_WARN_THRESHOLD && (
+        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
+          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+            {t('dashboard.filter_warn_checkbox', { count: uniqueValues.length })}
+          </span>
+        </div>
+      )}
       <div className="space-y-0.5 max-h-32 overflow-y-auto">
         {uniqueValues.map((val) => (
           <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1 py-0.5">
@@ -537,6 +553,14 @@ function CategoricalMultiSelect({
 
   return (
     <div className="space-y-1">
+      {uniqueValues.length > DROPDOWN_WARN_THRESHOLD && (
+        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
+          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+            {t('dashboard.filter_warn_dropdown', { count: uniqueValues.length })}
+          </span>
+        </div>
+      )}
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
           <Button variant="outline" size="xs" className="w-full justify-between text-xs font-normal h-7">
@@ -611,6 +635,15 @@ function CategoricalSingleSelect({
   const currentValue = value?.selected?.[0] ?? '__all__'
 
   return (
+    <div className="space-y-1">
+      {uniqueValues.length > DROPDOWN_WARN_THRESHOLD && (
+        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
+          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+            {t('dashboard.filter_warn_dropdown', { count: uniqueValues.length })}
+          </span>
+        </div>
+      )}
     <Select
       value={currentValue}
       onValueChange={(v) => {
@@ -631,6 +664,7 @@ function CategoricalSingleSelect({
         ))}
       </SelectContent>
     </Select>
+    </div>
   )
 }
 

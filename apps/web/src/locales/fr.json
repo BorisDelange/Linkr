@@ -203,6 +203,8 @@
     "input_type_multi_select": "Liste déroulante multi-choix",
     "input_type_single_select": "Liste déroulante choix unique",
     "input_type_range": "Plage",
+    "filter_warn_checkbox": "{{count}} valeurs distinctes — préférez une liste déroulante.",
+    "filter_warn_dropdown": "{{count}} valeurs distinctes — le chargement peut être lent.",
     "source_plugin": "Plugin",
     "delete_confirm_title": "Supprimer le dashboard ?",
     "delete_confirm_description": "Cela supprimera définitivement le dashboard et tous ses widgets.",

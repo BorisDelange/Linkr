@@ -203,6 +203,8 @@
     "input_type_multi_select": "Multi-select dropdown",
     "input_type_single_select": "Single-select dropdown",
     "input_type_range": "Range",
+    "filter_warn_checkbox": "{{count}} distinct values — consider using a dropdown instead.",
+    "filter_warn_dropdown": "{{count}} distinct values — may be slow to load.",
     "source_plugin": "Plugin",
     "delete_confirm_title": "Delete dashboard?",
     "delete_confirm_description": "This will permanently delete the dashboard and all its widgets.",
