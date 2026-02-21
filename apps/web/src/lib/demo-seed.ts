@@ -10,7 +10,8 @@ import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { getDefaultDimensions } from '@/types/catalog'
-import { buildVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
+import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
+import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, EtlFile, DataCatalog } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
@@ -652,7 +653,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
 /** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
-const ETL_FILES_VERSION = 6
+const ETL_FILES_VERSION = 8
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {
@@ -713,10 +714,24 @@ export async function seedDemoEtlFiles(): Promise<void> {
       console.warn('[demo-seed] Could not generate 00_vocabulary.sql content, using placeholder')
     }
 
+    // Generate 00b_custom_vocabulary.sql from OHDSI reference custom mappings
+    let customVocabContent: string | null = null
+    try {
+      const customRes = await fetch('/data/mimic-iv-custom-mappings.json')
+      if (customRes.ok) {
+        const customRows: CustomMappingRow[] = await customRes.json()
+        if (customRows.length > 0) {
+          customVocabContent = buildCustomVocabularyScript(customRows)
+        }
+      }
+    } catch {
+      console.warn('[demo-seed] Could not generate 00b_custom_vocabulary.sql content, using placeholder')
+    }
+
     for (const script of scripts) {
-      const content = script.name === '00_vocabulary.sql' && vocabContent
-        ? vocabContent
-        : script.content
+      let content = script.content
+      if (script.name === '00_vocabulary.sql' && vocabContent) content = vocabContent
+      else if (script.name === '00b_custom_vocabulary.sql' && customVocabContent) content = customVocabContent
       const file: EtlFile = {
         id: `demo-etl-${script.name.replace('.sql', '')}`,
         pipelineId: DEMO_ETL_PIPELINE_ID,
@@ -733,7 +748,8 @@ export async function seedDemoEtlFiles(): Promise<void> {
 
     localStorage.setItem(SEED_KEY_ETL_FILES, String(ETL_FILES_VERSION))
     const vocabInfo = vocabContent ? ' (00_vocabulary.sql generated)' : ''
-    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully (v${ETL_FILES_VERSION})${vocabInfo}`)
+    const customInfo = customVocabContent ? ' (00b_custom_vocabulary.sql generated)' : ''
+    console.info(`[demo-seed] ${scripts.length} ETL scripts seeded successfully (v${ETL_FILES_VERSION})${vocabInfo}${customInfo}`)
   } catch (err) {
     console.error('[demo-seed] Failed to seed ETL files:', err)
   }

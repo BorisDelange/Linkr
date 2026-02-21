@@ -136,25 +136,28 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM concept);`)
 
   // 2e. Generate source concepts with concept_id > 2 000 000 000
+  // domain_id is derived from the target concept (via STCM -> concept join)
+  // concept_class_id is 'Clinical Observation' (OHDSI convention for custom source concepts)
   parts.push('')
   parts.push('-- 2e. Generate source concepts (concept_id > 2 000 000 000)')
   parts.push(`INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
-  parts.push(`    2000000000 + ROW_NUMBER() OVER (ORDER BY source_vocabulary_id, source_code) AS concept_id,`)
-  parts.push(`    source_code_description     AS concept_name,`)
-  parts.push(`    'Observation'               AS domain_id,`)
-  parts.push(`    source_vocabulary_id        AS vocabulary_id,`)
-  parts.push(`    'Undefined'                 AS concept_class_id,`)
+  parts.push(`    2000000000 + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
+  parts.push(`    src.source_code_description AS concept_name,`)
+  parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
+  parts.push(`    src.source_vocabulary_id    AS vocabulary_id,`)
+  parts.push(`    'Clinical Observation'      AS concept_class_id,`)
   parts.push(`    NULL                        AS standard_concept,`)
-  parts.push(`    source_code                 AS concept_code,`)
+  parts.push(`    src.source_code             AS concept_code,`)
   parts.push(`    DATE '1970-01-01'           AS valid_start_date,`)
   parts.push(`    DATE '2099-12-31'           AS valid_end_date,`)
   parts.push(`    NULL                        AS invalid_reason`)
   parts.push(`FROM (`)
-  parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description`)
+  parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description, target_concept_id`)
   parts.push(`    FROM source_to_concept_map`)
   parts.push(`    WHERE source_code IS NOT NULL`)
-  parts.push(`) src;`)
+  parts.push(`) src`)
+  parts.push(`LEFT JOIN concept tc ON tc.concept_id = src.target_concept_id;`)
 
   // 2f. Update source_concept_id in STCM
   parts.push('')
@@ -203,6 +206,35 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`FROM ${vs}.concept_relationship cr`)
   parts.push(`WHERE cr.concept_id_1 IN (SELECT concept_id FROM concept)`)
   parts.push(`  AND cr.concept_id_2 IN (SELECT concept_id FROM concept);`)
+
+  // 3b. Custom concept_relationship: "Maps to" and "Mapped from" for source concepts
+  parts.push('')
+  parts.push('-- 3b. Custom concept_relationship (Maps to + Mapped from) for source concepts')
+  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`SELECT`)
+  parts.push(`    stcm.source_concept_id AS concept_id_1,`)
+  parts.push(`    stcm.target_concept_id AS concept_id_2,`)
+  parts.push(`    'Maps to'              AS relationship_id,`)
+  parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
+  parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
+  parts.push(`    NULL                   AS invalid_reason`)
+  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
+  parts.push(`  AND stcm.target_concept_id != 0;`)
+  parts.push('')
+  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`SELECT`)
+  parts.push(`    stcm.target_concept_id AS concept_id_1,`)
+  parts.push(`    stcm.source_concept_id AS concept_id_2,`)
+  parts.push(`    'Mapped from'          AS relationship_id,`)
+  parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
+  parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
+  parts.push(`    NULL                   AS invalid_reason`)
+  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
+  parts.push(`  AND stcm.target_concept_id != 0;`)
 
   // =========================================================================
   // PART 4: concept_ancestor
@@ -274,6 +306,175 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`SELECT r.*`)
   parts.push(`FROM ${vs}.relationship r`)
   parts.push(`WHERE r.relationship_id IN (SELECT DISTINCT relationship_id FROM concept_relationship);`)
+
+  return parts.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Custom vocabulary script (00b) — OHDSI reference custom mappings
+// ---------------------------------------------------------------------------
+
+/** Compact row from mimic-iv-custom-mappings.json */
+export interface CustomMappingRow {
+  n: string   // concept_name
+  ci: number  // source_concept_id (from OHDSI reference)
+  sv: string  // source_vocabulary_id (mimiciv_*)
+  sd: string  // source_domain_id
+  cc: string  // concept_code
+  ti: number  // target_concept_id
+  tv: string  // target_vocabulary_id
+}
+
+/**
+ * Build the 00b_custom_vocabulary.sql script from OHDSI reference custom mappings.
+ *
+ * This script runs AFTER 00_vocabulary.sql and:
+ * 1. Appends custom mappings to source_to_concept_map
+ * 2. Creates source concepts (concept_id > 2B) with correct domain_id
+ * 3. Updates source_concept_id in STCM
+ * 4. Creates "Maps to" and "Mapped from" concept_relationship rows
+ * 5. Adds custom vocabulary entries
+ */
+export function buildCustomVocabularyScript(rows: CustomMappingRow[]): string {
+  const parts: string[] = []
+
+  parts.push('-- Auto-generated from mimic-iv-custom-mappings.json')
+  parts.push('-- OHDSI reference custom vocabulary mappings (care_site, visit, drug, micro, obs, etc.)')
+  parts.push('')
+
+  if (rows.length === 0) {
+    parts.push('-- No custom mappings to load.')
+    return parts.join('\n')
+  }
+
+  // --- PART 1: Append to source_to_concept_map ---
+  parts.push('-- =================================================================')
+  parts.push('-- PART 1: Append custom mappings to source_to_concept_map')
+  parts.push('-- =================================================================')
+  parts.push('')
+
+  const stcmValues = rows.map((r) => {
+    const code = esc(r.cc)
+    const name = esc(r.n)
+    const srcVocab = esc(r.sv)
+    const tgtVocab = esc(r.tv)
+    return `('${code}', 0, '${srcVocab}', '${name}', ${r.ti}, '${tgtVocab}', DATE '1970-01-01', DATE '2099-12-31', NULL)`
+  })
+
+  parts.push('INSERT INTO source_to_concept_map (source_code, source_concept_id, source_vocabulary_id, source_code_description, target_concept_id, target_vocabulary_id, valid_start_date, valid_end_date, invalid_reason)')
+  parts.push('VALUES')
+  parts.push(stcmValues.join(',\n') + ';')
+
+  // --- PART 2: Create source concepts ---
+  parts.push('')
+  parts.push('-- =================================================================')
+  parts.push('-- PART 2: Source concepts for custom mappings (concept_id > 2B)')
+  parts.push('-- =================================================================')
+  parts.push('')
+
+  // Group by unique (source_vocabulary_id, concept_code) and derive domain from target
+  parts.push(`INSERT INTO concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`SELECT`)
+  parts.push(`    (SELECT COALESCE(MAX(concept_id), 2000000000) FROM concept WHERE concept_id >= 2000000000)`)
+  parts.push(`      + ROW_NUMBER() OVER (ORDER BY src.source_vocabulary_id, src.source_code) AS concept_id,`)
+  parts.push(`    src.source_code_description AS concept_name,`)
+  parts.push(`    COALESCE(tc.domain_id, 'Observation') AS domain_id,`)
+  parts.push(`    src.source_vocabulary_id    AS vocabulary_id,`)
+  parts.push(`    'Clinical Observation'      AS concept_class_id,`)
+  parts.push(`    NULL                        AS standard_concept,`)
+  parts.push(`    src.source_code             AS concept_code,`)
+  parts.push(`    DATE '1970-01-01'           AS valid_start_date,`)
+  parts.push(`    DATE '2099-12-31'           AS valid_end_date,`)
+  parts.push(`    NULL                        AS invalid_reason`)
+  parts.push(`FROM (`)
+  parts.push(`    SELECT DISTINCT source_vocabulary_id, source_code, source_code_description, target_concept_id`)
+  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    WHERE source_vocabulary_id NOT IN ('d_items', 'd_labitems')`)
+  parts.push(`      AND source_code IS NOT NULL`)
+  parts.push(`) src`)
+  parts.push(`LEFT JOIN concept tc ON tc.concept_id = src.target_concept_id`)
+  parts.push(`WHERE NOT EXISTS (`)
+  parts.push(`    SELECT 1 FROM concept c2`)
+  parts.push(`    WHERE c2.concept_code = src.source_code`)
+  parts.push(`      AND c2.vocabulary_id = src.source_vocabulary_id`)
+  parts.push(`);`)
+
+  // --- PART 3: Update source_concept_id in STCM ---
+  parts.push('')
+  parts.push('-- =================================================================')
+  parts.push('-- PART 3: Update source_concept_id for custom mappings')
+  parts.push('-- =================================================================')
+  parts.push('')
+  parts.push(`UPDATE source_to_concept_map`)
+  parts.push(`SET source_concept_id = c.concept_id`)
+  parts.push(`FROM concept c`)
+  parts.push(`WHERE c.concept_code = source_to_concept_map.source_code`)
+  parts.push(`  AND c.vocabulary_id = source_to_concept_map.source_vocabulary_id`)
+  parts.push(`  AND c.concept_id > 2000000000`)
+  parts.push(`  AND source_to_concept_map.source_concept_id = 0;`)
+
+  // --- PART 4: concept_relationship Maps to + Mapped from ---
+  parts.push('')
+  parts.push('-- =================================================================')
+  parts.push('-- PART 4: concept_relationship (Maps to + Mapped from)')
+  parts.push('-- =================================================================')
+  parts.push('')
+  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`SELECT`)
+  parts.push(`    stcm.source_concept_id AS concept_id_1,`)
+  parts.push(`    stcm.target_concept_id AS concept_id_2,`)
+  parts.push(`    'Maps to'              AS relationship_id,`)
+  parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
+  parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
+  parts.push(`    NULL                   AS invalid_reason`)
+  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
+  parts.push(`  AND stcm.target_concept_id != 0`)
+  parts.push(`  AND NOT EXISTS (`)
+  parts.push(`    SELECT 1 FROM concept_relationship cr`)
+  parts.push(`    WHERE cr.concept_id_1 = stcm.source_concept_id`)
+  parts.push(`      AND cr.concept_id_2 = stcm.target_concept_id`)
+  parts.push(`      AND cr.relationship_id = 'Maps to'`)
+  parts.push(`  );`)
+  parts.push('')
+  parts.push(`INSERT INTO concept_relationship (concept_id_1, concept_id_2, relationship_id, valid_start_date, valid_end_date, invalid_reason)`)
+  parts.push(`SELECT`)
+  parts.push(`    stcm.target_concept_id AS concept_id_1,`)
+  parts.push(`    stcm.source_concept_id AS concept_id_2,`)
+  parts.push(`    'Mapped from'          AS relationship_id,`)
+  parts.push(`    DATE '1970-01-01'      AS valid_start_date,`)
+  parts.push(`    DATE '2099-12-31'      AS valid_end_date,`)
+  parts.push(`    NULL                   AS invalid_reason`)
+  parts.push(`FROM source_to_concept_map stcm`)
+  parts.push(`WHERE stcm.source_concept_id > 2000000000`)
+  parts.push(`  AND stcm.target_concept_id IS NOT NULL`)
+  parts.push(`  AND stcm.target_concept_id != 0`)
+  parts.push(`  AND NOT EXISTS (`)
+  parts.push(`    SELECT 1 FROM concept_relationship cr`)
+  parts.push(`    WHERE cr.concept_id_1 = stcm.target_concept_id`)
+  parts.push(`      AND cr.concept_id_2 = stcm.source_concept_id`)
+  parts.push(`      AND cr.relationship_id = 'Mapped from'`)
+  parts.push(`  );`)
+
+  // --- PART 5: Custom vocabulary entries ---
+  parts.push('')
+  parts.push('-- =================================================================')
+  parts.push('-- PART 5: Custom vocabulary entries')
+  parts.push('-- =================================================================')
+  parts.push('')
+  parts.push(`INSERT INTO vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
+  parts.push(`SELECT`)
+  parts.push(`    sv.source_vocabulary_id AS vocabulary_id,`)
+  parts.push(`    sv.source_vocabulary_id AS vocabulary_name,`)
+  parts.push(`    'OHDSI MIMIC-IV ETL'   AS vocabulary_reference,`)
+  parts.push(`    NULL                    AS vocabulary_version,`)
+  parts.push(`    0                       AS vocabulary_concept_id`)
+  parts.push(`FROM (`)
+  parts.push(`    SELECT DISTINCT source_vocabulary_id`)
+  parts.push(`    FROM source_to_concept_map`)
+  parts.push(`    WHERE source_vocabulary_id NOT IN (SELECT vocabulary_id FROM vocabulary)`)
+  parts.push(`) sv;`)
 
   return parts.join('\n')
 }
