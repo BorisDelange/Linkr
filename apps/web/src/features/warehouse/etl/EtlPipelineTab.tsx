@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -23,6 +23,17 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import {
+  flexRender,
+  getCoreRowModel,
+  getFilteredRowModel,
+  getSortedRowModel,
+  getPaginationRowModel,
+  useReactTable,
+  type ColumnDef,
+  type SortingState,
+  type ColumnFiltersState,
+} from '@tanstack/react-table'
+import {
   Workflow,
   Play,
   Square,
@@ -36,6 +47,7 @@ import {
   History,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Eye,
   GripVertical,
   FileCode,
@@ -47,6 +59,9 @@ import {
   Building2,
   GitCompare,
   AlertTriangle,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -865,6 +880,11 @@ function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMapp
 
 // ---------------------------------------------------------------------------
 // Concept comparison tab — concept mapping datatable with source vs target counts
+// Uses TanStack Table with column filters, sorting, pagination, resizable columns.
+//
+// Counts logic: both source and target counts are queried from the TARGET DB.
+// - "Source" columns show counts using *_source_concept_id columns
+// - "Target" columns show counts using *_concept_id columns
 // ---------------------------------------------------------------------------
 
 function ConceptComparisonTab({
@@ -879,18 +899,21 @@ function ConceptComparisonTab({
   const { t } = useTranslation()
   const [mappingRows, setMappingRows] = useState<ConceptMappingRow[]>([])
   const [mappingLoading, setMappingLoading] = useState(false)
+  const [sorting, setSorting] = useState<SortingState>([])
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
   useEffect(() => {
-    if (!sourceDs?.id || !targetDs?.id || !targetDs?.schemaMapping) return
+    if (!targetDs?.id) return
     let cancelled = false
     setMappingLoading(true)
 
     const loadMapping = async () => {
       try {
-        // Read STCM from target database
+        // Read STCM from target database (include source_concept_id for source counts)
         const stcmRows = await duckdbEngine.queryDataSource(targetDs.id, `
           SELECT source_vocabulary_id, source_code, source_code_description,
-                 target_concept_id, target_vocabulary_id
+                 source_concept_id, target_concept_id, target_vocabulary_id
           FROM source_to_concept_map
           WHERE target_concept_id != 0
         `).catch(() => [])
@@ -900,36 +923,43 @@ function ConceptComparisonTab({
           return
         }
 
-        // Build concept_id lists for counting
+        // Collect all concept IDs we need counts for
+        const sourceConceptIds = new Set<number>()
         const targetConceptIds = new Set<number>()
         for (const row of stcmRows) {
-          targetConceptIds.add(Number(row.target_concept_id))
+          const sci = Number(row.source_concept_id)
+          const tci = Number(row.target_concept_id)
+          if (sci > 0) sourceConceptIds.add(sci)
+          if (tci > 0) targetConceptIds.add(tci)
         }
 
-        const countConceptsInDb = async (dsId: string, conceptIds: number[], side: 'source' | 'target') => {
+        // Count concept occurrences in target DB clinical tables
+        const countConceptsInTargetDb = async (conceptIds: number[], useSourceCol: boolean) => {
           if (conceptIds.length === 0) return new Map<number, { patients: number; rows: number }>()
           const counts = new Map<number, { patients: number; rows: number }>()
 
           const clinicalTables = [
-            { table: 'condition_occurrence', conceptCol: side === 'source' ? 'condition_source_concept_id' : 'condition_concept_id', personCol: 'person_id' },
-            { table: 'drug_exposure', conceptCol: side === 'source' ? 'drug_source_concept_id' : 'drug_concept_id', personCol: 'person_id' },
-            { table: 'measurement', conceptCol: side === 'source' ? 'measurement_source_concept_id' : 'measurement_concept_id', personCol: 'person_id' },
-            { table: 'procedure_occurrence', conceptCol: side === 'source' ? 'procedure_source_concept_id' : 'procedure_concept_id', personCol: 'person_id' },
-            { table: 'observation', conceptCol: side === 'source' ? 'observation_source_concept_id' : 'observation_concept_id', personCol: 'person_id' },
+            { table: 'condition_occurrence', col: useSourceCol ? 'condition_source_concept_id' : 'condition_concept_id' },
+            { table: 'drug_exposure', col: useSourceCol ? 'drug_source_concept_id' : 'drug_concept_id' },
+            { table: 'measurement', col: useSourceCol ? 'measurement_source_concept_id' : 'measurement_concept_id' },
+            { table: 'procedure_occurrence', col: useSourceCol ? 'procedure_source_concept_id' : 'procedure_concept_id' },
+            { table: 'observation', col: useSourceCol ? 'observation_source_concept_id' : 'observation_concept_id' },
+            { table: 'device_exposure', col: useSourceCol ? 'device_source_concept_id' : 'device_concept_id' },
+            { table: 'specimen', col: useSourceCol ? 'specimen_source_concept_id' : 'specimen_concept_id' },
           ]
 
+          const idList = conceptIds.join(',')
           for (const ct of clinicalTables) {
             try {
-              const idList = conceptIds.join(',')
               const sql = `
-                SELECT "${ct.conceptCol}" as cid,
-                       COUNT(DISTINCT "${ct.personCol}")::INTEGER as patients,
+                SELECT "${ct.col}" as cid,
+                       COUNT(DISTINCT person_id)::INTEGER as patients,
                        COUNT(*)::INTEGER as rows
                 FROM "${ct.table}"
-                WHERE "${ct.conceptCol}" IN (${idList})
-                GROUP BY "${ct.conceptCol}"
+                WHERE "${ct.col}" IN (${idList})
+                GROUP BY "${ct.col}"
               `
-              const rows = await duckdbEngine.queryDataSource(dsId, sql)
+              const rows = await duckdbEngine.queryDataSource(targetDs.id, sql)
               for (const r of rows) {
                 const cid = Number(r.cid)
                 const prev = counts.get(cid) ?? { patients: 0, rows: 0 }
@@ -940,22 +970,22 @@ function ConceptComparisonTab({
           return counts
         }
 
-        const allTargetIds = [...targetConceptIds]
-        const targetCounts = await countConceptsInDb(targetDs.id, allTargetIds, 'target')
-        const sourceCounts = sourceDs.schemaMapping
-          ? await countConceptsInDb(sourceDs.id, allTargetIds, 'target').catch(() => new Map())
-          : new Map<number, { patients: number; rows: number }>()
+        // Source counts: use *_source_concept_id columns
+        const sourceCounts = await countConceptsInTargetDb([...sourceConceptIds], true)
+        // Target counts: use *_concept_id columns
+        const targetCounts = await countConceptsInTargetDb([...targetConceptIds], false)
 
         const comparisonRows: ConceptMappingRow[] = []
         for (const row of stcmRows) {
+          const sci = Number(row.source_concept_id ?? 0)
           const tcid = Number(row.target_concept_id)
-          const sc = sourceCounts.get(tcid) ?? { patients: 0, rows: 0 }
+          const sc = sci > 0 ? (sourceCounts.get(sci) ?? { patients: 0, rows: 0 }) : { patients: 0, rows: 0 }
           const tc = targetCounts.get(tcid) ?? { patients: 0, rows: 0 }
 
           let diff: ConceptMappingRow['diff'] = 'match'
           if (sc.rows > 0 && tc.rows === 0) diff = 'missing'
-          else if (tc.rows < sc.rows * 0.9) diff = 'fewer'
-          else if (tc.rows > sc.rows * 1.1) diff = 'more'
+          else if (sc.rows > 0 && tc.rows < sc.rows * 0.9) diff = 'fewer'
+          else if (sc.rows > 0 && tc.rows > sc.rows * 1.1) diff = 'more'
 
           comparisonRows.push({
             sourceVocabularyId: String(row.source_vocabulary_id ?? ''),
@@ -971,9 +1001,6 @@ function ConceptComparisonTab({
           })
         }
 
-        const diffOrder = { missing: 0, fewer: 1, more: 2, match: 3 }
-        comparisonRows.sort((a, b) => diffOrder[a.diff] - diffOrder[b.diff])
-
         if (!cancelled) {
           setMappingRows(comparisonRows)
           setMappingLoading(false)
@@ -984,7 +1011,105 @@ function ConceptComparisonTab({
     }
     loadMapping()
     return () => { cancelled = true }
-  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+  }, [targetDs?.id])
+
+  // TanStack Table column definitions
+  const columns = useMemo<ColumnDef<ConceptMappingRow>[]>(() => [
+    {
+      accessorKey: 'sourceVocabularyId',
+      header: t('etl.comparison_source_vocab'),
+      size: 140,
+      filterFn: 'includesString',
+      cell: ({ getValue }) => <span className="font-mono">{getValue<string>()}</span>,
+    },
+    {
+      accessorKey: 'sourceCode',
+      header: t('etl.comparison_source_code'),
+      size: 180,
+      filterFn: 'includesString',
+      cell: ({ row }) => (
+        <span className="font-mono truncate block" title={row.original.sourceDescription}>
+          {row.original.sourceCode}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'sourceDescription',
+      header: t('etl.comparison_description'),
+      size: 200,
+      filterFn: 'includesString',
+      cell: ({ getValue }) => (
+        <span className="truncate block" title={getValue<string>()}>
+          {getValue<string>()}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'targetConceptId',
+      header: t('etl.comparison_target_id'),
+      size: 100,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-right block">{getValue<number>()}</span>
+      ),
+    },
+    {
+      accessorKey: 'sourcePatients',
+      header: t('etl.comparison_source_patients'),
+      size: 90,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-right block">{getValue<number>().toLocaleString()}</span>
+      ),
+    },
+    {
+      accessorKey: 'targetPatients',
+      header: t('etl.comparison_target_patients'),
+      size: 90,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-right block">{getValue<number>().toLocaleString()}</span>
+      ),
+    },
+    {
+      accessorKey: 'sourceRows',
+      header: t('etl.comparison_source_rows'),
+      size: 90,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-right block">{getValue<number>().toLocaleString()}</span>
+      ),
+    },
+    {
+      accessorKey: 'targetRows',
+      header: t('etl.comparison_target_rows'),
+      size: 90,
+      cell: ({ getValue }) => (
+        <span className="tabular-nums text-right block">{getValue<number>().toLocaleString()}</span>
+      ),
+    },
+    {
+      accessorKey: 'diff',
+      header: t('etl.comparison_status'),
+      size: 90,
+      filterFn: (row, _columnId, filterValue) => {
+        if (!filterValue || filterValue === 'all') return true
+        return row.original.diff === filterValue
+      },
+      cell: ({ getValue }) => <ComparisonDiffBadge diff={getValue<ConceptMappingRow['diff']>()} />,
+    },
+  ], [t])
+
+  const table = useReactTable({
+    data: mappingRows,
+    columns,
+    state: { sorting, columnFilters, columnSizing },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    onColumnSizingChange: setColumnSizing,
+    getCoreRowModel: getCoreRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    columnResizeMode: 'onChange',
+    initialState: { pagination: { pageSize: 50 } },
+  })
 
   if (mappingLoading) {
     return (
@@ -1011,65 +1136,193 @@ function ConceptComparisonTab({
   const diffCounts = { missing: 0, fewer: 0, more: 0, match: 0 }
   for (const row of mappingRows) diffCounts[row.diff]++
 
+  const filteredCount = table.getFilteredRowModel().rows.length
+
   return (
     <div className="flex h-full flex-col">
-      {/* Summary badges */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b">
-        <span className="text-xs text-muted-foreground">{mappingRows.length} {t('etl.comparison_mapping_concepts')}</span>
+      {/* Summary badges + pagination */}
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b flex-wrap">
+        <span className="text-xs text-muted-foreground">
+          {filteredCount !== mappingRows.length
+            ? `${filteredCount} / ${mappingRows.length}`
+            : mappingRows.length}{' '}
+          {t('etl.comparison_mapping_concepts')}
+        </span>
         <div className="flex items-center gap-1">
           {diffCounts.missing > 0 && (
-            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:text-red-400">
+            <button
+              onClick={() => {
+                const col = table.getColumn('diff')
+                col?.setFilterValue(col.getFilterValue() === 'missing' ? undefined : 'missing')
+              }}
+              className={cn(
+                'inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                table.getColumn('diff')?.getFilterValue() === 'missing'
+                  ? 'bg-red-500/30 text-red-700 dark:text-red-300 ring-1 ring-red-500/50'
+                  : 'bg-red-500/15 text-red-600 dark:text-red-400 hover:bg-red-500/25',
+              )}
+            >
               <AlertTriangle size={9} /> {diffCounts.missing} {t('etl.comparison_missing')}
-            </span>
+            </button>
           )}
           {diffCounts.fewer > 0 && (
-            <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+            <button
+              onClick={() => {
+                const col = table.getColumn('diff')
+                col?.setFilterValue(col.getFilterValue() === 'fewer' ? undefined : 'fewer')
+              }}
+              className={cn(
+                'rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                table.getColumn('diff')?.getFilterValue() === 'fewer'
+                  ? 'bg-amber-500/30 text-amber-700 dark:text-amber-300 ring-1 ring-amber-500/50'
+                  : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 hover:bg-amber-500/25',
+              )}
+            >
               {diffCounts.fewer} {t('etl.comparison_fewer')}
-            </span>
+            </button>
           )}
           {diffCounts.more > 0 && (
-            <span className="rounded-full bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-medium text-blue-600 dark:text-blue-400">
+            <button
+              onClick={() => {
+                const col = table.getColumn('diff')
+                col?.setFilterValue(col.getFilterValue() === 'more' ? undefined : 'more')
+              }}
+              className={cn(
+                'rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                table.getColumn('diff')?.getFilterValue() === 'more'
+                  ? 'bg-blue-500/30 text-blue-700 dark:text-blue-300 ring-1 ring-blue-500/50'
+                  : 'bg-blue-500/15 text-blue-600 dark:text-blue-400 hover:bg-blue-500/25',
+              )}
+            >
               {diffCounts.more} {t('etl.comparison_more')}
-            </span>
+            </button>
           )}
           {diffCounts.match > 0 && (
-            <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <button
+              onClick={() => {
+                const col = table.getColumn('diff')
+                col?.setFilterValue(col.getFilterValue() === 'match' ? undefined : 'match')
+              }}
+              className={cn(
+                'rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                table.getColumn('diff')?.getFilterValue() === 'match'
+                  ? 'bg-emerald-500/30 text-emerald-700 dark:text-emerald-300 ring-1 ring-emerald-500/50'
+                  : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25',
+              )}
+            >
               {diffCounts.match} OK
-            </span>
+            </button>
           )}
+          {table.getColumn('diff')?.getFilterValue() && (
+            <button
+              onClick={() => table.getColumn('diff')?.setFilterValue(undefined)}
+              className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/80"
+            >
+              {t('common.clear')}
+            </button>
+          )}
+        </div>
+
+        {/* Pagination controls */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <span className="text-[10px] text-muted-foreground">
+            {t('common.page')} {table.getState().pagination.pageIndex + 1} / {table.getPageCount()}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
+            <ChevronLeft size={12} />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
+            <ChevronRight size={12} />
+          </Button>
         </div>
       </div>
 
-      {/* Datatable */}
+      {/* DataTable */}
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full text-xs">
-          <thead className="sticky top-0 bg-muted/80 backdrop-blur">
-            <tr>
-              <th className="px-2 py-1.5 text-left font-medium">{t('etl.comparison_source_vocab')}</th>
-              <th className="px-2 py-1.5 text-left font-medium">{t('etl.comparison_source_code')}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_id')}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_source_patients')}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_patients')}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_source_rows')}</th>
-              <th className="px-2 py-1.5 text-right font-medium">{t('etl.comparison_target_rows')}</th>
-              <th className="px-2 py-1.5 text-center font-medium">{t('etl.comparison_status')}</th>
+        <table className="w-full text-xs" style={{ width: table.getCenterTotalSize() }}>
+          <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className="relative px-2 py-1.5 text-left font-medium"
+                    style={{ width: header.getSize() }}
+                  >
+                    <div
+                      className={cn(
+                        'flex items-center gap-1 select-none',
+                        header.column.getCanSort() && 'cursor-pointer hover:text-foreground',
+                      )}
+                      onClick={header.column.getToggleSortingHandler()}
+                    >
+                      <span className="truncate">
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                      </span>
+                      {header.column.getIsSorted() === 'asc' && <ArrowUp size={10} />}
+                      {header.column.getIsSorted() === 'desc' && <ArrowDown size={10} />}
+                      {header.column.getCanSort() && !header.column.getIsSorted() && (
+                        <ArrowUpDown size={10} className="text-muted-foreground/40" />
+                      )}
+                    </div>
+                    {/* Resize handle */}
+                    <div
+                      onMouseDown={header.getResizeHandler()}
+                      onTouchStart={header.getResizeHandler()}
+                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize select-none touch-none hover:bg-primary/30"
+                    />
+                  </th>
+                ))}
+              </tr>
+            ))}
+            {/* Column filter row */}
+            <tr className="border-b">
+              {table.getHeaderGroups()[0]?.headers.map((header) => (
+                <th key={`filter-${header.id}`} className="px-1.5 py-1" style={{ width: header.getSize() }}>
+                  {header.column.id === 'diff' ? (
+                    // Status filter is handled by the badges above
+                    null
+                  ) : header.column.getCanFilter() ? (
+                    <input
+                      type="text"
+                      value={(header.column.getFilterValue() as string) ?? ''}
+                      onChange={(e) => header.column.setFilterValue(e.target.value || undefined)}
+                      placeholder="…"
+                      className="h-5 w-full rounded border bg-transparent px-1 text-[10px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  ) : null}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {mappingRows.map((row, idx) => (
-              <tr key={idx} className={cn('border-t hover:bg-accent/30', row.diff === 'missing' && 'bg-red-500/5')}>
-                <td className="px-2 py-1.5 font-mono">{row.sourceVocabularyId}</td>
-                <td className="px-2 py-1.5 font-mono max-w-[200px] truncate" title={row.sourceDescription}>
-                  {row.sourceCode}
-                </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetConceptId}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{row.sourcePatients.toLocaleString()}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetPatients.toLocaleString()}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{row.sourceRows.toLocaleString()}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{row.targetRows.toLocaleString()}</td>
-                <td className="px-2 py-1.5 text-center">
-                  <ComparisonDiffBadge diff={row.diff} />
-                </td>
+            {table.getRowModel().rows.map((row) => (
+              <tr
+                key={row.id}
+                className={cn(
+                  'border-t hover:bg-accent/30',
+                  row.original.diff === 'missing' && 'bg-red-500/5',
+                )}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <td
+                    key={cell.id}
+                    className="px-2 py-1.5"
+                    style={{ width: cell.column.getSize() }}
+                  >
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </td>
+                ))}
               </tr>
             ))}
           </tbody>

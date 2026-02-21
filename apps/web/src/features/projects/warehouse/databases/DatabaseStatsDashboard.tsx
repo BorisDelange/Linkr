@@ -131,7 +131,7 @@ export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStat
         ) : null}
       </section>
 
-      {/* ── Section 2: Visits & hospitalizations ── */}
+      {/* ── Section 2: Visits & visit units ── */}
       <section>
         <SectionHeader icon={Activity} title={t('databases.stats_section_visits')} />
 
@@ -143,14 +143,24 @@ export function DatabaseStatsDashboard({ dataSourceId, schemaMapping, sourceStat
           </div>
         ) : cache ? (
           <div className="mt-4 space-y-6">
-            {/* Visit count big number */}
-            <div className="rounded-lg border bg-card p-4">
-              <p className="text-xs text-muted-foreground">
-                {t('databases.stats_visit_count')}
-              </p>
-              <p className="mt-2 text-3xl font-bold tabular-nums">
-                {cache.summary.visitCount.toLocaleString()}
-              </p>
+            {/* Visit count + visit detail count */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-lg border bg-card p-4">
+                <p className="text-xs text-muted-foreground">
+                  {t('databases.stats_visit_count')}
+                </p>
+                <p className="mt-2 text-3xl font-bold tabular-nums">
+                  {cache.summary.visitCount.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-lg border bg-card p-4">
+                <p className="text-xs text-muted-foreground">
+                  {t('databases.stats_visit_detail_count')}
+                </p>
+                <p className="mt-2 text-3xl font-bold tabular-nums">
+                  {cache.summary.visitDetailCount.toLocaleString()}
+                </p>
+              </div>
             </div>
 
             {/* Key figures table */}
@@ -362,6 +372,18 @@ function DescriptiveStatsTable({ stats }: { stats: DescriptiveStats }) {
     })
   }
 
+  // Visit unit length of stay
+  if (stats.unitLosMean != null || stats.unitLosMedian != null) {
+    rows.push({
+      label: t('databases.stats_unit_los_mean'),
+      value: stats.unitLosMean != null ? `${stats.unitLosMean} ${t('databases.stats_days')}` : '—',
+    })
+    rows.push({
+      label: t('databases.stats_unit_los_median'),
+      value: stats.unitLosMedian != null ? `${stats.unitLosMedian} ${t('databases.stats_days')}` : '—',
+    })
+  }
+
   if (rows.length === 0) return null
 
   return (
@@ -408,7 +430,7 @@ function AgeHistogramChart({ data }: { data: AgePyramidBucket[] }) {
           axisLine={false}
           tickLine={false}
         />
-        <Tooltip content={<ChartTooltip />} />
+        <Tooltip content={<ChartTooltip />} cursor={{ fill: 'var(--color-accent)', opacity: 0.5 }} />
         <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
         <Bar
           dataKey="male"

@@ -653,7 +653,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
 /** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
-const ETL_FILES_VERSION = 8
+const ETL_FILES_VERSION = 9
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {

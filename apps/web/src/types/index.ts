@@ -205,6 +205,8 @@ export interface DescriptiveStats {
   visitsPerPatientMedian?: number
   visitsPerPatientMin?: number
   visitsPerPatientMax?: number
+  unitLosMean?: number
+  unitLosMedian?: number
 }
 
 /** Cached statistics for a database data source. */

@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig, TableRowCount } from '@/types'
-import { Users, Building2, Table } from 'lucide-react'
+import { Users, Building2, Table, Activity, BedDouble } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -217,21 +217,27 @@ function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { da
   return (
     <div className="grid grid-cols-2 gap-3">
       <StatCard
+        icon={Table}
+        label={t('databases.detail_tables')}
+        value={cache?.summary.tableCount}
+        loading={isLoading}
+      />
+      <StatCard
         icon={Users}
         label={t('databases.detail_patients')}
         value={cache?.summary.patientCount}
         loading={isLoading}
       />
       <StatCard
-        icon={Building2}
+        icon={Activity}
         label={t('databases.detail_visits')}
         value={cache?.summary.visitCount}
         loading={isLoading}
       />
       <StatCard
-        icon={Table}
-        label={t('databases.detail_tables')}
-        value={cache?.summary.tableCount}
+        icon={BedDouble}
+        label={t('databases.detail_visit_units')}
+        value={cache?.summary.visitDetailCount}
         loading={isLoading}
       />
     </div>

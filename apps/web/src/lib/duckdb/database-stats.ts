@@ -307,6 +307,26 @@ async function computeDescriptiveStats(
     }
   } catch { /* ignore */ }
 
+  // Visit unit (visit_detail) length of stay
+  const vdt = mapping.visitDetailTable
+  if (vdt?.startDateColumn && vdt?.endDateColumn) {
+    try {
+      const unitLosSql = `
+        SELECT
+          ROUND(AVG(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_mean,
+          ROUND(MEDIAN(DATEDIFF('day', "${vdt.startDateColumn}"::TIMESTAMP, "${vdt.endDateColumn}"::TIMESTAMP)), 1) as los_median
+        FROM "${vdt.table}"
+        WHERE "${vdt.startDateColumn}" IS NOT NULL
+          AND "${vdt.endDateColumn}" IS NOT NULL
+      `
+      const rows = await queryDataSource(dsId, unitLosSql)
+      if (rows[0]) {
+        stats.unitLosMean = rows[0].los_mean != null ? Number(rows[0].los_mean) : undefined
+        stats.unitLosMedian = rows[0].los_median != null ? Number(rows[0].los_median) : undefined
+      }
+    } catch { /* ignore */ }
+  }
+
   return stats
 }
 
