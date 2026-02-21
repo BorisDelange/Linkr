@@ -287,7 +287,7 @@ export async function seedMimicIVRawDatabase(): Promise<void> {
 
 const SEED_KEY_VOCAB = 'linkr-demo-omop-vocab-seeded'
 /** Bump this version whenever omop-vocabulary Parquet files are updated to force re-seed. */
-const VOCAB_VERSION = 5
+const VOCAB_VERSION = 6
 const DEMO_VOCAB_DATASOURCE_ID = '00000000-0000-0000-0000-000000000004'
 const PARQUET_BASE_VOCAB = '/data/omop-vocabulary'
 
@@ -652,7 +652,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
 /** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
-const ETL_FILES_VERSION = 5
+const ETL_FILES_VERSION = 6
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {

@@ -83,7 +83,7 @@ function isConceptFile(name: string): boolean {
   return base === 'concept'
 }
 
-const BROWSE_PAGE_SIZE = 50
+const BROWSE_PAGE_SIZE = 25
 
 interface ConceptSetsTabProps {
   project: MappingProject
@@ -127,7 +127,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [browseSearch, setBrowseSearch] = useState('')
   const [browseVocab, setBrowseVocab] = useState<string>('__all__')
   const [browseDomain, setBrowseDomain] = useState<string>('__all__')
-  const [browseStandardOnly, setBrowseStandardOnly] = useState(true)
+  const [browseStandardOnly, setBrowseStandardOnly] = useState(false)
   const [browseResults, setBrowseResults] = useState<Record<string, unknown>[]>([])
   const [browseTotal, setBrowseTotal] = useState(0)
   const [browsePage, setBrowsePage] = useState(0)
@@ -821,7 +821,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     </div>
 
                     {/* Body */}
-                    <div className="max-h-[60vh] overflow-auto">
+                    <div>
                       {browseLoading ? (
                         <div className="flex h-32 items-center justify-center">
                           <Loader2 size={16} className="animate-spin text-muted-foreground" />
