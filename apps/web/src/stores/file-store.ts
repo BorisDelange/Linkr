@@ -84,8 +84,12 @@ interface FileState {
   peekUndo: () => UndoAction | undefined
 }
 
-let fileCounter = 10
 let undoCounter = 0
+
+/** Generate a unique ID for files and folders. */
+function newFileId(type: 'file' | 'folder'): string {
+  return `${type}-${crypto.randomUUID().slice(0, 8)}`
+}
 
 function getLanguageForFile(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase()
@@ -305,46 +309,50 @@ const DEMO_R = [
   'cat("\\nDone.\\n")',
 ].join('\n')
 
-const defaultFiles: FileNode[] = [
-  {
-    id: 'folder-1',
-    projectUid: '',
-    name: 'scripts',
-    type: 'folder',
-    parentId: null,
-    createdAt: '2026-02-10',
-  },
-  {
-    id: 'file-1',
-    projectUid: '',
-    name: '01_cohort_extraction.sql',
-    type: 'file',
-    parentId: 'folder-1',
-    language: 'sql',
-    content: DEMO_SQL,
-    createdAt: '2026-02-10',
-  },
-  {
-    id: 'file-2',
-    projectUid: '',
-    name: '02_feature_engineering.py',
-    type: 'file',
-    parentId: 'folder-1',
-    language: 'python',
-    content: DEMO_PY,
-    createdAt: '2026-02-10',
-  },
-  {
-    id: 'file-3',
-    projectUid: '',
-    name: '03_analysis.R',
-    type: 'file',
-    parentId: 'folder-1',
-    language: 'r',
-    content: DEMO_R,
-    createdAt: '2026-02-10',
-  },
-]
+/** Generate default demo files with unique IDs for a given project. */
+function createDefaultFiles(projectUid: string): FileNode[] {
+  const folderId = newFileId('folder')
+  return [
+    {
+      id: folderId,
+      projectUid,
+      name: 'scripts',
+      type: 'folder',
+      parentId: null,
+      createdAt: '2026-02-10',
+    },
+    {
+      id: newFileId('file'),
+      projectUid,
+      name: '01_cohort_extraction.sql',
+      type: 'file',
+      parentId: folderId,
+      language: 'sql',
+      content: DEMO_SQL,
+      createdAt: '2026-02-10',
+    },
+    {
+      id: newFileId('file'),
+      projectUid,
+      name: '02_feature_engineering.py',
+      type: 'file',
+      parentId: folderId,
+      language: 'python',
+      content: DEMO_PY,
+      createdAt: '2026-02-10',
+    },
+    {
+      id: newFileId('file'),
+      projectUid,
+      name: '03_analysis.R',
+      type: 'file',
+      parentId: folderId,
+      language: 'r',
+      content: DEMO_R,
+      createdAt: '2026-02-10',
+    },
+  ]
+}
 
 export function buildFolderTree(
   files: FileNode[],
@@ -374,18 +382,6 @@ function getAllDescendants(files: FileNode[], parentId: string): string[] {
   return ids
 }
 
-/** Compute next fileCounter from existing file IDs. */
-function initFileCounter(files: FileNode[]) {
-  let max = 10
-  for (const f of files) {
-    const match = f.id.match(/^(?:file|folder)-(\d+)$/)
-    if (match) {
-      const n = parseInt(match[1], 10)
-      if (n >= max) max = n + 1
-    }
-  }
-  fileCounter = max
-}
 
 // Per-file debounce timers for content saves
 const _contentSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -395,8 +391,8 @@ const _savedContent = new Map<string, string>()
 const MAX_UNDO = 50
 
 export const useFileStore = create<FileState>((set, get) => ({
-  files: defaultFiles,
-  expandedFolders: ['folder-1'],
+  files: [],
+  expandedFolders: [],
   selectedFileId: null,
   activeProjectUid: null,
   openFileIds: [],
@@ -416,20 +412,22 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       if (stored.length > 0) {
         // Migrate stale default demo files when DEMO_FILES_VERSION changes
-        const storedVersion = parseInt(localStorage.getItem(DEMO_FILES_VERSION_KEY) ?? '0', 10)
+        const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
+        const storedVersion = parseInt(localStorage.getItem(versionKey) ?? '0', 10)
         if (storedVersion < DEMO_FILES_VERSION) {
-          const defaultById = new Map(defaultFiles.filter((f) => f.type === 'file').map((f) => [f.id, f]))
+          // Match demo files by name (not ID, since IDs are now unique per project)
+          const demoRef = createDefaultFiles(projectUid)
+          const demoByName = new Map(demoRef.filter((f) => f.type === 'file').map((f) => [f.name, f]))
           for (const f of stored) {
-            const defaultFile = defaultById.get(f.id)
-            if (defaultFile && f.type === 'file' && defaultFile.content !== f.content) {
-              f.content = defaultFile.content
+            const demoFile = demoByName.get(f.name)
+            if (demoFile && f.type === 'file' && demoFile.content !== f.content) {
+              f.content = demoFile.content
               storage.ideFiles.update(f.id, { content: f.content }).catch(() => {})
             }
           }
-          localStorage.setItem(DEMO_FILES_VERSION_KEY, String(DEMO_FILES_VERSION))
+          localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
         }
 
-        initFileCounter(stored)
         // Populate saved content snapshots
         for (const f of stored) {
           if (f.type === 'file' && f.content !== undefined) {
@@ -449,45 +447,51 @@ export const useFileStore = create<FileState>((set, get) => ({
           _dirtyVersion: 0,
         })
       } else {
-        // Seed with defaults, stamping projectUid
-        const seeded = defaultFiles.map((f) => ({ ...f, projectUid }))
-        initFileCounter(seeded)
+        // Seed with defaults (unique IDs per project)
+        const seeded = createDefaultFiles(projectUid)
         // Populate saved content snapshots
         for (const f of seeded) {
           if (f.type === 'file' && f.content !== undefined) {
             _savedContent.set(f.id, f.content)
           }
         }
+        const rootFolders = seeded
+          .filter((f) => f.type === 'folder' && f.parentId === null)
+          .map((f) => f.id)
         set({
           files: seeded,
           activeProjectUid: projectUid,
           selectedFileId: null,
           openFileIds: [],
-          expandedFolders: ['folder-1'],
+          expandedFolders: rootFolders,
           _dirtyVersion: 0,
         })
         // Persist seeds
         for (const f of seeded) {
           await storage.ideFiles.create(f)
         }
-        localStorage.setItem(DEMO_FILES_VERSION_KEY, String(DEMO_FILES_VERSION))
+        const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
+        localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
       }
     } catch {
       // Storage not ready — use defaults
-      const seeded = defaultFiles.map((f) => ({ ...f, projectUid }))
+      const seeded = createDefaultFiles(projectUid)
+      const rootFolders = seeded
+        .filter((f) => f.type === 'folder' && f.parentId === null)
+        .map((f) => f.id)
       set({
         files: seeded,
         activeProjectUid: projectUid,
         selectedFileId: null,
         openFileIds: [],
-        expandedFolders: ['folder-1'],
+        expandedFolders: rootFolders,
       })
     }
   },
 
   createFile: (name, parentId, language) => {
     const projectUid = get().activeProjectUid ?? ''
-    const id = `file-${fileCounter++}`
+    const id = newFileId('file')
     const lang = language || getLanguageForFile(name)
     const node: FileNode = {
       id,
@@ -506,7 +510,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
     // Persist
-    getStorage().ideFiles.create(node).catch(() => {})
+    getStorage().ideFiles.create(node).catch((err) => console.error('[file-store] Failed to persist file:', node.id, err))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -525,7 +529,7 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   createFolder: (name, parentId) => {
     const projectUid = get().activeProjectUid ?? ''
-    const id = `folder-${fileCounter++}`
+    const id = newFileId('folder')
     const node: FileNode = {
       id,
       projectUid,
@@ -538,7 +542,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       files: [...s.files, node],
       expandedFolders: [...s.expandedFolders, id],
     }))
-    getStorage().ideFiles.create(node).catch(() => {})
+    getStorage().ideFiles.create(node).catch((err) => console.error('[file-store] Failed to persist folder:', node.id, err))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -670,7 +674,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     const state = get()
     const original = state.files.find((f) => f.id === id)
     if (!original || original.type !== 'file') return
-    const newId = `file-${fileCounter++}`
+    const newId = newFileId('file')
     const nameParts = original.name.split('.')
     const ext = nameParts.length > 1 ? `.${nameParts.pop()}` : ''
     const baseName = nameParts.join('.')

@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getPyodide, getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, getWebRStatus } from '@/lib/runtimes/webr-engine'
+import { useAppStore } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
 
@@ -65,10 +66,69 @@ async function executeRRepl(code: string): Promise<{ stdout: string; stderr: str
   return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd() }
 }
 
+// Terminal themes matching the Monaco editor themes
+const terminalThemes = {
+  dark: {
+    background: '#0f172b',
+    foreground: '#e2e8f0',
+    cursor: '#93c5fd',
+    selectionBackground: '#1e40af55',
+    black: '#0f172b',
+    brightBlack: '#475569',
+    red: '#f87171',
+    brightRed: '#fca5a5',
+    green: '#86efac',
+    brightGreen: '#bbf7d0',
+    yellow: '#fcd34d',
+    brightYellow: '#fde68a',
+    blue: '#93c5fd',
+    brightBlue: '#bfdbfe',
+    magenta: '#c4b5fd',
+    brightMagenta: '#ddd6fe',
+    cyan: '#7dd3fc',
+    brightCyan: '#bae6fd',
+    white: '#e2e8f0',
+    brightWhite: '#f8fafc',
+  },
+  light: {
+    background: '#ffffff',
+    foreground: '#0f172b',
+    cursor: '#2563eb',
+    selectionBackground: '#bfdbfe88',
+    black: '#0f172b',
+    brightBlack: '#475569',
+    red: '#dc2626',
+    brightRed: '#ef4444',
+    green: '#16a34a',
+    brightGreen: '#22c55e',
+    yellow: '#d97706',
+    brightYellow: '#f59e0b',
+    blue: '#2563eb',
+    brightBlue: '#3b82f6',
+    magenta: '#7c3aed',
+    brightMagenta: '#8b5cf6',
+    cyan: '#0284c7',
+    brightCyan: '#0ea5e9',
+    white: '#e2e8f0',
+    brightWhite: '#f8fafc',
+  },
+}
+
 export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const darkMode = useAppStore((s) => s.darkMode)
+  const editorTheme = useAppStore((s) => s.editorSettings.theme)
+  const isDark = editorTheme === 'auto' ? darkMode : editorTheme === 'linkr-dark' || editorTheme === 'vs-dark'
+  const xtermTheme = isDark ? terminalThemes.dark : terminalThemes.light
+
+  // Update terminal theme when it changes without recreating the terminal
+  useEffect(() => {
+    terminalRef.current?.options.theme && (terminalRef.current.options.theme = xtermTheme)
+    // Also update container background
+    if (containerRef.current) containerRef.current.style.backgroundColor = xtermTheme.background
+  }, [xtermTheme])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -79,14 +139,15 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
     let historyIndex = -1
     let executing = false
 
+    const currentTheme = useAppStore.getState()
+    const currentEditorTheme = currentTheme.editorSettings.theme
+    const currentIsDark = currentEditorTheme === 'auto' ? currentTheme.darkMode : currentEditorTheme === 'linkr-dark' || currentEditorTheme === 'vs-dark'
+    const initialTheme = currentIsDark ? terminalThemes.dark : terminalThemes.light
+
     const terminal = new Terminal({
       fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
       fontSize: 13,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-        cursor: '#d4d4d4',
-      },
+      theme: initialTheme,
       cursorBlink: true,
       convertEol: true,
     })
@@ -279,7 +340,7 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
     <div
       ref={containerRef}
       className="h-full w-full"
-      style={{ backgroundColor: '#1e1e1e' }}
+      style={{ backgroundColor: xtermTheme.background }}
     />
   )
 }

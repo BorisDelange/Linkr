@@ -889,7 +889,9 @@ class IDBIdeFileStorage implements IdeFileStorage {
 
   async create(file: IdeFile): Promise<void> {
     const db = await getDB()
-    await db.add('ide_files', file)
+    // Use put (upsert) instead of add to handle ID collisions gracefully
+    // (e.g. after HMR resets the in-memory fileCounter)
+    await db.put('ide_files', file)
   }
 
   async update(id: string, changes: Partial<IdeFile>): Promise<void> {

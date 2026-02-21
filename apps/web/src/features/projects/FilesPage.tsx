@@ -286,6 +286,91 @@ export function FilesPage() {
     setOutputVisible(true)
   }, [selectedFileId, nodes, addOutputTab, setOutputVisible])
 
+  // CSV column colorization in Monaco — apply inline decorations per column
+  const csvDecorationsRef = useRef<string[]>([])
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor || !selectedFileId) {
+      csvDecorationsRef.current = []
+      return
+    }
+    const node = nodes.find((n) => n.id === selectedFileId)
+    if (!node || node.type !== 'file') return
+    const ext = node.name.split('.').pop()?.toLowerCase()
+    if (ext !== 'csv' && ext !== 'tsv') {
+      // Clear decorations if switching away from CSV
+      if (csvDecorationsRef.current.length > 0) {
+        csvDecorationsRef.current = editor.deltaDecorations(csvDecorationsRef.current, [])
+      }
+      return
+    }
+    const content = node.content ?? ''
+    if (!content.trim()) return
+
+    const delimiter = ext === 'tsv' ? '\t' : ','
+    const lines = content.split('\n')
+    const decorations: Monaco.editor.IModelDeltaDecoration[] = []
+    // Column color classes (must match injected CSS below)
+    const colClasses = [
+      'csv-col-0', 'csv-col-1', 'csv-col-2', 'csv-col-3',
+      'csv-col-4', 'csv-col-5', 'csv-col-6', 'csv-col-7',
+      'csv-col-8', 'csv-col-9', 'csv-col-10', 'csv-col-11',
+    ]
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const line = lines[lineIdx]
+      if (!line.trim()) continue
+      // Simple CSV split (handles basic cases, not quoted delimiters)
+      let colIdx = 0
+      let pos = 0
+      const lineNum = lineIdx + 1
+      while (pos < line.length) {
+        const start = pos
+        if (line[pos] === '"') {
+          // Quoted field
+          pos++
+          while (pos < line.length && !(line[pos] === '"' && (pos + 1 >= line.length || line[pos + 1] === delimiter))) {
+            pos++
+          }
+          if (pos < line.length) pos++ // closing quote
+          if (pos < line.length && line[pos] === delimiter) pos++ // delimiter
+        } else {
+          while (pos < line.length && line[pos] !== delimiter) pos++
+          if (pos < line.length) pos++ // delimiter
+        }
+        decorations.push({
+          range: { startLineNumber: lineNum, startColumn: start + 1, endLineNumber: lineNum, endColumn: (pos < line.length || line[pos - 1] === delimiter) ? pos : pos + 1 },
+          options: { inlineClassName: colClasses[colIdx % colClasses.length] },
+        })
+        colIdx++
+      }
+    }
+    csvDecorationsRef.current = editor.deltaDecorations(csvDecorationsRef.current, decorations)
+  }, [selectedFileId, nodes])
+
+  // Inject CSV column color CSS once
+  useEffect(() => {
+    const id = 'linkr-csv-col-styles'
+    if (document.getElementById(id)) return
+    const style = document.createElement('style')
+    style.id = id
+    style.textContent = `
+      .csv-col-0 { color: #3b82f6 !important; }
+      .csv-col-1 { color: #8b5cf6 !important; }
+      .csv-col-2 { color: #10b981 !important; }
+      .csv-col-3 { color: #f59e0b !important; }
+      .csv-col-4 { color: #ef4444 !important; }
+      .csv-col-5 { color: #06b6d4 !important; }
+      .csv-col-6 { color: #ec4899 !important; }
+      .csv-col-7 { color: #84cc16 !important; }
+      .csv-col-8 { color: #6366f1 !important; }
+      .csv-col-9 { color: #14b8a6 !important; }
+      .csv-col-10 { color: #f97316 !important; }
+      .csv-col-11 { color: #a855f7 !important; }
+    `
+    document.head.appendChild(style)
+  }, [])
+
   /** Execute SQL against the active DuckDB connection. */
   const executeSql = useCallback(
     async (sql: string, label: string) => {

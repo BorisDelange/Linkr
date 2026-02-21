@@ -59,6 +59,22 @@ function isNullish(val: string | undefined): boolean {
   return lower === 'null' || lower === 'na' || lower === 'none' || lower === 'nan'
 }
 
+// Subtle column background colors for visual separation (alternating)
+const COLUMN_COLORS = [
+  'bg-blue-500/[0.04]',
+  '',  // transparent
+  'bg-violet-500/[0.04]',
+  '',
+  'bg-emerald-500/[0.04]',
+  '',
+  'bg-amber-500/[0.04]',
+  '',
+  'bg-rose-500/[0.04]',
+  '',
+  'bg-cyan-500/[0.04]',
+  '',
+]
+
 export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
@@ -172,7 +188,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
               {visibleIndices.map((idx) => (
                 <th
                   key={idx}
-                  className={cn('border-b border-r text-left font-medium whitespace-nowrap', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}
+                  className={cn('border-b border-r text-left font-medium whitespace-nowrap', compact ? 'px-2 py-0.5' : 'px-3 py-1.5', COLUMN_COLORS[idx % COLUMN_COLORS.length])}
                 >
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={columnTypes[idx]} size="sm" />
@@ -224,6 +240,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                           'border-b border-r whitespace-nowrap max-w-[300px] truncate',
                           compact ? 'px-2 py-0' : 'px-3 py-1',
                           columnTypes[colIdx] === 'number' && !nullish && 'tabular-nums',
+                          COLUMN_COLORS[colIdx % COLUMN_COLORS.length],
                         )}
                         title={!nullish ? val : undefined}
                       >
