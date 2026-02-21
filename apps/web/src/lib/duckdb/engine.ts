@@ -376,8 +376,8 @@ function coerceRow(
       // Arrow DATE is encoded as milliseconds since epoch
       out[key] = new Date(Number(v)).toISOString().slice(0, 10)
     } else if (timestampColumns.has(key) && (typeof v === 'bigint' || typeof v === 'number')) {
-      // Arrow TIMESTAMP from DuckDB is encoded as microseconds since epoch
-      out[key] = new Date(Number(v) / 1000).toISOString()
+      // Arrow TIMESTAMP from DuckDB-WASM is returned as milliseconds since epoch
+      out[key] = new Date(Number(v)).toISOString()
     } else if (typeof v === 'bigint') {
       out[key] = Number(v)
     } else {

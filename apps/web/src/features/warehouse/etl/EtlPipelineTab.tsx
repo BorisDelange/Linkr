@@ -975,17 +975,28 @@ function ConceptComparisonTab({
         // Target counts: use *_concept_id columns
         const targetCounts = await countConceptsInTargetDb([...targetConceptIds], false)
 
+        // Aggregate total source rows per target_concept_id (N:1 mappings share the same target)
+        const totalSourceRowsByTarget = new Map<number, number>()
+        for (const row of stcmRows) {
+          const sci = Number(row.source_concept_id ?? 0)
+          const tcid = Number(row.target_concept_id)
+          const sr = sci > 0 ? (sourceCounts.get(sci)?.rows ?? 0) : 0
+          totalSourceRowsByTarget.set(tcid, (totalSourceRowsByTarget.get(tcid) ?? 0) + sr)
+        }
+
         const comparisonRows: ConceptMappingRow[] = []
         for (const row of stcmRows) {
           const sci = Number(row.source_concept_id ?? 0)
           const tcid = Number(row.target_concept_id)
           const sc = sci > 0 ? (sourceCounts.get(sci) ?? { patients: 0, rows: 0 }) : { patients: 0, rows: 0 }
           const tc = targetCounts.get(tcid) ?? { patients: 0, rows: 0 }
+          const totalSourceRows = totalSourceRowsByTarget.get(tcid) ?? 0
 
+          // Compare target rows against aggregated source rows for this target (exact match)
           let diff: ConceptMappingRow['diff'] = 'match'
           if (sc.rows > 0 && tc.rows === 0) diff = 'missing'
-          else if (sc.rows > 0 && tc.rows < sc.rows * 0.9) diff = 'fewer'
-          else if (sc.rows > 0 && tc.rows > sc.rows * 1.1) diff = 'more'
+          else if (totalSourceRows > 0 && tc.rows < totalSourceRows) diff = 'fewer'
+          else if (totalSourceRows > 0 && tc.rows > totalSourceRows) diff = 'more'
 
           comparisonRows.push({
             sourceVocabularyId: String(row.source_vocabulary_id ?? ''),
