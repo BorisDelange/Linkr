@@ -16,6 +16,8 @@ import {
   useRef,
   useEffect,
   useMemo,
+  useImperativeHandle,
+  forwardRef,
 } from 'react'
 import { useTranslation } from 'react-i18next'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
@@ -24,7 +26,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   Play,
-  PlayCircle,
   Plus,
   Trash2,
   ChevronUp,
@@ -39,16 +40,13 @@ import {
   Check,
   XCircle,
   ChevronsUpDown,
-  FileDown,
 } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAppStore } from '@/stores/app-store'
@@ -151,18 +149,31 @@ interface RmdNotebookProps {
   activeConnectionId?: string | null
 }
 
+/** Imperative handle exposed to the parent for toolbar actions */
+export interface RmdNotebookHandle {
+  runCell: () => void
+  runAll: () => void
+  runAbove: () => void
+  renderPreview: () => void
+  renderHtml: () => void
+  renderPdf: () => void
+  addCell: (type: 'markdown' | 'code' | 'yaml', language?: string) => void
+  hasYamlCell: boolean
+  isRendering: boolean
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function RmdNotebook({
+export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(function RmdNotebook({
   content,
   onChange,
   readOnly = false,
   onSave,
   onRenderOutput,
   activeConnectionId,
-}: RmdNotebookProps) {
+}, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
@@ -183,6 +194,9 @@ export function RmdNotebook({
   const [cellStates, setCellStates] = useState<Map<string, CellState>>(new Map())
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
   const [activeCell, setActiveCell] = useState<string | null>(null)
+
+  // Map of cell id → Monaco editor instance, so advanceCell can focus the next editor
+  const editorMapRef = useRef<Map<string, Monaco.editor.IStandaloneCodeEditor>>(new Map())
 
   // Stable render order — cells are rendered in this order (DOM insertion order).
   // CSS `order` is used to display them in the logical order (`cells`).
@@ -241,6 +255,25 @@ export function RmdNotebook({
 
   const addCell = useCallback(
     (afterId: string | null, type: RmdCell['type'], language?: string) => {
+      // YAML front-matter: only one allowed, always at position 0
+      if (type === 'yaml') {
+        setCells((prev) => {
+          if (prev.some((c) => c.type === 'yaml')) return prev
+          const newCell: RmdCell = {
+            id: `rmd-new-${Date.now()}`,
+            type: 'yaml',
+            content: "title: 'Untitled'\noutput: html_document\n",
+            dirty: true,
+          }
+          const updated = [newCell, ...prev]
+          syncToFile(updated)
+          setRenderOrder((ro) => [...ro, newCell.id])
+          setActiveCell(newCell.id)
+          return updated
+        })
+        return
+      }
+
       const newCell: RmdCell = {
         id: `rmd-new-${Date.now()}`,
         type,
@@ -408,13 +441,18 @@ export function RmdNotebook({
     }
   }, [cells, activeCell, runCell])
 
-  /** Advance activeCell to the next cell (any type) */
+  /** Advance activeCell to the next cell (any type) and focus its editor */
   const advanceCell = useCallback(() => {
     if (!activeCell) return
     const currentCells = cellsRef.current
     const idx = currentCells.findIndex((c) => c.id === activeCell)
     if (idx >= 0 && idx + 1 < currentCells.length) {
-      setActiveCell(currentCells[idx + 1].id)
+      const nextId = currentCells[idx + 1].id
+      setActiveCell(nextId)
+      // Focus the next cell's Monaco editor so the keyboard shortcut fires there
+      requestAnimationFrame(() => {
+        editorMapRef.current.get(nextId)?.focus()
+      })
     }
   }, [activeCell])
 
@@ -629,20 +667,16 @@ ${bodyParts.join('\n')}
       if (inMonaco) return
 
       // Run cell and advance — Cmd+Shift+Enter (rmd_run_chunk) or Cmd+Enter (run_selection_or_line)
-      // For markdown cells: toggle preview then advance
       if (
         matchCombo(e, getBinding('rmd_run_chunk')) ||
         matchCombo(e, getBinding('run_selection_or_line'))
       ) {
         e.preventDefault()
         if (activeCell) {
-          if (activeCellObj?.type === 'markdown') {
-            togglePreview(activeCell)
-            advanceCell()
-          } else {
-            runCell(activeCell)
-            advanceCell()
-          }
+          if (activeCellObj?.type === 'code') runCell(activeCell)
+          else if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
+          // yaml: nothing to run, just advance
+          advanceCell()
         }
         return
       }
@@ -715,129 +749,27 @@ ${bodyParts.join('\n')}
     return () => window.removeEventListener('keydown', handler)
   }, [onSave, handleRender, readOnly, activeCell, cells, runCell, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding])
 
-  // ---- Computed ----
-  const codeCellCount = useMemo(
-    () => cells.filter((c) => c.type === 'code').length,
-    [cells],
-  )
-
   const editorOptions = useMemo(() => getMiniEditorOptions(readOnly, fontSize), [readOnly, fontSize])
 
-  // Shortcut labels removed from toolbar buttons per user preference
+  // ---- Imperative handle for parent toolbar ----
+  const hasYamlCell = cells.some((c) => c.type === 'yaml')
+
+  useImperativeHandle(ref, () => ({
+    runCell: () => { if (activeCell) runCell(activeCell) },
+    runAll,
+    runAbove,
+    renderPreview: handleRenderPreview,
+    renderHtml: handleRenderHtml,
+    renderPdf: handleRenderPdf,
+    addCell: (type: 'markdown' | 'code' | 'yaml', language?: string) => {
+      addCell(activeCell ?? cells[cells.length - 1]?.id ?? null, type, language)
+    },
+    hasYamlCell,
+    isRendering,
+  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering])
 
   return (
     <div className="flex h-full flex-col">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 border-b px-3 py-1.5 bg-muted/30">
-        <Badge variant="outline" className="text-[10px] font-normal">
-          {t('files.notebook_label')}
-        </Badge>
-        <span className="text-[10px] text-muted-foreground">
-          {codeCellCount} chunk{codeCellCount !== 1 ? 's' : ''}
-        </span>
-        <div className="flex-1" />
-        {!readOnly && (
-          <>
-            {/* Run button + dropdown */}
-            <div className="flex items-center">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs gap-1 rounded-r-none"
-                onClick={() => { if (activeCell) runCell(activeCell) }}
-              >
-                <Play size={12} />
-                Run cell
-              </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-1 rounded-l-none border-l border-border/50"
-                  >
-                    <ChevronDown size={10} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => { if (activeCell) runCell(activeCell) }}>
-                    <Play size={14} />
-                    {t('shortcuts.nb_run_chunk')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={runAll}>
-                    <PlayCircle size={14} />
-                    {t('shortcuts.nb_run_all')}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={runAbove}>
-                    <PlayCircle size={14} />
-                    {t('shortcuts.nb_run_above')}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            {/* Render dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 text-xs gap-1"
-                  disabled={isRendering}
-                >
-                  {isRendering ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
-                  Render
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={handleRenderPreview}>
-                  <Eye size={14} />
-                  Preview
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleRenderHtml}>
-                  <FileDown size={14} />
-                  Download HTML
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleRenderPdf}>
-                  <FileText size={14} />
-                  Print / PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Add cell dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-6 text-xs gap-1">
-                  <Plus size={12} />
-                  {t('files.notebook_add_cell')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => addCell(cells[cells.length - 1]?.id ?? null, 'markdown')}>
-                  <FileText size={14} />
-                  Markdown
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => addCell(cells[cells.length - 1]?.id ?? null, 'code', 'r')}>
-                  <Code size={14} />
-                  R
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => addCell(cells[cells.length - 1]?.id ?? null, 'code', 'python')}>
-                  <Code size={14} />
-                  Python
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => addCell(cells[cells.length - 1]?.id ?? null, 'code', 'sql')}>
-                  <Code size={14} />
-                  SQL
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </>
-        )}
-      </div>
-
       {/* Cells — rendered in stable DOM order, visually ordered via CSS `order` */}
       <ScrollArea className="flex-1">
         <div className="max-w-4xl mx-auto py-3 px-3 flex flex-col gap-2">
@@ -871,6 +803,8 @@ ${bodyParts.join('\n')}
                 onMoveDown={() => moveCell(cell.id, 'down')}
                 onTogglePreview={() => togglePreview(cell.id)}
                 onAddAfter={(type, lang) => addCell(cell.id, type, lang)}
+                hasYamlCell={hasYamlCell}
+                onEditorMount={(editor) => editorMapRef.current.set(cell.id, editor)}
                 onDragStart={() => handleDragStart(cell.id)}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}
@@ -882,7 +816,7 @@ ${bodyParts.join('\n')}
       </ScrollArea>
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Cell block
@@ -912,6 +846,8 @@ interface RmdCellBlockProps {
   onMoveDown: () => void
   onTogglePreview: () => void
   onAddAfter: (type: RmdCell['type'], language?: string) => void
+  hasYamlCell: boolean
+  onEditorMount: (editor: Monaco.editor.IStandaloneCodeEditor) => void
   onDragStart: () => void
   onDragEnd: () => void
   onDragCancel: () => void
@@ -945,6 +881,8 @@ function RmdCellBlock({
   onMoveDown,
   onTogglePreview,
   onAddAfter,
+  hasYamlCell,
+  onEditorMount,
   onDragStart,
   onDragEnd,
   onDragCancel,
@@ -970,8 +908,9 @@ function RmdCellBlock({
   const [editorHeight, setEditorHeight] = useState(Math.max(lineCount * 18 + 8, 36))
 
   // Auto-resize Monaco editor to fit content
-  const handleEditorMount: OnMount = (editor, monaco) => {
+  const handleEditorMount: OnMount = (editor, _monaco) => {
     editorRef.current = editor
+    onEditorMount(editor)
 
     const updateHeight = () => {
       const h = Math.max(editor.getContentHeight(), 36)
@@ -989,25 +928,47 @@ function RmdCellBlock({
     // Sync activeCell when this Monaco editor receives focus
     editor.onDidFocusEditorWidget(() => onFocusRef.current())
 
-    // Register Monaco keybindings for Cmd+Enter and Cmd+Shift+Enter.
-    // These use refs so the callbacks always point to the latest version.
-    // "Run and advance" = run/preview then move to next cell.
+    // Intercept notebook shortcuts directly on the editor DOM rather than
+    // using editor.addCommand, which registers in a global keybinding service
+    // shared across all Monaco instances — only the last editor's callback wins.
+    // A per-editor DOM keydown listener ensures each cell runs its own code.
     if (!readOnly) {
-      const runAndAdvance = cell.type === 'code'
-        ? () => { onRunRef.current(); onAdvanceRef.current() }
-        : cell.type === 'markdown'
-          ? () => { onTogglePreviewRef.current(); onAdvanceRef.current() }
-          : undefined
+      const editorDom = editor.getDomNode()
+      if (editorDom) {
+        editorDom.addEventListener('keydown', (e: KeyboardEvent) => {
+          const matchCombo = (ev: KeyboardEvent, combo: KeyCombo) => {
+            if (!combo.key) return false
+            const ctrlOrMeta = ev.metaKey || ev.ctrlKey
+            return (
+              ctrlOrMeta === combo.ctrlOrMeta &&
+              ev.shiftKey === combo.shift &&
+              ev.altKey === combo.alt &&
+              ev.key.toLowerCase() === combo.key.toLowerCase()
+            )
+          }
 
-      if (runAndAdvance) {
-        editor.addCommand(
-          monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-          runAndAdvance,
-        )
-        editor.addCommand(
-          monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,
-          runAndAdvance,
-        )
+          const gb = useShortcutStore.getState().getBinding
+
+          // Run cell and advance
+          if (matchCombo(e, gb('rmd_run_chunk')) || matchCombo(e, gb('run_selection_or_line'))) {
+            e.preventDefault()
+            e.stopPropagation()
+            if (cell.type === 'code') onRunRef.current()
+            else if (cell.type === 'markdown') onTogglePreviewRef.current()
+            // yaml: nothing to run, just advance
+            onAdvanceRef.current()
+            return
+          }
+
+          // Run cell stay (no advance)
+          if (matchCombo(e, gb('rmd_run_chunk_stay'))) {
+            e.preventDefault()
+            e.stopPropagation()
+            if (cell.type === 'code') onRunRef.current()
+            else if (cell.type === 'markdown') onTogglePreviewRef.current()
+            return
+          }
+        })
       }
     }
   }
@@ -1242,6 +1203,11 @@ function RmdCellBlock({
                   <DropdownMenuItem onClick={() => onAddAfter('code', 'sql')}>
                     <Code size={14} /> SQL
                   </DropdownMenuItem>
+                  {!hasYamlCell && (
+                    <DropdownMenuItem onClick={() => onAddAfter('yaml')}>
+                      <Settings2 size={14} /> YAML front-matter
+                    </DropdownMenuItem>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

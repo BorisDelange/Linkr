@@ -22,6 +22,14 @@ import {
   EyeOff,
   ChevronLeft,
   ChevronRight,
+  Play,
+  PlayCircle,
+  ChevronDown,
+  Plus,
+  FileDown,
+  FileText,
+  Code,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -44,6 +52,13 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useFileStore } from '@/stores/file-store'
@@ -74,6 +89,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 
 const LazyIpynbViewer = lazy(() => import('./files/IpynbViewer').then(m => ({ default: m.IpynbViewer })))
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
+import type { RmdNotebookHandle } from './files/RmdNotebook'
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -199,6 +215,7 @@ export function FilesPage() {
   }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
+  const notebookRef = useRef<RmdNotebookHandle>(null)
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
@@ -713,6 +730,127 @@ export function FilesPage() {
                   </>
                 )}
 
+                {/* Notebook toolbar buttons (Rmd/Qmd) */}
+                {editorVisible && selectedNode && isRmdNotebook && !isVirtualFile && (
+                  <>
+                    <div className="mx-1 h-4 w-px bg-border" />
+                    <div className="flex items-center gap-1.5">
+                      {/* Run cell + dropdown */}
+                      <div className="flex">
+                        <Button
+                          size="xs"
+                          className="gap-1 rounded-r-none"
+                          onClick={() => notebookRef.current?.runCell()}
+                        >
+                          <Play size={12} />
+                          Run cell
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="xs"
+                              className="rounded-l-none border-l border-primary-foreground/20 px-1"
+                            >
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runCell()}>
+                              {t('shortcuts.nb_run_chunk')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runAll()}>
+                              {t('shortcuts.nb_run_all')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runAbove()}>
+                              {t('shortcuts.nb_run_above')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
+                      {/* Render + dropdown */}
+                      <div className="flex">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="gap-1 rounded-r-none"
+                          onClick={() => notebookRef.current?.renderPreview()}
+                        >
+                          <FileDown size={12} />
+                          Render
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="rounded-l-none border-l-0 px-1"
+                            >
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => notebookRef.current?.renderPreview()}>
+                              Preview
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => notebookRef.current?.renderHtml()}>
+                              Download HTML
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.renderPdf()}>
+                              Print / PDF
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+
+                      {/* Add cell + dropdown */}
+                      <div className="flex">
+                        <Button
+                          variant="outline"
+                          size="xs"
+                          className="gap-1 rounded-r-none"
+                          onClick={() => notebookRef.current?.addCell('code', 'r')}
+                        >
+                          <Plus size={12} />
+                          Add R cell
+                        </Button>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="outline"
+                              size="xs"
+                              className="rounded-l-none border-l-0 px-1"
+                            >
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start">
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'r')}>
+                              <Code size={14} /> R
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'python')}>
+                              <Code size={14} /> Python
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('code', 'sql')}>
+                              <Code size={14} /> SQL
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => notebookRef.current?.addCell('markdown')}>
+                              <FileText size={14} /> Markdown
+                            </DropdownMenuItem>
+                            {!notebookRef.current?.hasYamlCell && (
+                              <DropdownMenuItem onClick={() => notebookRef.current?.addCell('yaml')}>
+                                <Settings2 size={14} /> YAML front-matter
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 <div className="ml-auto flex items-center gap-1">
                   {editorVisible && (
                     <Tooltip>
@@ -1159,6 +1297,7 @@ export function FilesPage() {
                             </div>
                           }>
                             <LazyRmdNotebook
+                              ref={notebookRef}
                               key={selectedFileId}
                               content={selectedNode.content ?? ''}
                               onChange={isVirtualFile ? undefined : (v) =>
