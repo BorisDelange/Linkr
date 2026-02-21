@@ -1166,6 +1166,15 @@ export function FilesPage() {
                               }
                               readOnly={isVirtualFile}
                               onSave={handleSaveFile}
+                              onRenderOutput={(html, title) => {
+                                addOutputTab({
+                                  id: `render-${selectedFileId}`,
+                                  label: `Render — ${title}`,
+                                  type: 'html',
+                                  content: html,
+                                })
+                                setOutputVisible(true)
+                              }}
                               activeConnectionId={activeConnectionId}
                             />
                           </Suspense>

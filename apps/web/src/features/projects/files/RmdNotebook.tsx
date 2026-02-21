@@ -39,6 +39,7 @@ import {
   Check,
   XCircle,
   ChevronsUpDown,
+  FileDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -47,6 +48,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAppStore } from '@/stores/app-store'
@@ -56,6 +58,8 @@ import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
+import { useShortcutStore } from '@/stores/shortcut-store'
+import type { KeyCombo } from '@/types/shortcuts'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 // ---------------------------------------------------------------------------
@@ -100,6 +104,14 @@ function getMiniEditorOptions(
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// ---------------------------------------------------------------------------
 // Language badge colors
 // ---------------------------------------------------------------------------
 
@@ -125,11 +137,17 @@ const LANG_MONACO_MAP: Record<string, string> = {
 // Props
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Props
+// ---------------------------------------------------------------------------
+
 interface RmdNotebookProps {
   content: string
   onChange?: (newContent: string) => void
   readOnly?: boolean
   onSave?: () => void
+  /** Called with rendered HTML so the parent can display it (e.g. in an output tab) */
+  onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
 }
 
@@ -142,6 +160,7 @@ export function RmdNotebook({
   onChange,
   readOnly = false,
   onSave,
+  onRenderOutput,
   activeConnectionId,
 }: RmdNotebookProps) {
   const { t } = useTranslation()
@@ -159,9 +178,23 @@ export function RmdNotebook({
 
   // ---- State ----
   const [cells, setCells] = useState<RmdCell[]>(() => parseRmdFile(content))
+  const cellsRef = useRef(cells)
+  cellsRef.current = cells
   const [cellStates, setCellStates] = useState<Map<string, CellState>>(new Map())
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
   const [activeCell, setActiveCell] = useState<string | null>(null)
+
+  // Stable render order — cells are rendered in this order (DOM insertion order).
+  // CSS `order` is used to display them in the logical order (`cells`).
+  // This prevents React from moving DOM nodes when cells are reordered,
+  // which would destroy Monaco editor instances ("InstantiationService disposed").
+  const [renderOrder, setRenderOrder] = useState<string[]>(() =>
+    parseRmdFile(content).map((c) => c.id),
+  )
+
+  // Drag-and-drop state
+  const [draggedCellId, setDraggedCellId] = useState<string | null>(null)
+  const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null)
 
   // Track internal edits to avoid re-parsing when onChange is called
   const internalEdit = useRef(false)
@@ -172,7 +205,9 @@ export function RmdNotebook({
       internalEdit.current = false
       return
     }
-    setCells(parseRmdFile(content))
+    const parsed = parseRmdFile(content)
+    setCells(parsed)
+    setRenderOrder(parsed.map((c) => c.id))
   }, [content])
 
   // ---- Serialization ----
@@ -221,6 +256,8 @@ export function RmdNotebook({
         syncToFile(updated)
         return updated
       })
+      // Append to render order (new cells go at DOM end, CSS order positions them)
+      setRenderOrder((prev) => [...prev, newCell.id])
       setActiveCell(newCell.id)
     },
     [syncToFile],
@@ -234,6 +271,7 @@ export function RmdNotebook({
         syncToFile(updated)
         return updated
       })
+      setRenderOrder((prev) => prev.filter((id) => id !== cellId))
       setCellStates((prev) => {
         const next = new Map(prev)
         next.delete(cellId)
@@ -259,10 +297,42 @@ export function RmdNotebook({
     [syncToFile],
   )
 
+  // ---- Drag-and-drop handlers ----
+  // Reorders `cells` (logical order) WITHOUT touching `renderOrder` (DOM order).
+  // This way React never moves DOM nodes → Monaco stays alive.
+  const handleDragStart = useCallback((cellId: string) => {
+    setDraggedCellId(cellId)
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    if (draggedCellId && dropTargetIdx != null) {
+      setCells((prev) => {
+        const fromIdx = prev.findIndex((c) => c.id === draggedCellId)
+        if (fromIdx < 0) return prev
+        const updated = [...prev]
+        const [moved] = updated.splice(fromIdx, 1)
+        // Adjust target: if dragging forward, removing the item shifts indices
+        const toIdx = dropTargetIdx > fromIdx ? dropTargetIdx - 1 : dropTargetIdx
+        updated.splice(toIdx, 0, moved)
+        syncToFile(updated)
+        return updated
+      })
+    }
+    setDraggedCellId(null)
+    setDropTargetIdx(null)
+  }, [draggedCellId, dropTargetIdx, syncToFile])
+
+  const handleDragCancel = useCallback(() => {
+    setDraggedCellId(null)
+    setDropTargetIdx(null)
+  }, [])
+
   // ---- Execution ----
   const runCell = useCallback(
     async (cellId: string) => {
-      const cell = cells.find((c) => c.id === cellId)
+      // Use cellsRef to always read the latest cells array, avoiding stale closures
+      // when runCell is called from Monaco addCommand callbacks.
+      const cell = cellsRef.current.find((c) => c.id === cellId)
       if (!cell || cell.type !== 'code' || !cell.content.trim()) return
 
       setCellStates((prev) => new Map(prev).set(cellId, { status: 'running', output: null }))
@@ -285,7 +355,6 @@ export function RmdNotebook({
             }
           } else {
             const rows = await duckdbEngine.queryDataSource(activeConnectionId, cell.content)
-            // Convert rows to table
             const headers = rows.length > 0 ? Object.keys(rows[0]) : []
             const tableRows = rows.slice(0, 1000).map((r) =>
               headers.map((h) => String(r[h] ?? '')),
@@ -319,7 +388,7 @@ export function RmdNotebook({
         )
       }
     },
-    [cells, activeConnectionId, t],
+    [activeConnectionId, t],
   )
 
   const runAll = useCallback(async () => {
@@ -329,43 +398,190 @@ export function RmdNotebook({
     }
   }, [cells, runCell])
 
-  // ---- Keyboard shortcuts ----
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
-        e.preventDefault()
-        onSave?.()
+  const runAbove = useCallback(async () => {
+    if (!activeCell) return
+    const idx = cells.findIndex((c) => c.id === activeCell)
+    if (idx < 0) return
+    const above = cells.slice(0, idx).filter((c) => c.type === 'code' && c.content.trim())
+    for (const cell of above) {
+      await runCell(cell.id)
+    }
+  }, [cells, activeCell, runCell])
+
+  /** Advance activeCell to the next cell (any type) */
+  const advanceCell = useCallback(() => {
+    if (!activeCell) return
+    const currentCells = cellsRef.current
+    const idx = currentCells.findIndex((c) => c.id === activeCell)
+    if (idx >= 0 && idx + 1 < currentCells.length) {
+      setActiveCell(currentCells[idx + 1].id)
+    }
+  }, [activeCell])
+
+  // ---- Render ----
+  const [isRendering, setIsRendering] = useState(false)
+
+  /** Build a self-contained HTML document from the current notebook state */
+  const buildHtml = useCallback(async (): Promise<{ html: string; title: string }> => {
+    // Run all chunks first
+    const codeCells = cells.filter((c) => c.type === 'code' && c.content.trim())
+    for (const cell of codeCells) {
+      await runCell(cell.id)
+    }
+    // Small delay for state propagation
+    await new Promise((r) => setTimeout(r, 150))
+
+    const states = cellStates
+
+    // Extract YAML title
+    const yamlCell = cells.find((c) => c.type === 'yaml')
+    const titleMatch = yamlCell?.content.match(/title:\s*["']?(.+?)["']?\s*$/m)
+    const title = titleMatch?.[1] ?? 'Notebook'
+
+    // Build body HTML
+    const bodyParts: string[] = []
+    for (const cell of cells) {
+      if (cell.type === 'yaml') continue
+
+      if (cell.type === 'markdown') {
+        bodyParts.push(`<div class="md-cell">${escapeHtml(cell.content)}</div>`)
+        continue
+      }
+
+      if (cell.type === 'code') {
+        bodyParts.push(
+          `<pre class="code-cell"><code class="language-${cell.language ?? ''}">${escapeHtml(cell.content)}</code></pre>`
+        )
+
+        const st = states.get(cell.id)
+        if (st?.output) {
+          const out = st.output
+          if (out.stdout) {
+            bodyParts.push(`<pre class="output stdout">${escapeHtml(out.stdout)}</pre>`)
+          }
+          if (out.stderr) {
+            bodyParts.push(`<pre class="output stderr">${escapeHtml(out.stderr)}</pre>`)
+          }
+          for (const fig of out.figures) {
+            if (fig.type === 'svg') {
+              bodyParts.push(`<div class="figure">${fig.data}</div>`)
+            } else {
+              bodyParts.push(`<div class="figure"><img src="${fig.data}" alt="${escapeHtml(fig.label)}" /></div>`)
+            }
+          }
+          if (out.table) {
+            const { headers, rows } = out.table
+            let tableHtml = '<table class="output-table"><thead><tr>'
+            for (const h of headers) tableHtml += `<th>${escapeHtml(h)}</th>`
+            tableHtml += '</tr></thead><tbody>'
+            for (const row of rows.slice(0, 100)) {
+              tableHtml += '<tr>'
+              for (const val of row) tableHtml += `<td>${escapeHtml(val)}</td>`
+              tableHtml += '</tr>'
+            }
+            tableHtml += '</tbody></table>'
+            bodyParts.push(tableHtml)
+          }
+          if (out.html) {
+            bodyParts.push(`<div class="html-output">${out.html}</div>`)
+          }
+        }
       }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [onSave])
 
-  // ---- Drag and drop ----
-  const handleDragStart = useCallback((e: React.DragEvent, cellId: string) => {
-    e.dataTransfer.setData('rmd-cell-id', cellId)
-    e.dataTransfer.effectAllowed = 'move'
-  }, [])
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(title)}</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #1a1a1a; }
+  .md-cell { margin: 1rem 0; }
+  .code-cell { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.75rem 1rem; overflow-x: auto; font-size: 13px; }
+  .output { margin: 0.25rem 0 1rem; padding: 0.5rem 1rem; border-radius: 4px; font-size: 12px; white-space: pre-wrap; }
+  .stdout { background: #f8f8f8; color: #555; }
+  .stderr { background: #fff5f5; color: #c00; }
+  .figure { text-align: center; margin: 1rem 0; }
+  .figure img, .figure svg { max-width: 100%; }
+  .output-table { border-collapse: collapse; width: 100%; font-size: 12px; margin: 0.5rem 0 1rem; }
+  .output-table th, .output-table td { border: 1px solid #ddd; padding: 4px 8px; text-align: left; }
+  .output-table th { background: #f5f5f5; font-weight: 600; }
+  .output-table tr:nth-child(even) { background: #fafafa; }
+  .html-output { margin: 0.5rem 0; }
+  h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; }
+  p { margin: 0.5em 0; }
+  code { font-family: 'SF Mono', Monaco, Consolas, monospace; }
+  @media print { .code-cell { break-inside: avoid; } .figure { break-inside: avoid; } .output-table { break-inside: avoid; font-size: 10px; } }
+</style>
+</head>
+<body>
+${bodyParts.join('\n')}
+<script>
+  document.querySelectorAll('.md-cell').forEach(el => {
+    el.innerHTML = marked.parse(el.textContent || '');
+  });
+<\/script>
+</body>
+</html>`
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent, targetId: string) => {
-      e.preventDefault()
-      const draggedId = e.dataTransfer.getData('rmd-cell-id')
-      if (!draggedId || draggedId === targetId) return
+    return { html, title }
+  }, [cells, cellStates, runCell])
 
-      setCells((prev) => {
-        const fromIdx = prev.findIndex((c) => c.id === draggedId)
-        const toIdx = prev.findIndex((c) => c.id === targetId)
-        if (fromIdx < 0 || toIdx < 0) return prev
-        const updated = [...prev]
-        const [moved] = updated.splice(fromIdx, 1)
-        updated.splice(toIdx, 0, moved)
-        syncToFile(updated)
-        return updated
+  /** Download as HTML file */
+  const handleRenderPreview = useCallback(async () => {
+    setIsRendering(true)
+    try {
+      const { html, title } = await buildHtml()
+      if (onRenderOutput) {
+        onRenderOutput(html, title)
+      } else {
+        // Fallback: open in new tab
+        const w = window.open('', '_blank')
+        if (w) { w.document.write(html); w.document.close() }
+      }
+    } finally {
+      setIsRendering(false)
+    }
+  }, [buildHtml, onRenderOutput])
+
+  const handleRenderHtml = useCallback(async () => {
+    setIsRendering(true)
+    try {
+      const { html, title } = await buildHtml()
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${title.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'notebook'}.html`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setIsRendering(false)
+    }
+  }, [buildHtml])
+
+  /** Open rendered HTML in new tab with print dialog for PDF export */
+  const handleRenderPdf = useCallback(async () => {
+    setIsRendering(true)
+    try {
+      const { html } = await buildHtml()
+      const printWindow = window.open('', '_blank')
+      if (!printWindow) return
+      printWindow.document.write(html)
+      printWindow.document.close()
+      // Wait for marked.js to load and render markdown, then trigger print
+      printWindow.addEventListener('load', () => {
+        setTimeout(() => printWindow.print(), 300)
       })
-    },
-    [syncToFile],
-  )
+    } finally {
+      setIsRendering(false)
+    }
+  }, [buildHtml])
+
+  // Keyboard shortcut → preview in output tab
+  const handleRender = handleRenderPreview
 
   // ---- Markdown preview toggle ----
   const togglePreview = useCallback((cellId: string) => {
@@ -377,6 +593,128 @@ export function RmdNotebook({
     })
   }, [])
 
+  // ---- Keyboard shortcuts ----
+  const getBinding = useShortcutStore((s) => s.getBinding)
+
+  useEffect(() => {
+    const matchCombo = (e: KeyboardEvent, combo: KeyCombo) => {
+      if (!combo.key) return false // unbound
+      const ctrlOrMeta = e.metaKey || e.ctrlKey
+      return (
+        ctrlOrMeta === combo.ctrlOrMeta &&
+        e.shiftKey === combo.shift &&
+        e.altKey === combo.alt &&
+        e.key.toLowerCase() === combo.key.toLowerCase()
+      )
+    }
+
+    const handler = (e: KeyboardEvent) => {
+      // Save file — Cmd+S
+      if (matchCombo(e, getBinding('save_file'))) {
+        e.preventDefault()
+        onSave?.()
+        return
+      }
+      if (readOnly) return
+
+      // If a Monaco editor has focus, skip notebook shortcuts here — Monaco's
+      // addCommand already handles them per-cell.  This avoids double-firing.
+      const target = e.target as HTMLElement | null
+      const inMonaco = target?.closest('.monaco-editor') != null
+
+      const activeCellObj = activeCell ? cells.find((c) => c.id === activeCell) : null
+
+      // When Monaco has focus, its addCommand handles run/advance per-cell.
+      // Only use the window handler as fallback (e.g. focus on cell header).
+      if (inMonaco) return
+
+      // Run cell and advance — Cmd+Shift+Enter (rmd_run_chunk) or Cmd+Enter (run_selection_or_line)
+      // For markdown cells: toggle preview then advance
+      if (
+        matchCombo(e, getBinding('rmd_run_chunk')) ||
+        matchCombo(e, getBinding('run_selection_or_line'))
+      ) {
+        e.preventDefault()
+        if (activeCell) {
+          if (activeCellObj?.type === 'markdown') {
+            togglePreview(activeCell)
+            advanceCell()
+          } else {
+            runCell(activeCell)
+            advanceCell()
+          }
+        }
+        return
+      }
+      // Run cell (stay — no advance)
+      if (matchCombo(e, getBinding('rmd_run_chunk_stay'))) {
+        e.preventDefault()
+        if (activeCell) {
+          if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
+          else runCell(activeCell)
+        }
+        return
+      }
+      // Run cell and insert below
+      if (matchCombo(e, getBinding('rmd_run_chunk_insert'))) {
+        e.preventDefault()
+        if (activeCell) {
+          if (activeCellObj?.type === 'code') runCell(activeCell)
+          addCell(activeCell, 'code', activeCellObj?.language ?? 'r')
+        }
+        return
+      }
+
+      // Run all
+      if (matchCombo(e, getBinding('rmd_run_all'))) {
+        e.preventDefault()
+        runAll()
+        return
+      }
+      // Run above
+      if (matchCombo(e, getBinding('rmd_run_above'))) {
+        e.preventDefault()
+        runAbove()
+        return
+      }
+      // Insert chunk (generic)
+      if (matchCombo(e, getBinding('rmd_insert_chunk'))) {
+        e.preventDefault()
+        addCell(activeCell, 'code', 'r')
+        return
+      }
+      // Insert cell above
+      if (matchCombo(e, getBinding('rmd_insert_chunk_above'))) {
+        e.preventDefault()
+        // Insert before active cell: find the cell before it
+        const idx = activeCell ? cells.findIndex((c) => c.id === activeCell) : -1
+        const beforeId = idx > 0 ? cells[idx - 1].id : null
+        addCell(beforeId, 'code', 'r')
+        return
+      }
+      // Insert cell below
+      if (matchCombo(e, getBinding('rmd_insert_chunk_below'))) {
+        e.preventDefault()
+        addCell(activeCell, 'code', 'r')
+        return
+      }
+      // Delete cell
+      if (matchCombo(e, getBinding('rmd_delete_chunk'))) {
+        e.preventDefault()
+        if (activeCell) removeCell(activeCell)
+        return
+      }
+      // Render
+      if (matchCombo(e, getBinding('rmd_render'))) {
+        e.preventDefault()
+        handleRender()
+        return
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onSave, handleRender, readOnly, activeCell, cells, runCell, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding])
+
   // ---- Computed ----
   const codeCellCount = useMemo(
     () => cells.filter((c) => c.type === 'code').length,
@@ -384,6 +722,8 @@ export function RmdNotebook({
   )
 
   const editorOptions = useMemo(() => getMiniEditorOptions(readOnly, fontSize), [readOnly, fontSize])
+
+  // Shortcut labels removed from toolbar buttons per user preference
 
   return (
     <div className="flex h-full flex-col">
@@ -398,15 +738,75 @@ export function RmdNotebook({
         <div className="flex-1" />
         {!readOnly && (
           <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 text-xs gap-1"
-              onClick={runAll}
-            >
-              <PlayCircle size={12} />
-              {t('files.notebook_run_all')}
-            </Button>
+            {/* Run button + dropdown */}
+            <div className="flex items-center">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs gap-1 rounded-r-none"
+                onClick={() => { if (activeCell) runCell(activeCell) }}
+              >
+                <Play size={12} />
+                Run cell
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1 rounded-l-none border-l border-border/50"
+                  >
+                    <ChevronDown size={10} />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => { if (activeCell) runCell(activeCell) }}>
+                    <Play size={14} />
+                    {t('shortcuts.nb_run_chunk')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={runAll}>
+                    <PlayCircle size={14} />
+                    {t('shortcuts.nb_run_all')}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={runAbove}>
+                    <PlayCircle size={14} />
+                    {t('shortcuts.nb_run_above')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {/* Render dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs gap-1"
+                  disabled={isRendering}
+                >
+                  {isRendering ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+                  Render
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleRenderPreview}>
+                  <Eye size={14} />
+                  Preview
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleRenderHtml}>
+                  <FileDown size={14} />
+                  Download HTML
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleRenderPdf}>
+                  <FileText size={14} />
+                  Print / PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Add cell dropdown */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-6 text-xs gap-1">
@@ -419,6 +819,7 @@ export function RmdNotebook({
                   <FileText size={14} />
                   Markdown
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => addCell(cells[cells.length - 1]?.id ?? null, 'code', 'r')}>
                   <Code size={14} />
                   R
@@ -437,34 +838,46 @@ export function RmdNotebook({
         )}
       </div>
 
-      {/* Cells */}
+      {/* Cells — rendered in stable DOM order, visually ordered via CSS `order` */}
       <ScrollArea className="flex-1">
-        <div className="max-w-4xl mx-auto py-3 px-3 space-y-2">
-          {cells.map((cell, idx) => (
-            <RmdCellBlock
-              key={cell.id}
-              cell={cell}
-              index={idx}
-              totalCells={cells.length}
-              state={cellStates.get(cell.id)}
-              isActive={activeCell === cell.id}
-              isPreview={previewCells.has(cell.id)}
-              readOnly={readOnly}
-              theme={resolvedTheme}
-              editorOptions={editorOptions}
-              beforeMount={handleBeforeMount}
-              onFocus={() => setActiveCell(cell.id)}
-              onContentChange={(v) => updateCellContent(cell.id, v)}
-              onRun={() => runCell(cell.id)}
-              onRemove={() => removeCell(cell.id)}
-              onMoveUp={() => moveCell(cell.id, 'up')}
-              onMoveDown={() => moveCell(cell.id, 'down')}
-              onTogglePreview={() => togglePreview(cell.id)}
-              onDragStart={(e) => handleDragStart(e, cell.id)}
-              onDrop={(e) => handleDrop(e, cell.id)}
-              onAddAfter={(type, lang) => addCell(cell.id, type, lang)}
-            />
-          ))}
+        <div className="max-w-4xl mx-auto py-3 px-3 flex flex-col gap-2">
+          {renderOrder.map((cellId) => {
+            const logicalIdx = cells.findIndex((c) => c.id === cellId)
+            const cell = cells[logicalIdx]
+            if (!cell) return null
+            return (
+              <RmdCellBlock
+                key={cell.id}
+                cell={cell}
+                index={logicalIdx}
+                totalCells={cells.length}
+                state={cellStates.get(cell.id)}
+                isActive={activeCell === cell.id}
+                isPreview={previewCells.has(cell.id)}
+                readOnly={readOnly}
+                theme={resolvedTheme}
+                editorOptions={editorOptions}
+                beforeMount={handleBeforeMount}
+                cssOrder={logicalIdx * 2 + 1}
+                isDragging={draggedCellId === cell.id}
+                isDragActive={draggedCellId != null}
+                dropTargetIdx={dropTargetIdx}
+                onFocus={() => setActiveCell(cell.id)}
+                onContentChange={(v) => updateCellContent(cell.id, v)}
+                onRun={() => runCell(cell.id)}
+                onAdvance={advanceCell}
+                onRemove={() => removeCell(cell.id)}
+                onMoveUp={() => moveCell(cell.id, 'up')}
+                onMoveDown={() => moveCell(cell.id, 'down')}
+                onTogglePreview={() => togglePreview(cell.id)}
+                onAddAfter={(type, lang) => addCell(cell.id, type, lang)}
+                onDragStart={() => handleDragStart(cell.id)}
+                onDragEnd={handleDragEnd}
+                onDragCancel={handleDragCancel}
+                onDropTargetChange={setDropTargetIdx}
+              />
+            )
+          })}
         </div>
       </ScrollArea>
     </div>
@@ -486,16 +899,23 @@ interface RmdCellBlockProps {
   theme: string
   editorOptions: Monaco.editor.IStandaloneEditorConstructionOptions
   beforeMount: BeforeMount
+  cssOrder: number
+  isDragging: boolean
+  isDragActive: boolean
+  dropTargetIdx: number | null
   onFocus: () => void
   onContentChange: (value: string) => void
   onRun: () => void
+  onAdvance: () => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
   onTogglePreview: () => void
-  onDragStart: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
   onAddAfter: (type: RmdCell['type'], language?: string) => void
+  onDragStart: () => void
+  onDragEnd: () => void
+  onDragCancel: () => void
+  onDropTargetChange: (idx: number | null) => void
 }
 
 const RMD_COLLAPSE_LINE_THRESHOLD = 30
@@ -512,20 +932,37 @@ function RmdCellBlock({
   theme,
   editorOptions,
   beforeMount,
+  cssOrder,
+  isDragging,
+  isDragActive,
+  dropTargetIdx,
   onFocus,
   onContentChange,
   onRun,
+  onAdvance,
   onRemove,
   onMoveUp,
   onMoveDown,
   onTogglePreview,
-  onDragStart,
-  onDrop,
   onAddAfter,
+  onDragStart,
+  onDragEnd,
+  onDragCancel,
+  onDropTargetChange,
 }: RmdCellBlockProps) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Use refs so Monaco keybindings always call the latest version
+  const onRunRef = useRef(onRun)
+  onRunRef.current = onRun
+  const onAdvanceRef = useRef(onAdvance)
+  onAdvanceRef.current = onAdvance
+  const onTogglePreviewRef = useRef(onTogglePreview)
+  onTogglePreviewRef.current = onTogglePreview
+  const onFocusRef = useRef(onFocus)
+  onFocusRef.current = onFocus
 
   const lineCount = cell.content.split('\n').length
   const isLong = lineCount > RMD_COLLAPSE_LINE_THRESHOLD
@@ -533,7 +970,7 @@ function RmdCellBlock({
   const [editorHeight, setEditorHeight] = useState(Math.max(lineCount * 18 + 8, 36))
 
   // Auto-resize Monaco editor to fit content
-  const handleEditorMount: OnMount = (editor) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
 
     const updateHeight = () => {
@@ -549,13 +986,29 @@ function RmdCellBlock({
     editor.onDidContentSizeChange(updateHeight)
     updateHeight()
 
-    // Cmd+Enter = run cell, Cmd+Shift+Enter = (could be run all)
-    if (!readOnly && cell.type === 'code') {
-      editor.addCommand(
-        // eslint-disable-next-line no-bitwise
-        (window.navigator.platform.includes('Mac') ? 2048 : 2048) | 3, // Cmd/Ctrl + Enter
-        () => onRun(),
-      )
+    // Sync activeCell when this Monaco editor receives focus
+    editor.onDidFocusEditorWidget(() => onFocusRef.current())
+
+    // Register Monaco keybindings for Cmd+Enter and Cmd+Shift+Enter.
+    // These use refs so the callbacks always point to the latest version.
+    // "Run and advance" = run/preview then move to next cell.
+    if (!readOnly) {
+      const runAndAdvance = cell.type === 'code'
+        ? () => { onRunRef.current(); onAdvanceRef.current() }
+        : cell.type === 'markdown'
+          ? () => { onTogglePreviewRef.current(); onAdvanceRef.current() }
+          : undefined
+
+      if (runAndAdvance) {
+        editor.addCommand(
+          monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+          runAndAdvance,
+        )
+        editor.addCommand(
+          monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+          runAndAdvance,
+        )
+      }
     }
   }
 
@@ -575,188 +1028,237 @@ function RmdCellBlock({
         ? <XCircle size={12} className="text-red-500" />
         : null
 
-  const borderColor = isActive
-    ? 'border-primary/40'
-    : cell.type === 'code'
-      ? 'border-border'
-      : 'border-transparent'
+  const borderColor = isDragging
+    ? 'border-primary/60 opacity-50'
+    : isActive
+      ? 'border-primary/40'
+      : cell.type === 'code'
+        ? 'border-border'
+        : 'border-transparent'
+
+  // ---- Drag handle ----
+  const handleDragStartNative = useCallback((e: React.DragEvent) => {
+    // Custom ghost image: small pill so Monaco content isn't captured
+    const ghost = document.createElement('div')
+    ghost.textContent = cell.type === 'code'
+      ? `${(cell.language ?? '').toUpperCase()} chunk`
+      : cell.type === 'markdown' ? 'Markdown' : 'YAML'
+    ghost.style.cssText =
+      'position:fixed;top:-999px;left:-999px;padding:4px 12px;border-radius:8px;font-size:11px;' +
+      'background:#3b82f6;color:#fff;white-space:nowrap;font-family:system-ui;pointer-events:none;'
+    document.body.appendChild(ghost)
+    e.dataTransfer.setDragImage(ghost, 0, 0)
+    requestAnimationFrame(() => document.body.removeChild(ghost))
+    e.dataTransfer.effectAllowed = 'move'
+    onDragStart()
+  }, [cell.type, cell.language, onDragStart])
+
+  // Drop zone highlight: shown before this cell (logical index)
+  const isDropBefore = isDragActive && dropTargetIdx === index && !isDragging
 
   return (
-    <div
-      ref={containerRef}
-      className={`group rounded border transition-colors ${borderColor}`}
-      onClick={onFocus}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-      onDrop={onDrop}
-    >
-      {/* Cell header */}
-      <div className="flex items-center gap-1 px-2 py-0.5 text-[10px] opacity-60 group-hover:opacity-100 transition-opacity">
-        {/* Drag handle */}
-        {!readOnly && (
-          <div
-            draggable
-            onDragStart={onDragStart}
-            className="cursor-grab active:cursor-grabbing"
-          >
-            <GripVertical size={12} className="text-muted-foreground/50" />
-          </div>
-        )}
+    <>
+      {/* Drop zone BEFORE this cell */}
+      {isDragActive && !isDragging && (
+        <div
+          style={{ order: cssOrder - 1 }}
+          className={`transition-all duration-150 rounded ${isDropBefore ? 'h-8 bg-primary/10 border-2 border-dashed border-primary/40' : 'h-4'}`}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDropTargetChange(index) }}
+          onDrop={(e) => { e.preventDefault(); onDragEnd() }}
+        />
+      )}
 
-        {/* Cell type badge */}
-        {cell.type === 'yaml' && (
-          <Badge variant="outline" className="text-[9px] h-4 px-1">
-            <Settings2 size={10} className="mr-0.5" /> YAML
-          </Badge>
-        )}
-        {cell.type === 'markdown' && (
-          <Badge variant="outline" className="text-[9px] h-4 px-1">
-            <FileText size={10} className="mr-0.5" /> Markdown
-          </Badge>
-        )}
-        {cell.type === 'code' && cell.language && (
-          <Badge
-            variant="outline"
-            className={`text-[9px] h-4 px-1 ${LANG_COLORS[cell.language] ?? ''}`}
-          >
-            <Code size={10} className="mr-0.5" />
-            {cell.language.toUpperCase()}
-          </Badge>
-        )}
-        {cell.chunkLabel && (
-          <span className="text-muted-foreground/70 font-mono">{cell.chunkLabel}</span>
-        )}
-
-        {statusIcon}
-
-        <div className="flex-1" />
-
-        {/* Actions (visible on hover) */}
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {cell.type === 'code' && !readOnly && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onRun() }}
-              className="p-0.5 rounded hover:bg-accent"
-              title={t('files.notebook_run_cell')}
-            >
-              <Play size={11} />
-            </button>
-          )}
-          {cell.type === 'markdown' && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onTogglePreview() }}
-              className="p-0.5 rounded hover:bg-accent"
-              title={isPreview ? t('files.notebook_edit') : t('files.notebook_preview')}
-            >
-              {isPreview ? <Pencil size={11} /> : <Eye size={11} />}
-            </button>
-          )}
+      <div
+        ref={containerRef}
+        style={{ order: cssOrder }}
+        className={`group rounded border transition-colors ${borderColor}`}
+        onClick={onFocus}
+        onDragOver={(e) => e.preventDefault()}
+      >
+        {/* Cell header */}
+        <div className="flex items-center gap-1 px-2 py-0.5 text-[10px] opacity-60 group-hover:opacity-100 transition-opacity">
+          {/* Drag handle + move buttons */}
           {!readOnly && (
-            <>
+            <div className="flex items-center gap-0">
+              <div
+                draggable
+                onDragStart={handleDragStartNative}
+                onDragEnd={() => { onDragCancel() }}
+                className="p-0 rounded hover:bg-accent cursor-grab active:cursor-grabbing"
+                title="Drag to reorder"
+              >
+                <GripVertical size={12} className="text-muted-foreground/50" />
+              </div>
               <button
                 onClick={(e) => { e.stopPropagation(); onMoveUp() }}
                 disabled={index === 0}
-                className="p-0.5 rounded hover:bg-accent disabled:opacity-30"
+                className="p-0 rounded hover:bg-accent disabled:opacity-20"
+                title="Move up"
               >
-                <ChevronUp size={11} />
+                <ChevronUp size={12} />
               </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onMoveDown() }}
                 disabled={index === totalCells - 1}
-                className="p-0.5 rounded hover:bg-accent disabled:opacity-30"
+                className="p-0 rounded hover:bg-accent disabled:opacity-20"
+                title="Move down"
               >
-                <ChevronDown size={11} />
+                <ChevronDown size={12} />
               </button>
+            </div>
+          )}
+
+          {/* Cell type badge */}
+          {cell.type === 'yaml' && (
+            <Badge variant="outline" className="text-[9px] h-4 px-1">
+              <Settings2 size={10} className="mr-0.5" /> YAML
+            </Badge>
+          )}
+          {cell.type === 'markdown' && (
+            <Badge variant="outline" className="text-[9px] h-4 px-1">
+              <FileText size={10} className="mr-0.5" /> Markdown
+            </Badge>
+          )}
+          {cell.type === 'code' && cell.language && (
+            <Badge
+              variant="outline"
+              className={`text-[9px] h-4 px-1 ${LANG_COLORS[cell.language] ?? ''}`}
+            >
+              <Code size={10} className="mr-0.5" />
+              {cell.language.toUpperCase()}
+            </Badge>
+          )}
+          {cell.chunkLabel && (
+            <span className="text-muted-foreground/70 font-mono">{cell.chunkLabel}</span>
+          )}
+
+          {statusIcon}
+
+          <div className="flex-1" />
+
+          {/* Actions (visible on hover) */}
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            {cell.type === 'code' && !readOnly && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onRun() }}
+                className="p-0.5 rounded hover:bg-accent"
+                title={t('files.notebook_run_cell')}
+              >
+                <Play size={11} />
+              </button>
+            )}
+            {cell.type === 'markdown' && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onTogglePreview() }}
+                className="p-0.5 rounded hover:bg-accent"
+                title={isPreview ? t('files.notebook_edit') : t('files.notebook_preview')}
+              >
+                {isPreview ? <Pencil size={11} /> : <Eye size={11} />}
+              </button>
+            )}
+            {!readOnly && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRemove() }}
                 className="p-0.5 rounded hover:bg-accent text-destructive/70"
               >
                 <Trash2 size={11} />
               </button>
-            </>
-          )}
+            )}
+          </div>
         </div>
+
+        {/* Cell body */}
+        {cell.type === 'markdown' && isPreview ? (
+          // Rendered markdown preview
+          <div
+            className="px-3 py-2 prose prose-sm dark:prose-invert max-w-none min-h-[2rem] cursor-pointer [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+            onDoubleClick={onTogglePreview}
+          >
+            {cell.content.trim() ? (
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {cell.content}
+              </ReactMarkdown>
+            ) : (
+              <p className="text-muted-foreground/50 italic">Empty markdown cell</p>
+            )}
+          </div>
+        ) : (
+          // Monaco editor
+          <div className={cell.type === 'code' ? 'bg-muted/20' : ''}>
+            <div
+              className="overflow-hidden transition-[height] duration-200"
+              style={{ height: collapsed ? RMD_COLLAPSED_HEIGHT : editorHeight }}
+            >
+              <Editor
+                value={cell.content}
+                language={monacoLang}
+                theme={theme}
+                options={editorOptions}
+                beforeMount={beforeMount}
+                onChange={(v) => onContentChange(v ?? '')}
+                onMount={handleEditorMount}
+                loading={
+                  <pre className="text-xs font-mono p-2 whitespace-pre-wrap min-h-[36px]">
+                    {cell.content}
+                  </pre>
+                }
+              />
+            </div>
+            {isLong && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c) }}
+                className="flex items-center justify-center gap-1 w-full py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/30 transition-colors border-t border-dashed"
+              >
+                <ChevronsUpDown size={10} />
+                {collapsed ? `Show all (${lineCount} lines)` : 'Collapse'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Cell output */}
+        {state?.output && <CellOutput output={state.output} />}
+
+        {/* Add cell button (between cells, visible on hover) */}
+        {!readOnly && !isDragActive && (
+          <div className="relative h-0 overflow-visible">
+            <div className="absolute left-1/2 -translate-x-1/2 -bottom-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-muted border text-[9px] text-muted-foreground hover:bg-accent hover:text-accent-foreground">
+                    <Plus size={10} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center">
+                  <DropdownMenuItem onClick={() => onAddAfter('markdown')}>
+                    <FileText size={14} /> Markdown
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onAddAfter('code', 'r')}>
+                    <Code size={14} /> R
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onAddAfter('code', 'python')}>
+                    <Code size={14} /> Python
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onAddAfter('code', 'sql')}>
+                    <Code size={14} /> SQL
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Cell body */}
-      {cell.type === 'markdown' && isPreview ? (
-        // Rendered markdown preview
+      {/* Drop zone AFTER last cell */}
+      {isDragActive && index === totalCells - 1 && !isDragging && (
         <div
-          className="px-3 py-2 prose prose-sm dark:prose-invert max-w-none min-h-[2rem] cursor-pointer [&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
-          onDoubleClick={onTogglePreview}
-        >
-          {cell.content.trim() ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {cell.content}
-            </ReactMarkdown>
-          ) : (
-            <p className="text-muted-foreground/50 italic">Empty markdown cell</p>
-          )}
-        </div>
-      ) : (
-        // Monaco editor
-        <div className={cell.type === 'code' ? 'bg-muted/20' : ''}>
-          <div
-            className="overflow-hidden transition-[height] duration-200"
-            style={{ height: collapsed ? RMD_COLLAPSED_HEIGHT : editorHeight }}
-          >
-            <Editor
-              value={cell.content}
-              language={monacoLang}
-              theme={theme}
-              options={editorOptions}
-              beforeMount={beforeMount}
-              onChange={(v) => onContentChange(v ?? '')}
-              onMount={handleEditorMount}
-              loading={
-                <pre className="text-xs font-mono p-2 whitespace-pre-wrap min-h-[36px]">
-                  {cell.content}
-                </pre>
-              }
-            />
-          </div>
-          {isLong && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setCollapsed((c) => !c) }}
-              className="flex items-center justify-center gap-1 w-full py-0.5 text-[10px] text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent/30 transition-colors border-t border-dashed"
-            >
-              <ChevronsUpDown size={10} />
-              {collapsed ? `Show all (${lineCount} lines)` : 'Collapse'}
-            </button>
-          )}
-        </div>
+          style={{ order: cssOrder + 1 }}
+          className={`transition-all duration-150 rounded ${dropTargetIdx === totalCells ? 'h-8 bg-primary/10 border-2 border-dashed border-primary/40' : 'h-4'}`}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; onDropTargetChange(totalCells) }}
+          onDrop={(e) => { e.preventDefault(); onDragEnd() }}
+        />
       )}
-
-      {/* Cell output */}
-      {state?.output && <CellOutput output={state.output} />}
-
-      {/* Add cell button (between cells, visible on hover) */}
-      {!readOnly && (
-        <div className="relative h-0 overflow-visible">
-          <div className="absolute left-1/2 -translate-x-1/2 -bottom-3 z-10 opacity-0 group-hover:opacity-100 transition-opacity">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-muted border text-[9px] text-muted-foreground hover:bg-accent hover:text-accent-foreground">
-                  <Plus size={10} />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="center">
-                <DropdownMenuItem onClick={() => onAddAfter('markdown')}>
-                  <FileText size={14} /> Markdown
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onAddAfter('code', 'r')}>
-                  <Code size={14} /> R
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onAddAfter('code', 'python')}>
-                  <Code size={14} /> Python
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onAddAfter('code', 'sql')}>
-                  <Code size={14} /> SQL
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   )
 }
+

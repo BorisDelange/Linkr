@@ -20,6 +20,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import {
   SHORTCUT_GROUPS,
   BROWSER_RESERVED,
+  NOTEBOOK_PRESETS,
   type ShortcutActionId,
   type KeyCombo,
 } from '@/types/shortcuts'
@@ -36,7 +37,6 @@ function comboToDisplay(combo: KeyCombo): string[] {
   if (combo.ctrlOrMeta) parts.push(isMac ? '⌘' : 'Ctrl')
   if (combo.shift) parts.push('Shift')
   if (combo.alt) parts.push(isMac ? '⌥' : 'Alt')
-  // Capitalize key display
   const keyDisplay =
     combo.key === 'Enter'
       ? '↵'
@@ -60,7 +60,6 @@ function isBrowserReserved(combo: KeyCombo): boolean {
 }
 
 function eventToCombo(e: KeyboardEvent): KeyCombo | null {
-  // Ignore modifier-only presses
   if (['Control', 'Meta', 'Shift', 'Alt'].includes(e.key)) return null
   return {
     key: e.key.length === 1 ? e.key.toLowerCase() : e.key,
@@ -72,20 +71,27 @@ function eventToCombo(e: KeyboardEvent): KeyCombo | null {
 
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
+    <kbd className="inline-flex h-4 min-w-[16px] items-center justify-center rounded border border-border bg-muted px-1 text-[9px] font-medium text-muted-foreground">
       {children}
     </kbd>
   )
 }
 
+function isUnbound(combo: KeyCombo): boolean {
+  return combo.key === '' && !combo.ctrlOrMeta && !combo.shift && !combo.alt
+}
+
 function ComboDisplay({ combo }: { combo: KeyCombo }) {
+  if (isUnbound(combo)) {
+    return <span className="inline-flex h-4 items-center text-[9px] text-muted-foreground">—</span>
+  }
   const parts = comboToDisplay(combo)
   return (
     <div className="flex items-center gap-0.5">
       {parts.map((part, i) => (
         <span key={i} className="flex items-center gap-0.5">
           {i > 0 && (
-            <span className="text-[10px] text-muted-foreground">+</span>
+            <span className="text-[9px] text-muted-foreground">+</span>
           )}
           <Kbd>{part}</Kbd>
         </span>
@@ -99,14 +105,13 @@ export function KeyboardShortcutsDialog({
   onOpenChange,
 }: KeyboardShortcutsDialogProps) {
   const { t } = useTranslation()
-  const { shortcuts, setBinding, resetBinding, resetAll, findConflict, isCustomized } =
+  const { shortcuts, setBinding, resetBinding, resetAll, findConflict, isCustomized, applyPreset, getActivePreset } =
     useShortcutStore()
 
   const [recordingId, setRecordingId] = useState<ShortcutActionId | null>(null)
   const [pendingCombo, setPendingCombo] = useState<KeyCombo | null>(null)
   const recorderRef = useRef<HTMLDivElement>(null)
 
-  // Close recording when dialog closes
   useEffect(() => {
     if (!open) {
       setRecordingId(null)
@@ -114,7 +119,6 @@ export function KeyboardShortcutsDialog({
     }
   }, [open])
 
-  // Listen for keydown while recording
   useEffect(() => {
     if (!recordingId) return
 
@@ -122,7 +126,6 @@ export function KeyboardShortcutsDialog({
       e.preventDefault()
       e.stopPropagation()
 
-      // Escape cancels recording
       if (e.key === 'Escape') {
         setRecordingId(null)
         setPendingCombo(null)
@@ -172,22 +175,49 @@ export function KeyboardShortcutsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{t('shortcuts.title')}</DialogTitle>
+          <DialogTitle className="text-sm">{t('shortcuts.title')}</DialogTitle>
           <DialogDescription className="sr-only">
             {t('shortcuts.title')}
           </DialogDescription>
         </DialogHeader>
 
         <TooltipProvider delayDuration={300}>
-          <div className="mt-2 space-y-5">
-            {SHORTCUT_GROUPS.map((group) => (
+          <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+            {SHORTCUT_GROUPS.map((group) => {
+              const prefix = group.presetGroup
+              const activePreset = prefix ? getActivePreset(prefix) : null
+
+              return (
               <div key={group.titleKey}>
-                <h3 className="mb-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  {t(group.titleKey)}
-                </h3>
-                <div className="space-y-1">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <h3 className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                    {t(group.titleKey)}
+                  </h3>
+                  {prefix && (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[9px] text-muted-foreground">{t('shortcuts.preset')}:</span>
+                      <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+                        {NOTEBOOK_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            onClick={() => applyPreset(preset.id, prefix)}
+                            className={cn(
+                              'rounded px-1.5 py-0.5 text-[9px] font-medium transition-colors',
+                              activePreset === preset.id
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:bg-accent hover:text-foreground'
+                            )}
+                          >
+                            {t(preset.labelKey)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="space-y-0.5">
                   {group.actions.map((actionId) => {
                     const def = shortcuts[actionId]
                     if (!def) return null
@@ -199,16 +229,16 @@ export function KeyboardShortcutsDialog({
                       <div
                         key={actionId}
                         className={cn(
-                          'flex items-center justify-between rounded-md px-2 py-1.5 -mx-2',
+                          'flex items-center justify-between rounded-md px-2 py-1 -mx-2',
                           isRecording && 'bg-accent/50 ring-1 ring-primary/30'
                         )}
                       >
-                        <span className="text-sm flex items-center gap-1.5">
+                        <span className="text-xs flex items-center gap-1.5">
                           {t(def.labelKey)}
                           {isMonaco && (
                             <Tooltip>
                               <TooltipTrigger>
-                                <Lock size={10} className="text-muted-foreground/50" />
+                                <Lock size={9} className="text-muted-foreground/50" />
                               </TooltipTrigger>
                               <TooltipContent>
                                 {t('shortcuts.monaco_handled')}
@@ -224,14 +254,14 @@ export function KeyboardShortcutsDialog({
                                 <>
                                   <ComboDisplay combo={pendingCombo} />
                                   {conflictId && (
-                                    <span className="text-[10px] text-yellow-600 dark:text-yellow-400">
+                                    <span className="text-[9px] text-yellow-600 dark:text-yellow-400">
                                       {t('shortcuts.conflict_warning', {
                                         action: t(shortcuts[conflictId].labelKey),
                                       })}
                                     </span>
                                   )}
                                   {browserReserved && (
-                                    <span className="text-[10px] text-red-500">
+                                    <span className="text-[9px] text-red-500">
                                       {t('shortcuts.browser_reserved')}
                                     </span>
                                   )}
@@ -240,21 +270,21 @@ export function KeyboardShortcutsDialog({
                                     size="icon-xs"
                                     onClick={confirmRecording}
                                     disabled={browserReserved}
-                                    className="h-5 w-5"
+                                    className="h-4 w-4"
                                   >
-                                    <span className="text-xs">✓</span>
+                                    <span className="text-[10px]">✓</span>
                                   </Button>
                                   <Button
                                     variant="ghost"
                                     size="icon-xs"
                                     onClick={cancelRecording}
-                                    className="h-5 w-5"
+                                    className="h-4 w-4"
                                   >
-                                    <span className="text-xs">✕</span>
+                                    <span className="text-[10px]">✕</span>
                                   </Button>
                                 </>
                               ) : (
-                                <span className="text-xs text-muted-foreground animate-pulse">
+                                <span className="text-[10px] text-muted-foreground animate-pulse">
                                   {t('shortcuts.press_keys')}
                                 </span>
                               )}
@@ -283,9 +313,9 @@ export function KeyboardShortcutsDialog({
                                   variant="ghost"
                                   size="icon-xs"
                                   onClick={() => resetBinding(actionId)}
-                                  className="h-5 w-5"
+                                  className="h-4 w-4"
                                 >
-                                  <RotateCcw size={10} />
+                                  <RotateCcw size={9} />
                                 </Button>
                               </TooltipTrigger>
                               <TooltipContent>
@@ -299,19 +329,19 @@ export function KeyboardShortcutsDialog({
                   })}
                 </div>
               </div>
-            ))}
+            )})}
           </div>
         </TooltipProvider>
 
         {hasAnyCustom && (
-          <div className="mt-4 flex justify-end">
+          <div className="mt-3 flex justify-end">
             <Button
               variant="outline"
               size="sm"
               onClick={resetAll}
-              className="text-xs"
+              className="text-[10px] h-7"
             >
-              <RotateCcw size={12} className="mr-1.5" />
+              <RotateCcw size={10} className="mr-1" />
               {t('shortcuts.reset_all')}
             </Button>
           </div>

@@ -1,9 +1,12 @@
 import { create } from 'zustand'
 import {
   DEFAULT_SHORTCUTS,
+  NOTEBOOK_PRESETS,
+  notebookActionIds,
   type ShortcutActionId,
   type KeyCombo,
   type ShortcutDefinition,
+  type NotebookPresetId,
 } from '@/types/shortcuts'
 
 const STORAGE_KEY = 'linkr-shortcuts'
@@ -60,6 +63,8 @@ interface ShortcutState {
     excludeId?: ShortcutActionId
   ) => ShortcutActionId | null
   isCustomized: (id: ShortcutActionId) => boolean
+  applyPreset: (presetId: NotebookPresetId, prefix: 'rmd' | 'ipynb') => void
+  getActivePreset: (prefix: 'rmd' | 'ipynb') => NotebookPresetId | null
 }
 
 const initialCustom = loadPersisted()
@@ -89,8 +94,10 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   getBinding: (id) => get().shortcuts[id].binding,
 
   findConflict: (binding, excludeId) => {
+    if (!binding.key) return null // unbound
     for (const [id, def] of Object.entries(get().shortcuts)) {
       if (id === excludeId) continue
+      if (!def.binding.key) continue // skip unbound
       if (combosEqual(def.binding, binding)) {
         return id as ShortcutActionId
       }
@@ -99,4 +106,38 @@ export const useShortcutStore = create<ShortcutState>((set, get) => ({
   },
 
   isCustomized: (id) => id in get().customBindings,
+
+  applyPreset: (presetId, prefix) => {
+    const preset = NOTEBOOK_PRESETS.find((p) => p.id === presetId)
+    if (!preset) return
+    const custom = { ...get().customBindings }
+    const actionIds = notebookActionIds(prefix)
+    for (const actionId of actionIds) {
+      const suffix = actionId.replace(`${prefix}_`, '')
+      const presetBinding = preset.bindings[suffix]
+      const defaultBinding = DEFAULT_SHORTCUTS[actionId].defaultBinding
+      if (presetBinding && !combosEqual(presetBinding, defaultBinding)) {
+        custom[actionId] = presetBinding
+      } else {
+        delete custom[actionId]
+      }
+    }
+    savePersisted(custom)
+    set({ shortcuts: buildShortcuts(custom), customBindings: custom })
+  },
+
+  getActivePreset: (prefix) => {
+    const { shortcuts } = get()
+    const actionIds = notebookActionIds(prefix)
+    for (const preset of NOTEBOOK_PRESETS) {
+      const matches = actionIds.every((actionId) => {
+        const suffix = actionId.replace(`${prefix}_`, '')
+        const current = shortcuts[actionId].binding
+        const expected = preset.bindings[suffix]
+        return expected ? combosEqual(current, expected) : true
+      })
+      if (matches) return preset.id
+    }
+    return null
+  },
 }))
