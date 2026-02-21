@@ -146,57 +146,60 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Main content area */}
-      <ScrollArea className="flex-1 min-h-0">
-        {tabWidgets.length > 0 ? (
-          <WidgetGrid
-            widgets={tabWidgets}
-            editMode={editMode}
-            hideTitleBars={dashboard.showWidgetTitles === false}
-            dashboard={dashboard}
-            projectUid={projectUid}
-          />
-        ) : (
-          <div className="flex h-full min-h-[400px] items-center justify-center p-8">
-            <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
-                <LayoutGrid size={24} className="text-muted-foreground" />
+      {/* Main content + filter sidebar */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <ScrollArea className="flex-1 min-h-0 min-w-0">
+          {tabWidgets.length > 0 ? (
+            <WidgetGrid
+              widgets={tabWidgets}
+              editMode={editMode}
+              hideTitleBars={dashboard.showWidgetTitles === false}
+              dashboard={dashboard}
+              projectUid={projectUid}
+            />
+          ) : (
+            <div className="flex h-full min-h-[400px] items-center justify-center p-8">
+              <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                  <LayoutGrid size={24} className="text-muted-foreground" />
+                </div>
+                <h3 className="mt-4 text-sm font-medium text-foreground">
+                  {t('dashboard.empty_title')}
+                </h3>
+                <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
+                  {t('dashboard.empty_description')}
+                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-1.5"
+                  onClick={() => {
+                    setEditMode(true)
+                    setAddWidgetOpen(true)
+                  }}
+                >
+                  <Plus size={14} />
+                  {t('dashboard.add_widget')}
+                </Button>
               </div>
-              <h3 className="mt-4 text-sm font-medium text-foreground">
-                {t('dashboard.empty_title')}
-              </h3>
-              <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
-                {t('dashboard.empty_description')}
-              </p>
-              <Button
-                size="sm"
-                className="mt-4 gap-1.5"
-                onClick={() => {
-                  setEditMode(true)
-                  setAddWidgetOpen(true)
-                }}
-              >
-                <Plus size={14} />
-                {t('dashboard.add_widget')}
-              </Button>
             </div>
-          </div>
+          )}
+        </ScrollArea>
+
+        {filterOpen && (
+          <DashboardFilterSidebar
+            dashboard={dashboard}
+            widgets={allDashboardWidgets}
+            editMode={editMode}
+            onClose={() => setFilterOpen(false)}
+          />
         )}
-      </ScrollArea>
+      </div>
 
       <AddWidgetDialog
         open={addWidgetOpen}
         onOpenChange={setAddWidgetOpen}
         tabId={currentTabId ?? ''}
         projectUid={projectUid}
-      />
-
-      <DashboardFilterSidebar
-        open={filterOpen}
-        onOpenChange={setFilterOpen}
-        dashboard={dashboard}
-        widgets={allDashboardWidgets}
-        editMode={editMode}
       />
 
       <DashboardSettingsDialog

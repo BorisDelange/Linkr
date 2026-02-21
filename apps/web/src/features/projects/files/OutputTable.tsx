@@ -162,7 +162,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
 
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="text-xs border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead className="sticky top-0 z-10 bg-muted">
             {/* Column headers */}
             <tr>

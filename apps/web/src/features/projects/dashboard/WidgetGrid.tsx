@@ -81,13 +81,15 @@ function WidgetWithData({
 
   return (
     <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null} filters={filters}>
-      {widget.source.type === 'plugin' ? (
-        <PluginWidgetRenderer widget={widget} />
-      ) : widget.source.type === 'inline' ? (
-        <InlineCodeWidgetRenderer widget={widget} />
-      ) : (
-        <div className="text-xs text-muted-foreground">Unknown widget type</div>
-      )}
+      <div className="h-full">
+        {widget.source.type === 'plugin' ? (
+          <PluginWidgetRenderer widget={widget} />
+        ) : widget.source.type === 'inline' ? (
+          <InlineCodeWidgetRenderer widget={widget} />
+        ) : (
+          <div className="text-xs text-muted-foreground">Unknown widget type</div>
+        )}
+      </div>
     </DashboardDataProvider>
   )
 }
@@ -173,7 +175,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         autoSize
       >
         {widgets.map((widget) => (
-          <div key={widget.id}>
+          <div key={widget.id} className="h-full">
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}

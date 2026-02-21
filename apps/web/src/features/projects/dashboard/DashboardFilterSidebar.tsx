@@ -8,13 +8,6 @@ import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
-  Sheet,
-  SheetClose,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -32,16 +25,15 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 
 interface DashboardFilterSidebarProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
   dashboard: Dashboard
   widgets: DashboardWidget[]
   editMode: boolean
+  onClose: () => void
 }
 
 let filterIdCounter = 0
 
-export function DashboardFilterSidebar({ open, onOpenChange, dashboard, widgets, editMode }: DashboardFilterSidebarProps) {
+export function DashboardFilterSidebar({ dashboard, widgets, editMode, onClose }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles, getFileRows } = useDatasetStore()
@@ -152,39 +144,34 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard, widgets,
 
   // Available inputType options per filter type
   const getInputTypeOptions = (filterType: DashboardFilter['type']) => {
-    const options = [
-      { value: 'checkbox' as const, label: t('dashboard.input_type_checkbox') },
-      { value: 'multi-select' as const, label: t('dashboard.input_type_multi_select') },
-      { value: 'single-select' as const, label: t('dashboard.input_type_single_select') },
+    const options: { value: DashboardFilter['inputType']; label: string }[] = [
+      { value: 'checkbox', label: t('dashboard.input_type_checkbox') },
+      { value: 'multi-select', label: t('dashboard.input_type_multi_select') },
+      { value: 'single-select', label: t('dashboard.input_type_single_select') },
     ]
     if (filterType === 'numeric' || filterType === 'date') {
-      options.push({ value: 'range' as const, label: t('dashboard.input_type_range') })
+      options.push({ value: 'range', label: t('dashboard.input_type_range') })
     }
     return options
   }
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" showCloseButton={false} className="w-80 p-0 flex flex-col">
-        <SheetHeader className="px-4 py-3 border-b shrink-0">
-          <div className="flex items-center justify-between">
-            <SheetTitle className="text-sm">{t('dashboard.filter_title')}</SheetTitle>
-            <div className="flex items-center gap-1">
-              {activeFilterCount > 0 && (
-                <Button variant="ghost" size="xs" onClick={handleClearAll}>
-                  {t('dashboard.filter_clear_all')}
-                </Button>
-              )}
-              <SheetClose asChild>
-                <Button variant="ghost" size="icon-xs">
-                  <X size={14} />
-                </Button>
-              </SheetClose>
-            </div>
-          </div>
-        </SheetHeader>
+    <div className="flex h-full w-72 shrink-0 flex-col border-l bg-background">
+      <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
+        <span className="text-sm font-semibold">{t('dashboard.filter_title')}</span>
+        <div className="flex items-center gap-1">
+          {activeFilterCount > 0 && (
+            <Button variant="ghost" size="xs" onClick={handleClearAll}>
+              {t('dashboard.filter_clear_all')}
+            </Button>
+          )}
+          <Button variant="ghost" size="icon-xs" onClick={onClose}>
+            <X size={14} />
+          </Button>
+        </div>
+      </div>
 
-        <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-h-0">
           <div className="p-4 space-y-4">
             {dashboard.filterConfig.length === 0 && !addingFilter && (
               <p className="text-xs text-muted-foreground">
@@ -357,8 +344,7 @@ export function DashboardFilterSidebar({ open, onOpenChange, dashboard, widgets,
             )}
           </div>
         </ScrollArea>
-      </SheetContent>
-    </Sheet>
+    </div>
   )
 }
 
