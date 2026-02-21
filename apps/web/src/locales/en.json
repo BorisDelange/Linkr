@@ -907,6 +907,7 @@
     "type_sql": "SQL query",
     "type_rmd": "R Markdown notebook",
     "type_qmd": "Quarto notebook",
+    "type_ipynb": "Jupyter notebook",
     "type_markdown": "Markdown",
     "ipynb_viewer": "Notebook Viewer",
     "ipynb_readonly_notice": "This notebook is read-only. Edit in Jupyter to modify.",

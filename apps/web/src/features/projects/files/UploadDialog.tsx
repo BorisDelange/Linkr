@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useFileStore } from '@/stores/file-store'
 import {
@@ -26,6 +26,7 @@ export function UploadDialog({
   const { t } = useTranslation()
   const { createFile, updateFileContent, saveFile } = useFileStore()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [dragActive, setDragActive] = useState(false)
 
   const handleFiles = (fileList: FileList | null) => {
     if (!fileList) return
@@ -67,15 +68,20 @@ export function UploadDialog({
           <DialogDescription>{t('files.upload_description')}</DialogDescription>
         </DialogHeader>
         <div
-          className="mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-8 transition-colors hover:border-muted-foreground/50 cursor-pointer"
+          className={`mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
+            dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+          }`}
           onClick={() => inputRef.current?.click()}
           onDragOver={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            setDragActive(true)
           }}
+          onDragLeave={() => setDragActive(false)}
           onDrop={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            setDragActive(false)
             handleFiles(e.dataTransfer.files)
           }}
         >

@@ -907,6 +907,7 @@
     "type_sql": "Requête SQL",
     "type_rmd": "Notebook R Markdown",
     "type_qmd": "Notebook Quarto",
+    "type_ipynb": "Notebook Jupyter",
     "type_markdown": "Markdown",
     "ipynb_viewer": "Visionneuse de notebook",
     "ipynb_readonly_notice": "Ce notebook est en lecture seule. Modifiez-le dans Jupyter.",

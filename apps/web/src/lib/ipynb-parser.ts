@@ -147,3 +147,98 @@ export function getNotebookLanguage(notebook: IpynbNotebook): string {
     'python'
   )
 }
+
+// ---------------------------------------------------------------------------
+// Serializer
+// ---------------------------------------------------------------------------
+
+/** Split a string into Jupyter-style line array (each line ends with \n except the last). */
+function toLineArray(text: string): string[] {
+  if (!text) return ['']
+  const lines = text.split('\n')
+  return lines.map((line, i) => (i < lines.length - 1 ? line + '\n' : line))
+}
+
+/** Serialize an IpynbNotebook back to a .ipynb JSON string. */
+export function serializeIpynbFile(notebook: IpynbNotebook): string {
+  const cells = notebook.cells.map((cell) => {
+    const out: Record<string, unknown> = {
+      cell_type: cell.cell_type,
+      metadata: cell.metadata ?? {},
+      source: toLineArray(cell.source),
+    }
+    if (cell.cell_type === 'code') {
+      out.execution_count = cell.execution_count ?? null
+      out.outputs = (cell.outputs ?? []).map((o) => {
+        const so: Record<string, unknown> = { output_type: o.output_type }
+        if (o.output_type === 'stream') {
+          so.name = o.name ?? 'stdout'
+          so.text = toLineArray(o.text ?? '')
+        } else if (o.output_type === 'execute_result' || o.output_type === 'display_data') {
+          const data: Record<string, unknown> = {}
+          if (o.data) {
+            for (const [mime, val] of Object.entries(o.data)) {
+              data[mime] = mime.startsWith('text/') ? toLineArray(val) : val
+            }
+          }
+          so.data = data
+          so.metadata = o.metadata ?? {}
+          if (o.output_type === 'execute_result') so.execution_count = o.execution_count ?? null
+        } else if (o.output_type === 'error') {
+          so.ename = o.ename ?? 'Error'
+          so.evalue = o.evalue ?? ''
+          so.traceback = o.traceback ?? []
+        }
+        return so
+      })
+    }
+    return out
+  })
+
+  return JSON.stringify({
+    nbformat: notebook.nbformat,
+    nbformat_minor: notebook.nbformat_minor,
+    metadata: notebook.metadata,
+    cells,
+  }, null, 1) + '\n'
+}
+
+// ---------------------------------------------------------------------------
+// ipynb ↔ RmdCell converters
+// ---------------------------------------------------------------------------
+
+import type { RmdCell } from '@/lib/rmd-parser'
+
+/** Convert parsed ipynb cells to RmdCell[] for use in RmdNotebook. */
+export function ipynbToRmdCells(notebook: IpynbNotebook): RmdCell[] {
+  const language = getNotebookLanguage(notebook)
+  return notebook.cells.map((cell, i) => {
+    const base: RmdCell = {
+      id: `ipynb-cell-${i}-${Date.now()}`,
+      type: cell.cell_type === 'code' ? 'code' : 'markdown',
+      content: cell.source,
+      dirty: false,
+    }
+    if (cell.cell_type === 'code') {
+      base.language = language
+    }
+    return base
+  })
+}
+
+/** Convert RmdCell[] back to ipynb JSON string, preserving notebook metadata. */
+export function rmdCellsToIpynb(cells: RmdCell[], metadata: IpynbNotebook['metadata']): string {
+  const notebook: IpynbNotebook = {
+    nbformat: 4,
+    nbformat_minor: 5,
+    metadata,
+    cells: cells.map((cell) => ({
+      cell_type: cell.type === 'code' ? 'code' : 'markdown',
+      source: cell.content,
+      metadata: {},
+      execution_count: cell.type === 'code' ? null : undefined,
+      outputs: cell.type === 'code' ? [] : undefined,
+    })),
+  }
+  return serializeIpynbFile(notebook)
+}

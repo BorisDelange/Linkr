@@ -63,14 +63,19 @@ function buildHistogram(sorted: number[], bins: number) {
   return result
 }
 
-function formatDateLabel(ts: number): string {
-  const d = new Date(ts)
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short' })
+/** Capitalize first letter and strip trailing dot (e.g. "janv. 2024" → "Janv 2024"). */
+function capitalizeDate(s: string): string {
+  return (s.charAt(0).toUpperCase() + s.slice(1)).replace(/\.\s/g, ' ').replace(/\.$/, '')
 }
 
-function formatDateFull(ts: number): string {
+function formatDateLabel(ts: number, locale: string): string {
   const d = new Date(ts)
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  return capitalizeDate(d.toLocaleDateString(locale, { year: 'numeric', month: 'short' }))
+}
+
+function formatDateFull(ts: number, locale: string): string {
+  const d = new Date(ts)
+  return capitalizeDate(d.toLocaleDateString(locale, { year: 'numeric', month: 'short', day: 'numeric' }))
 }
 
 function computeDateSpan(minTs: number, maxTs: number): string {
@@ -85,11 +90,11 @@ function computeDateSpan(minTs: number, maxTs: number): string {
   return rem > 0 ? `${years}y ${rem}mo` : `${years}y`
 }
 
-function buildDateHistogram(sortedTs: number[], bins: number) {
+function buildDateHistogram(sortedTs: number[], bins: number, locale: string) {
   if (sortedTs.length === 0) return []
   const min = sortedTs[0]
   const max = sortedTs[sortedTs.length - 1]
-  if (min === max) return [{ label: formatDateLabel(min), count: sortedTs.length, pct: 100 }]
+  if (min === max) return [{ label: formatDateLabel(min, locale), count: sortedTs.length, pct: 100 }]
   const step = (max - min) / bins
   const result: { label: string; count: number; pct: number }[] = []
   for (let i = 0; i < bins; i++) {
@@ -97,7 +102,7 @@ function buildDateHistogram(sortedTs: number[], bins: number) {
     const hi = i === bins - 1 ? max + 1 : min + (i + 1) * step
     const count = sortedTs.filter((v) => v >= lo && v < hi).length
     result.push({
-      label: formatDateLabel(lo),
+      label: formatDateLabel(lo, locale),
       count,
       pct: (count / sortedTs.length) * 100,
     })
@@ -135,8 +140,9 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 // --- Component ---
 
 export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { files, getFileRows, _dirtyVersion } = useDatasetStore()
+  const locale = i18n.language
 
   const file = fileId ? files.find((f) => f.id === fileId) : null
   const column = file?.columns?.find((c) => c.id === columnId)
@@ -180,10 +186,10 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
           minTs,
           maxTs,
           span: computeDateSpan(minTs, maxTs),
-          earliest: formatDateFull(minTs),
-          latest: formatDateFull(maxTs),
+          earliest: formatDateFull(minTs, locale),
+          latest: formatDateFull(maxTs, locale),
         }
-        dateHistogram = buildDateHistogram(sortedTs, HISTOGRAM_BINS)
+        dateHistogram = buildDateHistogram(sortedTs, HISTOGRAM_BINS, locale)
       }
     }
 
@@ -203,7 +209,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     }
 
     return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, isDate, dateStats, dateHistogram, categories }
-  }, [column, columnId, rows, _dirtyVersion]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [column, columnId, rows, _dirtyVersion, locale]) // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!fileId || !columnId || !column) {
     return (

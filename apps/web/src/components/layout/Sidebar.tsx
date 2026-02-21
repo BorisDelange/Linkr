@@ -137,6 +137,8 @@ const workspaceBottomItems: SegmentNavItem[] = [
 
 const projectNavItems: SegmentNavEntry[] = [
   { segment: 'summary', icon: LayoutDashboard, labelKey: 'project_nav.summary', iconColor: 'text-blue-500' },
+  { segment: 'ide', icon: Code, labelKey: 'project_nav.ide', iconColor: 'text-violet-500' },
+  { segment: 'pipeline', icon: Workflow, labelKey: 'project_nav.pipeline', iconColor: 'text-orange-500' },
   {
     type: 'group',
     labelKey: 'project_nav.data_warehouse',
@@ -162,8 +164,6 @@ const projectNavItems: SegmentNavEntry[] = [
       { segment: 'lab/reports', icon: FileText, labelKey: 'project_nav.reports', iconColor: 'text-rose-500' },
     ],
   },
-  { segment: 'ide', icon: Code, labelKey: 'project_nav.ide', iconColor: 'text-violet-500' },
-  { segment: 'pipeline', icon: Workflow, labelKey: 'project_nav.pipeline', iconColor: 'text-orange-500' },
   { segment: 'versioning', icon: GitBranch, labelKey: 'project_nav.versioning', iconColor: 'text-orange-400' },
 ]
 

@@ -87,8 +87,8 @@ import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
 
-const LazyIpynbViewer = lazy(() => import('./files/IpynbViewer').then(m => ({ default: m.IpynbViewer })))
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
+const LazyIpynbNotebook = lazy(() => import('./files/IpynbNotebook').then(m => ({ default: m.IpynbNotebook })))
 import type { RmdNotebookHandle } from './files/RmdNotebook'
 
 export function FilesPage() {
@@ -815,8 +815,8 @@ export function FilesPage() {
                   </>
                 )}
 
-                {/* Notebook toolbar buttons (Rmd/Qmd) */}
-                {editorVisible && selectedNode && isRmdNotebook && !isVirtualFile && (
+                {/* Notebook toolbar buttons (Rmd/Qmd/ipynb) */}
+                {editorVisible && selectedNode && (isRmdNotebook || isIpynbFile) && !isVirtualFile && (
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <div className="flex items-center gap-1.5">
@@ -1370,9 +1370,25 @@ export function FilesPage() {
                               Loading notebook...
                             </div>
                           }>
-                            <LazyIpynbViewer
+                            <LazyIpynbNotebook
+                              ref={notebookRef}
                               key={selectedFileId}
                               content={selectedNode.content ?? ''}
+                              onChange={isVirtualFile ? undefined : (v) =>
+                                updateFileContent(selectedNode.id, v)
+                              }
+                              readOnly={isVirtualFile}
+                              onSave={handleSaveFile}
+                              onRenderOutput={(html, title) => {
+                                addOutputTab({
+                                  id: `render-${selectedFileId}`,
+                                  label: `Render — ${title}`,
+                                  type: 'html',
+                                  content: html,
+                                })
+                                setOutputVisible(true)
+                              }}
+                              activeConnectionId={activeConnectionId}
                             />
                           </Suspense>
                         ) : selectedNode && isRmdNotebook ? (

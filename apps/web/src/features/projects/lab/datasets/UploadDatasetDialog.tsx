@@ -383,25 +383,18 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
           {/* Drop zone or file info */}
           {!file ? (
             <div
-              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
-                dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'
+              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
+                dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
               }`}
+              onClick={() => fileInputRef.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
               onDragLeave={() => setDragActive(false)}
               onDrop={handleDrop}
             >
-              <Upload size={24} className="text-muted-foreground" />
+              <Upload size={32} className="text-muted-foreground/50" />
               <p className="mt-3 text-sm text-muted-foreground">
                 {t('datasets.drag_drop_or')}
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-2"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                {t('datasets.browse_files')}
-              </Button>
               <p className="mt-2 text-[10px] text-muted-foreground">CSV, TSV, Excel (.xlsx, .xls), Parquet</p>
               <input
                 ref={fileInputRef}

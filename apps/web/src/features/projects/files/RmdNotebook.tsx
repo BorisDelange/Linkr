@@ -147,6 +147,10 @@ interface RmdNotebookProps {
   /** Called with rendered HTML so the parent can display it (e.g. in an output tab) */
   onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
+  /** Override cell parser (default: parseRmdFile). Used by ipynb wrapper. */
+  parseFn?: (content: string) => RmdCell[]
+  /** Override cell serializer (default: serializeRmdFile). Used by ipynb wrapper. */
+  serializeFn?: (cells: RmdCell[]) => string
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -173,6 +177,8 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   onSave,
   onRenderOutput,
   activeConnectionId,
+  parseFn = parseRmdFile,
+  serializeFn = serializeRmdFile,
 }, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
@@ -188,7 +194,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   }, [])
 
   // ---- State ----
-  const [cells, setCells] = useState<RmdCell[]>(() => parseRmdFile(content))
+  const [cells, setCells] = useState<RmdCell[]>(() => parseFn(content))
   const cellsRef = useRef(cells)
   cellsRef.current = cells
   const [cellStates, setCellStates] = useState<Map<string, CellState>>(new Map())
@@ -203,7 +209,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   // This prevents React from moving DOM nodes when cells are reordered,
   // which would destroy Monaco editor instances ("InstantiationService disposed").
   const [renderOrder, setRenderOrder] = useState<string[]>(() =>
-    parseRmdFile(content).map((c) => c.id),
+    parseFn(content).map((c) => c.id),
   )
 
   // Drag-and-drop state
@@ -219,10 +225,10 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
       internalEdit.current = false
       return
     }
-    const parsed = parseRmdFile(content)
+    const parsed = parseFn(content)
     setCells(parsed)
     setRenderOrder(parsed.map((c) => c.id))
-  }, [content])
+  }, [content, parseFn])
 
   // ---- Serialization ----
   const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -233,7 +239,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
       if (syncTimeout.current) clearTimeout(syncTimeout.current)
       syncTimeout.current = setTimeout(() => {
         internalEdit.current = true
-        onChange(serializeRmdFile(updatedCells))
+        onChange(serializeFn(updatedCells))
       }, 300)
     },
     [onChange],

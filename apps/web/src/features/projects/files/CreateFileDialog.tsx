@@ -75,6 +75,14 @@ const fileTypes = [
     iconColor: 'text-violet-500',
   },
   {
+    id: 'ipynb',
+    label: 'files.type_ipynb',
+    ext: '.ipynb',
+    lang: 'json',
+    icon: Notebook,
+    iconColor: 'text-amber-500',
+  },
+  {
     id: 'md',
     label: 'files.type_markdown',
     ext: '.md',
@@ -128,13 +136,39 @@ export function CreateFileDialog({
     createFile(finalName, actualParentId, selectedType.lang)
 
     // Inject boilerplate for notebook file types
-    if (fileType === 'rmd' || fileType === 'qmd') {
+    if (fileType === 'rmd' || fileType === 'qmd' || fileType === 'ipynb') {
       const { files: currentFiles, updateFileContent } = useFileStore.getState()
       const created = currentFiles.find((f) => f.name === finalName && f.parentId === actualParentId)
       if (created) {
-        const boilerplate = fileType === 'rmd'
-          ? '---\ntitle: "Untitled"\noutput: html_document\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{r setup}\nlibrary(dplyr)\n```\n'
-          : '---\ntitle: "Untitled"\nformat: html\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{python}\nimport pandas as pd\n```\n'
+        let boilerplate: string
+        if (fileType === 'ipynb') {
+          boilerplate = JSON.stringify({
+            nbformat: 4,
+            nbformat_minor: 5,
+            metadata: {
+              kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
+              language_info: { name: 'python', version: '3.11.0' },
+            },
+            cells: [
+              {
+                cell_type: 'markdown',
+                metadata: {},
+                source: ['# Untitled Notebook\n'],
+              },
+              {
+                cell_type: 'code',
+                metadata: {},
+                source: [''],
+                execution_count: null,
+                outputs: [],
+              },
+            ],
+          }, null, 1)
+        } else if (fileType === 'rmd') {
+          boilerplate = '---\ntitle: "Untitled"\noutput: html_document\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{r setup}\nlibrary(dplyr)\n```\n'
+        } else {
+          boilerplate = '---\ntitle: "Untitled"\nformat: html\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{python}\nimport pandas as pd\n```\n'
+        }
         updateFileContent(created.id, boilerplate)
       }
     }
