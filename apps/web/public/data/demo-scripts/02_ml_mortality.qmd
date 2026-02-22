@@ -1,0 +1,607 @@
+---
+title: "ICU Mortality Prediction — Machine Learning Pipeline"
+format: html
+---
+
+# ICU Mortality Prediction — Machine Learning Pipeline
+
+This **self-contained** report builds and evaluates predictive models for
+in-hospital mortality using OMOP CDM data.
+
+Steps:
+
+1. Cohort extraction & feature engineering (SQL + pandas)
+2. Data preparation & cleaning
+3. Train/test split with stratification
+4. Logistic regression (baseline)
+5. Gradient boosting
+6. Model comparison & evaluation
+7. Calibration analysis
+8. Feature importance
+9. SHAP analysis
+10. LIME explanations
+11. Summary & clinical interpretation
+
+**Requirements:** An active database connection with OMOP CDM tables
+(person, visit_occurrence, death, measurement, concept).
+
+> `sql_query(sql)` is automatically available in Linkr notebooks.
+
+```{python}
+import pandas as pd
+import numpy as np
+import matplotlib
+matplotlib.use('agg')
+import matplotlib.pyplot as plt
+from scipy import stats
+
+pd.set_option('display.max_columns', 50)
+np.random.seed(42)
+```
+
+## 1. Cohort Extraction & Feature Engineering
+
+We extract the cohort and build the feature matrix entirely via SQL and pandas.
+
+```{python}
+# Measurement concept configuration
+VITALS = {
+    3027018: "hr", 3004249: "sbp", 3012888: "dbp", 3027598: "mbp",
+    3024171: "resp_rate", 40762499: "spo2", 3020891: "temp",
+}
+LABS = {
+    3000963: "hemoglobin", 3023314: "hematocrit", 3024929: "platelets",
+    3003282: "wbc", 3019550: "sodium", 3023103: "potassium",
+    3014576: "chloride", 3016293: "bicarbonate", 3016723: "creatinine",
+    3013682: "bun", 3004501: "glucose", 3037278: "anion_gap",
+    3015377: "calcium", 3012095: "magnesium", 3011904: "phosphate",
+}
+NEURO = {3016335: "gcs_eye", 3009094: "gcs_verbal", 3008223: "gcs_motor"}
+ALL_MEASUREMENTS = {**VITALS, **LABS, **NEURO}
+```
+
+```{python}
+# Create cohort views
+await sql_query("""
+    CREATE OR REPLACE VIEW eligible_visits AS
+    SELECT v.visit_occurrence_id, v.person_id, v.visit_concept_id,
+        v.visit_start_date,
+        v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
+        v.visit_end_date,
+        v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
+        v.discharge_to_concept_id,
+        EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+            - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+    FROM visit_occurrence v
+    WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+        - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
+""")
+
+await sql_query("""
+    CREATE OR REPLACE VIEW visit_mortality AS
+    SELECT ev.*,
+        CASE WHEN d.death_date IS NOT NULL
+             AND d.death_date BETWEEN ev.visit_start_date
+                                   AND ev.visit_end_date + INTERVAL '1 day'
+             THEN 1 ELSE 0 END AS in_hospital_death
+    FROM eligible_visits ev
+    LEFT JOIN death d ON ev.person_id = d.person_id
+""")
+
+await sql_query("""
+    CREATE OR REPLACE VIEW cohort AS
+    SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
+        EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
+        p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+    FROM visit_mortality vm
+    JOIN person p ON vm.person_id = p.person_id
+    WHERE EXISTS (
+        SELECT 1 FROM measurement m
+        WHERE m.visit_occurrence_id = vm.visit_occurrence_id
+          AND m.value_as_number IS NOT NULL
+          AND m.measurement_datetime::TIMESTAMP >= vm.visit_start_datetime
+          AND m.measurement_datetime::TIMESTAMP
+              <= vm.visit_start_datetime + INTERVAL '24 hours'
+    )
+""")
+
+summary = await sql_query("""
+    SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
+        SUM(in_hospital_death) AS n_deaths,
+        ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct
+    FROM cohort
+""")
+print("Cohort:"); print(summary.to_string(index=False))
+```
+
+```{python}
+# Extract H0-H24 measurements, aggregate, pivot to wide format
+concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())
+measurements_h24 = await sql_query(f"""
+    SELECT m.visit_occurrence_id, m.measurement_concept_id,
+           m.value_as_number,
+           m.measurement_datetime::TIMESTAMP AS measurement_datetime,
+           c.visit_start_datetime
+    FROM measurement m
+    JOIN cohort c ON m.visit_occurrence_id = c.visit_occurrence_id
+    WHERE m.measurement_concept_id IN ({concept_ids})
+      AND m.value_as_number IS NOT NULL
+      AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime
+      AND m.measurement_datetime::TIMESTAMP
+          <= c.visit_start_datetime + INTERVAL '24 hours'
+""")
+
+measurements_h24["feature"] = measurements_h24["measurement_concept_id"].map(ALL_MEASUREMENTS)
+vitals_ids, labs_ids, neuro_ids = set(VITALS), set(LABS), set(NEURO)
+
+aggregated_rows = []
+for (visit_id, feature), group in measurements_h24.groupby(
+    ["visit_occurrence_id", "feature"]
+):
+    cid = group["measurement_concept_id"].iloc[0]
+    values = group.sort_values("measurement_datetime")["value_as_number"]
+    if cid in vitals_ids:
+        for agg, fn in [("mean", values.mean), ("min", values.min), ("max", values.max)]:
+            aggregated_rows.append({"visit_occurrence_id": visit_id,
+                "col": f"{feature}_{agg}", "val": fn()})
+    elif cid in neuro_ids:
+        aggregated_rows.append({"visit_occurrence_id": visit_id,
+            "col": f"{feature}_min", "val": values.min()})
+    elif cid in labs_ids:
+        aggregated_rows.append({"visit_occurrence_id": visit_id,
+            "col": f"{feature}_first", "val": values.iloc[0]})
+
+wide = pd.DataFrame(aggregated_rows).pivot_table(
+    index="visit_occurrence_id", columns="col", values="val", aggfunc="first"
+).reset_index()
+
+cohort_df = await sql_query("""
+    SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
+    FROM cohort
+""")
+df = cohort_df.merge(wide, on="visit_occurrence_id", how="left")
+print(f"Dataset: {df.shape[0]} rows x {df.shape[1]} columns")
+print(f"Mortality: {int(df['in_hospital_death'].sum())} / {len(df)} "
+      f"({100 * df['in_hospital_death'].mean():.1f}%)")
+```
+
+## 2. Data Preparation
+
+```{python}
+id_cols = ['visit_occurrence_id', 'person_id']
+target_col = 'in_hospital_death'
+exclude_cols = id_cols + [target_col, 'sex']
+
+numeric_features = [c for c in df.columns if c not in exclude_cols
+                    and df[c].dtype in ['float64', 'int64', 'float32']]
+
+# Exclude features with > 30% missing
+missing_pct = df[numeric_features].isnull().mean()
+usable_features = list(missing_pct[missing_pct < 0.30].index)
+excluded_features = list(missing_pct[missing_pct >= 0.30].index)
+
+print(f"Total features: {len(numeric_features)}")
+print(f"Usable features (<30% missing): {len(usable_features)}")
+if excluded_features:
+    print(f"Excluded (>=30% missing): {excluded_features}")
+
+# Build model matrix
+X = df[usable_features].copy()
+X['sex_male'] = (df['sex'] == 'M').astype(int)
+y = df[target_col].values
+
+# Median imputation
+for col in usable_features:
+    mask = X[col].isnull()
+    if mask.any():
+        X.loc[mask, col] = X[col].median()
+
+feature_names = list(X.columns)
+print(f"Model matrix: {X.shape[0]} x {X.shape[1]}")
+```
+
+## 3. Train/Test Split
+
+```{python}
+from sklearn.model_selection import train_test_split
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.25, random_state=42, stratify=y
+)
+
+print(f"Train: {len(X_train)} ({100 * y_train.mean():.1f}% mortality)")
+print(f"Test:  {len(X_test)} ({100 * y_test.mean():.1f}% mortality)")
+```
+
+```{python}
+# Compare distributions between train and test
+print(f"\n{'Feature':<25} {'Train mean':>12} {'Test mean':>12} {'Diff':>8}")
+print("-" * 60)
+for col in feature_names[:15]:
+    tr = X_train[col].mean(); te = X_test[col].mean()
+    print(f"{col:<25} {tr:>12.2f} {te:>12.2f} {abs(tr - te):>8.2f}")
+```
+
+## 4. Logistic Regression
+
+```{python}
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import (roc_auc_score, classification_report,
+    confusion_matrix, roc_curve, precision_recall_curve,
+    average_precision_score, brier_score_loss)
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+lr = LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced')
+lr.fit(X_train_scaled, y_train)
+
+lr_proba_test = lr.predict_proba(X_test_scaled)[:, 1]
+lr_pred_test = lr.predict(X_test_scaled)
+
+print("Logistic Regression - Test Set")
+print("=" * 50)
+print(f"AUC-ROC:  {roc_auc_score(y_test, lr_proba_test):.3f}")
+print(f"AUC-PR:   {average_precision_score(y_test, lr_proba_test):.3f}")
+print(f"Brier:    {brier_score_loss(y_test, lr_proba_test):.3f}")
+print(f"\n{classification_report(y_test, lr_pred_test, target_names=['Alive', 'Dead'])}")
+```
+
+```{python}
+# Coefficients and odds ratios
+coef_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Coefficient': lr.coef_[0],
+    'Odds Ratio': np.exp(lr.coef_[0])
+}).sort_values('Coefficient', key=abs, ascending=False)
+print("Top predictors (by |coefficient|):")
+print(coef_df.head(15).to_string(index=False))
+```
+
+## 5. Gradient Boosting
+
+```{python}
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.model_selection import cross_val_score
+
+gb = GradientBoostingClassifier(
+    n_estimators=200, max_depth=4, learning_rate=0.1,
+    subsample=0.8, min_samples_leaf=20, random_state=42
+)
+gb.fit(X_train, y_train)
+
+gb_proba_test = gb.predict_proba(X_test)[:, 1]
+gb_pred_test = gb.predict(X_test)
+
+print("Gradient Boosting - Test Set")
+print("=" * 50)
+print(f"AUC-ROC:  {roc_auc_score(y_test, gb_proba_test):.3f}")
+print(f"AUC-PR:   {average_precision_score(y_test, gb_proba_test):.3f}")
+print(f"Brier:    {brier_score_loss(y_test, gb_proba_test):.3f}")
+print(f"\n{classification_report(y_test, gb_pred_test, target_names=['Alive', 'Dead'])}")
+```
+
+```{python}
+cv = cross_val_score(gb, X_train, y_train, cv=5, scoring='roc_auc')
+print(f"5-fold CV AUC-ROC: {cv.mean():.3f} +/- {cv.std():.3f}")
+print(f"Per-fold: {[f'{s:.3f}' for s in cv]}")
+```
+
+## 6. Model Comparison
+
+```{python}
+fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+
+# ROC
+for name, proba, color in [("Logistic Regression", lr_proba_test, "#4C78A8"),
+                             ("Gradient Boosting", gb_proba_test, "#E45756")]:
+    fpr, tpr, _ = roc_curve(y_test, proba)
+    auc = roc_auc_score(y_test, proba)
+    axes[0].plot(fpr, tpr, color=color, lw=2, label=f'{name} (AUC={auc:.3f})')
+axes[0].plot([0, 1], [0, 1], 'k--', alpha=0.3)
+axes[0].set_xlabel('FPR'); axes[0].set_ylabel('TPR')
+axes[0].set_title('ROC Curve'); axes[0].legend(fontsize=8)
+
+# Precision-Recall
+for name, proba, color in [("Logistic Regression", lr_proba_test, "#4C78A8"),
+                             ("Gradient Boosting", gb_proba_test, "#E45756")]:
+    prec, rec, _ = precision_recall_curve(y_test, proba)
+    ap = average_precision_score(y_test, proba)
+    axes[1].plot(rec, prec, color=color, lw=2, label=f'{name} (AP={ap:.3f})')
+axes[1].axhline(y=y_test.mean(), color='gray', ls='--', alpha=0.5,
+                label=f'Prevalence ({y_test.mean():.2f})')
+axes[1].set_xlabel('Recall'); axes[1].set_ylabel('Precision')
+axes[1].set_title('Precision-Recall'); axes[1].legend(fontsize=8)
+
+# Confusion matrix (gradient boosting)
+cm = confusion_matrix(y_test, gb_pred_test)
+im = axes[2].imshow(cm, cmap='Blues')
+for i in range(2):
+    for j in range(2):
+        axes[2].text(j, i, str(cm[i, j]), ha='center', va='center',
+            fontsize=16, color='white' if cm[i, j] > cm.max() / 2 else 'black')
+axes[2].set_xticks([0, 1]); axes[2].set_yticks([0, 1])
+axes[2].set_xticklabels(['Alive', 'Dead']); axes[2].set_yticklabels(['Alive', 'Dead'])
+axes[2].set_xlabel('Predicted'); axes[2].set_ylabel('Actual')
+axes[2].set_title('Confusion Matrix (GB)')
+plt.colorbar(im, ax=axes[2], shrink=0.8)
+
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# Summary comparison
+models = {
+    'Logistic Regression': (lr_proba_test, lr_pred_test),
+    'Gradient Boosting': (gb_proba_test, gb_pred_test),
+}
+comparison = []
+for name, (proba, pred) in models.items():
+    cm = confusion_matrix(y_test, pred)
+    tn, fp, fn, tp = cm.ravel()
+    comparison.append({
+        'Model': name,
+        'AUC-ROC': round(roc_auc_score(y_test, proba), 3),
+        'AUC-PR': round(average_precision_score(y_test, proba), 3),
+        'Brier': round(brier_score_loss(y_test, proba), 3),
+        'Sensitivity': round(tp / max(tp + fn, 1), 3),
+        'Specificity': round(tn / max(tn + fp, 1), 3),
+        'PPV': round(tp / max(tp + fp, 1), 3),
+        'NPV': round(tn / max(tn + fn, 1), 3),
+    })
+print(pd.DataFrame(comparison).to_string(index=False))
+```
+
+## 7. Calibration
+
+```{python}
+from sklearn.calibration import calibration_curve
+
+fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+for i, (name, proba, color) in enumerate([
+    ("Logistic Regression", lr_proba_test, "#4C78A8"),
+    ("Gradient Boosting", gb_proba_test, "#E45756")
+]):
+    frac, mean_pred = calibration_curve(y_test, proba, n_bins=10, strategy='uniform')
+    axes[i].plot(mean_pred, frac, 's-', color=color, label='Model')
+    axes[i].plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Perfect')
+    axes[i].set_xlabel('Predicted'); axes[i].set_ylabel('Observed')
+    axes[i].set_title(f'Calibration - {name}'); axes[i].legend()
+    ax2 = axes[i].twinx()
+    ax2.hist(proba, bins=30, alpha=0.15, color=color)
+    ax2.set_ylabel('Count', alpha=0.5)
+plt.tight_layout(); plt.show()
+```
+
+## 8. Feature Importance
+
+```{python}
+from sklearn.inspection import permutation_importance
+
+# Built-in vs permutation importance
+importances = gb.feature_importances_
+importance_df = pd.DataFrame({
+    'Feature': feature_names, 'Importance': importances
+}).sort_values('Importance', ascending=False)
+
+perm = permutation_importance(
+    gb, X_test, y_test, n_repeats=10, random_state=42, scoring='roc_auc'
+)
+perm_df = pd.DataFrame({
+    'Feature': feature_names,
+    'Importance': perm.importances_mean,
+    'Std': perm.importances_std,
+}).sort_values('Importance', ascending=False)
+
+fig, axes = plt.subplots(1, 2, figsize=(16, 7))
+top_n = min(20, len(importance_df))
+
+top = importance_df.head(top_n)
+axes[0].barh(range(top_n), top['Importance'].values, color='#72B7B2', edgecolor='white')
+axes[0].set_yticks(range(top_n))
+axes[0].set_yticklabels(top['Feature'].values, fontsize=9)
+axes[0].set_xlabel('Impurity-based Importance')
+axes[0].set_title('Built-in Feature Importance'); axes[0].invert_yaxis()
+
+top = perm_df.head(top_n)
+axes[1].barh(range(top_n), top['Importance'].values, color='#F58518',
+             xerr=top['Std'].values, edgecolor='white', capsize=3)
+axes[1].set_yticks(range(top_n))
+axes[1].set_yticklabels(top['Feature'].values, fontsize=9)
+axes[1].set_xlabel('Permutation Importance (delta AUC)')
+axes[1].set_title('Permutation Importance'); axes[1].invert_yaxis()
+
+plt.tight_layout(); plt.show()
+```
+
+## 9. SHAP Analysis
+
+SHAP (SHapley Additive exPlanations) provides consistent, theoretically grounded
+feature attributions for individual predictions.
+
+```{python}
+import shap
+
+explainer = shap.TreeExplainer(gb)
+shap_values = explainer.shap_values(X_test)
+```
+
+```{python}
+# Summary plot (beeswarm)
+fig, ax = plt.subplots(figsize=(10, 8))
+shap.summary_plot(shap_values, X_test, feature_names=feature_names,
+                  show=False, max_display=20)
+plt.title('SHAP Summary - Feature Impact on Mortality')
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# SHAP bar plot
+fig, ax = plt.subplots(figsize=(10, 7))
+shap.summary_plot(shap_values, X_test, feature_names=feature_names,
+                  plot_type='bar', show=False, max_display=20)
+plt.title('Mean |SHAP Value|')
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# Dependence plots for top 4 features
+shap_abs = np.abs(shap_values).mean(axis=0)
+top4 = np.argsort(shap_abs)[-4:][::-1]
+
+fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+for idx, feat_idx in enumerate(top4):
+    shap.dependence_plot(feat_idx, shap_values, X_test,
+        feature_names=feature_names, ax=axes[idx // 2, idx % 2], show=False)
+plt.suptitle('SHAP Dependence - Top 4 Features', y=1.02)
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# Waterfall: highest-risk patient
+high_risk = np.argmax(gb_proba_test)
+print(f"Highest-risk patient (idx {high_risk}):")
+print(f"  Predicted: {gb_proba_test[high_risk]:.3f}")
+print(f"  Actual: {'Dead' if y_test[high_risk] == 1 else 'Alive'}")
+
+fig, ax = plt.subplots(figsize=(10, 6))
+shap.waterfall_plot(
+    shap.Explanation(
+        values=shap_values[high_risk],
+        base_values=explainer.expected_value,
+        data=X_test.iloc[high_risk].values,
+        feature_names=feature_names
+    ),
+    show=False, max_display=15
+)
+plt.title(f'SHAP Waterfall - Highest Risk (P={gb_proba_test[high_risk]:.2f})')
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# Waterfall: lowest-risk patient
+low_risk = np.argmin(gb_proba_test)
+print(f"Lowest-risk patient (idx {low_risk}):")
+print(f"  Predicted: {gb_proba_test[low_risk]:.3f}")
+print(f"  Actual: {'Dead' if y_test[low_risk] == 1 else 'Alive'}")
+
+fig, ax = plt.subplots(figsize=(10, 6))
+shap.waterfall_plot(
+    shap.Explanation(
+        values=shap_values[low_risk],
+        base_values=explainer.expected_value,
+        data=X_test.iloc[low_risk].values,
+        feature_names=feature_names
+    ),
+    show=False, max_display=15
+)
+plt.title(f'SHAP Waterfall - Lowest Risk (P={gb_proba_test[low_risk]:.2f})')
+plt.tight_layout(); plt.show()
+```
+
+## 10. LIME Explanations
+
+LIME approximates the model locally with an interpretable linear model.
+
+```{python}
+import lime.lime_tabular
+
+lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+    X_train.values, feature_names=feature_names,
+    class_names=['Alive', 'Dead'], mode='classification', random_state=42
+)
+```
+
+```{python}
+# LIME: highest-risk patient
+print(f"LIME - Highest risk (P={gb_proba_test[high_risk]:.3f})")
+lime_exp = lime_explainer.explain_instance(
+    X_test.iloc[high_risk].values, gb.predict_proba,
+    num_features=15, top_labels=1
+)
+print("\nFeature contributions (positive = increased risk):")
+for feat, weight in lime_exp.as_list(label=1):
+    direction = "risk+" if weight > 0 else "risk-"
+    print(f"  {feat:<45} {weight:>+.4f}  ({direction})")
+
+fig = lime_exp.as_pyplot_figure(label=1)
+fig.set_size_inches(10, 6)
+plt.title(f'LIME - Highest Risk (P={gb_proba_test[high_risk]:.3f})')
+plt.tight_layout(); plt.show()
+```
+
+```{python}
+# LIME: a low-risk survivor
+survivors = np.where((y_test == 0) & (gb_proba_test < 0.1))[0]
+if len(survivors) > 0:
+    surv_idx = survivors[0]
+    print(f"LIME - Low-risk survivor (P={gb_proba_test[surv_idx]:.3f})")
+    lime_exp_surv = lime_explainer.explain_instance(
+        X_test.iloc[surv_idx].values, gb.predict_proba,
+        num_features=15, top_labels=1
+    )
+    print("\nFeature contributions:")
+    for feat, weight in lime_exp_surv.as_list(label=1):
+        direction = "risk+" if weight > 0 else "risk-"
+        print(f"  {feat:<45} {weight:>+.4f}  ({direction})")
+
+    fig = lime_exp_surv.as_pyplot_figure(label=1)
+    fig.set_size_inches(10, 6)
+    plt.title(f'LIME - Low-risk Survivor (P={gb_proba_test[surv_idx]:.3f})')
+    plt.tight_layout(); plt.show()
+```
+
+## 11. Summary
+
+```{python}
+print("=" * 70)
+print("STUDY SUMMARY - IN-HOSPITAL MORTALITY PREDICTION")
+print("=" * 70)
+
+print(f"""
+COHORT
+  Visits:     {len(df)}
+  Patients:   {df['person_id'].nunique()}
+  Deaths:     {int(df['in_hospital_death'].sum())} ({100 * df['in_hospital_death'].mean():.1f}%)
+  Age:        {df['age'].mean():.0f} +/- {df['age'].std():.0f} years
+
+DATA
+  Features:   {len(feature_names)} ({len(usable_features)} clinical + sex)
+  Train/Test: {len(X_train)} / {len(X_test)} (75/25 stratified split)
+  Missing:    Median imputation (features with >30% missing excluded)
+
+RESULTS
+  Logistic Regression
+    AUC-ROC: {roc_auc_score(y_test, lr_proba_test):.3f}
+    AUC-PR:  {average_precision_score(y_test, lr_proba_test):.3f}
+
+  Gradient Boosting
+    AUC-ROC: {roc_auc_score(y_test, gb_proba_test):.3f}
+    AUC-PR:  {average_precision_score(y_test, gb_proba_test):.3f}
+
+TOP PREDICTORS (by permutation importance)
+""")
+
+for _, row in perm_df.head(10).iterrows():
+    print(f"  {row['Feature']:<30} {row['Importance']:.4f}")
+
+print(f"""
+LIMITATIONS
+  - Single-center data (MIMIC-IV, Beth Israel Deaconess)
+  - H0-H24 measurements only (early prediction window)
+  - Median imputation for missing values
+  - No external validation cohort
+  - No temporal validation (train on earlier, test on later)
+  - Potential survivorship bias (patients who die within 24h excluded)
+
+NEXT STEPS
+  - External validation on eICU or another OMOP CDM database
+  - Temporal validation split
+  - Multiple imputation instead of median
+  - Additional features: diagnoses, procedures, medications
+  - Deep learning approaches (LSTM on raw time series)
+  - Prospective evaluation
+""")
+```

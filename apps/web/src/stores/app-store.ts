@@ -150,7 +150,7 @@ After applying inclusion criteria (hospital stay $\\geq$ 24 h, at least one meas
 
 ## Methods
 
-The analysis pipeline consists of three sequential scripts:
+The analysis pipeline consists of five sequential scripts:
 
 ### 1. Cohort extraction (\`01_cohort_extraction.sql\`)
 
@@ -175,6 +175,31 @@ The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (
 - **Descriptive statistics** (Table 1): comparison of survivors vs. non-survivors using Wilcoxon rank-sum tests
 - **Logistic regression**: features with < 30% missing data are selected (16 / 40 features), missing values imputed by median, binary outcome modeled with \`glm(..., family = binomial)\`
 - **Evaluation**: ROC curve and AUC, confusion matrix at threshold 0.5
+
+### 4. Exploratory data analysis (\`04_eda_mortality.ipynb\`)
+
+Jupyter notebook (Python) covering:
+
+- OMOP concept exploration: domains, vocabularies, available measurements
+- Cohort demographics: age/sex distributions, admission timeline
+- Feature distributions by outcome (vitals, labs, GCS)
+- Missing data analysis and patterns
+- Correlation matrix and multicollinearity detection
+- Table 1 with descriptive statistics
+- Outlier detection with clinical plausibility ranges
+
+### 5. Machine learning pipeline (\`05_ml_mortality.qmd\`)
+
+Quarto report (Python) with full ML pipeline:
+
+- Train/test split (75/25 stratified)
+- Logistic regression (baseline) with coefficient analysis
+- Gradient boosting with 5-fold cross-validation
+- Model comparison: ROC, Precision-Recall, confusion matrix
+- Calibration analysis
+- Feature importance (impurity-based + permutation)
+- SHAP analysis: summary, dependence plots, waterfall explanations
+- LIME explanations for individual predictions
 
 ## Results
 

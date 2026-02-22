@@ -184,6 +184,60 @@ function parseChunkHeader(raw: string): { label: string; options: string } {
 }
 
 // ---------------------------------------------------------------------------
+// Chunk options parsing / serialization
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a comma-separated chunk options string into a Map.
+ * Example: "echo=FALSE, fig.width=10" → Map { "echo" → "FALSE", "fig.width" → "10" }
+ * Handles quoted values: fig.cap="My Title" → Map { "fig.cap" → "\"My Title\"" }
+ */
+export function parseChunkOptions(raw: string): Map<string, string> {
+  const opts = new Map<string, string>()
+  if (!raw) return opts
+
+  // Split on commas that are not inside quotes
+  const parts: string[] = []
+  let current = ''
+  let inQuote: string | null = null
+  for (const ch of raw) {
+    if ((ch === '"' || ch === "'") && !inQuote) {
+      inQuote = ch
+      current += ch
+    } else if (ch === inQuote) {
+      inQuote = null
+      current += ch
+    } else if (ch === ',' && !inQuote) {
+      parts.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  if (current.trim()) parts.push(current.trim())
+
+  for (const part of parts) {
+    const eqIdx = part.indexOf('=')
+    if (eqIdx > 0) {
+      const key = part.slice(0, eqIdx).trim()
+      const val = part.slice(eqIdx + 1).trim()
+      opts.set(key, val)
+    }
+  }
+  return opts
+}
+
+/**
+ * Serialize a Map of chunk options back to a comma-separated string.
+ * Example: Map { "echo" → "FALSE", "fig.width" → "10" } → "echo=FALSE, fig.width=10"
+ */
+export function serializeChunkOptions(opts: Map<string, string>): string {
+  return Array.from(opts.entries())
+    .map(([key, val]) => `${key}=${val}`)
+    .join(', ')
+}
+
+// ---------------------------------------------------------------------------
 // Serializer
 // ---------------------------------------------------------------------------
 

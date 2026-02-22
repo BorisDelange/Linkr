@@ -49,9 +49,20 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Switch } from '@/components/ui/switch'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAppStore } from '@/stores/app-store'
 import { CellOutput } from '@/components/editor/CellOutput'
-import { parseRmdFile, serializeRmdFile, type RmdCell } from '@/lib/rmd-parser'
+import { parseRmdFile, serializeRmdFile, parseChunkOptions, serializeChunkOptions, type RmdCell } from '@/lib/rmd-parser'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -167,6 +178,8 @@ export interface RmdNotebookHandle {
   /** Access internal cells and their execution states (used by IpynbNotebook for download). */
   getCells: () => RmdCell[]
   getCellStates: () => Map<string, CellState>
+  sourceView: boolean
+  toggleSourceView: () => void
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +228,10 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     parseFn(content).map((c) => c.id),
   )
 
+  // Source view toggle (show raw Rmd text in a single editor)
+  const [sourceView, setSourceView] = useState(false)
+  const [sourceText, setSourceText] = useState('')
+
   // Drag-and-drop state
   const [draggedCellId, setDraggedCellId] = useState<string | null>(null)
   const [dropTargetIdx, setDropTargetIdx] = useState<number | null>(null)
@@ -254,6 +271,36 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
       setCells((prev) => {
         const updated = prev.map((c) =>
           c.id === cellId ? { ...c, content: newContent, dirty: true } : c,
+        )
+        syncToFile(updated)
+        return updated
+      })
+    },
+    [syncToFile],
+  )
+
+  const updateCellChunkMeta = useCallback(
+    (cellId: string, label: string, options: string) => {
+      setCells((prev) => {
+        const updated = prev.map((c) =>
+          c.id === cellId
+            ? { ...c, chunkLabel: label || undefined, chunkOptions: options || undefined, dirty: true }
+            : c,
+        )
+        syncToFile(updated)
+        return updated
+      })
+    },
+    [syncToFile],
+  )
+
+  const updateCellLanguage = useCallback(
+    (cellId: string, language: string) => {
+      setCells((prev) => {
+        const updated = prev.map((c) =>
+          c.id === cellId
+            ? { ...c, language, dirty: true }
+            : c,
         )
         syncToFile(updated)
         return updated
@@ -788,11 +835,50 @@ ${bodyParts.join('\n')}
     isRendering,
     getCells: () => cells,
     getCellStates: () => cellStates,
-  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates])
+    sourceView,
+    toggleSourceView: () => {
+      if (!sourceView) {
+        // Entering source view: serialize cells to text
+        setSourceText(serializeFn(cells))
+      }
+      setSourceView((v) => !v)
+    },
+  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn])
+
+  // Source view: when user edits the raw text, debounce re-parsing into cells
+  const sourceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const handleSourceChange = useCallback((value: string | undefined) => {
+    const text = value ?? ''
+    setSourceText(text)
+    if (sourceDebounceRef.current) clearTimeout(sourceDebounceRef.current)
+    sourceDebounceRef.current = setTimeout(() => {
+      const parsed = parseFn(text)
+      setCells(parsed)
+      setRenderOrder(parsed.map((c) => c.id))
+      if (onChange) onChange(text)
+    }, 500)
+  }, [parseFn, onChange])
 
   return (
     <div className="flex h-full flex-col">
-      {/* Cells — rendered in stable DOM order, visually ordered via CSS `order` */}
+      {sourceView ? (
+        /* Source view: single Monaco editor with full file content */
+        <Editor
+          value={sourceText}
+          language="markdown"
+          theme={resolvedTheme}
+          options={{
+            ...editorOptions,
+            lineNumbers: 'on',
+            minimap: { enabled: false },
+            wordWrap: 'on',
+            scrollBeyondLastLine: false,
+          }}
+          onChange={handleSourceChange}
+          beforeMount={handleBeforeMount}
+        />
+      ) : (
+      /* Cells — rendered in stable DOM order, visually ordered via CSS `order` */
       <ScrollArea className="flex-1 min-h-0">
         <div className="max-w-4xl mx-auto py-3 px-3 flex flex-col gap-2">
           {renderOrder.map((cellId) => {
@@ -831,14 +917,292 @@ ${bodyParts.join('\n')}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}
                 onDropTargetChange={setDropTargetIdx}
+                onChunkMetaChange={(label, opts) => updateCellChunkMeta(cell.id, label, opts)}
+                onLanguageChange={(lang) => updateCellLanguage(cell.id, lang)}
               />
             )
           })}
         </div>
       </ScrollArea>
+      )}
     </div>
   )
 })
+
+// ---------------------------------------------------------------------------
+// Chunk options popover
+// ---------------------------------------------------------------------------
+
+/** Boolean chunk options with their defaults */
+const BOOL_OPTIONS: { key: string; label: string; desc: string; defaultVal: boolean; section: 'output' | 'general' }[] = [
+  { key: 'eval', label: 'eval', desc: 'chunk_desc_eval', defaultVal: true, section: 'general' },
+  { key: 'include', label: 'include', desc: 'chunk_desc_include', defaultVal: true, section: 'general' },
+  { key: 'echo', label: 'echo', desc: 'chunk_desc_echo', defaultVal: true, section: 'output' },
+  { key: 'warning', label: 'warning', desc: 'chunk_desc_warning', defaultVal: true, section: 'output' },
+  { key: 'message', label: 'message', desc: 'chunk_desc_message', defaultVal: true, section: 'output' },
+  { key: 'error', label: 'error', desc: 'chunk_desc_error', defaultVal: true, section: 'output' },
+  { key: 'collapse', label: 'collapse', desc: 'chunk_desc_collapse', defaultVal: false, section: 'output' },
+]
+
+const CHUNK_LANGUAGES = ['r', 'python', 'sql', 'bash', 'julia', 'rcpp', 'stan', 'css', 'js'] as const
+
+function ChunkOptionsPopover({
+  label,
+  language,
+  options,
+  onChange,
+  onLanguageChange,
+}: {
+  label: string
+  language: string
+  options: string
+  onChange: (label: string, options: string) => void
+  onLanguageChange: (language: string) => void
+}) {
+  const { t } = useTranslation()
+  const opts = useMemo(() => parseChunkOptions(options), [options])
+
+  const getBool = (key: string, defaultVal: boolean): boolean => {
+    const v = opts.get(key)
+    if (v === undefined) return defaultVal
+    return v.toUpperCase() === 'TRUE'
+  }
+
+  const getStr = (key: string, defaultVal: string): string => {
+    return opts.get(key) ?? defaultVal
+  }
+
+  const update = (key: string, val: string | null) => {
+    const next = new Map(opts)
+    if (val === null) {
+      next.delete(key)
+    } else {
+      next.set(key, val)
+    }
+    onChange(label, serializeChunkOptions(next))
+  }
+
+  const updateBool = (key: string, val: boolean, defaultVal: boolean) => {
+    if (val === defaultVal) {
+      update(key, null) // remove if default
+    } else {
+      update(key, val ? 'TRUE' : 'FALSE')
+    }
+  }
+
+  const updateLabel = (newLabel: string) => {
+    onChange(newLabel, serializeChunkOptions(opts))
+  }
+
+  const hasOptions = label || options
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          onClick={(e) => e.stopPropagation()}
+          className="p-0.5 rounded hover:bg-accent"
+          title={t('files.chunk_options')}
+        >
+          <Settings2 size={11} className={hasOptions ? 'text-blue-500' : ''} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="left"
+        align="start"
+        className="w-72 max-h-[70vh] overflow-y-auto p-3 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Chunk name + Language */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-0.5">
+            <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('files.chunk_name')}
+            </Label>
+            <Input
+              value={label}
+              onChange={(e) => updateLabel(e.target.value)}
+              placeholder="e.g. setup"
+              className="h-7 text-xs"
+            />
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+              {t('files.chunk_language')}
+            </Label>
+            <Select value={language} onValueChange={onLanguageChange}>
+              <SelectTrigger size="xs" className="text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CHUNK_LANGUAGES.map((lang) => (
+                  <SelectItem key={lang} value={lang} className="text-xs py-1">
+                    {lang.toUpperCase()}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* General */}
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            {t('files.chunk_general')}
+          </span>
+          {BOOL_OPTIONS.filter((o) => o.section === 'general').map((opt) => (
+            <div key={opt.key} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <Label className="text-xs font-mono">{opt.label}</Label>
+                <p className="text-[9px] text-muted-foreground leading-tight">{t(`files.${opt.desc}`)}</p>
+              </div>
+              <Switch
+                checked={getBool(opt.key, opt.defaultVal)}
+                onCheckedChange={(v) => updateBool(opt.key, v, opt.defaultVal)}
+                className="scale-75 shrink-0"
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Output */}
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            {t('files.chunk_output')}
+          </span>
+          {BOOL_OPTIONS.filter((o) => o.section === 'output').map((opt) => (
+            <div key={opt.key} className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <Label className="text-xs font-mono">{opt.label}</Label>
+                <p className="text-[9px] text-muted-foreground leading-tight">{t(`files.${opt.desc}`)}</p>
+              </div>
+              <Switch
+                checked={getBool(opt.key, opt.defaultVal)}
+                onCheckedChange={(v) => updateBool(opt.key, v, opt.defaultVal)}
+                className="scale-75 shrink-0"
+              />
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <Label className="text-xs font-mono">results</Label>
+              <p className="text-[9px] text-muted-foreground leading-tight">{t('files.chunk_desc_results')}</p>
+            </div>
+            <Select
+              value={getStr('results', 'markup').replace(/'/g, '')}
+              onValueChange={(v) => update('results', v === 'markup' ? null : `'${v}'`)}
+            >
+              <SelectTrigger size="xs" className="w-28 text-[10px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="markup" className="text-xs py-1">markup ({t('files.chunk_results_markup')})</SelectItem>
+                <SelectItem value="asis" className="text-xs py-1">asis ({t('files.chunk_results_asis')})</SelectItem>
+                <SelectItem value="hold" className="text-xs py-1">hold ({t('files.chunk_results_hold')})</SelectItem>
+                <SelectItem value="hide" className="text-xs py-1">hide ({t('files.chunk_results_hide')})</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Figure */}
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+            {t('files.chunk_figure')}
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-0.5">
+              <Label className="text-[10px] font-mono">fig.width</Label>
+              <Input
+                type="number"
+                step="0.5"
+                min="1"
+                value={getStr('fig.width', '')}
+                onChange={(e) => update('fig.width', e.target.value || null)}
+                placeholder="7"
+                className="h-5 text-[10px]"
+              />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] font-mono">fig.height</Label>
+              <Input
+                type="number"
+                step="0.5"
+                min="1"
+                value={getStr('fig.height', '')}
+                onChange={(e) => update('fig.height', e.target.value || null)}
+                placeholder="7"
+                className="h-5 text-[10px]"
+              />
+            </div>
+          </div>
+          <div className="flex items-center justify-between">
+            <Label className="text-xs font-mono">fig.align</Label>
+            <Select
+              value={getStr('fig.align', 'default').replace(/'/g, '')}
+              onValueChange={(v) => update('fig.align', v === 'default' ? null : `'${v}'`)}
+            >
+              <SelectTrigger size="xs" className="w-24 text-[10px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="default" className="text-xs py-1">default</SelectItem>
+                <SelectItem value="left" className="text-xs py-1">left</SelectItem>
+                <SelectItem value="center" className="text-xs py-1">center</SelectItem>
+                <SelectItem value="right" className="text-xs py-1">right</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-0.5">
+              <Label className="text-[10px] font-mono">out.width</Label>
+              <Input
+                value={getStr('out.width', '').replace(/'/g, '')}
+                onChange={(e) => update('out.width', e.target.value ? `'${e.target.value}'` : null)}
+                placeholder="80%"
+                className="h-5 text-[10px]"
+              />
+            </div>
+            <div className="space-y-0.5">
+              <Label className="text-[10px] font-mono">dpi</Label>
+              <Input
+                type="number"
+                step="1"
+                min="36"
+                value={getStr('dpi', '')}
+                onChange={(e) => update('dpi', e.target.value || null)}
+                placeholder="72"
+                className="h-5 text-[10px]"
+              />
+            </div>
+          </div>
+          <div className="space-y-0.5">
+            <Label className="text-[10px] font-mono">fig.cap</Label>
+            <Input
+              value={getStr('fig.cap', '').replace(/^["']|["']$/g, '')}
+              onChange={(e) => update('fig.cap', e.target.value ? `"${e.target.value}"` : null)}
+              placeholder="Figure caption"
+              className="h-5 text-[10px]"
+            />
+          </div>
+        </div>
+
+        {/* Raw options */}
+        <details className="text-xs">
+          <summary className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider cursor-pointer select-none">
+            {t('files.chunk_advanced')}
+          </summary>
+          <textarea
+            value={options}
+            onChange={(e) => onChange(label, e.target.value)}
+            className="mt-1 w-full rounded border bg-muted/30 px-2 py-1 text-[10px] font-mono resize-y min-h-[3rem]"
+            placeholder="cache=TRUE, dependson='data-load'"
+          />
+        </details>
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Cell block
@@ -874,6 +1238,8 @@ interface RmdCellBlockProps {
   onDragEnd: () => void
   onDragCancel: () => void
   onDropTargetChange: (idx: number | null) => void
+  onChunkMetaChange: (label: string, options: string) => void
+  onLanguageChange: (language: string) => void
 }
 
 const RMD_COLLAPSE_LINE_THRESHOLD = 30
@@ -909,6 +1275,8 @@ function RmdCellBlock({
   onDragEnd,
   onDragCancel,
   onDropTargetChange,
+  onChunkMetaChange,
+  onLanguageChange,
 }: RmdCellBlockProps) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -1129,6 +1497,15 @@ function RmdCellBlock({
               >
                 <Play size={11} />
               </button>
+            )}
+            {cell.type === 'code' && !readOnly && (
+              <ChunkOptionsPopover
+                label={cell.chunkLabel ?? ''}
+                language={cell.language ?? 'r'}
+                options={cell.chunkOptions ?? ''}
+                onChange={onChunkMetaChange}
+                onLanguageChange={onLanguageChange}
+              />
             )}
             {cell.type === 'markdown' && (
               <button

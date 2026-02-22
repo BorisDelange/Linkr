@@ -31,6 +31,7 @@ import {
   Code,
   Loader2,
   Download,
+  LayoutGrid,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -964,6 +965,19 @@ export function FilesPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
+
+                      {/* Markdown / Cells toggle */}
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        className="gap-1"
+                        onClick={() => notebookRef.current?.toggleSourceView()}
+                      >
+                        {notebookRef.current?.sourceView
+                          ? <><LayoutGrid size={12} /> {t('files.view_cells')}</>
+                          : <><FileCode size={12} /> {t('files.view_markdown')}</>
+                        }
+                      </Button>
                     </div>
                   </>
                 )}
