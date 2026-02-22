@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -11,6 +11,14 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { cn } from '@/lib/utils'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { hasTimeComponent } from '@/lib/dataset-utils'
@@ -21,11 +29,12 @@ interface DatasetTableProps {
   selectedColumnId: string | null
   onSelectColumn: (columnId: string | null) => void
   hiddenColumns: Set<string>
+  onHiddenColumnsChange?: (updater: (prev: Set<string>) => Set<string>) => void
 }
 
 const PAGE_SIZES = [25, 50, 100, 250, 500]
 
-export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns }: DatasetTableProps) {
+export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenColumns, onHiddenColumnsChange }: DatasetTableProps) {
   const { t } = useTranslation()
   const { files, getFileRows, _dirtyVersion } = useDatasetStore()
 
@@ -286,12 +295,50 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
         </table>
       </div>
 
-      {/* Pagination bar */}
+      {/* Pagination bar + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-        <span className="text-xs text-muted-foreground">
-          {t('files.table_total', { count: totalCount })}
-          {hasActiveFilters && ` / ${rows.length}`}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {t('files.table_total', { count: totalCount })}
+            {hasActiveFilters && ` / ${rows.length}`}
+          </span>
+          {onHiddenColumnsChange && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6">
+                  <Settings2 size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-[300px] w-[200px] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs">
+                  {t('files.columns', 'Columns')}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {columns.map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={!hiddenColumns.has(col.id)}
+                    onCheckedChange={() => {
+                      onHiddenColumnsChange((prev) => {
+                        const next = new Set(prev)
+                        if (next.has(col.id)) next.delete(col.id)
+                        else next.add(col.id)
+                        return next
+                      })
+                    }}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <TypeBadge type={col.type} size="sm" />
+                      <span className="truncate">{col.name}</span>
+                    </div>
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {t('files.table_per_page')}

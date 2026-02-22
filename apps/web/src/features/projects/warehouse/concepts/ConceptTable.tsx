@@ -32,6 +32,7 @@ import {
   ChevronLeft,
   ChevronRight,
   GripVertical,
+  Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -50,6 +51,14 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import type { ConceptRow } from './use-concepts'
 import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
 
@@ -240,7 +249,6 @@ export function ConceptTable({
       const base: Partial<ColumnDef<ConceptRow>> = {
         id: col.id,
         header: () => columnLabel(col.id),
-        enableHiding: col.id !== 'concept_id' && col.id !== 'concept_name',
       }
 
       switch (col.id) {
@@ -498,11 +506,37 @@ export function ConceptTable({
         </DndContext>
       </div>
 
-      {/* Pagination bar */}
+      {/* Pagination bar + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-2">
-        <span className="text-xs text-muted-foreground">
-          {t('concepts.pagination_total', { count: totalCount })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {t('concepts.pagination_total', { count: totalCount })}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table.getAllColumns()
+                .filter((col) => col.getCanHide())
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    {columnLabel(col.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {t('concepts.pagination_per_page')}

@@ -3,25 +3,11 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { BookOpen, RefreshCw, Settings2 } from 'lucide-react'
+import { BookOpen, RefreshCw } from 'lucide-react'
 import type { VisibilityState } from '@tanstack/react-table'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { useConcepts } from './concepts/use-concepts'
 import { hasValueColumnForDict } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
@@ -29,13 +15,6 @@ import { ConceptDetail } from './concepts/ConceptDetail'
 
 // Module-level cache for column visibility (survives unmount/remount)
 const columnVisibilityCache = new Map<string, VisibilityState>()
-
-function columnLabel(id: string): string {
-  return id
-    .replace(/^_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 export function ConceptsPage() {
   const { t } = useTranslation()
@@ -145,47 +124,10 @@ export function ConceptsPage() {
           <h1 className="text-lg font-semibold">{t('concepts.title')}</h1>
           <p className="text-xs text-muted-foreground">{t('concepts.description')}</p>
         </div>
-        <TooltipProvider>
-          <div className="flex items-center gap-1">
-            <Tooltip>
-              <DropdownMenu>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-7 w-7">
-                      <Settings2 size={14} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <DropdownMenuContent align="end" className="w-[180px]">
-                  <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {availableColumns
-                    .filter((col) => col.id !== 'concept_id' && col.id !== 'concept_name')
-                    .map((col) => (
-                      <DropdownMenuCheckboxItem
-                        key={col.id}
-                        checked={columnVisibility[col.id] !== false}
-                        onCheckedChange={(checked) =>
-                          setColumnVisibility((prev) => ({ ...prev, [col.id]: !!checked }))
-                        }
-                        onSelect={(e) => e.preventDefault()}
-                        className="text-xs"
-                      >
-                        {columnLabel(col.id)}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <TooltipContent>
-                <p>{t('concepts.column_visibility', 'Columns')}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={resetCache}>
-              <RefreshCw size={12} />
-              {t('concepts.cache_reset')}
-            </Button>
-          </div>
-        </TooltipProvider>
+        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={resetCache}>
+          <RefreshCw size={12} />
+          {t('concepts.cache_reset')}
+        </Button>
       </div>
 
       {/* Main content: table + detail */}

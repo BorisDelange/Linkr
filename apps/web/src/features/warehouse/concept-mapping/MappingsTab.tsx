@@ -441,7 +441,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         ),
         size: 32,
         minSize: 32,
-        enableHiding: false,
         enableResizing: false,
       })
     }
@@ -454,7 +453,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         cell: ({ row }) => row.original.sourceConceptName,
         size: 200,
         minSize: 100,
-        enableHiding: false,
       },
       {
         id: 'sourceConceptCode',
@@ -504,7 +502,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         },
         size: 200,
         minSize: 100,
-        enableHiding: false,
       },
       {
         id: 'targetConceptId',
@@ -573,7 +570,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         ),
         size: 80,
         minSize: 60,
-        enableHiding: false,
       },
       {
         id: 'createdAt',
@@ -648,7 +644,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         },
         size: 130,
         minSize: 130,
-        enableHiding: false,
         enableResizing: false,
       })
     }
@@ -692,31 +687,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
             <Pencil size={12} />
             {editMode ? t('concept_mapping.done_editing') : t('concept_mapping.edit_mode')}
           </Button>
-          {/* Column visibility toggle */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-[180px]">
-              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table.getAllColumns()
-                .filter((col) => col.getCanHide())
-                .map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={col.getIsVisible()}
-                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    {getColLabel(columns, col.id)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Column visibility — moved to footer */}
         </div>
       </div>
 
@@ -830,8 +801,34 @@ export function MappingsTab({ project }: MappingsTabProps) {
         </Table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex shrink-0 items-center justify-end border-t px-4 py-1.5">
+      {/* Pagination + column visibility */}
+      <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table.getAllColumns()
+                .filter((col) => !col.id.startsWith('_'))
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    {getColLabel(columns, col.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
             <ChevronLeft size={14} />

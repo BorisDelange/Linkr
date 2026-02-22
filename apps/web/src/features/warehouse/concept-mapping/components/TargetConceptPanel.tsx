@@ -677,7 +677,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
       size: 70,
       minSize: 50,
-      enableHiding: false,
     },
     {
       id: 'concept_name',
@@ -686,7 +685,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       cell: ({ row }) => row.original.concept_name,
       size: 200,
       minSize: 100,
-      enableHiding: false,
     },
     {
       id: 'concept_code',
@@ -744,7 +742,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       },
       size: 28,
       minSize: 28,
-      enableHiding: false,
       enableResizing: false,
     },
   ], [t, sourceConcept, existingMappings])
@@ -818,30 +815,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
         <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
           {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-8 gap-1 px-2 text-xs shrink-0">
-              <Settings2 size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[180px]">
-            <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {searchTable.getAllColumns()
-              .filter((col) => col.getCanHide())
-              .map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={col.getIsVisible()}
-                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="text-xs"
-                >
-                  {getSearchColLabel(col.id)}
-                </DropdownMenuCheckboxItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Column visibility — moved to footer */}
       </div>
 
       {/* Results table */}
@@ -967,12 +941,38 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
         )}
       </div>
 
-      {/* Pagination */}
+      {/* Pagination + column visibility */}
       {searchResults.length > 0 && (
         <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-          <span className="text-[10px] text-muted-foreground">
-            {filteredSearchResults.length} / {searchResults.length} {t('common.results').toLowerCase()}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground">
+              {filteredSearchResults.length} / {searchResults.length} {t('common.results').toLowerCase()}
+            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                  <Settings2 size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-[180px]">
+                <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {searchTable.getAllColumns()
+                  .filter((col) => !col.id.startsWith('_'))
+                  .map((col) => (
+                    <DropdownMenuCheckboxItem
+                      key={col.id}
+                      checked={col.getIsVisible()}
+                      onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                      onSelect={(e) => e.preventDefault()}
+                      className="text-xs"
+                    >
+                      {getSearchColLabel(col.id)}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon-sm" disabled={searchPage === 0} onClick={() => setSearchPage(searchPage - 1)}>
               <ChevronLeft size={14} />

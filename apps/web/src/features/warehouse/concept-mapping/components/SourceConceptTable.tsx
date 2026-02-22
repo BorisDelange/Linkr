@@ -240,7 +240,6 @@ export function SourceConceptTable({
         },
         size: 28,
         minSize: 28,
-        enableHiding: false,
         enableResizing: false,
       },
       {
@@ -250,7 +249,6 @@ export function SourceConceptTable({
         cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
         size: 70,
         minSize: 50,
-        enableHiding: false,
       },
     ]
 
@@ -292,7 +290,6 @@ export function SourceConceptTable({
       cell: ({ row }) => row.original.concept_name,
       size: 220,
       minSize: 100,
-      enableHiding: false,
     })
 
     cols.push(
@@ -396,31 +393,6 @@ export function SourceConceptTable({
               </Select>
             </PopoverContent>
           </Popover>
-          {/* Column visibility toggle */}
-          <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs shrink-0">
-              <Settings2 size={14} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[180px]">
-            <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {table.getAllColumns()
-              .filter((col) => col.getCanHide())
-              .map((col) => (
-                <DropdownMenuCheckboxItem
-                  key={col.id}
-                  checked={col.getIsVisible()}
-                  onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="text-xs"
-                >
-                  {getColLabel(columns, col.id)}
-                </DropdownMenuCheckboxItem>
-              ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
         </div>
       </div>
 
@@ -542,11 +514,37 @@ export function SourceConceptTable({
         </Table>
       </div>
 
-      {/* Pagination */}
+      {/* Pagination + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">
-          {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {table.getAllColumns()
+                .filter((col) => !col.id.startsWith('_'))
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    {getColLabel(columns, col.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => onPageChange(page - 1)}>
             <ChevronLeft size={14} />

@@ -217,7 +217,6 @@ export function ConceptPickerDialog({
       },
       size: 36,
       minSize: 36,
-      enableHiding: false,
     }
 
     // Data columns from availableColumns
@@ -225,7 +224,6 @@ export function ConceptPickerDialog({
       const base: Partial<ColumnDef<ConceptRow>> = {
         id: col.id,
         header: () => columnLabel(col.id),
-        enableHiding: col.id !== 'concept_id' && col.id !== 'concept_name',
       }
 
       switch (col.id) {
