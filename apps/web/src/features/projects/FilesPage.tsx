@@ -32,6 +32,9 @@ import {
   Loader2,
   Download,
   LayoutGrid,
+  PanelRight,
+  Check,
+  XCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -91,7 +94,8 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
 const LazyIpynbNotebook = lazy(() => import('./files/IpynbNotebook').then(m => ({ default: m.IpynbNotebook })))
-import type { RmdNotebookHandle } from './files/RmdNotebook'
+import type { RmdNotebookHandle, CellState } from './files/RmdNotebook'
+import type { RmdCell } from '@/lib/rmd-parser'
 import type { IpynbNotebookHandle } from './files/IpynbNotebook'
 
 export function FilesPage() {
@@ -125,9 +129,10 @@ export function FilesPage() {
     _dirtyVersion,
   } = useFileStore()
   const { bottomPanelOpen, toggleBottomPanel, activeProjectUid } = useAppStore()
-  const { activeConnectionId, loadProjectConnections } = useConnectionStore()
+  const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
   const { isExecuting, startExecution, stopExecution, finishExecution } = useRuntimeStore()
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
+  const dataSourcesLoaded = useDataSourceStore((s) => s.dataSourcesLoaded)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
   const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: datasetDirtyVersion } = useDatasetStore()
@@ -217,8 +222,20 @@ export function FilesPage() {
     }
   }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
+  // Auto-select first database connection when none is active
+  useEffect(() => {
+    if (!activeProjectUid || activeConnectionId) return
+    const connections = getProjectConnections(activeProjectUid)
+    if (connections.length > 0) {
+      setActiveConnection(connections[0].id)
+    }
+  }, [activeProjectUid, activeConnectionId, dataSourcesLoaded, getProjectConnections, setActiveConnection])
+
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const notebookRef = useRef<RmdNotebookHandle | IpynbNotebookHandle>(null)
+
+  // Cache cell execution states per file so they survive tab switches (unmount/remount)
+  const cellStatesCacheRef = useRef<Map<string, Map<string, CellState>>>(new Map())
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
@@ -228,6 +245,25 @@ export function FilesPage() {
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
   const isIpynbFile = selectedNode?.name.endsWith('.ipynb') ?? false
   const isRmdNotebook = /\.(rmd|qmd)$/i.test(selectedNode?.name ?? '')
+  const isNotebook = isIpynbFile || isRmdNotebook
+  const [outlineVisible, setOutlineVisible] = useState(false)
+
+  // Outline: poll notebook cells for the sidebar
+  const [outlineCells, setOutlineCells] = useState<RmdCell[]>([])
+  const [outlineCellStates, setOutlineCellStates] = useState<Map<string, CellState>>(new Map())
+
+  useEffect(() => {
+    if (!outlineVisible || !isNotebook) return
+    const update = () => {
+      const ref = notebookRef.current
+      if (!ref) return
+      setOutlineCells(ref.getCells())
+      setOutlineCellStates(ref.getCellStates())
+    }
+    update()
+    const id = setInterval(update, 500)
+    return () => clearInterval(id)
+  }, [outlineVisible, isNotebook])
 
   // When a dataset file is selected, redirect it to an output tab instead of a file tab
   useEffect(() => {
@@ -1065,6 +1101,21 @@ export function FilesPage() {
                     </TooltipTrigger>
                     <TooltipContent>{t('files.toggle_output')}</TooltipContent>
                   </Tooltip>
+
+                  {isNotebook && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={outlineVisible ? 'secondary' : 'ghost'}
+                          size="icon-xs"
+                          onClick={() => setOutlineVisible(!outlineVisible)}
+                        >
+                          <PanelRight size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('files.toggle_outline')}</TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               </div>
 
@@ -1436,6 +1487,8 @@ export function FilesPage() {
                               }}
                               activeConnectionId={activeConnectionId}
                               fileName={selectedNode.name}
+                              initialCellStates={cellStatesCacheRef.current.get(selectedFileId!)}
+                              onCellStatesChange={(states) => { cellStatesCacheRef.current.set(selectedFileId!, states) }}
                             />
                           </Suspense>
                         ) : selectedNode && isRmdNotebook ? (
@@ -1463,6 +1516,8 @@ export function FilesPage() {
                                 setOutputVisible(true)
                               }}
                               activeConnectionId={activeConnectionId}
+                              initialCellStates={cellStatesCacheRef.current.get(selectedFileId!)}
+                              onCellStatesChange={(states) => { cellStatesCacheRef.current.set(selectedFileId!, states) }}
                             />
                           </Suspense>
                         ) : selectedNode ? (
@@ -1492,6 +1547,54 @@ export function FilesPage() {
                             </div>
                           </div>
                         )}
+                      </Allotment.Pane>
+
+                      {/* Notebook outline sidebar */}
+                      <Allotment.Pane
+                        preferredSize={180}
+                        minSize={120}
+                        maxSize={300}
+                        visible={outlineVisible && isNotebook}
+                      >
+                        <div className="h-full border-l bg-muted/20 overflow-y-auto">
+                          <div className="px-2 py-2 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-b">
+                            {t('files.outline')}
+                          </div>
+                          <div className="py-1">
+                            {outlineCells.map((cell, idx) => {
+                              const state = outlineCellStates.get(cell.id)
+                              const label = cell.type === 'yaml'
+                                ? 'YAML'
+                                : cell.type === 'markdown'
+                                  ? `Markdown ${idx + 1}`
+                                  : cell.chunkLabel || `${(cell.language ?? 'r').toUpperCase()} ${idx + 1}`
+                              return (
+                                <button
+                                  key={cell.id}
+                                  onClick={() => notebookRef.current?.scrollToCell(cell.id)}
+                                  className="flex items-center gap-1.5 w-full px-2 py-1 text-xs hover:bg-accent/50 transition-colors text-left"
+                                >
+                                  {cell.type === 'code' && state?.status === 'success' && (
+                                    <Check size={10} className="text-green-500 shrink-0" />
+                                  )}
+                                  {cell.type === 'code' && state?.status === 'error' && (
+                                    <XCircle size={10} className="text-red-500 shrink-0" />
+                                  )}
+                                  {cell.type === 'code' && state?.status === 'running' && (
+                                    <Loader2 size={10} className="animate-spin text-blue-500 shrink-0" />
+                                  )}
+                                  {cell.type === 'code' && !state?.status && (
+                                    <div className="w-2.5 h-2.5 rounded-full border border-muted-foreground/30 shrink-0" />
+                                  )}
+                                  {cell.type !== 'code' && (
+                                    <FileText size={10} className="text-muted-foreground/50 shrink-0" />
+                                  )}
+                                  <span className="truncate">{label}</span>
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
                       </Allotment.Pane>
 
                       {/* Output panel */}

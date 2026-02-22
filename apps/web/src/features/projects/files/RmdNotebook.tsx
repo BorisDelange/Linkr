@@ -68,7 +68,7 @@ import { executeR } from '@/lib/runtimes/webr-engine'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { useShortcutStore } from '@/stores/shortcut-store'
-import type { KeyCombo } from '@/types/shortcuts'
+import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 // ---------------------------------------------------------------------------
@@ -162,6 +162,14 @@ interface RmdNotebookProps {
   parseFn?: (content: string) => RmdCell[]
   /** Override cell serializer (default: serializeRmdFile). Used by ipynb wrapper. */
   serializeFn?: (cells: RmdCell[]) => string
+  /** Shortcut action ID prefix: 'rmd' for Rmd/Qmd, 'ipynb' for Jupyter notebooks. */
+  shortcutPrefix?: 'rmd' | 'ipynb'
+  /** Notebook format: 'rmd' shows Rmd chunk options, 'ipynb' hides them. Default: 'rmd'. */
+  notebookFormat?: 'rmd' | 'ipynb'
+  /** Cached cell states from a previous mount (restored on tab switch). */
+  initialCellStates?: Map<string, CellState>
+  /** Called when cellStates change, so the parent can cache them. */
+  onCellStatesChange?: (states: Map<string, CellState>) => void
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -180,6 +188,8 @@ export interface RmdNotebookHandle {
   getCellStates: () => Map<string, CellState>
   sourceView: boolean
   toggleSourceView: () => void
+  /** Smooth-scroll to a specific cell by ID */
+  scrollToCell: (cellId: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +205,10 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   activeConnectionId,
   parseFn = parseRmdFile,
   serializeFn = serializeRmdFile,
+  shortcutPrefix = 'rmd',
+  notebookFormat = 'rmd',
+  initialCellStates,
+  onCellStatesChange,
 }, ref) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
@@ -213,12 +227,32 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   const [cells, setCells] = useState<RmdCell[]>(() => parseFn(content))
   const cellsRef = useRef(cells)
   cellsRef.current = cells
-  const [cellStates, setCellStates] = useState<Map<string, CellState>>(new Map())
+  const [cellStates, setCellStates] = useState<Map<string, CellState>>(() => initialCellStates ?? new Map())
+
+  // Notify parent when cellStates changes (for caching across tab switches)
+  const onCellStatesChangeRef = useRef(onCellStatesChange)
+  onCellStatesChangeRef.current = onCellStatesChange
+  useEffect(() => {
+    onCellStatesChangeRef.current?.(cellStates)
+  }, [cellStates])
+
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
   const [activeCell, setActiveCell] = useState<string | null>(null)
 
   // Map of cell id → Monaco editor instance, so advanceCell can focus the next editor
   const editorMapRef = useRef<Map<string, Monaco.editor.IStandaloneCodeEditor>>(new Map())
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  /** Smooth-scroll a cell to the top of the visible area */
+  const scrollToCell = useCallback((cellId: string) => {
+    const viewport = scrollAreaRef.current?.querySelector('[data-slot="scroll-area-viewport"]')
+    const cellEl = scrollAreaRef.current?.querySelector(`[data-cell-id="${cellId}"]`)
+    if (!viewport || !cellEl) return
+    const viewportRect = viewport.getBoundingClientRect()
+    const cellRect = cellEl.getBoundingClientRect()
+    const offset = cellRect.top - viewportRect.top + viewport.scrollTop - 12 // 12px padding
+    viewport.scrollTo({ top: offset, behavior: 'smooth' })
+  }, [])
 
   // Stable render order — cells are rendered in this order (DOM insertion order).
   // CSS `order` is used to display them in the logical order (`cells`).
@@ -425,6 +459,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
       if (!cell || cell.type !== 'code' || !cell.content.trim()) return
 
       setCellStates((prev) => new Map(prev).set(cellId, { status: 'running', output: null }))
+      scrollToCell(cellId)
 
       try {
         let output: RuntimeOutput
@@ -466,7 +501,10 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
           }
         }
 
-        setCellStates((prev) => new Map(prev).set(cellId, { status: 'success', output }))
+        // Determine if execution had an error: stderr non-empty with no other output
+        const hasOutput = output.stdout || output.figures.length > 0 || output.table || output.html
+        const hasError = output.stderr && !hasOutput
+        setCellStates((prev) => new Map(prev).set(cellId, { status: hasError ? 'error' : 'success', output }))
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err)
         setCellStates((prev) =>
@@ -477,7 +515,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
         )
       }
     },
-    [activeConnectionId, t],
+    [activeConnectionId, t, scrollToCell],
   )
 
   const runAll = useCallback(async () => {
@@ -700,6 +738,11 @@ ${bodyParts.join('\n')}
 
   // ---- Keyboard shortcuts ----
   const getBinding = useShortcutStore((s) => s.getBinding)
+  // Build a shortcut action ID using the notebook prefix (rmd or ipynb)
+  const nb = useCallback(
+    (suffix: string) => `${shortcutPrefix}_${suffix}` as ShortcutActionId,
+    [shortcutPrefix],
+  )
 
   useEffect(() => {
     const matchCombo = (e: KeyboardEvent, combo: KeyCombo) => {
@@ -733,9 +776,9 @@ ${bodyParts.join('\n')}
       // Only use the window handler as fallback (e.g. focus on cell header).
       if (inMonaco) return
 
-      // Run cell and advance — Cmd+Shift+Enter (rmd_run_chunk) or Cmd+Enter (run_selection_or_line)
+      // Run cell and advance
       if (
-        matchCombo(e, getBinding('rmd_run_chunk')) ||
+        matchCombo(e, getBinding(nb('run_chunk'))) ||
         matchCombo(e, getBinding('run_selection_or_line'))
       ) {
         e.preventDefault()
@@ -748,7 +791,7 @@ ${bodyParts.join('\n')}
         return
       }
       // Run cell (stay — no advance)
-      if (matchCombo(e, getBinding('rmd_run_chunk_stay'))) {
+      if (matchCombo(e, getBinding(nb('run_chunk_stay')))) {
         e.preventDefault()
         if (activeCell) {
           if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
@@ -757,7 +800,7 @@ ${bodyParts.join('\n')}
         return
       }
       // Run cell and insert below
-      if (matchCombo(e, getBinding('rmd_run_chunk_insert'))) {
+      if (matchCombo(e, getBinding(nb('run_chunk_insert')))) {
         e.preventDefault()
         if (activeCell) {
           if (activeCellObj?.type === 'code') runCell(activeCell)
@@ -767,25 +810,25 @@ ${bodyParts.join('\n')}
       }
 
       // Run all
-      if (matchCombo(e, getBinding('rmd_run_all'))) {
+      if (matchCombo(e, getBinding(nb('run_all')))) {
         e.preventDefault()
         runAll()
         return
       }
       // Run above
-      if (matchCombo(e, getBinding('rmd_run_above'))) {
+      if (matchCombo(e, getBinding(nb('run_above')))) {
         e.preventDefault()
         runAbove()
         return
       }
       // Insert chunk (generic)
-      if (matchCombo(e, getBinding('rmd_insert_chunk'))) {
+      if (matchCombo(e, getBinding(nb('insert_chunk')))) {
         e.preventDefault()
         addCell(activeCell, 'code', 'r')
         return
       }
       // Insert cell above
-      if (matchCombo(e, getBinding('rmd_insert_chunk_above'))) {
+      if (matchCombo(e, getBinding(nb('insert_chunk_above')))) {
         e.preventDefault()
         // Insert before active cell: find the cell before it
         const idx = activeCell ? cells.findIndex((c) => c.id === activeCell) : -1
@@ -794,19 +837,19 @@ ${bodyParts.join('\n')}
         return
       }
       // Insert cell below
-      if (matchCombo(e, getBinding('rmd_insert_chunk_below'))) {
+      if (matchCombo(e, getBinding(nb('insert_chunk_below')))) {
         e.preventDefault()
         addCell(activeCell, 'code', 'r')
         return
       }
       // Delete cell
-      if (matchCombo(e, getBinding('rmd_delete_chunk'))) {
+      if (matchCombo(e, getBinding(nb('delete_chunk')))) {
         e.preventDefault()
         if (activeCell) removeCell(activeCell)
         return
       }
       // Render
-      if (matchCombo(e, getBinding('rmd_render'))) {
+      if (matchCombo(e, getBinding(nb('render')))) {
         e.preventDefault()
         handleRender()
         return
@@ -814,7 +857,7 @@ ${bodyParts.join('\n')}
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [onSave, handleRender, readOnly, activeCell, cells, runCell, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding])
+  }, [onSave, handleRender, readOnly, activeCell, cells, runCell, runAll, runAbove, addCell, removeCell, togglePreview, advanceCell, getBinding, nb])
 
   const editorOptions = useMemo(() => getMiniEditorOptions(readOnly, fontSize), [readOnly, fontSize])
 
@@ -833,7 +876,7 @@ ${bodyParts.join('\n')}
     },
     hasYamlCell,
     isRendering,
-    getCells: () => cells,
+    getCells: () => cellsRef.current,
     getCellStates: () => cellStates,
     sourceView,
     toggleSourceView: () => {
@@ -843,7 +886,8 @@ ${bodyParts.join('\n')}
       }
       setSourceView((v) => !v)
     },
-  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn])
+    scrollToCell,
+  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn, scrollToCell])
 
   // Source view: when user edits the raw text, debounce re-parsing into cells
   const sourceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -879,7 +923,7 @@ ${bodyParts.join('\n')}
         />
       ) : (
       /* Cells — rendered in stable DOM order, visually ordered via CSS `order` */
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-h-0" ref={scrollAreaRef}>
         <div className="max-w-4xl mx-auto py-3 px-3 flex flex-col gap-2">
           {renderOrder.map((cellId) => {
             const logicalIdx = cells.findIndex((c) => c.id === cellId)
@@ -919,6 +963,8 @@ ${bodyParts.join('\n')}
                 onDropTargetChange={setDropTargetIdx}
                 onChunkMetaChange={(label, opts) => updateCellChunkMeta(cell.id, label, opts)}
                 onLanguageChange={(lang) => updateCellLanguage(cell.id, lang)}
+                shortcutPrefix={shortcutPrefix}
+                notebookFormat={notebookFormat}
               />
             )
           })}
@@ -1240,6 +1286,8 @@ interface RmdCellBlockProps {
   onDropTargetChange: (idx: number | null) => void
   onChunkMetaChange: (label: string, options: string) => void
   onLanguageChange: (language: string) => void
+  shortcutPrefix: 'rmd' | 'ipynb'
+  notebookFormat: 'rmd' | 'ipynb'
 }
 
 const RMD_COLLAPSE_LINE_THRESHOLD = 30
@@ -1277,6 +1325,8 @@ function RmdCellBlock({
   onDropTargetChange,
   onChunkMetaChange,
   onLanguageChange,
+  shortcutPrefix,
+  notebookFormat,
 }: RmdCellBlockProps) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -1338,9 +1388,10 @@ function RmdCellBlock({
           }
 
           const gb = useShortcutStore.getState().getBinding
+          const nbId = (suffix: string) => `${shortcutPrefix}_${suffix}` as ShortcutActionId
 
           // Run cell and advance
-          if (matchCombo(e, gb('rmd_run_chunk')) || matchCombo(e, gb('run_selection_or_line'))) {
+          if (matchCombo(e, gb(nbId('run_chunk'))) || matchCombo(e, gb('run_selection_or_line'))) {
             e.preventDefault()
             e.stopPropagation()
             if (cell.type === 'code') onRunRef.current()
@@ -1351,7 +1402,7 @@ function RmdCellBlock({
           }
 
           // Run cell stay (no advance)
-          if (matchCombo(e, gb('rmd_run_chunk_stay'))) {
+          if (matchCombo(e, gb(nbId('run_chunk_stay')))) {
             e.preventDefault()
             e.stopPropagation()
             if (cell.type === 'code') onRunRef.current()
@@ -1421,6 +1472,7 @@ function RmdCellBlock({
 
       <div
         ref={containerRef}
+        data-cell-id={cell.id}
         style={{ order: cssOrder }}
         className={`group rounded border transition-colors ${borderColor}`}
         onClick={onFocus}
@@ -1498,7 +1550,7 @@ function RmdCellBlock({
                 <Play size={11} />
               </button>
             )}
-            {cell.type === 'code' && !readOnly && (
+            {cell.type === 'code' && !readOnly && notebookFormat === 'rmd' && (
               <ChunkOptionsPopover
                 label={cell.chunkLabel ?? ''}
                 language={cell.language ?? 'r'}
