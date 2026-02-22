@@ -193,6 +193,140 @@ WHERE "${pt.idColumn}" = '${patientId}'`
 }
 
 // ---------------------------------------------------------------------------
+// Patient summary (extended demographics for summary widget)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build query for the patient summary widget.
+ * Returns: patient_id, gender, death_date, first_visit_start, last_visit_start,
+ *          age_first_visit, age_last_visit, visit_count, visit_detail_count.
+ */
+export function buildPatientSummaryQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+): string | null {
+  const pt = mapping.patientTable
+  if (!pt) return null
+  const vt = mapping.visitTable
+
+  const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+
+  // Death date: prefer patientTable.deathDateColumn, fallback to deathTable
+  let deathCol = ''
+  let deathJoin = ''
+  if (pt.deathDateColumn) {
+    deathCol = `, p."${pt.deathDateColumn}" AS death_date`
+  } else if (mapping.deathTable) {
+    const dt = mapping.deathTable
+    deathCol = `, d."${dt.dateColumn}" AS death_date`
+    deathJoin = `\nLEFT JOIN "${dt.table}" d ON p."${pt.idColumn}" = d."${dt.patientIdColumn}"`
+  }
+
+  if (vt) {
+    const ageFirstExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
+    const ageLastExpr = buildAgeExprAlias('p', pt, `MAX(v."${vt.startDateColumn}")`)
+    const ageFirstCol = ageFirstExpr ? `, ${ageFirstExpr} AS age_first_visit` : ''
+    const ageLastCol = ageLastExpr ? `, ${ageLastExpr} AS age_last_visit` : ''
+
+    // Visit detail count (sub-query to avoid messing up the GROUP BY)
+    const vdt = mapping.visitDetailTable
+    let vdCountCol = ''
+    if (vdt) {
+      vdCountCol = `, (SELECT COUNT(*) FROM "${vdt.table}" WHERE "${vdt.patientIdColumn}" = '${patientId}') AS visit_detail_count`
+    }
+
+    let deathGroupBy = ''
+    if (pt.deathDateColumn) {
+      deathGroupBy = `, p."${pt.deathDateColumn}"`
+    } else if (mapping.deathTable) {
+      deathGroupBy = `, d."${mapping.deathTable.dateColumn}"`
+    }
+
+    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol},
+  MIN(v."${vt.startDateColumn}") AS first_visit_start,
+  MAX(v."${vt.startDateColumn}") AS last_visit_start${ageFirstCol}${ageLastCol},
+  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${vdCountCol}
+FROM "${pt.table}" p
+LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
+WHERE p."${pt.idColumn}" = '${patientId}'
+GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
+  }
+
+  // No visit table — simpler query
+  const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
+  const ageCol = ageExpr ? `, ${ageExpr} AS age_first_visit` : ''
+
+  return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol}${ageCol}
+FROM "${pt.table}" p${deathJoin}
+WHERE p."${pt.idColumn}" = '${patientId}'`
+}
+
+/**
+ * Build query for the visit+stay summary list.
+ * Returns rows of type 'visit' or 'visit_detail' sorted by date.
+ * Columns: row_type, visit_id, visit_detail_id, start_date, end_date, visit_type, unit, los_days.
+ */
+export function buildPatientVisitSummaryQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+): string | null {
+  const vt = mapping.visitTable
+  if (!vt) return null
+
+  const endCol = vt.endDateColumn
+    ? `, "${vt.endDateColumn}" AS end_date`
+    : ', NULL AS end_date'
+  const typeCol = vt.typeColumn
+    ? `, "${vt.typeColumn}" AS visit_type`
+    : ", NULL AS visit_type"
+  const losExpr = vt.endDateColumn
+    ? `, DATE_DIFF('day', "${vt.startDateColumn}"::DATE, "${vt.endDateColumn}"::DATE) AS los_days`
+    : ', NULL AS los_days'
+
+  const parts: string[] = []
+
+  parts.push(`SELECT 'visit' AS row_type,
+  "${vt.idColumn}" AS visit_id,
+  NULL AS visit_detail_id,
+  "${vt.startDateColumn}" AS start_date${endCol}${typeCol},
+  NULL AS unit${losExpr}
+FROM "${vt.table}"
+WHERE "${vt.patientIdColumn}" = '${patientId}'`)
+
+  const vdt = mapping.visitDetailTable
+  if (vdt) {
+    const vdEndCol = vdt.endDateColumn
+      ? `, vd."${vdt.endDateColumn}" AS end_date`
+      : ', NULL AS end_date'
+    const vdLosExpr = vdt.endDateColumn
+      ? `, DATE_DIFF('day', vd."${vdt.startDateColumn}"::DATE, vd."${vdt.endDateColumn}"::DATE) AS los_days`
+      : ', NULL AS los_days'
+
+    // Resolve unit name
+    const hasUnitJoin = vdt.unitColumn && vdt.unitNameTable && vdt.unitNameIdColumn && vdt.unitNameColumn
+    const unitCol = hasUnitJoin
+      ? `, un."${vdt.unitNameColumn}" AS unit`
+      : vdt.unitColumn
+        ? `, vd."${vdt.unitColumn}" AS unit`
+        : ', NULL AS unit'
+    const unitJoin = hasUnitJoin
+      ? `\nLEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"`
+      : ''
+
+    parts.push(`SELECT 'visit_detail' AS row_type,
+  vd."${vdt.visitIdColumn}" AS visit_id,
+  vd."${vdt.idColumn}" AS visit_detail_id,
+  vd."${vdt.startDateColumn}" AS start_date${vdEndCol},
+  NULL AS visit_type${unitCol}${vdLosExpr}
+FROM "${vdt.table}" vd${unitJoin}
+WHERE vd."${vdt.patientIdColumn}" = '${patientId}'`)
+  }
+
+  return `${parts.join('\nUNION ALL\n')}
+ORDER BY start_date, row_type`
+}
+
+// ---------------------------------------------------------------------------
 // Timeline data (numeric measurements over time)
 // ---------------------------------------------------------------------------
 

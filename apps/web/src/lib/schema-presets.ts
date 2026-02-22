@@ -76,6 +76,11 @@ const omop54: SchemaMapping = {
     birthYearColumn: 'year_of_birth',
     genderColumn: 'gender_concept_id',
   },
+  deathTable: {
+    table: 'death',
+    patientIdColumn: 'person_id',
+    dateColumn: 'death_datetime',
+  },
   visitTable: {
     table: 'visit_occurrence',
     idColumn: 'visit_occurrence_id',
@@ -180,6 +185,11 @@ const omop53: SchemaMapping = {
   ...omop54,
   presetId: 'omop-5.3',
   presetLabel: 'OMOP CDM 5.3',
+  deathTable: {
+    table: 'death',
+    patientIdColumn: 'person_id',
+    dateColumn: 'death_date',
+  },
   noteTable: {
     ...omop54.noteTable!,
     dateColumn: 'note_date',
@@ -244,6 +254,7 @@ const mimicIII: SchemaMapping = {
     idColumn: 'subject_id',
     birthDateColumn: 'dob',
     genderColumn: 'gender',
+    deathDateColumn: 'dod',
   },
   visitTable: {
     table: 'admissions',
@@ -374,6 +385,7 @@ const mimicIV: SchemaMapping = {
     table: 'patients',
     idColumn: 'subject_id',
     genderColumn: 'gender',
+    deathDateColumn: 'dod',
   },
   visitTable: {
     table: 'admissions',

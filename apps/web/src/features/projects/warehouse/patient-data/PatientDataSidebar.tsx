@@ -371,7 +371,7 @@ export function PatientDataSidebar() {
         <Allotment.Pane minSize={100}>
           <ScrollArea className="h-full">
             {/* Hospitalization selector */}
-            <div className="shrink-0 overflow-hidden border-b px-3 py-2.5">
+            <div className="shrink-0 border-b px-3 py-2.5">
               <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                 {hasVisitDetailTable
                   ? t('patient_data.hospitalization')
@@ -417,7 +417,7 @@ export function PatientDataSidebar() {
 
             {/* Stay selector (visit_detail) — only when visitDetailTable exists */}
             {hasVisitDetailTable && visitId && (
-              <div className="shrink-0 overflow-hidden border-b px-3 py-2.5">
+              <div className="shrink-0 border-b px-3 py-2.5">
                 <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                   {t('patient_data.stay')}
                 </label>
@@ -466,53 +466,55 @@ export function PatientDataSidebar() {
 
             {/* Patient demographics summary */}
             {demographics && (
-              <div className="shrink-0 px-3 py-2.5">
-                <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="shrink-0 px-3 py-2.5 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
                     <User size={10} />
                     <span>{t('patient_data.age')}</span>
                   </div>
-                  <span className="font-medium text-right">
+                  <span className="font-medium">
                     {demographics.age != null
                       ? `${Math.round(Number(demographics.age))} ${t('patient_data.years')}`
                       : '—'}
                   </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
                   <div className="flex items-center gap-1.5 text-muted-foreground">
                     <Users size={10} />
                     <span>{t('patient_data.gender_label')}</span>
                   </div>
-                  <span className="font-medium text-right">
+                  <span className="font-medium">
                     {formatGender(demographics.gender != null ? String(demographics.gender) : undefined)}
                   </span>
-                  {/* Hospitalization LOS */}
-                  {visitId && (
-                    <>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        <Clock size={10} />
-                        <span>{t('patient_data.hospitalization_los')}</span>
-                      </div>
-                      <span className="font-medium text-right">
-                        {hospitalizationLos != null
-                          ? t('patient_data.days_count', { count: hospitalizationLos })
-                          : '—'}
-                      </span>
-                    </>
-                  )}
-                  {/* Stay LOS */}
-                  {visitDetailId && (
-                    <>
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        <Bed size={10} />
-                        <span>{t('patient_data.stay_los')}</span>
-                      </div>
-                      <span className="font-medium text-right">
-                        {stayLos != null
-                          ? t('patient_data.days_count', { count: stayLos })
-                          : '—'}
-                      </span>
-                    </>
-                  )}
                 </div>
+                {/* Hospitalization LOS */}
+                {visitId && (
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock size={10} />
+                      <span>{t('patient_data.hospitalization_los')}</span>
+                    </div>
+                    <span className="font-medium">
+                      {hospitalizationLos != null
+                        ? t('patient_data.days_count', { count: hospitalizationLos })
+                        : '—'}
+                    </span>
+                  </div>
+                )}
+                {/* Stay LOS */}
+                {visitDetailId && (
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Bed size={10} />
+                      <span>{t('patient_data.stay_los')}</span>
+                    </div>
+                    <span className="font-medium">
+                      {stayLos != null
+                        ? t('patient_data.days_count', { count: stayLos })
+                        : '—'}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </ScrollArea>

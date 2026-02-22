@@ -27,10 +27,10 @@ await sql_query("""
         v.visit_end_date,
         v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
         EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
-            - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+            - v.visit_start_datetime::TIMESTAMP)) / 86400.0 AS los_days
     FROM visit_occurrence v
     WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
-        - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
+        - v.visit_start_datetime::TIMESTAMP)) / 86400.0 >= 1
 """)
 
 await sql_query("""
@@ -48,7 +48,7 @@ await sql_query("""
     CREATE OR REPLACE VIEW cohort AS
     SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
         EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
-        p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+        p.gender_source_value AS sex, vm.los_days, vm.in_hospital_death
     FROM visit_mortality vm
     JOIN person p ON vm.person_id = p.person_id
     WHERE EXISTS (
@@ -177,7 +177,7 @@ wide_features = agg_df.pivot_table(
 # Step 5: Merge with cohort demographics
 # ---------------------------------------------------------------------------
 cohort_df = await sql_query("""
-    SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
+    SELECT visit_occurrence_id, person_id, age, sex, los_days, in_hospital_death
     FROM cohort
 """)
 
@@ -185,7 +185,7 @@ dataset = cohort_df.merge(wide_features, on="visit_occurrence_id", how="left")
 
 # Sort columns: identifiers, demographics, outcome, vitals, labs, neuro
 id_cols = ["visit_occurrence_id", "person_id"]
-demo_cols = ["age", "sex", "los_hours"]
+demo_cols = ["age", "sex", "los_days"]
 outcome_cols = ["in_hospital_death"]
 feature_cols = sorted([c for c in dataset.columns if c not in id_cols + demo_cols + outcome_cols])
 dataset = dataset[id_cols + demo_cols + outcome_cols + feature_cols]

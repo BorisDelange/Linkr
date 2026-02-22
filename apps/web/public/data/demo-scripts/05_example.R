@@ -25,10 +25,10 @@ sql_query("
         v.visit_end_date,
         v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
         EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
-            - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+            - v.visit_start_datetime::TIMESTAMP)) / 86400.0 AS los_days
     FROM visit_occurrence v
     WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
-        - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
+        - v.visit_start_datetime::TIMESTAMP)) / 86400.0 >= 1
 ")
 
 sql_query("
@@ -46,7 +46,7 @@ sql_query("
     CREATE OR REPLACE VIEW cohort AS
     SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
         EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
-        p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+        p.gender_source_value AS sex, vm.los_days, vm.in_hospital_death
     FROM visit_mortality vm
     JOIN person p ON vm.person_id = p.person_id
     WHERE EXISTS (
@@ -134,7 +134,7 @@ names(wide) <- sub("^val\\.", "", names(wide))
 
 # Merge with cohort demographics
 cohort_df <- sql_query("
-    SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
+    SELECT visit_occurrence_id, person_id, age, sex, los_days, in_hospital_death
     FROM cohort
 ")
 df <- merge(cohort_df, wide, by = "visit_occurrence_id", all.x = TRUE)
@@ -177,7 +177,7 @@ describe_categorical <- function(var_name, label = var_name) {
 cat("Demographics:\n")
 describe_continuous("age", "Age (years)")
 describe_categorical("sex", "Sex")
-describe_continuous("los_hours", "Length of stay (h)")
+describe_continuous("los_days", "Length of stay (days)")
 
 cat("\nVitals (first 24h):\n")
 for (v in c("hr", "sbp", "dbp", "resp_rate", "spo2", "temp")) {
@@ -207,7 +207,7 @@ cat("=" |> rep(60) |> paste(collapse = ""), "\n\n")
 
 # Select features with < 30% missing values
 feature_cols <- setdiff(names(df), c("visit_occurrence_id", "person_id",
-                                      "sex", "los_hours", "in_hospital_death"))
+                                      "sex", "los_days", "in_hospital_death"))
 missing_pct <- sapply(df[feature_cols], function(x) mean(is.na(x)))
 selected_features <- names(missing_pct[missing_pct < 0.30])
 

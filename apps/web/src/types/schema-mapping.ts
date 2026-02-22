@@ -29,6 +29,8 @@ export interface SchemaMapping {
     birthDateColumn?: string
     birthYearColumn?: string
     genderColumn?: string
+    /** Optional death date column in the patient table (e.g. MIMIC `dod`). */
+    deathDateColumn?: string
   }
 
   visitTable?: {
@@ -81,6 +83,17 @@ export interface SchemaMapping {
     unitNameIdColumn?: string
     /** Name column in the lookup table (e.g. care_site_name). */
     unitNameColumn?: string
+  }
+
+  /**
+   * Optional separate death table (e.g. OMOP CDM `death` table).
+   * Use this when death info is NOT in the patient table but in a dedicated table.
+   * If patientTable.deathDateColumn is set, it takes precedence.
+   */
+  deathTable?: {
+    table: string
+    patientIdColumn: string
+    dateColumn: string
   }
 
   /**

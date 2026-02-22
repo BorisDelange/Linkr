@@ -21,13 +21,13 @@ SELECT
     v.visit_end_date,
     v.visit_end_datetime::TIMESTAMP   AS visit_end_datetime,
     v.discharge_to_concept_id,
-    -- Length of stay in hours
-    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600
-        AS los_hours
+    -- Length of stay in days (with decimals)
+    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 86400.0
+        AS los_days
 FROM visit_occurrence v
 WHERE
-    -- Stay >= 24 hours
-    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24;
+    -- Stay >= 1 day
+    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 86400.0 >= 1;
 
 -- ---------------------------------------------------------------------------
 -- 2. In-hospital mortality: match death date within the visit window
@@ -56,7 +56,7 @@ SELECT
     -- Age = visit year - birth year (MIMIC dates are shifted but internally consistent)
     EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
     p.gender_source_value                                     AS sex,
-    vm.los_hours,
+    vm.los_days,
     vm.in_hospital_death
 FROM visit_mortality vm
 JOIN person p ON vm.person_id = p.person_id
@@ -79,5 +79,5 @@ SELECT
     SUM(in_hospital_death)                         AS n_deaths,
     ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct,
     ROUND(AVG(age), 1)                             AS mean_age,
-    ROUND(AVG(los_hours), 1)                       AS mean_los_hours
+    ROUND(AVG(los_days), 1)                        AS mean_los_days
 FROM cohort;

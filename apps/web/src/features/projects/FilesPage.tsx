@@ -261,7 +261,9 @@ export function FilesPage() {
   const isIpynbFile = selectedNode?.name.endsWith('.ipynb') ?? false
   const isRmdNotebook = /\.(rmd|qmd)$/i.test(selectedNode?.name ?? '')
   const isNotebook = isIpynbFile || isRmdNotebook
-  const [outlineVisible, setOutlineVisible] = useState(false)
+  const [outlineVisible, setOutlineVisible] = useState(
+    () => localStorage.getItem('linkr-notebook-outline') !== 'false'
+  )
 
   // Outline: poll notebook cells for the sidebar
   const [outlineCells, setOutlineCells] = useState<RmdCell[]>([])
@@ -1126,7 +1128,11 @@ export function FilesPage() {
                         <Button
                           variant={outlineVisible ? 'secondary' : 'ghost'}
                           size="icon-xs"
-                          onClick={() => setOutlineVisible(!outlineVisible)}
+                          onClick={() => {
+                            const next = !outlineVisible
+                            setOutlineVisible(next)
+                            localStorage.setItem('linkr-notebook-outline', String(next))
+                          }}
                         >
                           <PanelRight size={14} />
                         </Button>

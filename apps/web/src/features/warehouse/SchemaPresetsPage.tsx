@@ -331,6 +331,11 @@ function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
           mapping={mapping.visitDetailTable as unknown as Record<string, string | undefined>}
         />
 
+        <TableSection
+          title={t('settings.schema_preset_death_table')}
+          mapping={mapping.deathTable as unknown as Record<string, string | undefined>}
+        />
+
         {mapping.conceptTables && mapping.conceptTables.length > 0 && (
           <div>
             <h5 className="text-xs font-medium text-foreground mb-1">
@@ -428,6 +433,33 @@ function EditablePatientTable({
         <EditableField label="Birth date" value={val.birthDateColumn ?? ''} onChange={(v) => update('birthDateColumn', v)} placeholder="birth_datetime" />
         <EditableField label="Birth year" value={val.birthYearColumn ?? ''} onChange={(v) => update('birthYearColumn', v)} placeholder="year_of_birth" />
         <EditableField label="Gender" value={val.genderColumn ?? ''} onChange={(v) => update('genderColumn', v)} placeholder="gender_concept_id" />
+        <EditableField label="Death date" value={val.deathDateColumn ?? ''} onChange={(v) => update('deathDateColumn', v)} placeholder="dod" />
+      </div>
+    </div>
+  )
+}
+
+function EditableDeathTable({
+  table,
+  onChange,
+}: {
+  table: SchemaMapping['deathTable']
+  onChange: (t: SchemaMapping['deathTable']) => void
+}) {
+  const { t } = useTranslation()
+  const val = table ?? { table: '', patientIdColumn: '', dateColumn: '' }
+
+  const update = (key: string, v: string) => {
+    onChange({ ...val, [key]: v || undefined } as typeof val)
+  }
+
+  return (
+    <div>
+      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_death_table')}</h5>
+      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
+        <EditableField label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="death" />
+        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
+        <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="death_datetime" />
       </div>
     </div>
   )
@@ -746,6 +778,11 @@ function PresetEditor({
           <EditableVisitDetailTable
             table={mapping.visitDetailTable}
             onChange={(visitDetailTable) => onChange({ ...mapping, visitDetailTable })}
+          />
+
+          <EditableDeathTable
+            table={mapping.deathTable}
+            onChange={(deathTable) => onChange({ ...mapping, deathTable })}
           />
 
           {/* Concept dictionaries */}

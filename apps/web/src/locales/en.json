@@ -887,7 +887,15 @@
     "plugin_widgets": "Plugins",
     "no_plugin_configured": "No plugin configured.",
     "no_plugin_config": "This plugin has no configuration options.",
-    "no_database": "No database connected."
+    "no_database": "No database connected.",
+    "death": "Death",
+    "death_yes": "Yes",
+    "death_no": "No",
+    "age_first_visit": "Age 1st hosp.",
+    "age_last_visit": "Age last hosp.",
+    "unit_stays": "Unit stays",
+    "hospitalizations_list": "Hospitalizations",
+    "days_short": "{{count}}d"
   },
   "files": {
     "explorer": "Explorer",
@@ -1325,6 +1333,7 @@
     "schema_preset_patient_table": "Patient table",
     "schema_preset_visit_table": "Hospitalization table",
     "schema_preset_visit_detail_table": "Unit stay table",
+    "schema_preset_death_table": "Death table",
     "schema_preset_concept_dictionaries": "Concept dictionaries",
     "schema_preset_event_tables": "Event tables",
     "schema_preset_gender_values": "Gender values",

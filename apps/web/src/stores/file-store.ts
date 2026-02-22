@@ -114,17 +114,21 @@ function getLanguageForFile(name: string): string {
 // Bump this version whenever default demo file content changes.
 // On load, if the user's stored files still have a previous version,
 // the default file contents are silently updated in IndexedDB.
-const DEMO_FILES_VERSION = 5
+const DEMO_FILES_VERSION = 6
 const DEMO_FILES_VERSION_KEY = 'linkr-demo-files-version'
 
 // Mapping from old file names (version <= 4) to new names (version 5).
 // Used by the migration code to rename files in-place.
 const DEMO_FILES_RENAME_MAP: Record<string, string> = {
+  // v4 → v5 renames
   '01_cohort_extraction.sql': '03_example.sql',
   '02_feature_engineering.py': '04_example.py',
   '03_analysis.R': '05_example.R',
-  '04_eda_mortality.ipynb': '01_eda_mortality.ipynb',
-  '05_ml_mortality.qmd': '02_ml_mortality.qmd',
+  '04_eda_mortality.ipynb': '01_eda_mortality.Rmd',
+  '05_ml_mortality.qmd': '02_ml_mortality.ipynb',
+  // v5 → v6 renames (language swap: EDA → R, ML → Python)
+  '01_eda_mortality.ipynb': '01_eda_mortality.Rmd',
+  '02_ml_mortality.qmd': '02_ml_mortality.ipynb',
 }
 
 // Default demo scripts are loaded from public/data/demo-scripts/ at seed time.
@@ -138,9 +142,9 @@ SELECT v.visit_occurrence_id, v.person_id, v.visit_concept_id,
     v.visit_start_date, v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
     v.visit_end_date, v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
     v.discharge_to_concept_id,
-    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+    EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 86400.0 AS los_days
 FROM visit_occurrence v
-WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24;
+WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP - v.visit_start_datetime::TIMESTAMP)) / 86400.0 >= 1;
 
 CREATE OR REPLACE VIEW visit_mortality AS
 SELECT ev.*,
@@ -153,7 +157,7 @@ LEFT JOIN death d ON ev.person_id = d.person_id;
 CREATE OR REPLACE VIEW cohort AS
 SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
     EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
-    p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+    p.gender_source_value AS sex, vm.los_days, vm.in_hospital_death
 FROM visit_mortality vm
 JOIN person p ON vm.person_id = p.person_id
 WHERE EXISTS (
@@ -167,7 +171,7 @@ WHERE EXISTS (
 SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
     SUM(in_hospital_death) AS n_deaths,
     ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct,
-    ROUND(AVG(age), 1) AS mean_age, ROUND(AVG(los_hours), 1) AS mean_los_hours
+    ROUND(AVG(age), 1) AS mean_age, ROUND(AVG(los_days), 1) AS mean_los_days
 FROM cohort;
 `
 
@@ -233,10 +237,10 @@ const DEMO_EXAMPLE_PY = [
   'wide = agg_df.pivot_table(index="visit_occurrence_id", columns="col", values="val", aggfunc="first").reset_index()',
   '',
   '# Step 4: Merge with cohort demographics',
-  'cohort_df = await sql_query("SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death FROM cohort")',
+  'cohort_df = await sql_query("SELECT visit_occurrence_id, person_id, age, sex, los_days, in_hospital_death FROM cohort")',
   'dataset = cohort_df.merge(wide, on="visit_occurrence_id", how="left")',
   'id_cols = ["visit_occurrence_id", "person_id"]',
-  'demo_cols = ["age", "sex", "los_hours"]',
+  'demo_cols = ["age", "sex", "los_days"]',
   'outcome_cols = ["in_hospital_death"]',
   'feature_cols = sorted([c for c in dataset.columns if c not in id_cols + demo_cols + outcome_cols])',
   'dataset = dataset[id_cols + demo_cols + outcome_cols + feature_cols]',
@@ -273,7 +277,7 @@ const DEMO_EXAMPLE_R = [
   '',
   'cat("Demographics:\\n")',
   'describe("age", "Age (years)")',
-  'describe("los_hours", "Length of stay (h)")',
+  'describe("los_days", "Length of stay (days)")',
   '',
   'cat("\\nLaboratory (first value):\\n")',
   'for (v in c("hemoglobin", "creatinine", "potassium", "sodium", "glucose", "bun")) {',
@@ -282,7 +286,7 @@ const DEMO_EXAMPLE_R = [
   '}',
   '',
   '# 3. Logistic regression',
-  'feature_cols <- setdiff(names(df), c("visit_occurrence_id", "person_id", "sex", "los_hours", "in_hospital_death"))',
+  'feature_cols <- setdiff(names(df), c("visit_occurrence_id", "person_id", "sex", "los_days", "in_hospital_death"))',
   'missing_pct <- sapply(df[feature_cols], function(x) mean(is.na(x)))',
   'selected <- names(missing_pct[missing_pct < 0.30])',
   'cat(sprintf("\\nFeatures with <30%% missing: %d / %d\\n", length(selected), length(feature_cols)))',
@@ -322,35 +326,35 @@ const DEMO_EXAMPLE_R = [
   'cat("\\nDone.\\n")',
 ].join('\n')
 
-// IPYNB and QMD inline fallbacks are minimal stubs. Full content is loaded
+// RMD and IPYNB inline fallbacks are minimal stubs. Full content is loaded
 // from public/data/demo-scripts/ at seed time via fetchDemoFile().
+const DEMO_RMD_STUB = [
+  '---',
+  'title: "ICU Mortality Prediction — Exploratory Data Analysis"',
+  'output: html_document',
+  '---',
+  '',
+  '# ICU Mortality Prediction — Exploratory Data Analysis',
+  '',
+  'Self-contained R notebook: cohort extraction, feature engineering, and full EDA.',
+  '',
+  '> `sql_query(sql)` is automatically available in Linkr R notebooks.',
+  '',
+  '```{r stub}',
+  '# Full content is loaded from public/data/demo-scripts/01_eda_mortality.Rmd',
+  '# This stub is shown only if loading fails.',
+  '```',
+].join('\n')
+
 const DEMO_IPYNB_STUB = JSON.stringify({
   nbformat: 4,
   nbformat_minor: 5,
   metadata: { kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' }, language_info: { name: 'python', version: '3.12.0' } },
   cells: [
-    { cell_type: 'markdown', metadata: {}, source: ['# ICU Mortality Prediction — Exploratory Data Analysis\n', '\n', 'Self-contained notebook: cohort extraction, feature engineering, and full EDA.\n', '\n', '> `sql_query(sql)` is automatically available in Linkr notebooks.'] },
-    { cell_type: 'code', metadata: {}, source: ['# Full content is loaded from public/data/demo-scripts/01_eda_mortality.ipynb\n', '# This stub is shown only if loading fails.'], outputs: [], execution_count: null },
+    { cell_type: 'markdown', metadata: {}, source: ['# ICU Mortality Prediction — Machine Learning Pipeline\n', '\n', 'Self-contained Python notebook: cohort extraction, feature engineering, and ML pipeline.\n', '\n', '> `sql_query(sql)` is automatically available in Linkr notebooks.'] },
+    { cell_type: 'code', metadata: {}, source: ['# Full content is loaded from public/data/demo-scripts/02_ml_mortality.ipynb\n', '# This stub is shown only if loading fails.'], outputs: [], execution_count: null },
   ],
 }, null, 2)
-
-const DEMO_QMD_STUB = [
-  '---',
-  'title: "ICU Mortality Prediction — Machine Learning Pipeline"',
-  'format: html',
-  '---',
-  '',
-  '# ICU Mortality Prediction — Machine Learning Pipeline',
-  '',
-  'Self-contained R report: cohort extraction, feature engineering, ML pipeline.',
-  '',
-  '> `sql_query(sql)` is automatically available in Linkr R notebooks.',
-  '',
-  '```{r stub}',
-  '# Full content is loaded from public/data/demo-scripts/02_ml_mortality.qmd',
-  '# This stub is shown only if loading fails.',
-  '```',
-].join('\n')
 
 /** Fetch a demo file from public/data/demo-scripts/. Returns null on failure. */
 async function fetchDemoFile(filename: string): Promise<string | null> {
@@ -379,21 +383,21 @@ function createDefaultFiles(projectUid: string): FileNode[] {
     {
       id: newFileId('file'),
       projectUid,
-      name: '01_eda_mortality.ipynb',
+      name: '01_eda_mortality.Rmd',
       type: 'file',
       parentId: folderId,
-      language: 'json',
-      content: DEMO_IPYNB_STUB,
+      language: 'markdown',
+      content: DEMO_RMD_STUB,
       createdAt: '2026-02-22',
     },
     {
       id: newFileId('file'),
       projectUid,
-      name: '02_ml_mortality.qmd',
+      name: '02_ml_mortality.ipynb',
       type: 'file',
       parentId: folderId,
-      language: 'markdown',
-      content: DEMO_QMD_STUB,
+      language: 'json',
+      content: DEMO_IPYNB_STUB,
       createdAt: '2026-02-22',
     },
     // Example scripts (one per file type)
@@ -433,8 +437,8 @@ function createDefaultFiles(projectUid: string): FileNode[] {
 /** Hydrate demo file stubs with full content from public/data/demo-scripts/. */
 async function hydrateDemoFiles(files: FileNode[]): Promise<void> {
   const hydrateMap: Record<string, string> = {
-    '01_eda_mortality.ipynb': '01_eda_mortality.ipynb',
-    '02_ml_mortality.qmd': '02_ml_mortality.qmd',
+    '01_eda_mortality.Rmd': '01_eda_mortality.Rmd',
+    '02_ml_mortality.ipynb': '02_ml_mortality.ipynb',
     '03_example.sql': '03_example.sql',
     '04_example.py': '04_example.py',
     '05_example.R': '05_example.R',

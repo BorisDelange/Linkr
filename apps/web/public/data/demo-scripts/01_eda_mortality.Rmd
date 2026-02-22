@@ -1,0 +1,711 @@
+---
+title: "ICU Mortality Prediction — Exploratory Data Analysis"
+output: html_document
+---
+
+# ICU Mortality Prediction — Exploratory Data Analysis
+
+This **self-contained** R notebook performs a complete exploratory data analysis for
+in-hospital mortality prediction using OMOP CDM data.
+
+1. **OMOP concept exploration** — browse available domains, vocabularies, measurements
+2. **Cohort extraction** — select eligible visits via SQL
+3. **Feature engineering** — extract H0–H24 measurements, aggregate, pivot to wide format
+4. **Cohort overview** — demographics, mortality rate, admission timeline
+5. **Feature distributions** — vitals, labs, neuro by outcome
+6. **Missing data analysis** — patterns and clinical impact
+7. **Correlation analysis** — feature relationships and multicollinearity
+8. **Outcome analysis** — Table 1, box plots, univariate associations
+9. **Outlier detection** — clinical plausibility checks
+
+**Requirements:** An active database connection with OMOP CDM tables
+(person, visit_occurrence, death, measurement, concept).
+
+> `sql_query(sql)` is automatically available in Linkr R notebooks.
+> It queries the active DuckDB connection and returns a data.frame.
+
+```{r setup}
+set.seed(42)
+```
+
+---
+
+## 1. OMOP Concept Exploration
+
+Before building any model, we need to understand what data is available
+in the OMOP CDM. The `concept` table contains all standardized medical concepts.
+
+```{r domain-counts}
+# How many concepts per domain?
+domain_counts <- sql_query("
+    SELECT domain_id, COUNT(*) AS n_concepts
+    FROM concept
+    WHERE invalid_reason IS NULL
+    GROUP BY domain_id
+    ORDER BY n_concepts DESC
+")
+domain_counts
+```
+
+```{r vocab-counts}
+# Top vocabularies
+vocab_counts <- sql_query("
+    SELECT vocabulary_id, COUNT(*) AS n_concepts
+    FROM concept
+    WHERE invalid_reason IS NULL
+    GROUP BY vocabulary_id
+    ORDER BY n_concepts DESC
+    LIMIT 20
+")
+vocab_counts
+```
+
+```{r measurement-concepts}
+# Measurement concepts that actually have data (>= 100 records)
+measurement_concepts <- sql_query("
+    SELECT
+        c.concept_id, c.concept_name, c.vocabulary_id,
+        COUNT(*) AS n_records,
+        COUNT(DISTINCT m.person_id) AS n_patients,
+        ROUND(AVG(m.value_as_number), 2) AS mean_value,
+        ROUND(STDDEV(m.value_as_number), 2) AS std_value
+    FROM measurement m
+    JOIN concept c ON m.measurement_concept_id = c.concept_id
+    WHERE m.value_as_number IS NOT NULL
+    GROUP BY c.concept_id, c.concept_name, c.vocabulary_id
+    HAVING COUNT(*) >= 100
+    ORDER BY n_records DESC
+    LIMIT 40
+")
+cat(sprintf("Measurement concepts with >= 100 records: %d\n", nrow(measurement_concepts)))
+measurement_concepts
+```
+
+```{r concept-config}
+# Concepts selected for this study
+vitals <- c(
+    "3027018" = "hr",           # Heart rate
+    "3004249" = "sbp",          # Systolic blood pressure
+    "3012888" = "dbp",          # Diastolic blood pressure
+    "3027598" = "mbp",          # Mean blood pressure
+    "3024171" = "resp_rate",    # Respiratory rate
+    "40762499" = "spo2",        # SpO2
+    "3020891" = "temp"          # Temperature
+)
+labs <- c(
+    "3000963" = "hemoglobin",   "3023314" = "hematocrit",  "3024929" = "platelets",
+    "3003282" = "wbc",          "3019550" = "sodium",      "3023103" = "potassium",
+    "3014576" = "chloride",     "3016293" = "bicarbonate", "3016723" = "creatinine",
+    "3013682" = "bun",          "3004501" = "glucose",     "3037278" = "anion_gap",
+    "3015377" = "calcium",      "3012095" = "magnesium",   "3011904" = "phosphate"
+)
+neuro <- c("3016335" = "gcs_eye", "3009094" = "gcs_verbal", "3008223" = "gcs_motor")
+all_measurements <- c(vitals, labs, neuro)
+
+concept_ids <- paste(names(all_measurements), collapse = ", ")
+selected_info <- sql_query(paste0("
+    SELECT c.concept_id, c.concept_name, c.vocabulary_id, c.domain_id,
+           COUNT(*) AS n_records, COUNT(DISTINCT m.person_id) AS n_patients
+    FROM measurement m
+    JOIN concept c ON m.measurement_concept_id = c.concept_id
+    WHERE c.concept_id IN (", concept_ids, ") AND m.value_as_number IS NOT NULL
+    GROUP BY c.concept_id, c.concept_name, c.vocabulary_id, c.domain_id
+    ORDER BY n_records DESC
+"))
+cat(sprintf("Selected concepts found in data: %d / %d\n",
+    nrow(selected_info), length(all_measurements)))
+selected_info
+```
+
+---
+
+## 2. Cohort Extraction
+
+We define our study cohort using SQL views:
+
+- Hospital stays >= 1 day (24 hours)
+- At least one numeric measurement in the first 24 hours
+- In-hospital mortality = death between admission and discharge + 1 day
+
+```{r cohort-views}
+# Eligible visits: stays >= 1 day
+sql_query("
+    CREATE OR REPLACE VIEW eligible_visits AS
+    SELECT
+        v.visit_occurrence_id, v.person_id, v.visit_concept_id,
+        v.visit_start_date,
+        v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
+        v.visit_end_date,
+        v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
+        v.discharge_to_concept_id,
+        EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+            - v.visit_start_datetime::TIMESTAMP)) / 86400.0 AS los_days
+    FROM visit_occurrence v
+    WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+        - v.visit_start_datetime::TIMESTAMP)) / 86400.0 >= 1
+")
+
+# In-hospital mortality flag
+sql_query("
+    CREATE OR REPLACE VIEW visit_mortality AS
+    SELECT ev.*,
+        CASE WHEN d.death_date IS NOT NULL
+             AND d.death_date BETWEEN ev.visit_start_date
+                                   AND ev.visit_end_date + INTERVAL '1 day'
+             THEN 1 ELSE 0 END AS in_hospital_death
+    FROM eligible_visits ev
+    LEFT JOIN death d ON ev.person_id = d.person_id
+")
+
+# Final cohort: demographics + require >= 1 measurement in H0-H24
+sql_query("
+    CREATE OR REPLACE VIEW cohort AS
+    SELECT
+        vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
+        EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
+        p.gender_source_value AS sex,
+        vm.los_days, vm.in_hospital_death
+    FROM visit_mortality vm
+    JOIN person p ON vm.person_id = p.person_id
+    WHERE EXISTS (
+        SELECT 1 FROM measurement m
+        WHERE m.visit_occurrence_id = vm.visit_occurrence_id
+          AND m.value_as_number IS NOT NULL
+          AND m.measurement_datetime::TIMESTAMP >= vm.visit_start_datetime
+          AND m.measurement_datetime::TIMESTAMP
+              <= vm.visit_start_datetime + INTERVAL '24 hours'
+    )
+")
+```
+
+```{r cohort-summary}
+# Quick check
+summary_df <- sql_query("
+    SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
+        SUM(in_hospital_death) AS n_deaths,
+        ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct,
+        ROUND(AVG(age), 1) AS mean_age,
+        ROUND(AVG(los_days), 1) AS mean_los_days
+    FROM cohort
+")
+cat("Cohort summary:\n")
+print(summary_df)
+```
+
+---
+
+## 3. Feature Engineering
+
+Extract measurements from H0-H24, aggregate per visit, and pivot from OMOP
+long format to one-row-per-visit wide format.
+
+| Category | Aggregation |
+|---|---|
+| Vitals (7) | mean, min, max |
+| Labs (15) | first value |
+| Neuro / GCS (3) | minimum (worst) |
+
+```{r extract-measurements}
+# Extract all measurements in H0-H24 for cohort visits
+concept_ids <- paste(names(all_measurements), collapse = ", ")
+measurements_h24 <- sql_query(paste0("
+    SELECT m.visit_occurrence_id, m.measurement_concept_id,
+           m.value_as_number,
+           m.measurement_datetime::TIMESTAMP AS measurement_datetime,
+           c.visit_start_datetime
+    FROM measurement m
+    JOIN cohort c ON m.visit_occurrence_id = c.visit_occurrence_id
+    WHERE m.measurement_concept_id IN (", concept_ids, ")
+      AND m.value_as_number IS NOT NULL
+      AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime
+      AND m.measurement_datetime::TIMESTAMP
+          <= c.visit_start_datetime + INTERVAL '24 hours'
+"))
+cat(sprintf("Measurements in H0-H24: %d rows\n", nrow(measurements_h24)))
+```
+
+```{r aggregate-features}
+# Map concept IDs to feature names
+measurements_h24$feature <- all_measurements[as.character(measurements_h24$measurement_concept_id)]
+
+vitals_ids  <- as.integer(names(vitals))
+labs_ids    <- as.integer(names(labs))
+neuro_ids   <- as.integer(names(neuro))
+
+# Aggregate per visit x feature
+agg_list <- list()
+for (vid in unique(measurements_h24$visit_occurrence_id)) {
+    sub <- measurements_h24[measurements_h24$visit_occurrence_id == vid, ]
+    for (feat in unique(sub$feature)) {
+        rows <- sub[sub$feature == feat, ]
+        cid <- rows$measurement_concept_id[1]
+        vals <- rows$value_as_number[order(rows$measurement_datetime)]
+
+        if (cid %in% vitals_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, c("_mean", "_min", "_max")),
+                val = c(mean(vals), min(vals), max(vals)),
+                stringsAsFactors = FALSE
+            )
+        } else if (cid %in% neuro_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_min"), val = min(vals),
+                stringsAsFactors = FALSE
+            )
+        } else if (cid %in% labs_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_first"), val = vals[1],
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+}
+agg_df <- do.call(rbind, agg_list)
+cat(sprintf("Aggregated features: %d rows, %d distinct columns\n",
+    nrow(agg_df), length(unique(agg_df$col))))
+```
+
+```{r pivot-merge}
+# Pivot to wide format and merge with cohort demographics
+wide <- reshape(agg_df, idvar = "visit_occurrence_id", timevar = "col",
+                direction = "wide", v.names = "val")
+names(wide) <- sub("^val\\.", "", names(wide))
+
+cohort_df <- sql_query("
+    SELECT visit_occurrence_id, person_id, age, sex, los_days,
+           in_hospital_death, visit_start_datetime
+    FROM cohort
+")
+
+df <- merge(cohort_df, wide, by = "visit_occurrence_id", all.x = TRUE)
+
+# Sort columns: identifiers, demographics, outcome, features
+id_cols     <- c("visit_occurrence_id", "person_id")
+demo_cols   <- c("age", "sex", "los_days")
+outcome_col <- "in_hospital_death"
+meta_cols   <- "visit_start_datetime"
+feature_cols <- sort(setdiff(names(df), c(id_cols, demo_cols, outcome_col, meta_cols)))
+df <- df[, c(id_cols, demo_cols, outcome_col, meta_cols, feature_cols)]
+
+cat(sprintf("Dataset: %d rows x %d columns\n", nrow(df), ncol(df)))
+cat(sprintf("Deaths: %d / %d (%.1f%%)\n",
+    sum(df$in_hospital_death), nrow(df),
+    100 * mean(df$in_hospital_death)))
+```
+
+```{r export-csv}
+# Export CSV for the ML notebook (02_ml_mortality.ipynb)
+export_cols <- setdiff(names(df), "visit_start_datetime")
+write.csv(df[, export_cols], "data/datasets/mortality_dataset.csv", row.names = FALSE)
+cat("Dataset saved to data/datasets/mortality_dataset.csv\n")
+```
+
+---
+
+## 4. Cohort Overview
+
+```{r cohort-overview}
+cat(sprintf("Cohort: %d visits, %d unique patients\n",
+    nrow(df), length(unique(df$person_id))))
+cat(sprintf("Mortality: %d deaths (%.1f%%)\n",
+    sum(df$in_hospital_death), 100 * mean(df$in_hospital_death)))
+cat(sprintf("\nAge: %.1f +/- %.1f years (range %d-%d)\n",
+    mean(df$age), sd(df$age), min(df$age), max(df$age)))
+cat(sprintf("LOS: %.1f +/- %.1f days (median %.1f)\n",
+    mean(df$los_days), sd(df$los_days), median(df$los_days)))
+cat(sprintf("\nSex distribution:\n"))
+print(table(df$sex))
+```
+
+```{r demographics-plots}
+# Age distribution, LOS, and mortality by age group
+par(mfrow = c(1, 3), mar = c(4.5, 4.5, 3, 1))
+
+# Age distribution by sex
+male   <- df$age[df$sex == "M"]
+female <- df$age[df$sex == "F"]
+brks <- seq(min(df$age, na.rm = TRUE) - 1, max(df$age, na.rm = TRUE) + 1, length.out = 21)
+hist(male, breaks = brks, col = adjustcolor("#4C78A8", 0.6), border = "white",
+     freq = FALSE, main = "Age Distribution by Sex", xlab = "Age (years)", ylab = "Density")
+hist(female, breaks = brks, col = adjustcolor("#E45756", 0.6), border = "white",
+     freq = FALSE, add = TRUE)
+legend("topright", legend = c("M", "F"),
+       fill = c(adjustcolor("#4C78A8", 0.6), adjustcolor("#E45756", 0.6)))
+
+# Length of stay distribution
+hist(df$los_days, breaks = 50, col = "#72B7B2", border = "white",
+     main = "Length of Stay Distribution", xlab = "Length of Stay (days)", ylab = "Count")
+
+# Mortality by age group
+df$age_group <- cut(df$age, breaks = c(0, 40, 50, 60, 70, 80, 120),
+                    labels = c("<40", "40-49", "50-59", "60-69", "70-79", ">=80"))
+mort_by_age <- tapply(df$in_hospital_death, df$age_group, mean) * 100
+barplot(mort_by_age, col = "#F58518", border = "white",
+        main = "Mortality Rate by Age Group", xlab = "Age Group", ylab = "Mortality (%)")
+```
+
+```{r mortality-by-sex}
+# Mortality by sex
+mort_sex <- aggregate(in_hospital_death ~ sex, data = df, FUN = function(x) {
+    c(Deaths = sum(x), Total = length(x), Rate = round(100 * mean(x), 1))
+})
+result <- data.frame(
+    Sex = mort_sex$sex,
+    Deaths = mort_sex$in_hospital_death[, "Deaths"],
+    Total = mort_sex$in_hospital_death[, "Total"],
+    "Mortality Rate (%)" = mort_sex$in_hospital_death[, "Rate"],
+    check.names = FALSE
+)
+print(result, row.names = FALSE)
+```
+
+```{r admission-timeline}
+# Admission timeline
+df$admit_date <- as.Date(df$visit_start_datetime)
+daily <- aggregate(
+    cbind(admissions = person_id, deaths = in_hospital_death) ~ admit_date,
+    data = df,
+    FUN = function(x) if (is.numeric(x[1]) && max(x, na.rm = TRUE) <= 1) sum(x) else length(x)
+)
+# Recompute properly
+daily <- data.frame(
+    admit_date = sort(unique(df$admit_date)),
+    admissions = as.numeric(table(df$admit_date)),
+    deaths = tapply(df$in_hospital_death, df$admit_date, sum)
+)
+
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 3, 1))
+plot(daily$admit_date, daily$admissions, type = "l", col = "#4C78A8", lwd = 1.5,
+     xlab = "Date", ylab = "Count", main = "Admissions and Deaths Over Time")
+polygon(c(daily$admit_date, rev(daily$admit_date)),
+        c(daily$deaths, rep(0, nrow(daily))),
+        col = adjustcolor("#E45756", 0.5), border = NA)
+legend("topright", legend = c("Admissions", "Deaths"),
+       col = c("#4C78A8", adjustcolor("#E45756", 0.5)), lwd = c(2, NA),
+       pch = c(NA, 15), pt.cex = 2)
+```
+
+---
+
+## 5. Feature Distributions
+
+```{r describe-all}
+# Numeric summary of all features
+numeric_cols <- names(df)[sapply(df, is.numeric)]
+numeric_cols <- setdiff(numeric_cols, c("visit_occurrence_id", "person_id", "in_hospital_death"))
+summary(df[, numeric_cols])
+```
+
+```{r vitals-by-outcome}
+# Vital signs distribution by outcome
+alive <- df[df$in_hospital_death == 0, ]
+dead  <- df[df$in_hospital_death == 1, ]
+
+vitals_cols <- grep("^(hr|sbp|dbp|resp_rate|spo2|temp)_mean$", names(df), value = TRUE)
+n_vitals <- length(vitals_cols)
+
+par(mfrow = c(2, ceiling(n_vitals / 2)), mar = c(4, 4, 3, 1))
+for (i in seq_along(vitals_cols)) {
+    col <- vitals_cols[i]
+    a_vals <- alive[[col]][!is.na(alive[[col]])]
+    d_vals <- dead[[col]][!is.na(dead[[col]])]
+    all_vals <- c(a_vals, d_vals)
+    if (length(all_vals) == 0) next
+    brks <- seq(min(all_vals), max(all_vals), length.out = 31)
+    hist(a_vals, breaks = brks, col = adjustcolor("#4C78A8", 0.6), border = "white",
+         freq = FALSE, main = toupper(sub("_mean$", "", col)),
+         xlab = col, ylab = "Density")
+    hist(d_vals, breaks = brks, col = adjustcolor("#E45756", 0.6), border = "white",
+         freq = FALSE, add = TRUE)
+    if (i == 1) legend("topright", legend = c("Alive", "Dead"),
+        fill = c(adjustcolor("#4C78A8", 0.6), adjustcolor("#E45756", 0.6)), cex = 0.8)
+}
+```
+
+```{r labs-by-outcome}
+# Lab values distribution by outcome
+labs_cols <- grep("_first$", names(df), value = TRUE)
+labs_cols <- labs_cols[grep("^(hemoglobin|creatinine|potassium|sodium|glucose|bun|wbc|platelets|bicarbonate|anion_gap|calcium|hematocrit|chloride|magnesium|phosphate)", labs_cols)]
+n_labs <- length(labs_cols)
+
+ncols_plot <- 4
+nrows_plot <- ceiling(n_labs / ncols_plot)
+par(mfrow = c(nrows_plot, ncols_plot), mar = c(4, 4, 3, 1))
+for (i in seq_along(labs_cols)) {
+    col <- labs_cols[i]
+    a_vals <- alive[[col]][!is.na(alive[[col]])]
+    d_vals <- dead[[col]][!is.na(dead[[col]])]
+    all_vals <- c(a_vals, d_vals)
+    if (length(all_vals) == 0) next
+    brks <- seq(min(all_vals), max(all_vals), length.out = 31)
+    label <- gsub("_first$", "", col)
+    label <- gsub("_", " ", label)
+    label <- paste0(toupper(substr(label, 1, 1)), substr(label, 2, nchar(label)))
+    hist(a_vals, breaks = brks, col = adjustcolor("#4C78A8", 0.6), border = "white",
+         freq = FALSE, main = label, xlab = col, ylab = "Density")
+    hist(d_vals, breaks = brks, col = adjustcolor("#E45756", 0.6), border = "white",
+         freq = FALSE, add = TRUE)
+    if (i == 1) legend("topright", legend = c("Alive", "Dead"),
+        fill = c(adjustcolor("#4C78A8", 0.6), adjustcolor("#E45756", 0.6)), cex = 0.7)
+}
+```
+
+```{r gcs-by-outcome}
+# GCS score distribution
+gcs_cols <- grep("^gcs_", names(df), value = TRUE)
+if (length(gcs_cols) > 0) {
+    par(mfrow = c(1, length(gcs_cols)), mar = c(4.5, 4.5, 3, 1))
+    for (i in seq_along(gcs_cols)) {
+        col <- gcs_cols[i]
+        label <- toupper(gsub("_min$", " (worst)", col))
+
+        # Compute proportions for alive and dead
+        a_vals <- alive[[col]][!is.na(alive[[col]])]
+        d_vals <- dead[[col]][!is.na(dead[[col]])]
+        if (length(a_vals) == 0 && length(d_vals) == 0) next
+
+        all_scores <- sort(unique(c(a_vals, d_vals)))
+        a_prop <- sapply(all_scores, function(s) sum(a_vals == s) / max(length(a_vals), 1))
+        d_prop <- sapply(all_scores, function(s) sum(d_vals == s) / max(length(d_vals), 1))
+
+        mat <- rbind(Alive = a_prop, Dead = d_prop)
+        colnames(mat) <- all_scores
+        barplot(mat, beside = TRUE, col = c("#4C78A8", "#E45756"),
+                main = label, xlab = "Score", ylab = "Proportion", border = "white")
+        if (i == 1) legend("topright", legend = c("Alive", "Dead"),
+            fill = c("#4C78A8", "#E45756"), cex = 0.8)
+    }
+}
+```
+
+---
+
+## 6. Missing Data Analysis
+
+```{r missing-barplot}
+analysis_cols <- setdiff(names(df),
+    c("visit_occurrence_id", "person_id", "sex", "in_hospital_death",
+      "visit_start_datetime", "admit_date", "age_group"))
+
+missing_pct <- sapply(df[, analysis_cols], function(x) mean(is.na(x))) * 100
+missing_pct <- sort(missing_pct, decreasing = TRUE)
+
+# Color by severity
+colors <- ifelse(missing_pct >= 30, "#E45756",
+          ifelse(missing_pct >= 10, "#F58518", "#4C78A8"))
+
+par(mfrow = c(1, 1), mar = c(4.5, 10, 3, 1))
+bp <- barplot(rev(missing_pct), horiz = TRUE, names.arg = rev(names(missing_pct)),
+        las = 1, col = rev(colors), border = "white", cex.names = 0.7,
+        main = "Missing Data by Feature", xlab = "Missing (%)")
+abline(v = 30, col = "red", lty = 2, lwd = 1.5)
+legend("bottomright", legend = c(">= 30%", "10-30%", "< 10%"),
+       fill = c("#E45756", "#F58518", "#4C78A8"), cex = 0.8)
+```
+
+```{r missing-by-outcome}
+# Is missingness correlated with outcome?
+missing_alive <- sapply(alive[, analysis_cols], function(x) mean(is.na(x))) * 100
+missing_dead  <- sapply(dead[, analysis_cols], function(x) mean(is.na(x))) * 100
+missing_diff  <- round(missing_dead - missing_alive, 1)
+missing_comp  <- data.frame(
+    Variable = names(missing_diff),
+    "Alive (%)" = round(missing_alive[names(missing_diff)], 1),
+    "Dead (%)" = round(missing_dead[names(missing_diff)], 1),
+    Difference = missing_diff,
+    check.names = FALSE
+)
+missing_comp <- missing_comp[order(-abs(missing_comp$Difference)), ]
+cat("Missing data by outcome (top differences):\n")
+print(head(missing_comp, 10), row.names = FALSE)
+```
+
+---
+
+## 7. Correlation Analysis
+
+```{r correlation-heatmap}
+num_cols <- names(df)[sapply(df, is.numeric)]
+num_cols <- setdiff(num_cols, c("visit_occurrence_id", "person_id", "in_hospital_death"))
+corr <- cor(df[, num_cols], use = "pairwise.complete.obs")
+
+par(mfrow = c(1, 1), mar = c(8, 8, 3, 2))
+col_palette <- colorRampPalette(c("#3B4CC0", "white", "#B40426"))(100)
+image(1:ncol(corr), 1:nrow(corr), t(corr)[, nrow(corr):1],
+      col = col_palette, zlim = c(-1, 1), axes = FALSE,
+      main = "Feature Correlation Matrix", xlab = "", ylab = "")
+axis(1, at = 1:ncol(corr), labels = colnames(corr), las = 2, cex.axis = 0.6)
+axis(2, at = 1:nrow(corr), labels = rev(rownames(corr)), las = 1, cex.axis = 0.6)
+box()
+```
+
+```{r high-correlation-pairs}
+# Highly correlated pairs (|r| > 0.7)
+high_corr <- data.frame(Feature1 = character(), Feature2 = character(),
+                         Correlation = numeric(), stringsAsFactors = FALSE)
+for (i in 1:(ncol(corr) - 1)) {
+    for (j in (i + 1):ncol(corr)) {
+        r <- corr[i, j]
+        if (!is.na(r) && abs(r) > 0.7) {
+            high_corr <- rbind(high_corr, data.frame(
+                Feature1 = rownames(corr)[i],
+                Feature2 = colnames(corr)[j],
+                Correlation = round(r, 3),
+                stringsAsFactors = FALSE
+            ))
+        }
+    }
+}
+
+if (nrow(high_corr) > 0) {
+    high_corr <- high_corr[order(-abs(high_corr$Correlation)), ]
+    cat(sprintf("Highly correlated pairs (|r| > 0.7): %d\n", nrow(high_corr)))
+    print(high_corr, row.names = FALSE)
+} else {
+    cat("No highly correlated pairs found (|r| > 0.7).\n")
+}
+```
+
+---
+
+## 8. Outcome Analysis
+
+```{r table1}
+# Table 1: descriptive statistics by outcome
+cat("Table 1: Patient Characteristics by Outcome\n")
+cat(paste(rep("=", 100), collapse = ""), "\n")
+
+table1_rows <- data.frame(
+    Variable = character(),
+    "Alive (mean +/- SD)" = character(),
+    "Dead (mean +/- SD)" = character(),
+    "Alive median [IQR]" = character(),
+    "Dead median [IQR]" = character(),
+    check.names = FALSE, stringsAsFactors = FALSE
+)
+
+for (col in num_cols) {
+    a <- alive[[col]][!is.na(alive[[col]])]
+    d <- dead[[col]][!is.na(dead[[col]])]
+    if (length(a) == 0 && length(d) == 0) next
+    table1_rows <- rbind(table1_rows, data.frame(
+        Variable = col,
+        "Alive (mean +/- SD)" = sprintf("%.1f +/- %.1f", mean(a), sd(a)),
+        "Dead (mean +/- SD)" = sprintf("%.1f +/- %.1f", mean(d), sd(d)),
+        "Alive median [IQR]" = sprintf("%.1f [%.1f-%.1f]",
+            median(a), quantile(a, 0.25), quantile(a, 0.75)),
+        "Dead median [IQR]" = sprintf("%.1f [%.1f-%.1f]",
+            median(d), quantile(d, 0.25), quantile(d, 0.75)),
+        check.names = FALSE, stringsAsFactors = FALSE
+    ))
+}
+print(table1_rows, row.names = FALSE)
+```
+
+```{r boxplots-by-outcome}
+# Box plots: key features by outcome
+key_features <- c("age", "hr_mean", "sbp_mean", "resp_rate_mean",
+    "creatinine_first", "bun_first", "wbc_first", "potassium_first")
+key_features <- key_features[key_features %in% names(df)]
+
+n_kf <- length(key_features)
+ncols_bp <- 4
+nrows_bp <- ceiling(n_kf / ncols_bp)
+par(mfrow = c(nrows_bp, ncols_bp), mar = c(4, 4, 3, 1))
+
+for (col in key_features) {
+    a_vals <- alive[[col]][!is.na(alive[[col]])]
+    d_vals <- dead[[col]][!is.na(dead[[col]])]
+    boxplot(list(Alive = a_vals, Dead = d_vals),
+            col = c(adjustcolor("#4C78A8", 0.7), adjustcolor("#E45756", 0.7)),
+            border = c("#4C78A8", "#E45756"),
+            main = gsub("_mean|_first", "", gsub("_", " ", col)),
+            outline = TRUE)
+}
+```
+
+```{r univariate-association}
+# Univariate association with mortality (point-biserial correlation)
+outcome_corr <- data.frame(Feature = character(), r = numeric(),
+                            p_value = numeric(), stringsAsFactors = FALSE)
+for (col in num_cols) {
+    valid <- df[!is.na(df[[col]]), c(col, "in_hospital_death")]
+    if (nrow(valid) > 10) {
+        test <- cor.test(valid$in_hospital_death, valid[[col]])
+        outcome_corr <- rbind(outcome_corr, data.frame(
+            Feature = col, r = round(test$estimate, 3),
+            p_value = round(test$p.value, 4), stringsAsFactors = FALSE
+        ))
+    }
+}
+outcome_corr <- outcome_corr[order(-abs(outcome_corr$r)), ]
+
+par(mfrow = c(1, 1), mar = c(4.5, 10, 3, 1))
+colors_oc <- ifelse(rev(outcome_corr$r) > 0, "#E45756", "#4C78A8")
+barplot(rev(outcome_corr$r), names.arg = rev(outcome_corr$Feature),
+        horiz = TRUE, las = 1, col = colors_oc, border = "white",
+        main = "Feature Correlation with In-Hospital Mortality",
+        xlab = "Point-biserial Correlation", cex.names = 0.7)
+abline(v = 0, lwd = 0.5)
+
+cat("\nCorrelation with mortality:\n")
+print(outcome_corr, row.names = FALSE)
+```
+
+---
+
+## 9. Outlier Detection
+
+```{r outlier-check}
+PLAUSIBLE_RANGES <- list(
+    hr_mean = c(20, 300), sbp_mean = c(40, 300), dbp_mean = c(10, 200),
+    temp_mean = c(30, 45), resp_rate_mean = c(4, 60), spo2_mean = c(50, 100),
+    sodium_first = c(100, 180), potassium_first = c(1.5, 10),
+    glucose_first = c(20, 1000), creatinine_first = c(0.1, 30)
+)
+
+cat("Outlier check (values outside plausible clinical range):\n")
+cat(sprintf("%-25s %15s %12s %8s\n", "Feature", "Range", "N outliers", "%"))
+cat(paste(rep("-", 62), collapse = ""), "\n")
+for (col in names(PLAUSIBLE_RANGES)) {
+    if (col %in% names(df)) {
+        lo <- PLAUSIBLE_RANGES[[col]][1]
+        hi <- PLAUSIBLE_RANGES[[col]][2]
+        vals <- df[[col]][!is.na(df[[col]])]
+        n_out <- sum(vals < lo | vals > hi)
+        pct <- if (length(vals) > 0) 100 * n_out / length(vals) else 0
+        cat(sprintf("%-25s [%s, %s] %12d %7.1f%%\n",
+            col, format(lo), format(hi), n_out, pct))
+    }
+}
+```
+
+---
+
+## Summary
+
+**Data cleaning strategy for modeling:**
+
+- **Missing values**: Features with > 30% missing excluded. Remaining NAs imputed with median.
+- **Multicollinearity**: Pairs with |r| > 0.85 flagged for review.
+- **Outliers**: Clinical plausibility checked. No automatic removal.
+- **Class imbalance**: Low mortality rate noted. Stratified train/test split required.
+
+**Next step:** Open `02_ml_mortality.ipynb` for the machine learning pipeline.
+
+```{r summary}
+usable <- num_cols[sapply(df[, num_cols], function(x) mean(is.na(x))) < 0.30]
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat("EDA COMPLETE\n")
+cat(paste(rep("=", 60), collapse = ""), "\n")
+cat(sprintf("\nDataset: %d visits, %d numeric features\n",
+    nrow(df), length(num_cols)))
+cat(sprintf("Mortality: %d / %d (%.1f%%)\n",
+    sum(df$in_hospital_death), nrow(df),
+    100 * mean(df$in_hospital_death)))
+cat(sprintf("Usable features (<30%% missing): %d\n", length(usable)))
+cat(sprintf("CSV exported to: data/datasets/mortality_dataset.csv\n"))
+```
