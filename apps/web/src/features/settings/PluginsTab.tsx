@@ -135,11 +135,6 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDelete, t }: PluginCardP
         {plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
       </p>
       <div className="flex items-center gap-1 flex-wrap">
-        {isSystem && (
-          <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium leading-tight text-muted-foreground bg-muted">
-            {t('plugins.system_plugin')}
-          </span>
-        )}
         {plugin.manifest.badges?.map((badge) => (
           <span
             key={badge.id}
@@ -150,6 +145,11 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDelete, t }: PluginCardP
           </span>
         ))}
         <div className="ml-auto flex items-center gap-1.5">
+          {isSystem && (
+            <span className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight text-muted-foreground bg-muted">
+              {t('plugins.system_plugin')}
+            </span>
+          )}
           {plugin.manifest.languages?.map((l) => (
             <LanguageBadge key={l} language={l} />
           ))}
