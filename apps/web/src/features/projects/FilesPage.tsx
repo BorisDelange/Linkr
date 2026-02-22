@@ -234,9 +234,23 @@ export function FilesPage() {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Keep-alive: one ref per open notebook file, so switching tabs doesn't destroy state.
   const notebookRefsMap = useRef<Map<string, RmdNotebookHandle | IpynbNotebookHandle>>(new Map())
-  // Convenience accessor for the active notebook (used by toolbar buttons)
+  // Convenience accessor for the active notebook (used by toolbar buttons).
+  // Updated both during render AND in callback refs to avoid stale null.
   const notebookRef = useRef<RmdNotebookHandle | IpynbNotebookHandle | null>(null)
+  const selectedFileIdRef = useRef(selectedFileId)
+  selectedFileIdRef.current = selectedFileId
   notebookRef.current = selectedFileId ? (notebookRefsMap.current.get(selectedFileId) ?? null) : null
+
+  /** Callback ref for notebook components — keeps notebookRefsMap and notebookRef in sync */
+  const makeNotebookRef = useCallback((fid: string) => (handle: RmdNotebookHandle | IpynbNotebookHandle | null) => {
+    if (handle) {
+      notebookRefsMap.current.set(fid, handle)
+      // Also update notebookRef immediately if this is the active file
+      if (fid === selectedFileIdRef.current) notebookRef.current = handle
+    } else {
+      notebookRefsMap.current.delete(fid)
+    }
+  }, [])
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
@@ -1484,10 +1498,7 @@ export function FilesPage() {
                               }>
                                 {isIpynb ? (
                                   <LazyIpynbNotebook
-                                    ref={(handle) => {
-                                      if (handle) notebookRefsMap.current.set(fid, handle)
-                                      else notebookRefsMap.current.delete(fid)
-                                    }}
+                                    ref={makeNotebookRef(fid)}
                                     content={node.content ?? ''}
                                     onChange={isVirtual ? undefined : (v) =>
                                       updateFileContent(node.id, v)
@@ -1508,10 +1519,7 @@ export function FilesPage() {
                                   />
                                 ) : (
                                   <LazyRmdNotebook
-                                    ref={(handle) => {
-                                      if (handle) notebookRefsMap.current.set(fid, handle)
-                                      else notebookRefsMap.current.delete(fid)
-                                    }}
+                                    ref={makeNotebookRef(fid)}
                                     content={node.content ?? ''}
                                     onChange={isVirtual ? undefined : (v) =>
                                       updateFileContent(node.id, v)

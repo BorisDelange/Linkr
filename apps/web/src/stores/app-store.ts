@@ -170,28 +170,27 @@ The project contains two **self-contained study notebooks** and three **example 
 
 ### 2. Machine Learning Pipeline (\`02_ml_mortality.qmd\`)
 
-**Self-contained** Quarto report with full ML pipeline:
+**Self-contained** Quarto R report with full ML pipeline:
 
 - Cohort extraction & feature engineering (same as notebook 1)
 - Data preparation: feature selection, median imputation
 - Train/test split (75/25 stratified)
 - Logistic regression (baseline) with odds ratios
-- Gradient boosting with 5-fold cross-validation
-- Model comparison: ROC, Precision-Recall, confusion matrix
+- Decision tree (rpart)
+- Model comparison: ROC curves, confusion matrix
 - Calibration analysis
-- Feature importance (impurity-based + permutation)
-- SHAP analysis: summary, bar, dependence, waterfall
-- LIME explanations for individual predictions
+- Feature importance (standardized coefficients + tree importance)
+- Threshold analysis (sensitivity/specificity/F1 trade-offs)
 
 ### 3–5. Example scripts
 
-Simple examples demonstrating each file type in Linkr:
+Standalone examples demonstrating each file type (each can be run independently):
 
 | Script | Language | Description |
 |---|---|---|
-| \`03_example.sql\` | SQL | OMOP CDM cohort extraction queries |
-| \`04_example.py\` | Python | Feature engineering with \`sql_query()\` and pandas |
-| \`05_example.R\` | R | Statistical analysis and logistic regression |
+| \`03_example.sql\` | SQL | Cohort extraction from OMOP CDM tables |
+| \`04_example.py\` | Python | Cohort + feature engineering + CSV export (\`sql_query()\` + pandas) |
+| \`05_example.R\` | R | Cohort + feature engineering + statistics + logistic regression (\`sql_query()\`) |
 
 ## Features extracted
 

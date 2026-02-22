@@ -884,7 +884,12 @@ ${bodyParts.join('\n')}
   const hasYamlCell = cells.some((c) => c.type === 'yaml')
 
   useImperativeHandle(ref, () => ({
-    runCell: () => { if (activeCell) runCell(activeCell) },
+    runCell: () => {
+      if (!activeCell) return
+      const cell = cellsRef.current.find((c) => c.id === activeCell)
+      if (cell?.type === 'markdown') togglePreview(activeCell)
+      else if (cell?.type === 'code') runCell(activeCell)
+    },
     runAll,
     runAbove,
     renderPreview: handleRenderPreview,

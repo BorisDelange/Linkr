@@ -12,7 +12,6 @@ import {
   Dialog,
   DialogContent,
 } from '@/components/ui/dialog'
-import { cn } from '@/lib/utils'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 const COLLAPSE_LINE_THRESHOLD = 30
@@ -117,7 +116,7 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
 
   return (
     <>
-      <div className="relative group/fig bg-white dark:bg-zinc-900 rounded p-2 flex justify-center">
+      <div className="relative group/fig bg-white rounded p-2 flex justify-center dark:invert dark:hue-rotate-180">
         {fig.type === 'svg' ? (
           <div
             className="cursor-pointer [&>svg]:max-w-full"
@@ -134,7 +133,7 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
         )}
         <button
           onClick={() => { resetView(); setOpen(true) }}
-          className="absolute top-2 right-2 p-1 rounded bg-muted/80 border border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent opacity-0 group-hover/fig:opacity-100 transition-opacity"
+          className="absolute top-2 right-2 p-1 rounded bg-muted/80 border border-border/50 text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent opacity-0 group-hover/fig:opacity-100 transition-opacity dark:invert dark:hue-rotate-180"
           title="Enlarge"
         >
           <Maximize2 size={12} />
@@ -200,14 +199,14 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
             >
               {fig.type === 'svg' ? (
                 <div
-                  className="[&>svg]:max-w-full [&>svg]:max-h-[calc(98vh-3rem)] [&>svg]:object-contain pointer-events-none"
+                  className="[&>svg]:max-w-full [&>svg]:max-h-[calc(98vh-3rem)] [&>svg]:object-contain pointer-events-none dark:invert dark:hue-rotate-180"
                   dangerouslySetInnerHTML={{ __html: fig.data }}
                 />
               ) : (
                 <img
                   src={fig.data}
                   alt={fig.label}
-                  className="max-w-full max-h-[calc(98vh-3rem)] object-contain pointer-events-none"
+                  className="max-w-full max-h-[calc(98vh-3rem)] object-contain pointer-events-none dark:invert dark:hue-rotate-180"
                   draggable={false}
                 />
               )}

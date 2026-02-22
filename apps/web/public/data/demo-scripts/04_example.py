@@ -10,11 +10,63 @@
 # Usage: df = await sql_query("SELECT * FROM person LIMIT 10")
 #
 # Topic: Feature engineering for ICU mortality prediction
-# Prerequisite: Run 03_example.sql first to create the cohort view.
 # Output: data/datasets/mortality_dataset.csv
 # =============================================================================
 
 import pandas as pd
+
+# ---------------------------------------------------------------------------
+# Step 1: Create cohort views (eligible visits, mortality, demographics)
+# ---------------------------------------------------------------------------
+await sql_query("""
+    CREATE OR REPLACE VIEW eligible_visits AS
+    SELECT
+        v.visit_occurrence_id, v.person_id,
+        v.visit_start_date,
+        v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
+        v.visit_end_date,
+        v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
+        EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+            - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+    FROM visit_occurrence v
+    WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+        - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
+""")
+
+await sql_query("""
+    CREATE OR REPLACE VIEW visit_mortality AS
+    SELECT ev.*,
+        CASE WHEN d.death_date IS NOT NULL
+             AND d.death_date BETWEEN ev.visit_start_date
+                                   AND ev.visit_end_date + INTERVAL '1 day'
+             THEN 1 ELSE 0 END AS in_hospital_death
+    FROM eligible_visits ev
+    LEFT JOIN death d ON ev.person_id = d.person_id
+""")
+
+await sql_query("""
+    CREATE OR REPLACE VIEW cohort AS
+    SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
+        EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
+        p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+    FROM visit_mortality vm
+    JOIN person p ON vm.person_id = p.person_id
+    WHERE EXISTS (
+        SELECT 1 FROM measurement m
+        WHERE m.visit_occurrence_id = vm.visit_occurrence_id
+          AND m.value_as_number IS NOT NULL
+          AND m.measurement_datetime::TIMESTAMP >= vm.visit_start_datetime
+          AND m.measurement_datetime::TIMESTAMP
+              <= vm.visit_start_datetime + INTERVAL '24 hours'
+    )
+""")
+
+cohort_check = await sql_query("""
+    SELECT COUNT(*) AS n_visits, SUM(in_hospital_death) AS n_deaths
+    FROM cohort
+""")
+print(f"Cohort: {cohort_check['n_visits'][0]} visits, "
+      f"{cohort_check['n_deaths'][0]} deaths")
 
 # ---------------------------------------------------------------------------
 # Configuration: measurements to extract (concept_id → column prefix)
@@ -56,7 +108,7 @@ NEURO = {
 ALL_MEASUREMENTS = {**VITALS, **LABS, **NEURO}
 
 # ---------------------------------------------------------------------------
-# Step 1: Extract all measurements in the first 24 hours for cohort visits
+# Step 2: Extract all measurements in the first 24 hours for cohort visits
 # ---------------------------------------------------------------------------
 concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())
 
@@ -78,7 +130,7 @@ measurements_h24 = await sql_query(f"""
 print(f"Measurements in H0-H24: {len(measurements_h24)} rows")
 
 # ---------------------------------------------------------------------------
-# Step 2: Aggregate — for each visit × measurement, compute summary stats
+# Step 3: Aggregate — for each visit × measurement, compute summary stats
 # ---------------------------------------------------------------------------
 
 # Map concept_id to column name
@@ -112,7 +164,7 @@ agg_df = pd.DataFrame(aggregated_rows)
 print(f"Aggregated features: {len(agg_df)} rows, {agg_df['col'].nunique()} distinct columns")
 
 # ---------------------------------------------------------------------------
-# Step 3: Pivot to wide format
+# Step 4: Pivot to wide format
 # ---------------------------------------------------------------------------
 wide_features = agg_df.pivot_table(
     index="visit_occurrence_id",
@@ -122,7 +174,7 @@ wide_features = agg_df.pivot_table(
 ).reset_index()
 
 # ---------------------------------------------------------------------------
-# Step 4: Merge with cohort demographics
+# Step 5: Merge with cohort demographics
 # ---------------------------------------------------------------------------
 cohort_df = await sql_query("""
     SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
@@ -146,7 +198,7 @@ print(f"\nMissing values per feature:")
 print(dataset[feature_cols].isnull().sum().to_string())
 
 # ---------------------------------------------------------------------------
-# Step 5: Export CSV
+# Step 6: Export CSV
 # ---------------------------------------------------------------------------
 output_path = "data/datasets/mortality_dataset.csv"
 dataset.to_csv(output_path, index=False)

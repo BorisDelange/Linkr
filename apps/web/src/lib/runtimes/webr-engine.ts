@@ -183,18 +183,21 @@ export async function executeR(
       }
     }
 
-    // Try to detect data.frame result → convert to table
+    // Try to detect data.frame result → convert to table.
+    // We bind captured.result into R's global env so we can inspect it directly,
+    // since .Last.value may not reliably reflect the shelter result.
     try {
       const resultType = await captured.result.type()
       if (resultType === 'list') {
-        // Check if it's a data.frame
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (webR as any).objs.globalEnv.bind('.__linkr_last_result__', captured.result)
         const isDF = await webR.evalRRaw(
-          `is.data.frame(.Last.value)`,
+          `is.data.frame(.__linkr_last_result__)`,
           'boolean',
         )
         if (isDF) {
           const jsonStr = await webR.evalRRaw(
-            `jsonlite::toJSON(.Last.value, dataframe="columns")`,
+            `jsonlite::toJSON(.__linkr_last_result__, dataframe="columns")`,
             'string',
           )
           const parsed = JSON.parse(jsonStr) as Record<string, unknown[]>
@@ -208,6 +211,7 @@ export async function executeR(
             table = { headers, rows }
           }
         }
+        await webR.evalRVoid(`rm(.__linkr_last_result__)`)
       }
     } catch {
       // Not a data.frame — ignore

@@ -5,23 +5,147 @@
 # It demonstrates descriptive statistics, logistic regression,
 # and ROC curve evaluation using base R.
 #
+# sql_query(sql) is automatically available in Linkr.
+# It queries the active DuckDB connection and returns a data.frame.
+# Usage: df <- sql_query("SELECT * FROM person LIMIT 10")
+#
 # Topic: Statistical analysis for ICU mortality prediction
-# Prerequisite: Run 04_example.py first to create the CSV dataset.
-# Input:  data/datasets/mortality_dataset.csv
 # Output: Console output + plots
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# 1. Load data
+# 1. Create cohort views and extract data
 # ---------------------------------------------------------------------------
-df <- read.csv("data/datasets/mortality_dataset.csv", stringsAsFactors = FALSE)
-cat(sprintf("Dataset loaded: %d rows x %d columns\n", nrow(df), ncol(df)))
+sql_query("
+    CREATE OR REPLACE VIEW eligible_visits AS
+    SELECT
+        v.visit_occurrence_id, v.person_id,
+        v.visit_start_date,
+        v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
+        v.visit_end_date,
+        v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
+        EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+            - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
+    FROM visit_occurrence v
+    WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
+        - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
+")
+
+sql_query("
+    CREATE OR REPLACE VIEW visit_mortality AS
+    SELECT ev.*,
+        CASE WHEN d.death_date IS NOT NULL
+             AND d.death_date BETWEEN ev.visit_start_date
+                                   AND ev.visit_end_date + INTERVAL '1 day'
+             THEN 1 ELSE 0 END AS in_hospital_death
+    FROM eligible_visits ev
+    LEFT JOIN death d ON ev.person_id = d.person_id
+")
+
+sql_query("
+    CREATE OR REPLACE VIEW cohort AS
+    SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
+        EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
+        p.gender_source_value AS sex, vm.los_hours, vm.in_hospital_death
+    FROM visit_mortality vm
+    JOIN person p ON vm.person_id = p.person_id
+    WHERE EXISTS (
+        SELECT 1 FROM measurement m
+        WHERE m.visit_occurrence_id = vm.visit_occurrence_id
+          AND m.value_as_number IS NOT NULL
+          AND m.measurement_datetime::TIMESTAMP >= vm.visit_start_datetime
+          AND m.measurement_datetime::TIMESTAMP
+              <= vm.visit_start_datetime + INTERVAL '24 hours'
+    )
+")
+
+# ---------------------------------------------------------------------------
+# 2. Feature engineering: extract H0-H24 measurements
+# ---------------------------------------------------------------------------
+vitals_ids   <- c(3027018, 3004249, 3012888, 3027598, 3024171, 40762499, 3020891)
+labs_ids     <- c(3000963, 3023314, 3024929, 3003282, 3019550, 3023103,
+                  3014576, 3016293, 3016723, 3013682, 3004501, 3037278,
+                  3015377, 3012095, 3011904)
+neuro_ids    <- c(3016335, 3009094, 3008223)
+all_ids      <- c(vitals_ids, labs_ids, neuro_ids)
+all_names    <- c(
+    "hr", "sbp", "dbp", "mbp", "resp_rate", "spo2", "temp",
+    "hemoglobin", "hematocrit", "platelets", "wbc", "sodium", "potassium",
+    "chloride", "bicarbonate", "creatinine", "bun", "glucose", "anion_gap",
+    "calcium", "magnesium", "phosphate",
+    "gcs_eye", "gcs_verbal", "gcs_motor"
+)
+names(all_names) <- as.character(all_ids)
+
+concept_csv <- paste(all_ids, collapse = ", ")
+measurements_h24 <- sql_query(paste0("
+    SELECT m.visit_occurrence_id, m.measurement_concept_id,
+           m.value_as_number,
+           m.measurement_datetime::TIMESTAMP AS measurement_datetime,
+           c.visit_start_datetime
+    FROM measurement m
+    JOIN cohort c ON m.visit_occurrence_id = c.visit_occurrence_id
+    WHERE m.measurement_concept_id IN (", concept_csv, ")
+      AND m.value_as_number IS NOT NULL
+      AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime
+      AND m.measurement_datetime::TIMESTAMP
+          <= c.visit_start_datetime + INTERVAL '24 hours'
+"))
+
+cat(sprintf("Measurements in H0-H24: %d rows\n", nrow(measurements_h24)))
+
+# Map concept IDs to feature names
+measurements_h24$feature <- all_names[as.character(measurements_h24$measurement_concept_id)]
+
+# Aggregate per visit x feature
+agg_list <- list()
+for (vid in unique(measurements_h24$visit_occurrence_id)) {
+    sub <- measurements_h24[measurements_h24$visit_occurrence_id == vid, ]
+    for (feat in unique(sub$feature)) {
+        rows <- sub[sub$feature == feat, ]
+        cid <- rows$measurement_concept_id[1]
+        vals <- rows$value_as_number[order(rows$measurement_datetime)]
+
+        if (cid %in% vitals_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, c("_mean", "_min", "_max")),
+                val = c(mean(vals), min(vals), max(vals)),
+                stringsAsFactors = FALSE)
+        } else if (cid %in% neuro_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_min"), val = min(vals),
+                stringsAsFactors = FALSE)
+        } else if (cid %in% labs_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_first"), val = vals[1],
+                stringsAsFactors = FALSE)
+        }
+    }
+}
+agg_df <- do.call(rbind, agg_list)
+
+# Pivot to wide format
+wide <- reshape(agg_df, idvar = "visit_occurrence_id", timevar = "col",
+                direction = "wide", v.names = "val")
+names(wide) <- sub("^val\\.", "", names(wide))
+
+# Merge with cohort demographics
+cohort_df <- sql_query("
+    SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
+    FROM cohort
+")
+df <- merge(cohort_df, wide, by = "visit_occurrence_id", all.x = TRUE)
+
+cat(sprintf("Dataset: %d rows x %d columns\n", nrow(df), ncol(df)))
 cat(sprintf("Mortality: %d / %d (%.1f%%)\n\n",
     sum(df$in_hospital_death), nrow(df),
     100 * mean(df$in_hospital_death)))
 
 # ---------------------------------------------------------------------------
-# 2. Descriptive statistics (Table 1)
+# 3. Descriptive statistics (Table 1)
 # ---------------------------------------------------------------------------
 cat("=" |> rep(60) |> paste(collapse = ""), "\n")
 cat("TABLE 1: Patient characteristics by outcome\n")
@@ -74,7 +198,7 @@ for (v in c("gcs_eye_min", "gcs_verbal_min", "gcs_motor_min")) {
 }
 
 # ---------------------------------------------------------------------------
-# 3. Logistic regression model
+# 4. Logistic regression model
 # ---------------------------------------------------------------------------
 cat("\n\n")
 cat("=" |> rep(60) |> paste(collapse = ""), "\n")
@@ -112,7 +236,7 @@ cat("Model summary:\n")
 print(summary(model))
 
 # ---------------------------------------------------------------------------
-# 4. Model evaluation
+# 5. Model evaluation
 # ---------------------------------------------------------------------------
 cat("\n")
 cat("=" |> rep(60) |> paste(collapse = ""), "\n")
@@ -161,7 +285,7 @@ cat(sprintf("Sensitivity: %.1f%%\n", 100 * sens))
 cat(sprintf("Specificity: %.1f%%\n", 100 * spec))
 
 # ---------------------------------------------------------------------------
-# 5. Plot ROC curve
+# 6. Plot ROC curve
 # ---------------------------------------------------------------------------
 plot(roc_sorted$fpr, roc_sorted$tpr,
      type = "l", col = "steelblue", lwd = 2,

@@ -300,7 +300,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
           </ScrollArea>
         )}
         {!showExecContent && activeTab?.type === 'figure' && (
-          <div className="flex h-full items-center justify-center p-4 bg-white dark:bg-zinc-900">
+          <div className="flex h-full items-center justify-center p-4 bg-white dark:invert dark:hue-rotate-180">
             {typeof activeTab.content === 'string' &&
             activeTab.content.startsWith('<svg') ? (
               <div
@@ -315,7 +315,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
                 className="max-w-full max-h-full object-contain"
               />
             ) : (
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <div className="flex flex-col items-center gap-2 text-muted-foreground dark:invert dark:hue-rotate-180">
                 <ImageIcon size={48} className="opacity-30" />
                 <p className="text-xs">
                   {String(activeTab.content) || 'Figure'}

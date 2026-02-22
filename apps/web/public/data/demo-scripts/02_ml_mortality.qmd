@@ -5,79 +5,56 @@ format: html
 
 # ICU Mortality Prediction — Machine Learning Pipeline
 
-This **self-contained** report builds and evaluates predictive models for
-in-hospital mortality using OMOP CDM data.
+This **self-contained** R report builds and evaluates predictive models for
+in-hospital mortality using OMOP CDM data queried via `sql_query()`.
 
 Steps:
 
-1. Cohort extraction & feature engineering (SQL + pandas)
-2. Data preparation & cleaning
-3. Train/test split with stratification
-4. Logistic regression (baseline)
-5. Gradient boosting
-6. Model comparison & evaluation
-7. Calibration analysis
-8. Feature importance
-9. SHAP analysis
-10. LIME explanations
-11. Summary & clinical interpretation
+1. Cohort extraction (SQL)
+2. Feature engineering (SQL + R)
+3. Data preparation & cleaning
+4. Train/test split
+5. Logistic regression (baseline)
+6. Decision tree (rpart)
+7. Model comparison & evaluation
+8. Calibration analysis
+9. Feature importance
+10. Clinical interpretation & summary
 
 **Requirements:** An active database connection with OMOP CDM tables
 (person, visit_occurrence, death, measurement, concept).
 
-> `sql_query(sql)` is automatically available in Linkr notebooks.
+> `sql_query(sql)` is automatically available in Linkr R notebooks.
+> It queries the active DuckDB connection and returns a data.frame.
 
-```{python}
-import pandas as pd
-import numpy as np
-import matplotlib
-matplotlib.use('agg')
-import matplotlib.pyplot as plt
-from scipy import stats
-
-pd.set_option('display.max_columns', 50)
-np.random.seed(42)
+```{r setup}
+set.seed(42)
 ```
 
-## 1. Cohort Extraction & Feature Engineering
+## 1. Cohort Extraction
 
-We extract the cohort and build the feature matrix entirely via SQL and pandas.
+We create the cohort entirely via SQL — eligible visits (≥ 24h stay),
+mortality status, and demographics.
 
-```{python}
-# Measurement concept configuration
-VITALS = {
-    3027018: "hr", 3004249: "sbp", 3012888: "dbp", 3027598: "mbp",
-    3024171: "resp_rate", 40762499: "spo2", 3020891: "temp",
-}
-LABS = {
-    3000963: "hemoglobin", 3023314: "hematocrit", 3024929: "platelets",
-    3003282: "wbc", 3019550: "sodium", 3023103: "potassium",
-    3014576: "chloride", 3016293: "bicarbonate", 3016723: "creatinine",
-    3013682: "bun", 3004501: "glucose", 3037278: "anion_gap",
-    3015377: "calcium", 3012095: "magnesium", 3011904: "phosphate",
-}
-NEURO = {3016335: "gcs_eye", 3009094: "gcs_verbal", 3008223: "gcs_motor"}
-ALL_MEASUREMENTS = {**VITALS, **LABS, **NEURO}
-```
-
-```{python}
-# Create cohort views
-await sql_query("""
+```{r cohort-views}
+# Eligible visits: stays >= 24 hours
+sql_query("
     CREATE OR REPLACE VIEW eligible_visits AS
-    SELECT v.visit_occurrence_id, v.person_id, v.visit_concept_id,
+    SELECT
+        v.visit_occurrence_id, v.person_id,
         v.visit_start_date,
         v.visit_start_datetime::TIMESTAMP AS visit_start_datetime,
         v.visit_end_date,
         v.visit_end_datetime::TIMESTAMP AS visit_end_datetime,
-        v.discharge_to_concept_id,
         EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
             - v.visit_start_datetime::TIMESTAMP)) / 3600 AS los_hours
     FROM visit_occurrence v
     WHERE EXTRACT(EPOCH FROM (v.visit_end_datetime::TIMESTAMP
         - v.visit_start_datetime::TIMESTAMP)) / 3600 >= 24
-""")
+")
 
-await sql_query("""
+# In-hospital mortality
+sql_query("
     CREATE OR REPLACE VIEW visit_mortality AS
     SELECT ev.*,
         CASE WHEN d.death_date IS NOT NULL
@@ -86,9 +63,10 @@ await sql_query("""
              THEN 1 ELSE 0 END AS in_hospital_death
     FROM eligible_visits ev
     LEFT JOIN death d ON ev.person_id = d.person_id
-""")
+")
 
-await sql_query("""
+# Final cohort with demographics
+sql_query("
     CREATE OR REPLACE VIEW cohort AS
     SELECT vm.visit_occurrence_id, vm.person_id, vm.visit_start_datetime,
         EXTRACT(YEAR FROM vm.visit_start_date) - p.year_of_birth AS age,
@@ -103,491 +81,516 @@ await sql_query("""
           AND m.measurement_datetime::TIMESTAMP
               <= vm.visit_start_datetime + INTERVAL '24 hours'
     )
-""")
-
-summary = await sql_query("""
-    SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
-        SUM(in_hospital_death) AS n_deaths,
-        ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct
-    FROM cohort
-""")
-print("Cohort:"); print(summary.to_string(index=False))
+")
 ```
 
-```{python}
-# Extract H0-H24 measurements, aggregate, pivot to wide format
-concept_ids = ", ".join(str(cid) for cid in ALL_MEASUREMENTS.keys())
-measurements_h24 = await sql_query(f"""
+```{r cohort-summary}
+summary_df <- sql_query("
+    SELECT COUNT(*) AS n_visits, COUNT(DISTINCT person_id) AS n_patients,
+        SUM(in_hospital_death) AS n_deaths,
+        ROUND(100.0 * SUM(in_hospital_death) / COUNT(*), 1) AS mortality_pct,
+        ROUND(AVG(age), 1) AS mean_age,
+        ROUND(AVG(los_hours), 1) AS mean_los_hours
+    FROM cohort
+")
+cat("Cohort:\n")
+print(summary_df)
+```
+
+## 2. Feature Engineering
+
+Extract vital signs, laboratory values, and GCS from the first 24 hours,
+then aggregate into a wide-format feature matrix.
+
+```{r measurement-config}
+# Concept IDs → column prefixes
+vitals <- c(
+    "3027018" = "hr",        "3004249" = "sbp",       "3012888" = "dbp",
+    "3027598" = "mbp",       "3024171" = "resp_rate",  "40762499" = "spo2",
+    "3020891" = "temp"
+)
+labs <- c(
+    "3000963" = "hemoglobin", "3023314" = "hematocrit", "3024929" = "platelets",
+    "3003282" = "wbc",        "3019550" = "sodium",     "3023103" = "potassium",
+    "3014576" = "chloride",   "3016293" = "bicarbonate","3016723" = "creatinine",
+    "3013682" = "bun",        "3004501" = "glucose",    "3037278" = "anion_gap",
+    "3015377" = "calcium",    "3012095" = "magnesium",  "3011904" = "phosphate"
+)
+neuro <- c(
+    "3016335" = "gcs_eye", "3009094" = "gcs_verbal", "3008223" = "gcs_motor"
+)
+all_measurements <- c(vitals, labs, neuro)
+```
+
+```{r extract-measurements}
+concept_ids <- paste(names(all_measurements), collapse = ", ")
+
+measurements_h24 <- sql_query(paste0("
     SELECT m.visit_occurrence_id, m.measurement_concept_id,
            m.value_as_number,
            m.measurement_datetime::TIMESTAMP AS measurement_datetime,
            c.visit_start_datetime
     FROM measurement m
     JOIN cohort c ON m.visit_occurrence_id = c.visit_occurrence_id
-    WHERE m.measurement_concept_id IN ({concept_ids})
+    WHERE m.measurement_concept_id IN (", concept_ids, ")
       AND m.value_as_number IS NOT NULL
       AND m.measurement_datetime::TIMESTAMP >= c.visit_start_datetime
       AND m.measurement_datetime::TIMESTAMP
           <= c.visit_start_datetime + INTERVAL '24 hours'
-""")
+"))
 
-measurements_h24["feature"] = measurements_h24["measurement_concept_id"].map(ALL_MEASUREMENTS)
-vitals_ids, labs_ids, neuro_ids = set(VITALS), set(LABS), set(NEURO)
+cat(sprintf("Measurements in H0-H24: %d rows\n", nrow(measurements_h24)))
+```
 
-aggregated_rows = []
-for (visit_id, feature), group in measurements_h24.groupby(
-    ["visit_occurrence_id", "feature"]
-):
-    cid = group["measurement_concept_id"].iloc[0]
-    values = group.sort_values("measurement_datetime")["value_as_number"]
-    if cid in vitals_ids:
-        for agg, fn in [("mean", values.mean), ("min", values.min), ("max", values.max)]:
-            aggregated_rows.append({"visit_occurrence_id": visit_id,
-                "col": f"{feature}_{agg}", "val": fn()})
-    elif cid in neuro_ids:
-        aggregated_rows.append({"visit_occurrence_id": visit_id,
-            "col": f"{feature}_min", "val": values.min()})
-    elif cid in labs_ids:
-        aggregated_rows.append({"visit_occurrence_id": visit_id,
-            "col": f"{feature}_first", "val": values.iloc[0]})
+```{r aggregate-features}
+# Map concept IDs to feature names
+measurements_h24$feature <- all_measurements[as.character(measurements_h24$measurement_concept_id)]
 
-wide = pd.DataFrame(aggregated_rows).pivot_table(
-    index="visit_occurrence_id", columns="col", values="val", aggfunc="first"
-).reset_index()
+vitals_ids  <- as.integer(names(vitals))
+labs_ids    <- as.integer(names(labs))
+neuro_ids   <- as.integer(names(neuro))
 
-cohort_df = await sql_query("""
+# Aggregate per visit x feature
+agg_list <- list()
+for (vid in unique(measurements_h24$visit_occurrence_id)) {
+    sub <- measurements_h24[measurements_h24$visit_occurrence_id == vid, ]
+    for (feat in unique(sub$feature)) {
+        rows <- sub[sub$feature == feat, ]
+        cid <- rows$measurement_concept_id[1]
+        vals <- rows$value_as_number[order(rows$measurement_datetime)]
+
+        if (cid %in% vitals_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, c("_mean", "_min", "_max")),
+                val = c(mean(vals), min(vals), max(vals)),
+                stringsAsFactors = FALSE
+            )
+        } else if (cid %in% neuro_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_min"), val = min(vals),
+                stringsAsFactors = FALSE
+            )
+        } else if (cid %in% labs_ids) {
+            agg_list[[length(agg_list) + 1]] <- data.frame(
+                visit_occurrence_id = vid,
+                col = paste0(feat, "_first"), val = vals[1],
+                stringsAsFactors = FALSE
+            )
+        }
+    }
+}
+agg_df <- do.call(rbind, agg_list)
+cat(sprintf("Aggregated: %d rows, %d features\n",
+    nrow(agg_df), length(unique(agg_df$col))))
+```
+
+```{r pivot-and-merge}
+# Pivot to wide format
+wide <- reshape(agg_df, idvar = "visit_occurrence_id", timevar = "col",
+                direction = "wide", v.names = "val")
+names(wide) <- sub("^val\\.", "", names(wide))
+
+# Merge with cohort demographics
+cohort_df <- sql_query("
     SELECT visit_occurrence_id, person_id, age, sex, los_hours, in_hospital_death
     FROM cohort
-""")
-df = cohort_df.merge(wide, on="visit_occurrence_id", how="left")
-print(f"Dataset: {df.shape[0]} rows x {df.shape[1]} columns")
-print(f"Mortality: {int(df['in_hospital_death'].sum())} / {len(df)} "
-      f"({100 * df['in_hospital_death'].mean():.1f}%)")
+")
+df <- merge(cohort_df, wide, by = "visit_occurrence_id", all.x = TRUE)
+
+cat(sprintf("Dataset: %d rows x %d columns\n", nrow(df), ncol(df)))
+cat(sprintf("Deaths: %d / %d (%.1f%%)\n",
+    sum(df$in_hospital_death), nrow(df),
+    100 * mean(df$in_hospital_death)))
 ```
 
-## 2. Data Preparation
+## 3. Data Preparation
 
-```{python}
-id_cols = ['visit_occurrence_id', 'person_id']
-target_col = 'in_hospital_death'
-exclude_cols = id_cols + [target_col, 'sex']
+```{r feature-selection}
+id_cols     <- c("visit_occurrence_id", "person_id")
+target_col  <- "in_hospital_death"
+exclude     <- c(id_cols, target_col, "sex", "los_hours")
 
-numeric_features = [c for c in df.columns if c not in exclude_cols
-                    and df[c].dtype in ['float64', 'int64', 'float32']]
+feature_cols <- setdiff(names(df), exclude)
+feature_cols <- feature_cols[sapply(df[feature_cols], is.numeric)]
 
 # Exclude features with > 30% missing
-missing_pct = df[numeric_features].isnull().mean()
-usable_features = list(missing_pct[missing_pct < 0.30].index)
-excluded_features = list(missing_pct[missing_pct >= 0.30].index)
+missing_pct <- sapply(df[feature_cols], function(x) mean(is.na(x)))
+usable <- names(missing_pct[missing_pct < 0.30])
+excluded <- names(missing_pct[missing_pct >= 0.30])
 
-print(f"Total features: {len(numeric_features)}")
-print(f"Usable features (<30% missing): {len(usable_features)}")
-if excluded_features:
-    print(f"Excluded (>=30% missing): {excluded_features}")
-
-# Build model matrix
-X = df[usable_features].copy()
-X['sex_male'] = (df['sex'] == 'M').astype(int)
-y = df[target_col].values
-
-# Median imputation
-for col in usable_features:
-    mask = X[col].isnull()
-    if mask.any():
-        X.loc[mask, col] = X[col].median()
-
-feature_names = list(X.columns)
-print(f"Model matrix: {X.shape[0]} x {X.shape[1]}")
-```
-
-## 3. Train/Test Split
-
-```{python}
-from sklearn.model_selection import train_test_split
-
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.25, random_state=42, stratify=y
-)
-
-print(f"Train: {len(X_train)} ({100 * y_train.mean():.1f}% mortality)")
-print(f"Test:  {len(X_test)} ({100 * y_test.mean():.1f}% mortality)")
-```
-
-```{python}
-# Compare distributions between train and test
-print(f"\n{'Feature':<25} {'Train mean':>12} {'Test mean':>12} {'Diff':>8}")
-print("-" * 60)
-for col in feature_names[:15]:
-    tr = X_train[col].mean(); te = X_test[col].mean()
-    print(f"{col:<25} {tr:>12.2f} {te:>12.2f} {abs(tr - te):>8.2f}")
-```
-
-## 4. Logistic Regression
-
-```{python}
-from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import (roc_auc_score, classification_report,
-    confusion_matrix, roc_curve, precision_recall_curve,
-    average_precision_score, brier_score_loss)
-
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
-
-lr = LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced')
-lr.fit(X_train_scaled, y_train)
-
-lr_proba_test = lr.predict_proba(X_test_scaled)[:, 1]
-lr_pred_test = lr.predict(X_test_scaled)
-
-print("Logistic Regression - Test Set")
-print("=" * 50)
-print(f"AUC-ROC:  {roc_auc_score(y_test, lr_proba_test):.3f}")
-print(f"AUC-PR:   {average_precision_score(y_test, lr_proba_test):.3f}")
-print(f"Brier:    {brier_score_loss(y_test, lr_proba_test):.3f}")
-print(f"\n{classification_report(y_test, lr_pred_test, target_names=['Alive', 'Dead'])}")
-```
-
-```{python}
-# Coefficients and odds ratios
-coef_df = pd.DataFrame({
-    'Feature': feature_names,
-    'Coefficient': lr.coef_[0],
-    'Odds Ratio': np.exp(lr.coef_[0])
-}).sort_values('Coefficient', key=abs, ascending=False)
-print("Top predictors (by |coefficient|):")
-print(coef_df.head(15).to_string(index=False))
-```
-
-## 5. Gradient Boosting
-
-```{python}
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.model_selection import cross_val_score
-
-gb = GradientBoostingClassifier(
-    n_estimators=200, max_depth=4, learning_rate=0.1,
-    subsample=0.8, min_samples_leaf=20, random_state=42
-)
-gb.fit(X_train, y_train)
-
-gb_proba_test = gb.predict_proba(X_test)[:, 1]
-gb_pred_test = gb.predict(X_test)
-
-print("Gradient Boosting - Test Set")
-print("=" * 50)
-print(f"AUC-ROC:  {roc_auc_score(y_test, gb_proba_test):.3f}")
-print(f"AUC-PR:   {average_precision_score(y_test, gb_proba_test):.3f}")
-print(f"Brier:    {brier_score_loss(y_test, gb_proba_test):.3f}")
-print(f"\n{classification_report(y_test, gb_pred_test, target_names=['Alive', 'Dead'])}")
-```
-
-```{python}
-cv = cross_val_score(gb, X_train, y_train, cv=5, scoring='roc_auc')
-print(f"5-fold CV AUC-ROC: {cv.mean():.3f} +/- {cv.std():.3f}")
-print(f"Per-fold: {[f'{s:.3f}' for s in cv]}")
-```
-
-## 6. Model Comparison
-
-```{python}
-fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-
-# ROC
-for name, proba, color in [("Logistic Regression", lr_proba_test, "#4C78A8"),
-                             ("Gradient Boosting", gb_proba_test, "#E45756")]:
-    fpr, tpr, _ = roc_curve(y_test, proba)
-    auc = roc_auc_score(y_test, proba)
-    axes[0].plot(fpr, tpr, color=color, lw=2, label=f'{name} (AUC={auc:.3f})')
-axes[0].plot([0, 1], [0, 1], 'k--', alpha=0.3)
-axes[0].set_xlabel('FPR'); axes[0].set_ylabel('TPR')
-axes[0].set_title('ROC Curve'); axes[0].legend(fontsize=8)
-
-# Precision-Recall
-for name, proba, color in [("Logistic Regression", lr_proba_test, "#4C78A8"),
-                             ("Gradient Boosting", gb_proba_test, "#E45756")]:
-    prec, rec, _ = precision_recall_curve(y_test, proba)
-    ap = average_precision_score(y_test, proba)
-    axes[1].plot(rec, prec, color=color, lw=2, label=f'{name} (AP={ap:.3f})')
-axes[1].axhline(y=y_test.mean(), color='gray', ls='--', alpha=0.5,
-                label=f'Prevalence ({y_test.mean():.2f})')
-axes[1].set_xlabel('Recall'); axes[1].set_ylabel('Precision')
-axes[1].set_title('Precision-Recall'); axes[1].legend(fontsize=8)
-
-# Confusion matrix (gradient boosting)
-cm = confusion_matrix(y_test, gb_pred_test)
-im = axes[2].imshow(cm, cmap='Blues')
-for i in range(2):
-    for j in range(2):
-        axes[2].text(j, i, str(cm[i, j]), ha='center', va='center',
-            fontsize=16, color='white' if cm[i, j] > cm.max() / 2 else 'black')
-axes[2].set_xticks([0, 1]); axes[2].set_yticks([0, 1])
-axes[2].set_xticklabels(['Alive', 'Dead']); axes[2].set_yticklabels(['Alive', 'Dead'])
-axes[2].set_xlabel('Predicted'); axes[2].set_ylabel('Actual')
-axes[2].set_title('Confusion Matrix (GB)')
-plt.colorbar(im, ax=axes[2], shrink=0.8)
-
-plt.tight_layout(); plt.show()
-```
-
-```{python}
-# Summary comparison
-models = {
-    'Logistic Regression': (lr_proba_test, lr_pred_test),
-    'Gradient Boosting': (gb_proba_test, gb_pred_test),
+cat(sprintf("Total features: %d\n", length(feature_cols)))
+cat(sprintf("Usable (<30%% missing): %d\n", length(usable)))
+if (length(excluded) > 0) {
+    cat(sprintf("Excluded: %s\n", paste(excluded, collapse = ", ")))
 }
-comparison = []
-for name, (proba, pred) in models.items():
-    cm = confusion_matrix(y_test, pred)
-    tn, fp, fn, tp = cm.ravel()
-    comparison.append({
-        'Model': name,
-        'AUC-ROC': round(roc_auc_score(y_test, proba), 3),
-        'AUC-PR': round(average_precision_score(y_test, proba), 3),
-        'Brier': round(brier_score_loss(y_test, proba), 3),
-        'Sensitivity': round(tp / max(tp + fn, 1), 3),
-        'Specificity': round(tn / max(tn + fp, 1), 3),
-        'PPV': round(tp / max(tp + fp, 1), 3),
-        'NPV': round(tn / max(tn + fn, 1), 3),
-    })
-print(pd.DataFrame(comparison).to_string(index=False))
 ```
 
-## 7. Calibration
+```{r model-matrix}
+# Build model matrix with sex encoding and median imputation
+model_df <- df[, c(target_col, usable), drop = FALSE]
+model_df$sex_male <- as.integer(df$sex == "M")
 
-```{python}
-from sklearn.calibration import calibration_curve
+for (col in usable) {
+    nas <- is.na(model_df[[col]])
+    if (any(nas)) {
+        model_df[[col]][nas] <- median(model_df[[col]], na.rm = TRUE)
+    }
+}
 
-fig, axes = plt.subplots(1, 2, figsize=(13, 5))
-for i, (name, proba, color) in enumerate([
-    ("Logistic Regression", lr_proba_test, "#4C78A8"),
-    ("Gradient Boosting", gb_proba_test, "#E45756")
-]):
-    frac, mean_pred = calibration_curve(y_test, proba, n_bins=10, strategy='uniform')
-    axes[i].plot(mean_pred, frac, 's-', color=color, label='Model')
-    axes[i].plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Perfect')
-    axes[i].set_xlabel('Predicted'); axes[i].set_ylabel('Observed')
-    axes[i].set_title(f'Calibration - {name}'); axes[i].legend()
-    ax2 = axes[i].twinx()
-    ax2.hist(proba, bins=30, alpha=0.15, color=color)
-    ax2.set_ylabel('Count', alpha=0.5)
-plt.tight_layout(); plt.show()
+feature_names <- c(usable, "sex_male")
+cat(sprintf("Model matrix: %d x %d\n", nrow(model_df), length(feature_names)))
 ```
 
-## 8. Feature Importance
+## 4. Train/Test Split
 
-```{python}
-from sklearn.inspection import permutation_importance
+```{r train-test-split}
+# Stratified 75/25 split
+pos_idx <- which(model_df[[target_col]] == 1)
+neg_idx <- which(model_df[[target_col]] == 0)
 
-# Built-in vs permutation importance
-importances = gb.feature_importances_
-importance_df = pd.DataFrame({
-    'Feature': feature_names, 'Importance': importances
-}).sort_values('Importance', ascending=False)
+train_pos <- sample(pos_idx, round(0.75 * length(pos_idx)))
+train_neg <- sample(neg_idx, round(0.75 * length(neg_idx)))
+train_idx <- sort(c(train_pos, train_neg))
+test_idx  <- setdiff(seq_len(nrow(model_df)), train_idx)
 
-perm = permutation_importance(
-    gb, X_test, y_test, n_repeats=10, random_state=42, scoring='roc_auc'
+train_df <- model_df[train_idx, ]
+test_df  <- model_df[test_idx, ]
+
+cat(sprintf("Train: %d (%.1f%% mortality)\n",
+    nrow(train_df), 100 * mean(train_df[[target_col]])))
+cat(sprintf("Test:  %d (%.1f%% mortality)\n",
+    nrow(test_df), 100 * mean(test_df[[target_col]])))
+```
+
+```{r split-comparison}
+# Compare feature distributions between train and test
+cat(sprintf("\n%-25s %12s %12s %8s\n", "Feature", "Train mean", "Test mean", "Diff"))
+cat(paste(rep("-", 60), collapse = ""), "\n")
+for (col in head(feature_names, 15)) {
+    tr <- mean(train_df[[col]], na.rm = TRUE)
+    te <- mean(test_df[[col]], na.rm = TRUE)
+    cat(sprintf("%-25s %12.2f %12.2f %8.2f\n", col, tr, te, abs(tr - te)))
+}
+```
+
+## 5. Logistic Regression
+
+```{r logistic-regression}
+formula <- as.formula(paste(target_col, "~",
+    paste(feature_names, collapse = " + ")))
+lr_model <- glm(formula, data = train_df, family = binomial)
+
+cat("Model coefficients (top 15 by |coefficient|):\n")
+coefs <- coef(lr_model)[-1]  # exclude intercept
+coef_df <- data.frame(
+    Feature = names(coefs),
+    Coefficient = unname(coefs),
+    OddsRatio = exp(unname(coefs)),
+    stringsAsFactors = FALSE
 )
-perm_df = pd.DataFrame({
-    'Feature': feature_names,
-    'Importance': perm.importances_mean,
-    'Std': perm.importances_std,
-}).sort_values('Importance', ascending=False)
-
-fig, axes = plt.subplots(1, 2, figsize=(16, 7))
-top_n = min(20, len(importance_df))
-
-top = importance_df.head(top_n)
-axes[0].barh(range(top_n), top['Importance'].values, color='#72B7B2', edgecolor='white')
-axes[0].set_yticks(range(top_n))
-axes[0].set_yticklabels(top['Feature'].values, fontsize=9)
-axes[0].set_xlabel('Impurity-based Importance')
-axes[0].set_title('Built-in Feature Importance'); axes[0].invert_yaxis()
-
-top = perm_df.head(top_n)
-axes[1].barh(range(top_n), top['Importance'].values, color='#F58518',
-             xerr=top['Std'].values, edgecolor='white', capsize=3)
-axes[1].set_yticks(range(top_n))
-axes[1].set_yticklabels(top['Feature'].values, fontsize=9)
-axes[1].set_xlabel('Permutation Importance (delta AUC)')
-axes[1].set_title('Permutation Importance'); axes[1].invert_yaxis()
-
-plt.tight_layout(); plt.show()
+coef_df <- coef_df[order(-abs(coef_df$Coefficient)), ]
+print(head(coef_df, 15), row.names = FALSE)
 ```
 
-## 9. SHAP Analysis
-
-SHAP (SHapley Additive exPlanations) provides consistent, theoretically grounded
-feature attributions for individual predictions.
-
-```{python}
-import shap
-
-explainer = shap.TreeExplainer(gb)
-shap_values = explainer.shap_values(X_test)
+```{r lr-predictions}
+lr_proba_train <- predict(lr_model, train_df, type = "response")
+lr_proba_test  <- predict(lr_model, test_df, type = "response")
+lr_pred_test   <- as.integer(lr_proba_test >= 0.5)
 ```
 
-```{python}
-# Summary plot (beeswarm)
-fig, ax = plt.subplots(figsize=(10, 8))
-shap.summary_plot(shap_values, X_test, feature_names=feature_names,
-                  show=False, max_display=20)
-plt.title('SHAP Summary - Feature Impact on Mortality')
-plt.tight_layout(); plt.show()
+## 6. Decision Tree
+
+```{r rpart-model}
+library(rpart)
+
+tree_model <- rpart(formula, data = train_df, method = "class",
+    control = rpart.control(cp = 0.01, maxdepth = 5, minsplit = 20))
+
+tree_proba_test <- predict(tree_model, test_df, type = "prob")[, "1"]
+tree_pred_test  <- as.integer(tree_proba_test >= 0.5)
+
+cat("Decision tree structure:\n")
+print(tree_model)
 ```
 
-```{python}
-# SHAP bar plot
-fig, ax = plt.subplots(figsize=(10, 7))
-shap.summary_plot(shap_values, X_test, feature_names=feature_names,
-                  plot_type='bar', show=False, max_display=20)
-plt.title('Mean |SHAP Value|')
-plt.tight_layout(); plt.show()
-```
+## 7. Model Evaluation
 
-```{python}
-# Dependence plots for top 4 features
-shap_abs = np.abs(shap_values).mean(axis=0)
-top4 = np.argsort(shap_abs)[-4:][::-1]
+```{r roc-helpers}
+# Manual ROC + AUC (base R, no external packages)
+compute_roc <- function(y_true, y_prob) {
+    thresholds <- sort(unique(c(0, y_prob, 1)), decreasing = TRUE)
+    tpr <- fpr <- numeric(length(thresholds))
+    n_pos <- sum(y_true == 1)
+    n_neg <- sum(y_true == 0)
+    for (i in seq_along(thresholds)) {
+        pred <- as.integer(y_prob >= thresholds[i])
+        tpr[i] <- sum(pred == 1 & y_true == 1) / max(n_pos, 1)
+        fpr[i] <- sum(pred == 1 & y_true == 0) / max(n_neg, 1)
+    }
+    ord <- order(fpr, tpr)
+    list(fpr = fpr[ord], tpr = tpr[ord], thresholds = thresholds[ord])
+}
 
-fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-for idx, feat_idx in enumerate(top4):
-    shap.dependence_plot(feat_idx, shap_values, X_test,
-        feature_names=feature_names, ax=axes[idx // 2, idx % 2], show=False)
-plt.suptitle('SHAP Dependence - Top 4 Features', y=1.02)
-plt.tight_layout(); plt.show()
-```
+compute_auc <- function(roc) {
+    abs(sum(diff(roc$fpr) * (head(roc$tpr, -1) + tail(roc$tpr, -1)) / 2))
+}
 
-```{python}
-# Waterfall: highest-risk patient
-high_risk = np.argmax(gb_proba_test)
-print(f"Highest-risk patient (idx {high_risk}):")
-print(f"  Predicted: {gb_proba_test[high_risk]:.3f}")
-print(f"  Actual: {'Dead' if y_test[high_risk] == 1 else 'Alive'}")
-
-fig, ax = plt.subplots(figsize=(10, 6))
-shap.waterfall_plot(
-    shap.Explanation(
-        values=shap_values[high_risk],
-        base_values=explainer.expected_value,
-        data=X_test.iloc[high_risk].values,
-        feature_names=feature_names
-    ),
-    show=False, max_display=15
-)
-plt.title(f'SHAP Waterfall - Highest Risk (P={gb_proba_test[high_risk]:.2f})')
-plt.tight_layout(); plt.show()
-```
-
-```{python}
-# Waterfall: lowest-risk patient
-low_risk = np.argmin(gb_proba_test)
-print(f"Lowest-risk patient (idx {low_risk}):")
-print(f"  Predicted: {gb_proba_test[low_risk]:.3f}")
-print(f"  Actual: {'Dead' if y_test[low_risk] == 1 else 'Alive'}")
-
-fig, ax = plt.subplots(figsize=(10, 6))
-shap.waterfall_plot(
-    shap.Explanation(
-        values=shap_values[low_risk],
-        base_values=explainer.expected_value,
-        data=X_test.iloc[low_risk].values,
-        feature_names=feature_names
-    ),
-    show=False, max_display=15
-)
-plt.title(f'SHAP Waterfall - Lowest Risk (P={gb_proba_test[low_risk]:.2f})')
-plt.tight_layout(); plt.show()
-```
-
-## 10. LIME Explanations
-
-LIME approximates the model locally with an interpretable linear model.
-
-```{python}
-import lime.lime_tabular
-
-lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-    X_train.values, feature_names=feature_names,
-    class_names=['Alive', 'Dead'], mode='classification', random_state=42
-)
-```
-
-```{python}
-# LIME: highest-risk patient
-print(f"LIME - Highest risk (P={gb_proba_test[high_risk]:.3f})")
-lime_exp = lime_explainer.explain_instance(
-    X_test.iloc[high_risk].values, gb.predict_proba,
-    num_features=15, top_labels=1
-)
-print("\nFeature contributions (positive = increased risk):")
-for feat, weight in lime_exp.as_list(label=1):
-    direction = "risk+" if weight > 0 else "risk-"
-    print(f"  {feat:<45} {weight:>+.4f}  ({direction})")
-
-fig = lime_exp.as_pyplot_figure(label=1)
-fig.set_size_inches(10, 6)
-plt.title(f'LIME - Highest Risk (P={gb_proba_test[high_risk]:.3f})')
-plt.tight_layout(); plt.show()
-```
-
-```{python}
-# LIME: a low-risk survivor
-survivors = np.where((y_test == 0) & (gb_proba_test < 0.1))[0]
-if len(survivors) > 0:
-    surv_idx = survivors[0]
-    print(f"LIME - Low-risk survivor (P={gb_proba_test[surv_idx]:.3f})")
-    lime_exp_surv = lime_explainer.explain_instance(
-        X_test.iloc[surv_idx].values, gb.predict_proba,
-        num_features=15, top_labels=1
+compute_metrics <- function(y_true, y_pred, y_prob) {
+    cm <- table(Predicted = y_pred, Actual = y_true)
+    tp <- if ("1" %in% rownames(cm) && "1" %in% colnames(cm)) cm["1", "1"] else 0
+    tn <- if ("0" %in% rownames(cm) && "0" %in% colnames(cm)) cm["0", "0"] else 0
+    fp <- if ("1" %in% rownames(cm) && "0" %in% colnames(cm)) cm["1", "0"] else 0
+    fn <- if ("0" %in% rownames(cm) && "1" %in% colnames(cm)) cm["0", "1"] else 0
+    roc <- compute_roc(y_true, y_prob)
+    list(
+        auc     = compute_auc(roc),
+        sens    = tp / max(tp + fn, 1),
+        spec    = tn / max(tn + fp, 1),
+        ppv     = tp / max(tp + fp, 1),
+        npv     = tn / max(tn + fn, 1),
+        acc     = (tp + tn) / max(tp + tn + fp + fn, 1),
+        brier   = mean((y_prob - y_true)^2),
+        roc     = roc,
+        cm      = cm
     )
-    print("\nFeature contributions:")
-    for feat, weight in lime_exp_surv.as_list(label=1):
-        direction = "risk+" if weight > 0 else "risk-"
-        print(f"  {feat:<45} {weight:>+.4f}  ({direction})")
+}
+```
 
-    fig = lime_exp_surv.as_pyplot_figure(label=1)
-    fig.set_size_inches(10, 6)
-    plt.title(f'LIME - Low-risk Survivor (P={gb_proba_test[surv_idx]:.3f})')
-    plt.tight_layout(); plt.show()
+```{r model-metrics}
+y_test <- test_df[[target_col]]
+
+lr_metrics   <- compute_metrics(y_test, lr_pred_test, lr_proba_test)
+tree_metrics <- compute_metrics(y_test, tree_pred_test, tree_proba_test)
+
+# Summary table
+comparison <- data.frame(
+    Model       = c("Logistic Regression", "Decision Tree"),
+    AUC         = round(c(lr_metrics$auc, tree_metrics$auc), 3),
+    Brier       = round(c(lr_metrics$brier, tree_metrics$brier), 3),
+    Sensitivity = round(c(lr_metrics$sens, tree_metrics$sens), 3),
+    Specificity = round(c(lr_metrics$spec, tree_metrics$spec), 3),
+    PPV         = round(c(lr_metrics$ppv, tree_metrics$ppv), 3),
+    NPV         = round(c(lr_metrics$npv, tree_metrics$npv), 3),
+    Accuracy    = round(c(lr_metrics$acc, tree_metrics$acc), 3),
+    stringsAsFactors = FALSE
+)
+
+cat("Model Comparison:\n")
+print(comparison, row.names = FALSE)
+```
+
+```{r roc-curves}
+# ROC curves
+par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
+
+# ROC plot
+plot(lr_metrics$roc$fpr, lr_metrics$roc$tpr,
+     type = "l", col = "#4C78A8", lwd = 2,
+     xlab = "False Positive Rate", ylab = "True Positive Rate",
+     main = "ROC Curve")
+lines(tree_metrics$roc$fpr, tree_metrics$roc$tpr,
+      col = "#E45756", lwd = 2)
+abline(0, 1, lty = 2, col = "gray50")
+legend("bottomright", cex = 0.8,
+    legend = c(
+        sprintf("Logistic (AUC=%.3f)", lr_metrics$auc),
+        sprintf("Tree (AUC=%.3f)", tree_metrics$auc)
+    ),
+    col = c("#4C78A8", "#E45756"), lwd = 2)
+
+# Confusion matrix (logistic regression)
+cm <- lr_metrics$cm
+image(1:2, 1:2, t(cm)[, 2:1], col = heat.colors(12),
+      xlab = "Predicted", ylab = "Actual", main = "Confusion Matrix (LR)",
+      axes = FALSE)
+axis(1, at = 1:2, labels = c("Alive", "Dead"))
+axis(2, at = 1:2, labels = c("Dead", "Alive"))
+for (i in 1:2) for (j in 1:2) {
+    text(i, 3 - j, cm[j, i], cex = 1.5, font = 2)
+}
+box()
+```
+
+## 8. Calibration
+
+```{r calibration}
+# Calibration: observed vs predicted in bins
+calibration_data <- function(y_true, y_prob, n_bins = 10) {
+    breaks <- seq(0, 1, length.out = n_bins + 1)
+    bins <- cut(y_prob, breaks, include.lowest = TRUE)
+    pred_mean <- tapply(y_prob, bins, mean)
+    obs_mean  <- tapply(y_true, bins, mean)
+    counts    <- tapply(y_true, bins, length)
+    data.frame(
+        predicted = pred_mean, observed = obs_mean, n = counts,
+        stringsAsFactors = FALSE
+    )
+}
+
+par(mfrow = c(1, 2), mar = c(4.5, 4.5, 3, 1))
+
+for (i in seq_along(list(lr_proba_test, tree_proba_test))) {
+    proba <- list(lr_proba_test, tree_proba_test)[[i]]
+    name  <- c("Logistic Regression", "Decision Tree")[i]
+    color <- c("#4C78A8", "#E45756")[i]
+
+    cal <- calibration_data(y_test, proba)
+    cal <- cal[!is.na(cal$predicted), ]
+
+    plot(cal$predicted, cal$observed,
+         type = "b", pch = 16, col = color, lwd = 2,
+         xlim = c(0, 1), ylim = c(0, 1),
+         xlab = "Predicted probability", ylab = "Observed fraction",
+         main = sprintf("Calibration — %s", name))
+    abline(0, 1, lty = 2, col = "gray50")
+}
+```
+
+## 9. Feature Importance
+
+```{r lr-importance}
+# Logistic regression: standardized coefficients
+sds <- sapply(train_df[feature_names], sd, na.rm = TRUE)
+std_coefs <- coefs * sds[names(coefs)]
+importance_df <- data.frame(
+    Feature = names(std_coefs),
+    StdCoef = unname(std_coefs),
+    AbsStdCoef = abs(unname(std_coefs)),
+    stringsAsFactors = FALSE
+)
+importance_df <- importance_df[order(-importance_df$AbsStdCoef), ]
+
+top_n <- min(20, nrow(importance_df))
+top <- importance_df[1:top_n, ]
+
+par(mfrow = c(1, 2), mar = c(4.5, 10, 3, 1))
+
+# Standardized coefficients
+barplot(rev(top$StdCoef), names.arg = rev(top$Feature),
+        horiz = TRUE, las = 1, col = ifelse(rev(top$StdCoef) > 0, "#E45756", "#4C78A8"),
+        main = "LR: Standardized Coefficients",
+        xlab = "Standardized coefficient", cex.names = 0.7)
+abline(v = 0, lty = 2)
+```
+
+```{r tree-importance}
+# Decision tree: variable importance
+tree_imp <- tree_model$variable.importance
+if (!is.null(tree_imp) && length(tree_imp) > 0) {
+    tree_imp_df <- data.frame(
+        Feature = names(tree_imp),
+        Importance = unname(tree_imp),
+        stringsAsFactors = FALSE
+    )
+    tree_imp_df <- tree_imp_df[order(-tree_imp_df$Importance), ]
+    top_t <- tree_imp_df[1:min(20, nrow(tree_imp_df)), ]
+
+    par(mar = c(4.5, 10, 3, 1))
+    barplot(rev(top_t$Importance), names.arg = rev(top_t$Feature),
+            horiz = TRUE, las = 1, col = "#72B7B2",
+            main = "Decision Tree: Variable Importance",
+            xlab = "Importance", cex.names = 0.7)
+}
+```
+
+## 10. Threshold Analysis
+
+```{r threshold-analysis}
+# Evaluate metrics across thresholds
+thresholds <- seq(0.05, 0.95, by = 0.05)
+threshold_results <- data.frame(
+    Threshold = thresholds,
+    Sensitivity = numeric(length(thresholds)),
+    Specificity = numeric(length(thresholds)),
+    PPV = numeric(length(thresholds)),
+    F1 = numeric(length(thresholds)),
+    stringsAsFactors = FALSE
+)
+
+for (i in seq_along(thresholds)) {
+    pred <- as.integer(lr_proba_test >= thresholds[i])
+    tp <- sum(pred == 1 & y_test == 1)
+    tn <- sum(pred == 0 & y_test == 0)
+    fp <- sum(pred == 1 & y_test == 0)
+    fn <- sum(pred == 0 & y_test == 1)
+    sens <- tp / max(tp + fn, 1)
+    spec <- tn / max(tn + fp, 1)
+    ppv  <- tp / max(tp + fp, 1)
+    f1   <- 2 * sens * ppv / max(sens + ppv, 1e-9)
+    threshold_results[i, 2:5] <- c(sens, spec, ppv, f1)
+}
+
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 3, 1))
+plot(thresholds, threshold_results$Sensitivity,
+     type = "l", col = "#4C78A8", lwd = 2, ylim = c(0, 1),
+     xlab = "Threshold", ylab = "Metric",
+     main = "Threshold Analysis (Logistic Regression)")
+lines(thresholds, threshold_results$Specificity, col = "#E45756", lwd = 2)
+lines(thresholds, threshold_results$PPV, col = "#72B7B2", lwd = 2)
+lines(thresholds, threshold_results$F1, col = "#F58518", lwd = 2, lty = 2)
+legend("right", cex = 0.8,
+    legend = c("Sensitivity", "Specificity", "PPV", "F1"),
+    col = c("#4C78A8", "#E45756", "#72B7B2", "#F58518"),
+    lwd = 2, lty = c(1, 1, 1, 2))
+
+# Optimal threshold (max F1)
+best <- which.max(threshold_results$F1)
+cat(sprintf("\nOptimal threshold (max F1): %.2f\n", thresholds[best]))
+cat(sprintf("  Sensitivity: %.1f%%\n", 100 * threshold_results$Sensitivity[best]))
+cat(sprintf("  Specificity: %.1f%%\n", 100 * threshold_results$Specificity[best]))
+cat(sprintf("  PPV:         %.1f%%\n", 100 * threshold_results$PPV[best]))
+cat(sprintf("  F1:          %.3f\n", threshold_results$F1[best]))
 ```
 
 ## 11. Summary
 
-```{python}
-print("=" * 70)
-print("STUDY SUMMARY - IN-HOSPITAL MORTALITY PREDICTION")
-print("=" * 70)
+```{r summary}
+cat(paste(rep("=", 70), collapse = ""), "\n")
+cat("STUDY SUMMARY — IN-HOSPITAL MORTALITY PREDICTION\n")
+cat(paste(rep("=", 70), collapse = ""), "\n")
 
-print(f"""
+cat(sprintf("
 COHORT
-  Visits:     {len(df)}
-  Patients:   {df['person_id'].nunique()}
-  Deaths:     {int(df['in_hospital_death'].sum())} ({100 * df['in_hospital_death'].mean():.1f}%)
-  Age:        {df['age'].mean():.0f} +/- {df['age'].std():.0f} years
+  Visits:     %d
+  Patients:   %d
+  Deaths:     %d (%.1f%%)
+  Age:        %.0f +/- %.0f years
 
 DATA
-  Features:   {len(feature_names)} ({len(usable_features)} clinical + sex)
-  Train/Test: {len(X_train)} / {len(X_test)} (75/25 stratified split)
-  Missing:    Median imputation (features with >30% missing excluded)
+  Features:   %d (%d clinical + sex)
+  Train/Test: %d / %d (75/25 stratified split)
+  Missing:    Median imputation (features with >30%% missing excluded)
 
 RESULTS
   Logistic Regression
-    AUC-ROC: {roc_auc_score(y_test, lr_proba_test):.3f}
-    AUC-PR:  {average_precision_score(y_test, lr_proba_test):.3f}
+    AUC:  %.3f  |  Brier: %.3f
+    Sens: %.1f%%  |  Spec: %.1f%%
 
-  Gradient Boosting
-    AUC-ROC: {roc_auc_score(y_test, gb_proba_test):.3f}
-    AUC-PR:  {average_precision_score(y_test, gb_proba_test):.3f}
+  Decision Tree
+    AUC:  %.3f  |  Brier: %.3f
+    Sens: %.1f%%  |  Spec: %.1f%%
 
-TOP PREDICTORS (by permutation importance)
-""")
+TOP PREDICTORS (by |standardized coefficient|)
+",
+    nrow(df), length(unique(df$person_id)),
+    sum(df$in_hospital_death), 100 * mean(df$in_hospital_death),
+    mean(df$age), sd(df$age),
+    length(feature_names), length(usable),
+    nrow(train_df), nrow(test_df),
+    lr_metrics$auc, lr_metrics$brier,
+    100 * lr_metrics$sens, 100 * lr_metrics$spec,
+    tree_metrics$auc, tree_metrics$brier,
+    100 * tree_metrics$sens, 100 * tree_metrics$spec
+))
 
-for _, row in perm_df.head(10).iterrows():
-    print(f"  {row['Feature']:<30} {row['Importance']:.4f}")
+for (i in 1:min(10, nrow(importance_df))) {
+    cat(sprintf("  %-30s %+.4f\n",
+        importance_df$Feature[i], importance_df$StdCoef[i]))
+}
 
-print(f"""
+cat("
 LIMITATIONS
   - Single-center data (MIMIC-IV, Beth Israel Deaconess)
   - H0-H24 measurements only (early prediction window)
@@ -601,7 +604,7 @@ NEXT STEPS
   - Temporal validation split
   - Multiple imputation instead of median
   - Additional features: diagnoses, procedures, medications
-  - Deep learning approaches (LSTM on raw time series)
+  - Ensemble methods (random forest, gradient boosting)
   - Prospective evaluation
-""")
+")
 ```
