@@ -46,6 +46,7 @@ export async function computePluginContentHash(
     dependencies: manifest.dependencies ?? {},
     runtime: manifest.runtime ?? [],
     languages: manifest.languages ?? [],
+    scope: manifest.scope ?? 'lab',
   }
 
   // Collect template contents (sorted by filename for determinism)

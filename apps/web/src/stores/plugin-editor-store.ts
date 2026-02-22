@@ -7,6 +7,7 @@ import {
   registerAnalysisPlugin,
   unregisterAnalysisPlugin,
 } from '@/lib/analysis-plugins/registry'
+import { SYSTEM_PLUGIN_IDS } from '@/lib/analysis-plugins/builtin-widget-plugins'
 import { buildPlugin } from '@/lib/analysis-plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
@@ -16,13 +17,16 @@ export interface PluginListItem {
   id: string
   manifest: AnalysisPluginManifest
   isBuiltIn: boolean
+  /** System plugins are built-in patient data widgets — metadata-only editing, no code. */
+  isSystemPlugin: boolean
 }
 
-const SCAFFOLD_MANIFEST = {
+const SCAFFOLD_MANIFEST_LAB = {
   id: '',
   name: { en: 'New Plugin', fr: 'Nouveau plugin' },
   description: { en: '', fr: '' },
   version: '1.0.0',
+  scope: 'lab' as const,
   category: 'analysis',
   tags: [],
   runtime: ['script'] as const,
@@ -33,12 +37,37 @@ const SCAFFOLD_MANIFEST = {
   templates: { python: 'analysis.py.template' },
 }
 
-const SCAFFOLD_TEMPLATE = `import pandas as pd
+const SCAFFOLD_TEMPLATE_LAB = `import pandas as pd
 
 # 'dataset' is a pandas DataFrame injected automatically.
 
 # Your analysis code here
 print(dataset.describe())
+`
+
+const SCAFFOLD_MANIFEST_WAREHOUSE = {
+  id: '',
+  name: { en: 'New Plugin', fr: 'Nouveau plugin' },
+  description: { en: '', fr: '' },
+  version: '1.0.0',
+  scope: 'warehouse' as const,
+  category: 'patient-data',
+  tags: [],
+  runtime: ['script'] as const,
+  languages: ['python'] as ('python' | 'r')[],
+  icon: 'Puzzle',
+  configSchema: {},
+  dependencies: { python: [], r: [] },
+  templates: { python: 'analysis.py.template' },
+}
+
+const SCAFFOLD_TEMPLATE_WAREHOUSE = `import pandas as pd
+
+# Variables available: person_id, visit_occurrence_id, visit_detail_id
+# Use sql_query() to query the DuckDB database
+
+df = await sql_query(f"SELECT * FROM person WHERE person_id = {person_id}")
+print(df)
 `
 
 interface PluginEditorState {
@@ -49,6 +78,8 @@ interface PluginEditorState {
   // Editor
   editingPluginId: string | null
   isBuiltIn: boolean
+  /** System plugins are built-in patient data widgets — metadata-only editing. */
+  isSystemPlugin: boolean
   files: Record<string, string>
   openFiles: string[]
   activeFile: string | null
@@ -58,7 +89,7 @@ interface PluginEditorState {
   // Plugin actions
   openPlugin: (id: string) => Promise<void>
   closeEditor: () => void
-  createPlugin: (name?: string) => Promise<string>
+  createPlugin: (name?: string, scope?: 'lab' | 'warehouse') => Promise<string>
   duplicatePlugin: (sourceId: string) => Promise<string>
   deletePlugin: (id: string) => Promise<void>
   savePlugin: () => Promise<void>
@@ -115,6 +146,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         id: p.manifest.id,
         manifest: p.manifest,
         isBuiltIn: builtInIds.has(p.manifest.id) && !userIds.has(p.manifest.id),
+        isSystemPlugin: SYSTEM_PLUGIN_IDS.has(p.manifest.id),
       })
     }
     // Add user plugins not yet in registry
@@ -122,7 +154,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       try {
         const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as AnalysisPluginManifest
         if (!list.some(p => p.id === manifest.id)) {
-          list.push({ id: manifest.id ?? up.id, manifest, isBuiltIn: false })
+          list.push({ id: manifest.id ?? up.id, manifest, isBuiltIn: false, isSystemPlugin: false })
         }
       } catch { /* skip invalid */ }
     }
@@ -132,6 +164,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   // Editor
   editingPluginId: null,
   isBuiltIn: false,
+  isSystemPlugin: false,
   files: {},
   openFiles: [],
   activeFile: null,
@@ -139,6 +172,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   originalFiles: {},
 
   async openPlugin(id: string) {
+    const isSystem = SYSTEM_PLUGIN_IDS.has(id)
+
     const storage = getStorage()
     // Try user plugin first
     const userPlugin = await storage.userPlugins.getById(id)
@@ -148,6 +183,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       set({
         editingPluginId: id,
         isBuiltIn: false,
+        isSystemPlugin: isSystem,
         files,
         originalFiles: { ...files },
         openFiles: [firstFile],
@@ -172,6 +208,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     set({
       editingPluginId: id,
       isBuiltIn: true,
+      isSystemPlugin: isSystem,
       files,
       originalFiles: { ...files },
       openFiles: ['plugin.json'],
@@ -184,6 +221,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     set({
       editingPluginId: null,
       isBuiltIn: false,
+      isSystemPlugin: false,
       files: {},
       originalFiles: {},
       openFiles: [],
@@ -192,20 +230,23 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     })
   },
 
-  async createPlugin(name?: string) {
+  async createPlugin(name?: string, scope?: 'lab' | 'warehouse') {
     const id = `user-plugin-${Date.now()}`
     const pluginName = name?.trim() || 'New Plugin'
-    const manifest = { ...SCAFFOLD_MANIFEST, id, name: { en: pluginName, fr: pluginName } }
+    const isWarehouse = scope === 'warehouse'
+    const scaffoldManifest = isWarehouse ? SCAFFOLD_MANIFEST_WAREHOUSE : SCAFFOLD_MANIFEST_LAB
+    const scaffoldTemplate = isWarehouse ? SCAFFOLD_TEMPLATE_WAREHOUSE : SCAFFOLD_TEMPLATE_LAB
+    const manifest = { ...scaffoldManifest, id, name: { en: pluginName, fr: pluginName } }
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(manifest, null, 2),
-      'analysis.py.template': SCAFFOLD_TEMPLATE,
+      'analysis.py.template': scaffoldTemplate,
     }
     const now = new Date().toISOString()
     const userPlugin: UserPlugin = { id, files, createdAt: now, updatedAt: now }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
-    registerAnalysisPlugin(buildPlugin(manifest as unknown as Record<string, unknown>, { python: SCAFFOLD_TEMPLATE }, null))
+    registerAnalysisPlugin(buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate }))
     set({
       editingPluginId: id,
       isBuiltIn: false,
@@ -263,7 +304,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null, null))
+      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* skip */ }
 
     await state.refreshPluginList()
@@ -281,9 +322,30 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async savePlugin() {
-    const { editingPluginId, isBuiltIn } = get()
+    const { editingPluginId, isBuiltIn, isSystemPlugin } = get()
     let { files } = get()
     if (!editingPluginId) return
+
+    // System plugins: save metadata overrides to localStorage, not IDB
+    if (isSystemPlugin) {
+      try {
+        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+        const { saveOverride } = await import('@/lib/analysis-plugins/builtin-widget-plugins')
+        saveOverride(editingPluginId, {
+          name: manifest.name,
+          description: manifest.description,
+          icon: manifest.icon,
+          iconColor: manifest.iconColor,
+          badges: manifest.badges,
+        })
+        // Re-register with updated manifest
+        const { registerBuiltinWidgetPlugins } = await import('@/lib/analysis-plugins/builtin-widget-plugins')
+        registerBuiltinWidgetPlugins()
+      } catch { /* invalid plugin.json */ }
+      set({ isDirty: false, originalFiles: { ...files } })
+      await get().refreshPluginList()
+      return
+    }
 
     // Compute content hash + auto-stamp workspace organization into plugin.json
     try {
@@ -329,7 +391,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         else if (filename.endsWith('.R.template')) templates.r = content
       }
       // Re-register (overwrites previous)
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null, null))
+      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* invalid plugin.json — still saved to IDB */ }
 
     set({ isDirty: false, originalFiles: { ...files } })

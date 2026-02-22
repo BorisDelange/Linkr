@@ -18,6 +18,7 @@ export type PatientWidgetType =
   | 'medications'
   | 'diagnoses'
   | 'notes'
+  | 'plugin'
 
 export interface TimelineConfig {
   conceptIds: number[]
@@ -33,10 +34,17 @@ export interface NotesConfig {
   wordSets?: Array<{ label: string; words: string[] }>
 }
 
+export interface PluginWidgetConfig {
+  pluginId: string
+  language: 'python' | 'r'
+  pluginConfig: Record<string, unknown>
+}
+
 export type PatientWidgetConfig =
   | TimelineConfig
   | ClinicalTableConfig
   | NotesConfig
+  | PluginWidgetConfig
   | Record<string, unknown>
 
 export interface PatientChartWidget {
@@ -86,7 +94,7 @@ interface PatientChartState {
   setAllowWidgetScroll: (projectUid: string, allow: boolean) => void
 
   // Widget CRUD
-  addWidget: (tabId: string, type: PatientWidgetType, name: string) => void
+  addWidget: (tabId: string, type: PatientWidgetType, name: string, initialConfig?: PatientWidgetConfig) => void
   removeWidget: (widgetId: string) => void
   renameWidget: (widgetId: string, name: string) => void
   updateWidgetLayout: (
@@ -110,6 +118,7 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
   medications: { w: 24, h: 12 },
   diagnoses: { w: 24, h: 12 },
   notes: { w: 48, h: 20 },
+  plugin: { w: 24, h: 14 },
 }
 
 // ---------------------------------------------------------------------------
@@ -282,7 +291,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
 
   // --- Widget CRUD ---
 
-  addWidget: (tabId, type, name) => {
+  addWidget: (tabId, type, name, initialConfig?) => {
     const id = `pcw-${widgetCounter++}`
     const defaultLayout = defaultWidgetLayouts[type] ?? { w: 16, h: 10 }
     set((s) => ({
@@ -294,7 +303,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           type,
           name,
           layout: { x: 0, y: Infinity, ...defaultLayout },
-          config: defaultConfigForType(type),
+          config: initialConfig ?? defaultConfigForType(type),
         },
       ],
     }))

@@ -14,7 +14,9 @@ import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
 import { MedicationWidget } from './widgets/MedicationWidget'
 import { DiagnosisWidget } from './widgets/DiagnosisWidget'
 import { NotesWidget } from './widgets/NotesWidget'
+import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
+import { PluginConfigDialog } from './PluginConfigDialog'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +37,12 @@ interface PatientChartGridProps {
 /** Widget types that support concept editing. */
 const CONCEPT_WIDGET_TYPES = new Set(['timeline', 'clinical_table'])
 
+/** Widget types that support plugin config editing. */
+const PLUGIN_WIDGET_TYPES = new Set(['plugin'])
+
+/** Widget types that have an edit button. */
+const EDITABLE_WIDGET_TYPES = new Set([...CONCEPT_WIDGET_TYPES, ...PLUGIN_WIDGET_TYPES])
+
 function renderWidgetContent(
   widget: PatientChartWidget,
   onConfigureConcepts?: () => void,
@@ -52,6 +60,8 @@ function renderWidgetContent(
       return <DiagnosisWidget />
     case 'notes':
       return <NotesWidget widgetId={widget.id} />
+    case 'plugin':
+      return <WarehousePluginWidgetRenderer widgetId={widget.id} />
     default:
       return (
         <div className="text-xs text-muted-foreground">Unknown widget</div>
@@ -72,11 +82,21 @@ export function PatientChartGrid({
 
   // Concept picker state — lifted here so WidgetCard "Edit" can open it
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  // Plugin config dialog state
+  const [editingPluginWidgetId, setEditingPluginWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
   const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
   const editingWidget = editingWidgetId
     ? widgets.find((w) => w.id === editingWidgetId)
     : null
+
+  const handleEditWidget = useCallback((widget: PatientChartWidget) => {
+    if (CONCEPT_WIDGET_TYPES.has(widget.type)) {
+      setEditingWidgetId(widget.id)
+    } else if (PLUGIN_WIDGET_TYPES.has(widget.type)) {
+      setEditingPluginWidgetId(widget.id)
+    }
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -164,8 +184,8 @@ export function PatientChartGrid({
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onRename={(name) => renameWidget(widget.id, name)}
               onEdit={
-                CONCEPT_WIDGET_TYPES.has(widget.type)
-                  ? () => setEditingWidgetId(widget.id)
+                EDITABLE_WIDGET_TYPES.has(widget.type)
+                  ? () => handleEditWidget(widget)
                   : undefined
               }
               editMode={editMode}
@@ -192,6 +212,14 @@ export function PatientChartGrid({
           (editingWidget?.config as Record<string, unknown>)?.conceptIds as number[] ?? []
         }
         onConfirm={handleConceptsConfirm}
+      />
+
+      {/* Plugin config dialog */}
+      <PluginConfigDialog
+        widgetId={editingPluginWidgetId}
+        onOpenChange={(open) => {
+          if (!open) setEditingPluginWidgetId(null)
+        }}
       />
 
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>

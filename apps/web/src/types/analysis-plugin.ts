@@ -24,12 +24,17 @@ export interface PluginConfigField {
 /** Runtime mode(s) the plugin supports. */
 export type PluginRuntime = 'script'
 
+/** Where the plugin can be used: lab (datasets/dashboards) or warehouse (patient data). */
+export type PluginScope = 'lab' | 'warehouse'
+
 /** The full plugin manifest, matching the JSON schema from plugin.json files. */
 export interface AnalysisPluginManifest {
   id: string
   name: { en: string; fr: string; [key: string]: string }
   description: { en: string; fr: string; [key: string]: string }
   version: string
+  /** Where the plugin is used: 'lab' (datasets/dashboards) or 'warehouse' (patient data). Defaults to 'lab'. */
+  scope?: PluginScope
   category?: string
   tags: string[]
   runtime: PluginRuntime[]

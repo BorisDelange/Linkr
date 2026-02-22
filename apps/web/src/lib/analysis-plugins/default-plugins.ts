@@ -1,5 +1,6 @@
 import type { AnalysisPlugin, AnalysisPluginManifest } from '@/types/analysis-plugin'
 import { registerAnalysisPlugin } from './registry'
+import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 
 // --- Plugin manifests (JSON) ---
@@ -37,6 +38,7 @@ export function buildPlugin(
 }
 
 export function registerDefaultPlugins() {
+  // Lab analysis plugins
   registerAnalysisPlugin(
     buildPlugin(table1Manifest as unknown as Record<string, unknown>, { python: table1Py, r: table1R }),
   )
@@ -49,6 +51,9 @@ export function registerDefaultPlugins() {
   registerAnalysisPlugin(
     buildPlugin(crosstabManifest as unknown as Record<string, unknown>, { python: crosstabPy, r: crosstabR }),
   )
+
+  // Warehouse system plugins (built-in patient data widgets)
+  registerBuiltinWidgetPlugins()
 }
 
 /** Load user-created plugins from IndexedDB and register them. */

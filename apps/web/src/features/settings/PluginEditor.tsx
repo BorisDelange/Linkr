@@ -1,11 +1,12 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Tooltip,
@@ -59,6 +60,7 @@ export function PluginEditor() {
   const { t } = useTranslation()
   const {
     editingPluginId,
+    isSystemPlugin,
     files,
     openFiles,
     activeFile,
@@ -144,17 +146,38 @@ export function PluginEditor() {
   }, [files])
 
   const pluginName = manifest.name?.en ?? manifest.id ?? editingPluginId ?? ''
+  const pluginNameFr = manifest.name?.fr ?? ''
+  const pluginDescEn = manifest.description?.en ?? ''
+  const pluginDescFr = manifest.description?.fr ?? ''
   const pluginVersion = manifest.version ?? '1.0.0'
+  const pluginScope = manifest.scope ?? 'lab'
   const pluginIcon: string = manifest.icon ?? 'Puzzle'
   const pluginIconColor: BadgeColor | undefined = manifest.iconColor
   const pluginBadges: PluginBadge[] = manifest.badges ?? []
   const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
+  const pluginPythonDeps: string = (manifest.dependencies?.python ?? []).join('\n')
+  const pluginRDeps: string = (manifest.dependencies?.r ?? []).join('\n')
 
   // Helper to update a field in plugin.json
   const updateManifestField = useCallback((key: string, value: unknown) => {
     try {
       const m = JSON.parse(files['plugin.json'] ?? '{}')
       m[key] = value
+      updateFileContent('plugin.json', JSON.stringify(m, null, 2))
+    } catch { /* invalid json, skip */ }
+  }, [files, updateFileContent])
+
+  // Helper to update a nested field (e.g. 'name.en', 'dependencies.python')
+  const updateManifestNested = useCallback((path: string, value: unknown) => {
+    try {
+      const m = JSON.parse(files['plugin.json'] ?? '{}')
+      const parts = path.split('.')
+      let obj = m as Record<string, unknown>
+      for (let i = 0; i < parts.length - 1; i++) {
+        if (obj[parts[i]] === undefined || typeof obj[parts[i]] !== 'object') obj[parts[i]] = {}
+        obj = obj[parts[i]] as Record<string, unknown>
+      }
+      obj[parts[parts.length - 1]] = value
       updateFileContent('plugin.json', JSON.stringify(m, null, 2))
     } catch { /* invalid json, skip */ }
   }, [files, updateFileContent])
@@ -303,8 +326,90 @@ export function PluginEditor() {
                 </Button>
               </PopoverTrigger>
               <PopoverContent align="end" className="w-[340px] max-h-[70vh] overflow-auto space-y-4">
+                {/* Scope */}
+                {!isSystemPlugin && (
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium">{t('plugins.scope')}</Label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateManifestField('scope', 'warehouse')}
+                        disabled={!originalFiles['plugin.json']?.includes('"scope"') ? false : undefined}
+                        className={cn(
+                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                          pluginScope === 'warehouse'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:bg-accent',
+                        )}
+                      >
+                        {t('plugins.scope_warehouse')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateManifestField('scope', 'lab')}
+                        className={cn(
+                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                          pluginScope === 'lab'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:bg-accent',
+                        )}
+                      >
+                        {t('plugins.scope_lab')}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Name */}
+                <div className={cn('space-y-2', !isSystemPlugin && 'border-t pt-3')}>
+                  <Label className="text-xs font-medium">{t('plugins.name_label')}</Label>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground w-5 shrink-0">EN</span>
+                      <Input
+                        value={pluginName}
+                        onChange={(e) => updateManifestNested('name.en', e.target.value)}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-muted-foreground w-5 shrink-0">FR</span>
+                      <Input
+                        value={pluginNameFr}
+                        onChange={(e) => updateManifestNested('name.fr', e.target.value)}
+                        className="h-7 text-xs"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div className="space-y-2 border-t pt-3">
+                  <Label className="text-xs font-medium">{t('plugins.description_label')}</Label>
+                  <div className="space-y-1.5">
+                    <div className="flex gap-2">
+                      <span className="text-[10px] text-muted-foreground w-5 shrink-0 pt-1.5">EN</span>
+                      <Textarea
+                        value={pluginDescEn}
+                        onChange={(e) => updateManifestNested('description.en', e.target.value)}
+                        className="min-h-[48px] text-xs resize-none"
+                        rows={2}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-[10px] text-muted-foreground w-5 shrink-0 pt-1.5">FR</span>
+                      <Textarea
+                        value={pluginDescFr}
+                        onChange={(e) => updateManifestNested('description.fr', e.target.value)}
+                        className="min-h-[48px] text-xs resize-none"
+                        rows={2}
+                      />
+                    </div>
+                  </div>
+                </div>
+
                 {/* Appearance */}
-                <div className="space-y-3">
+                <div className="space-y-3 border-t pt-3">
                   <Label className="text-xs font-medium">{t('plugins.appearance')}</Label>
                   <IconPicker
                     value={pluginIcon}
@@ -360,7 +465,37 @@ export function PluginEditor() {
                   </div>
                 </div>
 
+                {/* Dependencies — only for non-system plugins */}
+                {!isSystemPlugin && (
+                  <div className="space-y-2 border-t pt-3">
+                    <Label className="text-xs font-medium">{t('plugins.dependencies')}</Label>
+                    <div className="space-y-1.5">
+                      <div>
+                        <span className="text-[10px] text-muted-foreground">{t('plugins.python_deps')}</span>
+                        <Textarea
+                          value={pluginPythonDeps}
+                          onChange={(e) => updateManifestNested('dependencies.python', e.target.value.split('\n').filter(Boolean))}
+                          placeholder="pandas&#10;numpy"
+                          className="mt-0.5 min-h-[36px] text-xs font-mono resize-none"
+                          rows={2}
+                        />
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-muted-foreground">{t('plugins.r_deps')}</span>
+                        <Textarea
+                          value={pluginRDeps}
+                          onChange={(e) => updateManifestNested('dependencies.r', e.target.value.split('\n').filter(Boolean))}
+                          placeholder="dplyr&#10;ggplot2"
+                          className="mt-0.5 min-h-[36px] text-xs font-mono resize-none"
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Version */}
+                {!isSystemPlugin && (
                 <div className="space-y-2 border-t pt-3">
                   <div className="flex items-center justify-between gap-2">
                     <Label className="text-xs font-medium">{t('plugins.version')}</Label>
@@ -388,6 +523,8 @@ export function PluginEditor() {
                     })}
                   </div>
                 </div>
+
+                )}
 
                 {/* Badges */}
                 <div className="space-y-2.5 border-t pt-3">
@@ -466,49 +603,66 @@ export function PluginEditor() {
                   </Button>
                 </div>
 
-                {/* Publishing */}
-                <div className="space-y-2 border-t pt-3">
-                  <Label className="text-xs font-medium">{t('plugins.publishing_section')}</Label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => updateManifestField('catalogVisibility', 'unlisted')}
-                      className={cn(
-                        'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                        pluginCatalogVisibility !== 'listed'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border text-muted-foreground hover:bg-accent',
-                      )}
-                    >
-                      {t('catalog.unlisted')}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => updateManifestField('catalogVisibility', 'listed')}
-                      className={cn(
-                        'rounded-md border px-2.5 py-1 text-xs transition-colors',
-                        pluginCatalogVisibility === 'listed'
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border text-muted-foreground hover:bg-accent',
-                      )}
-                    >
-                      {t('catalog.listed')}
-                    </button>
+                {/* Publishing — only for non-system plugins */}
+                {!isSystemPlugin && (
+                  <div className="space-y-2 border-t pt-3">
+                    <Label className="text-xs font-medium">{t('plugins.publishing_section')}</Label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => updateManifestField('catalogVisibility', 'unlisted')}
+                        className={cn(
+                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                          pluginCatalogVisibility !== 'listed'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:bg-accent',
+                        )}
+                      >
+                        {t('catalog.unlisted')}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateManifestField('catalogVisibility', 'listed')}
+                        className={cn(
+                          'rounded-md border px-2.5 py-1 text-xs transition-colors',
+                          pluginCatalogVisibility === 'listed'
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground hover:bg-accent',
+                        )}
+                      >
+                        {t('catalog.listed')}
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
               </PopoverContent>
             </Popover>
-          <Button variant="ghost" size="sm" onClick={handleDuplicate} className="gap-1 text-xs">
-            <Copy size={12} />
-            {t('plugins.duplicate')}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={handleDelete} className="gap-1 text-xs text-destructive hover:text-destructive">
-            <Trash2 size={12} />
-          </Button>
+          {!isSystemPlugin && (
+            <>
+              <Button variant="ghost" size="sm" onClick={handleDuplicate} className="gap-1 text-xs">
+                <Copy size={12} />
+                {t('plugins.duplicate')}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleDelete} className="gap-1 text-xs text-destructive hover:text-destructive">
+                <Trash2 size={12} />
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
+      {/* System plugins: simplified view (no code editor) */}
+      {isSystemPlugin && (
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="text-center space-y-2">
+            <Lock size={32} className="mx-auto text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">{t('plugins.system_plugin_info')}</p>
+          </div>
+        </div>
+      )}
+
       {/* Main area: file sidebar | (tab bar + editor/output) */}
+      {!isSystemPlugin && (
       <div className="min-h-0 flex-1">
         <Allotment>
           {/* File list sidebar */}
@@ -741,6 +895,7 @@ export function PluginEditor() {
           </Allotment.Pane>
         </Allotment>
       </div>
+      )}
     </div>
   )
 }

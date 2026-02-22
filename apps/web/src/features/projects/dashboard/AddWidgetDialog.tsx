@@ -4,7 +4,7 @@ import { Code2, ArrowLeft, Database } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
+import { getLabPlugins } from '@/lib/analysis-plugins/registry'
 import type { AnalysisPlugin } from '@/types/analysis-plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
@@ -50,7 +50,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   const selectedDatasetFile = datasetFiles.find((f) => f.id === datasetFileId)
   const columns = selectedDatasetFile?.columns ?? []
 
-  const plugins = useMemo(() => getAllAnalysisPlugins(), [])
+  const plugins = useMemo(() => getLabPlugins(), [])
   const [selectedPluginId, setSelectedPluginId] = useState('')
 
   // Plugin config step

@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select'
 import { PluginPicker } from '@/components/PluginPicker'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { getAllAnalysisPlugins } from '@/lib/analysis-plugins/registry'
+import { getLabPlugins } from '@/lib/analysis-plugins/registry'
 import type { AnalysisPlugin } from '@/types/analysis-plugin'
 import type { AnalysisLanguage } from '@/types'
 
@@ -54,7 +54,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const lang = i18n.language as 'en' | 'fr'
   const { analyses, createAnalysis } = useDatasetStore()
 
-  const plugins = useMemo(() => getAllAnalysisPlugins(), [])
+  const plugins = useMemo(() => getLabPlugins(), [])
   const [selectedPluginId, setSelectedPluginId] = useState<string>('')
   const [selectedLanguage, setSelectedLanguage] = useState<AnalysisLanguage>('python')
   const [name, setName] = useState('')
