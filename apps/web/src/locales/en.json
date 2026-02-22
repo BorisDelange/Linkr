@@ -1678,6 +1678,7 @@
     "rename": "Rename",
     "refresh": "Refresh",
     "add": "Add",
+    "optional": "Optional",
     "edit": "Edit",
     "search": "Search...",
     "no_results": "No results",

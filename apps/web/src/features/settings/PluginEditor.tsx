@@ -30,6 +30,8 @@ import { getStorage } from '@/lib/storage'
 import type { PresetBadgeColor, BadgeColor, CatalogVisibility, DatasetColumn } from '@/types'
 import type { PluginBadge, PluginConfigField } from '@/types/analysis-plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { SYSTEM_WIDGET_TYPE_MAP } from '@/lib/analysis-plugins/builtin-widget-plugins'
+import type { PatientWidgetType } from '@/stores/patient-chart-store'
 
 const PRESET_COLORS: { value: PresetBadgeColor; swatch: string }[] = [
   { value: 'red', swatch: 'bg-red-400' },
@@ -76,6 +78,10 @@ export function PluginEditor() {
     reorderOpenFiles,
     testLanguage,
     testDatasetFileId,
+    testDataSourceId,
+    testPersonId,
+    testVisitId,
+    testVisitDetailId,
     testConfig,
   } = usePluginEditorStore()
 
@@ -90,6 +96,8 @@ export function PluginEditor() {
   const [testStatusMessage, setTestStatusMessage] = useState<string | null>(null)
   const [testColumns, setTestColumns] = useState<DatasetColumn[]>([])
   const [testInstalledDeps, setTestInstalledDeps] = useState<string[]>([])
+  // System plugin preview: widget type to render live instead of code output
+  const [systemWidgetPreview, setSystemWidgetPreview] = useState<PatientWidgetType | null>(null)
 
   // --- Drag reorder state ---
   const [dragFile, setDragFile] = useState<string | null>(null)
@@ -157,6 +165,7 @@ export function PluginEditor() {
   const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
   const pluginPythonDeps: string = (manifest.dependencies?.python ?? []).join('\n')
   const pluginRDeps: string = (manifest.dependencies?.r ?? []).join('\n')
+  const pluginLanguages: ('python' | 'r')[] = manifest.languages ?? []
 
   // Helper to update a field in plugin.json
   const updateManifestField = useCallback((key: string, value: unknown) => {
@@ -213,22 +222,27 @@ export function PluginEditor() {
 
   // Test execution
   const handleRunTest = useCallback(async () => {
-    if (!testDatasetFileId) return
+    const isWarehouse = pluginScope === 'warehouse'
+    if (isWarehouse ? !testDataSourceId : !testDatasetFileId) return
     setActiveOutputTab('results')
     if (!outputVisible) setOutputVisible(true)
+
+    // System plugins: render live widget preview instead of executing code
+    if (isSystemPlugin && editingPluginId) {
+      const widgetType = SYSTEM_WIDGET_TYPE_MAP[editingPluginId]
+      if (widgetType) {
+        setTestResult(null)
+        setSystemWidgetPreview(widgetType)
+        return
+      }
+    }
+
+    setSystemWidgetPreview(null)
     setIsExecuting(true)
     setTestResult(null)
     setTestStatusMessage(null)
     setTestInstalledDeps([])
     try {
-      const storage = getStorage()
-      // Load dataset rows + columns
-      const dsFile = await storage.datasetFiles.getById(testDatasetFileId)
-      const cols = dsFile?.columns ?? []
-      setTestColumns(cols)
-      const datasetData = await storage.datasetData.get(testDatasetFileId)
-      const rows = datasetData?.rows ?? []
-
       // Auto-install declared dependencies from plugin.json
       let manifestDeps: string[] = []
       try {
@@ -263,10 +277,29 @@ export function PluginEditor() {
         if (testLanguage === 'r' && filename.endsWith('.R.template')) { template = content; break }
       }
 
-      const code = resolveTemplate(template, testConfig, cols, parsedSchema, testLanguage)
-      const exec = testLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
-      const output = await exec(code, rows, cols)
-      setTestResult(output)
+      if (isWarehouse) {
+        // Warehouse mode: execute with patient context (null for test)
+        const code = resolveTemplate(template, testConfig, [], parsedSchema, testLanguage)
+        const { executeWarehousePluginPython, executeWarehousePluginR } = await import(
+          '@/features/projects/warehouse/patient-data/warehouse-plugin-executor'
+        )
+        const exec = testLanguage === 'r' ? executeWarehousePluginR : executeWarehousePluginPython
+        const output = await exec(code, testDataSourceId!, testPersonId, testVisitId, testVisitDetailId)
+        setTestResult(output)
+      } else {
+        // Lab mode: execute with dataset
+        const storage = getStorage()
+        const dsFile = await storage.datasetFiles.getById(testDatasetFileId!)
+        const cols = dsFile?.columns ?? []
+        setTestColumns(cols)
+        const datasetData = await storage.datasetData.get(testDatasetFileId!)
+        const rows = datasetData?.rows ?? []
+
+        const code = resolveTemplate(template, testConfig, cols, parsedSchema, testLanguage)
+        const exec = testLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+        const output = await exec(code, rows, cols)
+        setTestResult(output)
+      }
     } catch (err) {
       setTestResult({
         stdout: '',
@@ -279,7 +312,7 @@ export function PluginEditor() {
       setIsExecuting(false)
       setTestStatusMessage(null)
     }
-  }, [testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible])
+  }, [pluginScope, testDataSourceId, testPersonId, testVisitId, testVisitDetailId, testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible, isSystemPlugin, editingPluginId])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'
@@ -360,6 +393,43 @@ export function PluginEditor() {
                   </div>
                 )}
 
+                {/* Languages */}
+                {!isSystemPlugin && (
+                  <div className="space-y-2 border-t pt-3">
+                    <Label className="text-xs font-medium">{t('plugins.languages')}</Label>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pluginLanguages.includes('python')}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...new Set([...pluginLanguages, 'python' as const])]
+                              : pluginLanguages.filter(l => l !== 'python')
+                            updateManifestField('languages', next)
+                          }}
+                          className="h-3.5 w-3.5 rounded border-border"
+                        />
+                        Python
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={pluginLanguages.includes('r')}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...new Set([...pluginLanguages, 'r' as const])]
+                              : pluginLanguages.filter(l => l !== 'r')
+                            updateManifestField('languages', next)
+                          }}
+                          className="h-3.5 w-3.5 rounded border-border"
+                        />
+                        R
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 {/* Name */}
                 <div className={cn('space-y-2', !isSystemPlugin && 'border-t pt-3')}>
                   <Label className="text-xs font-medium">{t('plugins.name_label')}</Label>
@@ -369,7 +439,7 @@ export function PluginEditor() {
                       <Input
                         value={pluginName}
                         onChange={(e) => updateManifestNested('name.en', e.target.value)}
-                        className="h-7 text-xs"
+                        className="h-7 text-[11px]"
                       />
                     </div>
                     <div className="flex items-center gap-2">
@@ -377,7 +447,7 @@ export function PluginEditor() {
                       <Input
                         value={pluginNameFr}
                         onChange={(e) => updateManifestNested('name.fr', e.target.value)}
-                        className="h-7 text-xs"
+                        className="h-7 text-[11px]"
                       />
                     </div>
                   </div>
@@ -392,7 +462,7 @@ export function PluginEditor() {
                       <Textarea
                         value={pluginDescEn}
                         onChange={(e) => updateManifestNested('description.en', e.target.value)}
-                        className="min-h-[48px] text-xs resize-none"
+                        className="min-h-[36px] text-[11px] resize-none"
                         rows={2}
                       />
                     </div>
@@ -401,7 +471,7 @@ export function PluginEditor() {
                       <Textarea
                         value={pluginDescFr}
                         onChange={(e) => updateManifestNested('description.fr', e.target.value)}
-                        className="min-h-[48px] text-xs resize-none"
+                        className="min-h-[36px] text-[11px] resize-none"
                         rows={2}
                       />
                     </div>
@@ -476,7 +546,7 @@ export function PluginEditor() {
                           value={pluginPythonDeps}
                           onChange={(e) => updateManifestNested('dependencies.python', e.target.value.split('\n').filter(Boolean))}
                           placeholder="pandas&#10;numpy"
-                          className="mt-0.5 min-h-[36px] text-xs font-mono resize-none"
+                          className="mt-0.5 min-h-[36px] text-[11px] font-mono resize-none"
                           rows={2}
                         />
                       </div>
@@ -486,7 +556,7 @@ export function PluginEditor() {
                           value={pluginRDeps}
                           onChange={(e) => updateManifestNested('dependencies.r', e.target.value.split('\n').filter(Boolean))}
                           placeholder="dplyr&#10;ggplot2"
-                          className="mt-0.5 min-h-[36px] text-xs font-mono resize-none"
+                          className="mt-0.5 min-h-[36px] text-[11px] font-mono resize-none"
                           rows={2}
                         />
                       </div>
@@ -502,7 +572,7 @@ export function PluginEditor() {
                     <Input
                       value={pluginVersion}
                       onChange={(e) => updateManifestField('version', e.target.value)}
-                      className="h-6 w-24 text-right font-mono text-xs"
+                      className="h-6 w-24 text-right font-mono text-[11px]"
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-1.5">
@@ -554,7 +624,7 @@ export function PluginEditor() {
                     onChange={(e) => setNewBadgeLabel(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddBadge() }}
                     placeholder={t('plugins.badge_label_placeholder')}
-                    className="h-7 text-xs"
+                    className="h-7 text-[11px]"
                   />
                   <div className="flex items-center gap-1.5">
                     {PRESET_COLORS.map((c) => (
@@ -656,7 +726,14 @@ export function PluginEditor() {
         <Allotment>
           {/* File list sidebar */}
           <Allotment.Pane preferredSize={180} minSize={120} maxSize={300} visible={explorerVisible}>
-            <PluginFileList onCollapse={() => setExplorerVisible(false)} isRunning={isExecuting} onRun={handleRunTest} />
+            <PluginFileList
+              onCollapse={() => setExplorerVisible(false)}
+              isRunning={isExecuting}
+              onRun={handleRunTest}
+              readOnly={isSystemPlugin}
+              scope={pluginScope as 'lab' | 'warehouse'}
+              manifestLanguages={pluginLanguages.length > 0 ? pluginLanguages : undefined}
+            />
           </Allotment.Pane>
 
           {/* Editor + Output column */}
@@ -876,6 +953,7 @@ export function PluginEditor() {
                       columns={testColumns}
                       installedDeps={testInstalledDeps}
                       onRerun={handleRunTest}
+                      systemWidgetPreview={systemWidgetPreview}
                     />
                   </Allotment.Pane>
                 </Allotment>

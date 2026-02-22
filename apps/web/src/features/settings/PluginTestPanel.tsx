@@ -1,13 +1,26 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
 import { resolveTemplate } from '@/lib/analysis-plugins/template-resolver'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
+import { PatientSummaryWidget } from '@/features/projects/warehouse/patient-data/widgets/PatientSummaryWidget'
+import { TimelineWidget } from '@/features/projects/warehouse/patient-data/widgets/TimelineWidget'
+import { ClinicalTableWidget } from '@/features/projects/warehouse/patient-data/widgets/ClinicalTableWidget'
+import { MedicationWidget } from '@/features/projects/warehouse/patient-data/widgets/MedicationWidget'
+import { DiagnosisWidget } from '@/features/projects/warehouse/patient-data/widgets/DiagnosisWidget'
+import { NotesWidget } from '@/features/projects/warehouse/patient-data/widgets/NotesWidget'
 import { PluginConfigPreview } from './PluginConfigPreview'
 import type { PluginConfigField } from '@/types/analysis-plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
+import type { PatientWidgetType } from '@/stores/patient-chart-store'
+
+/** Synthetic project UID used for system plugin previews. */
+const PREVIEW_PROJECT_UID = '__plugin-preview__'
 
 interface PluginTestPanelProps {
   activeTab: 'config' | 'code' | 'results'
@@ -17,9 +30,84 @@ interface PluginTestPanelProps {
   columns: DatasetColumn[]
   installedDeps?: string[]
   onRerun?: () => void
+  /** When set, render a live widget preview instead of code output (system plugins). */
+  systemWidgetPreview?: PatientWidgetType | null
 }
 
-export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage, columns, installedDeps, onRerun }: PluginTestPanelProps) {
+/** Render the appropriate built-in widget component for a preview. */
+function renderPreviewWidget(type: PatientWidgetType) {
+  switch (type) {
+    case 'patient_summary':
+      return <PatientSummaryWidget />
+    case 'timeline':
+      return <TimelineWidget widgetId="__preview__" />
+    case 'clinical_table':
+      return <ClinicalTableWidget widgetId="__preview__" />
+    case 'medications':
+      return <MedicationWidget />
+    case 'diagnoses':
+      return <DiagnosisWidget />
+    case 'notes':
+      return <NotesWidget widgetId="__preview__" />
+    default:
+      return null
+  }
+}
+
+/**
+ * Wrapper that provides PatientChartContext and syncs patient selection
+ * for the preview projectUid.
+ */
+function SystemWidgetPreviewRenderer({ widgetType }: { widgetType: PatientWidgetType }) {
+  const { t } = useTranslation()
+  const { testDataSourceId, testPersonId, testVisitId, testVisitDetailId } =
+    usePluginEditorStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const { setSelectedPatient, setSelectedVisit, setSelectedVisitDetail } =
+    usePatientChartStore()
+
+  const schemaMapping = useMemo(
+    () => dataSources.find((ds) => ds.id === testDataSourceId)?.schemaMapping,
+    [dataSources, testDataSourceId],
+  )
+
+  // Sync test selections into the patient chart store under the preview projectUid
+  useEffect(() => {
+    setSelectedPatient(PREVIEW_PROJECT_UID, testPersonId)
+  }, [testPersonId, setSelectedPatient])
+
+  useEffect(() => {
+    setSelectedVisit(PREVIEW_PROJECT_UID, testVisitId)
+  }, [testVisitId, setSelectedVisit])
+
+  useEffect(() => {
+    setSelectedVisitDetail(PREVIEW_PROJECT_UID, testVisitDetailId)
+  }, [testVisitDetailId, setSelectedVisitDetail])
+
+  if (!testDataSourceId) {
+    return (
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+        {t('plugins.test_select_database')}
+      </div>
+    )
+  }
+
+  return (
+    <PatientChartContext.Provider
+      value={{
+        projectUid: PREVIEW_PROJECT_UID,
+        dataSourceId: testDataSourceId ?? undefined,
+        schemaMapping,
+      }}
+    >
+      <div className="h-full overflow-auto p-3">
+        {renderPreviewWidget(widgetType)}
+      </div>
+    </PatientChartContext.Provider>
+  )
+}
+
+export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage, columns, installedDeps, onRerun, systemWidgetPreview }: PluginTestPanelProps) {
   const { t } = useTranslation()
   const { files, testLanguage, testConfig } = usePluginEditorStore()
 
@@ -68,7 +156,9 @@ export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage,
 
         {activeTab === 'results' && (
           <div className="h-full">
-            {(result || isExecuting) ? (
+            {systemWidgetPreview ? (
+              <SystemWidgetPreviewRenderer widgetType={systemWidgetPreview} />
+            ) : (result || isExecuting) ? (
               <AnalysisOutputRenderer
                 result={result}
                 isExecuting={isExecuting}

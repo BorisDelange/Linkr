@@ -176,13 +176,14 @@ export function PluginsTab() {
     openPlugin,
     createPlugin,
     deletePlugin,
+    activePluginTab: activeTab,
+    setActivePluginTab: setActiveTab,
   } = usePluginEditorStore()
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPluginName, setNewPluginName] = useState('')
   const [createScope, setCreateScope] = useState<PluginScope>('lab')
-  const [activeTab, setActiveTab] = useState<string>('warehouse')
   const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {

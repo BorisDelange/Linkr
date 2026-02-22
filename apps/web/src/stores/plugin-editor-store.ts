@@ -75,6 +75,10 @@ interface PluginEditorState {
   pluginList: PluginListItem[]
   refreshPluginList: () => Promise<void>
 
+  /** Active tab in the plugin list view (survives editor open/close). */
+  activePluginTab: 'warehouse' | 'lab'
+  setActivePluginTab: (tab: 'warehouse' | 'lab') => void
+
   // Editor
   editingPluginId: string | null
   isBuiltIn: boolean
@@ -107,10 +111,20 @@ interface PluginEditorState {
   testLanguage: 'python' | 'r'
   testProjectUid: string | null
   testDatasetFileId: string | null
+  /** Data source ID for warehouse plugin testing. */
+  testDataSourceId: string | null
+  /** Patient context for warehouse plugin testing. */
+  testPersonId: string | null
+  testVisitId: string | null
+  testVisitDetailId: string | null
   testConfig: Record<string, unknown>
   setTestLanguage: (lang: 'python' | 'r') => void
   setTestProject: (uid: string | null) => void
   setTestDataset: (id: string | null) => void
+  setTestDataSource: (id: string | null) => void
+  setTestPersonId: (id: string | null) => void
+  setTestVisitId: (id: string | null) => void
+  setTestVisitDetailId: (id: string | null) => void
   setTestConfig: (config: Record<string, unknown>) => void
 }
 
@@ -120,6 +134,8 @@ const builtInIds = new Set<string>()
 export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   // List
   pluginList: [],
+  activePluginTab: 'warehouse',
+  setActivePluginTab(tab) { set({ activePluginTab: tab }) },
 
   async refreshPluginList() {
     // Built-in plugins from registry
@@ -465,10 +481,18 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   testLanguage: 'python',
   testProjectUid: null,
   testDatasetFileId: null,
+  testDataSourceId: null,
+  testPersonId: null,
+  testVisitId: null,
+  testVisitDetailId: null,
   testConfig: {},
 
   setTestLanguage(lang) { set({ testLanguage: lang }) },
   setTestProject(uid) { set({ testProjectUid: uid, testDatasetFileId: null }) },
   setTestDataset(id) { set({ testDatasetFileId: id }) },
+  setTestDataSource(id) { set({ testDataSourceId: id, testPersonId: null, testVisitId: null, testVisitDetailId: null }) },
+  setTestPersonId(id) { set({ testPersonId: id, testVisitId: null, testVisitDetailId: null }) },
+  setTestVisitId(id) { set({ testVisitId: id, testVisitDetailId: null }) },
+  setTestVisitDetailId(id) { set({ testVisitDetailId: id }) },
   setTestConfig(config) { set({ testConfig: config }) },
 }))
