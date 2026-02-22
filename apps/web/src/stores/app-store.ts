@@ -136,11 +136,11 @@ function createDemoProject(): Project {
 
 Mortality prediction in the intensive care unit (ICU) is central to clinical decision-making, resource allocation, and benchmarking of care quality. Established severity scores — APACHE II, SAPS II, SOFA — have been widely adopted but present well-known limitations: they were developed on historical cohorts, rely on fixed variable sets, and use pre-defined weighting schemes that do not adapt to local case-mix. Several studies have shown that logistic regression and machine learning models trained on routinely collected electronic health record (EHR) data can match or outperform these traditional scores.
 
-This project explores whether a **simple logistic regression model**, fitted on variables available within the **first 24 hours** of ICU admission, can effectively discriminate between survivors and non-survivors — using only data from the OMOP Common Data Model.
+This project explores whether predictive models fitted on variables available within the **first 24 hours** of ICU admission can effectively discriminate between survivors and non-survivors — using only data from the OMOP Common Data Model.
 
 ## Objective
 
-Develop and evaluate a predictive model for **in-hospital mortality** among ICU patients, using demographics and physiological measurements collected during the first 24 hours of stay (H0–H24).
+Develop and evaluate predictive models for **in-hospital mortality** among ICU patients, using demographics and physiological measurements collected during the first 24 hours of stay (H0–H24).
 
 ## Data
 
@@ -148,19 +148,52 @@ The dataset is the **MIMIC-IV demo** (version 2.2), a freely available subset of
 
 After applying inclusion criteria (hospital stay $\\geq$ 24 h, at least one measurement in H0–H24), the final cohort comprises **242 ICU visits** from 100 patients, with **13 deaths** (5.4% mortality rate).
 
-## Methods
+## Scripts
 
-The analysis pipeline consists of five sequential scripts:
+The project contains two **self-contained study notebooks** and three **example scripts** (one per file type).
 
-### 1. Cohort extraction (\`01_cohort_extraction.sql\`)
+### 1. Exploratory Data Analysis (\`01_eda_mortality.ipynb\`)
 
-- Select hospital stays with length of stay $\\geq$ 24 hours
-- Require at least one recorded measurement in the H0–H24 window
-- Compute demographics (age, sex), length of stay, and in-hospital mortality flag (death occurring between admission and discharge + 1 day)
+**Self-contained** Jupyter notebook performing the full EDA pipeline:
 
-### 2. Feature engineering (\`02_feature_engineering.py\`)
+- OMOP concept exploration (domains, vocabularies, available measurements)
+- Cohort extraction via SQL (eligible visits $\\geq$ 24h, mortality flag, demographics)
+- Feature engineering (H0–H24 measurements: vitals mean/min/max, labs first value, GCS worst)
+- Wide-format dataset export (one row per visit, ~45 features)
+- Cohort overview: demographics, age/sex distributions, admission timeline
+- Feature distributions by outcome (vitals, labs, GCS)
+- Missing data analysis and patterns by outcome
+- Correlation matrix and multicollinearity detection
+- Table 1 with descriptive statistics
+- Univariate associations (point-biserial correlation)
+- Outlier detection with clinical plausibility ranges
 
-Extract and aggregate measurements from the first 24 hours:
+### 2. Machine Learning Pipeline (\`02_ml_mortality.qmd\`)
+
+**Self-contained** Quarto report with full ML pipeline:
+
+- Cohort extraction & feature engineering (same as notebook 1)
+- Data preparation: feature selection, median imputation
+- Train/test split (75/25 stratified)
+- Logistic regression (baseline) with odds ratios
+- Gradient boosting with 5-fold cross-validation
+- Model comparison: ROC, Precision-Recall, confusion matrix
+- Calibration analysis
+- Feature importance (impurity-based + permutation)
+- SHAP analysis: summary, bar, dependence, waterfall
+- LIME explanations for individual predictions
+
+### 3–5. Example scripts
+
+Simple examples demonstrating each file type in Linkr:
+
+| Script | Language | Description |
+|---|---|---|
+| \`03_example.sql\` | SQL | OMOP CDM cohort extraction queries |
+| \`04_example.py\` | Python | Feature engineering with \`sql_query()\` and pandas |
+| \`05_example.R\` | R | Statistical analysis and logistic regression |
+
+## Features extracted
 
 | Category | Variables | Aggregation |
 |---|---|---|
@@ -168,80 +201,16 @@ Extract and aggregate measurements from the first 24 hours:
 | **Laboratory** (15) | Hemoglobin, hematocrit, platelets, WBC, Na, K, Cl, HCO$_3$, creatinine, BUN, glucose, anion gap, Ca, Mg, phosphate | First value |
 | **Neurological** (3) | GCS eye, verbal, motor | Minimum |
 
-The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (242 rows $\\times$ 45 columns).
-
-### 3. Statistical analysis (\`03_analysis.R\`)
-
-- **Descriptive statistics** (Table 1): comparison of survivors vs. non-survivors using Wilcoxon rank-sum tests
-- **Logistic regression**: features with < 30% missing data are selected (16 / 40 features), missing values imputed by median, binary outcome modeled with \`glm(..., family = binomial)\`
-- **Evaluation**: ROC curve and AUC, confusion matrix at threshold 0.5
-
-### 4. Exploratory data analysis (\`04_eda_mortality.ipynb\`)
-
-Jupyter notebook (Python) covering:
-
-- OMOP concept exploration: domains, vocabularies, available measurements
-- Cohort demographics: age/sex distributions, admission timeline
-- Feature distributions by outcome (vitals, labs, GCS)
-- Missing data analysis and patterns
-- Correlation matrix and multicollinearity detection
-- Table 1 with descriptive statistics
-- Outlier detection with clinical plausibility ranges
-
-### 5. Machine learning pipeline (\`05_ml_mortality.qmd\`)
-
-Quarto report (Python) with full ML pipeline:
-
-- Train/test split (75/25 stratified)
-- Logistic regression (baseline) with coefficient analysis
-- Gradient boosting with 5-fold cross-validation
-- Model comparison: ROC, Precision-Recall, confusion matrix
-- Calibration analysis
-- Feature importance (impurity-based + permutation)
-- SHAP analysis: summary, dependence plots, waterfall explanations
-- LIME explanations for individual predictions
-
-## Results
-
-### Population characteristics
-
-|  | Survivors (n = 229) | Non-survivors (n = 13) | p-value |
-|---|---|---|---|
-| Age, years | 62.1 (14.7) | 70.1 (11.9) | 0.048 |
-| Length of stay, hours | 180.4 (157.3) | 247.8 (185.5) | 0.085 |
-| Creatinine, mg/dL | 1.6 (1.9) | 2.1 (1.5) | 0.014 |
-| Potassium, mEq/L | 4.3 (0.8) | 5.0 (0.7) | 0.001 |
-| Glucose, mg/dL | 165.6 (120.4) | 181.8 (47.8) | 0.018 |
-| BUN, mg/dL | 26.1 (21.2) | 39.8 (23.4) | 0.014 |
-
-Values are mean (SD).
-
-Non-survivors were significantly **older** (70.1 vs. 62.1 years, p = 0.048) and presented with higher **creatinine** (p = 0.014), **potassium** (p = 0.001), **glucose** (p = 0.018), and **BUN** (p = 0.014) levels at admission.
-
-### Model performance
-
-The logistic regression model achieved an **AUC of 0.923**, indicating excellent discrimination. Significant predictors at the $\\alpha$ = 0.01 level were:
-
-- **Sex** (male, OR increased, p = 0.008)
-- **Age** (p = 0.009)
-- **Creatinine** (p = 0.003)
-
-Confusion matrix at threshold 0.5:
-
-|  | Predicted alive | Predicted dead |
-|---|---|---|
-| **Actually alive** | 228 | 1 |
-| **Actually dead** | 10 | 3 |
-
-Sensitivity: 23.1% — Specificity: 99.6% — PPV: 75.0%
+The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (242 rows $\\times$ ~45 columns).
 
 ## Limitations
 
-- **Small sample size**: 100 patients / 13 deaths limits statistical power and generalizability. The high AUC may reflect overfitting.
-- **Demo dataset**: MIMIC-IV demo is a convenience sample, not representative of the full MIMIC-IV cohort.
-- **No external validation**: the model is evaluated on the training set only (no train/test split given the small sample).
-- **Single-center data**: results from Beth Israel Deaconess Medical Center may not transfer to other ICU populations.
-- **Simple model**: logistic regression was chosen for interpretability; ensemble methods or neural networks might improve sensitivity.
+- **Small sample size**: 100 patients / 13 deaths limits statistical power and generalizability
+- **Demo dataset**: MIMIC-IV demo is a convenience sample
+- **Single-center data**: Beth Israel Deaconess Medical Center only
+- **H0–H24 only**: no time-series modeling, no features after 24h
+- **Median imputation**: simple approach, no multiple imputation
+- **No external validation**: single-center, no temporal split
 
 ## References
 

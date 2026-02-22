@@ -1,10 +1,10 @@
 -- =============================================================================
--- 01_cohort_extraction.sql
--- Mortality prediction project — Step 1: Cohort extraction
+-- 03_example.sql — Example SQL script
 --
--- Selects hospital stays >= 24 hours with at least one measurement in the
--- first 24 hours. Computes demographics and in-hospital mortality outcome.
+-- This is a standalone example of an SQL script in Linkr.
+-- It demonstrates how to query OMOP CDM tables using DuckDB SQL.
 --
+-- Topic: Cohort extraction for ICU mortality prediction
 -- Output: VIEW cohort (one row per eligible visit)
 -- =============================================================================
 

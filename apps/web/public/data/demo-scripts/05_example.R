@@ -1,11 +1,12 @@
 # =============================================================================
-# 03_analysis.R
-# Mortality prediction project — Step 3: Statistical analysis
+# 05_example.R — Example R script
 #
-# Reads the wide-format dataset produced by 02_feature_engineering.py,
-# performs descriptive statistics, fits a logistic regression model,
-# and evaluates its performance (ROC curve, confusion matrix).
+# This is a standalone example of an R script in Linkr.
+# It demonstrates descriptive statistics, logistic regression,
+# and ROC curve evaluation using base R.
 #
+# Topic: Statistical analysis for ICU mortality prediction
+# Prerequisite: Run 04_example.py first to create the CSV dataset.
 # Input:  data/datasets/mortality_dataset.csv
 # Output: Console output + plots
 # =============================================================================

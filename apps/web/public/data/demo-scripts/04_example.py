@@ -1,16 +1,16 @@
 # =============================================================================
-# 02_feature_engineering.py
-# Mortality prediction project — Step 2: Feature engineering
+# 04_example.py — Example Python script
 #
-# Reads the cohort view created by 01_cohort_extraction.sql, extracts
-# measurements from the first 24 hours, pivots from OMOP long format
-# to one-row-per-visit wide format, and exports a CSV.
+# This is a standalone example of a Python script in Linkr.
+# It demonstrates how to use sql_query() to query OMOP CDM data,
+# process results with pandas, and export a CSV.
 #
-# Uses sql_query(sql) which is automatically available in Linkr.
+# sql_query(sql) is automatically available in Linkr.
 # It queries the active DuckDB connection and returns a pandas DataFrame.
 # Usage: df = await sql_query("SELECT * FROM person LIMIT 10")
 #
-# Input:  DuckDB views (cohort, measurement, concept)
+# Topic: Feature engineering for ICU mortality prediction
+# Prerequisite: Run 03_example.sql first to create the cohort view.
 # Output: data/datasets/mortality_dataset.csv
 # =============================================================================
 
