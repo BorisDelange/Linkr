@@ -25,8 +25,8 @@ interface IpynbNotebookProps {
   onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
   fileName?: string
-  initialCellStates?: Map<string, CellState>
-  onCellStatesChange?: (states: Map<string, CellState>) => void
+  initialCellStates?: CellState[]
+  onCellStatesChange?: (states: CellState[]) => void
 }
 
 export interface IpynbNotebookHandle extends RmdNotebookHandle {
@@ -80,9 +80,23 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
       URL.revokeObjectURL(url)
     }, [fileName])
 
-    // Forward imperative handle with downloadNotebook added
+    // Forward imperative handle — delegate to rmdRef at call time (not capture time)
+    // so that methods like runCell/runAll always use the latest RmdNotebook handle.
     useImperativeHandle(ref, () => ({
-      ...rmdRef.current!,
+      runCell: () => rmdRef.current?.runCell(),
+      runAll: () => rmdRef.current?.runAll(),
+      runAbove: () => rmdRef.current?.runAbove(),
+      renderPreview: () => rmdRef.current?.renderPreview(),
+      renderHtml: () => rmdRef.current?.renderHtml(),
+      renderPdf: () => rmdRef.current?.renderPdf(),
+      addCell: (type: 'markdown' | 'code' | 'yaml', language?: string) => rmdRef.current?.addCell(type, language),
+      get hasYamlCell() { return rmdRef.current?.hasYamlCell ?? false },
+      get isRendering() { return rmdRef.current?.isRendering ?? false },
+      getCells: () => rmdRef.current?.getCells() ?? [],
+      getCellStates: () => rmdRef.current?.getCellStates() ?? new Map(),
+      get sourceView() { return rmdRef.current?.sourceView ?? false },
+      toggleSourceView: () => rmdRef.current?.toggleSourceView(),
+      scrollToCell: (cellId: string) => rmdRef.current?.scrollToCell(cellId),
       downloadNotebook,
     }), [downloadNotebook])
 

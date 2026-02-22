@@ -166,10 +166,10 @@ interface RmdNotebookProps {
   shortcutPrefix?: 'rmd' | 'ipynb'
   /** Notebook format: 'rmd' shows Rmd chunk options, 'ipynb' hides them. Default: 'rmd'. */
   notebookFormat?: 'rmd' | 'ipynb'
-  /** Cached cell states from a previous mount (restored on tab switch). */
-  initialCellStates?: Map<string, CellState>
-  /** Called when cellStates change, so the parent can cache them. */
-  onCellStatesChange?: (states: Map<string, CellState>) => void
+  /** Cached cell states from a previous mount, indexed by position (restored on tab switch). */
+  initialCellStates?: CellState[]
+  /** Called when cellStates change, so the parent can cache them (positional array). */
+  onCellStatesChange?: (states: CellState[]) => void
 }
 
 /** Imperative handle exposed to the parent for toolbar actions */
@@ -224,16 +224,28 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   }, [])
 
   // ---- State ----
-  const [cells, setCells] = useState<RmdCell[]>(() => parseFn(content))
+  // Parse once and share the result between cells and cellStates initialization.
+  // This avoids multiple parseFn calls generating different cell IDs.
+  const [initialParsed] = useState(() => parseFn(content))
+  const [cells, setCells] = useState<RmdCell[]>(initialParsed)
   const cellsRef = useRef(cells)
   cellsRef.current = cells
-  const [cellStates, setCellStates] = useState<Map<string, CellState>>(() => initialCellStates ?? new Map())
+  const [cellStates, setCellStates] = useState<Map<string, CellState>>(() => {
+    if (!initialCellStates?.length) return new Map()
+    const map = new Map<string, CellState>()
+    for (let i = 0; i < Math.min(initialCellStates.length, initialParsed.length); i++) {
+      if (initialCellStates[i]) map.set(initialParsed[i].id, initialCellStates[i])
+    }
+    return map
+  })
 
-  // Notify parent when cellStates changes (for caching across tab switches)
+  // Notify parent when cellStates changes (positional array for stable caching)
   const onCellStatesChangeRef = useRef(onCellStatesChange)
   onCellStatesChangeRef.current = onCellStatesChange
   useEffect(() => {
-    onCellStatesChangeRef.current?.(cellStates)
+    if (!onCellStatesChangeRef.current) return
+    const positional = cellsRef.current.map((c) => cellStates.get(c.id) ?? { status: 'idle' as const, output: null })
+    onCellStatesChangeRef.current(positional)
   }, [cellStates])
 
   const [previewCells, setPreviewCells] = useState<Set<string>>(new Set())
@@ -259,7 +271,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   // This prevents React from moving DOM nodes when cells are reordered,
   // which would destroy Monaco editor instances ("InstantiationService disposed").
   const [renderOrder, setRenderOrder] = useState<string[]>(() =>
-    parseFn(content).map((c) => c.id),
+    initialParsed.map((c) => c.id),
   )
 
   // Source view toggle (show raw Rmd text in a single editor)
@@ -272,9 +284,15 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
 
   // Track internal edits to avoid re-parsing when onChange is called
   const internalEdit = useRef(false)
+  // Skip the first useEffect run (we already parsed in useState)
+  const isFirstRender = useRef(true)
 
   // Re-parse when content changes externally
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
     if (internalEdit.current) {
       internalEdit.current = false
       return
@@ -655,6 +673,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     .output-table th { background: #2a2a2a; }
     .output-table tr:nth-child(even) { background: #222; }
     a { color: #6ab0f3; }
+    .figure img, .figure svg { filter: invert(1) hue-rotate(180deg); }
   }
   @media print { .code-cell { break-inside: avoid; } .figure { break-inside: avoid; } .output-table { break-inside: avoid; font-size: 10px; } }
 </style>

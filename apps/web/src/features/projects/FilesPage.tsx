@@ -232,10 +232,11 @@ export function FilesPage() {
   }, [activeProjectUid, activeConnectionId, dataSourcesLoaded, getProjectConnections, setActiveConnection])
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
-  const notebookRef = useRef<RmdNotebookHandle | IpynbNotebookHandle>(null)
-
-  // Cache cell execution states per file so they survive tab switches (unmount/remount)
-  const cellStatesCacheRef = useRef<Map<string, Map<string, CellState>>>(new Map())
+  // Keep-alive: one ref per open notebook file, so switching tabs doesn't destroy state.
+  const notebookRefsMap = useRef<Map<string, RmdNotebookHandle | IpynbNotebookHandle>>(new Map())
+  // Convenience accessor for the active notebook (used by toolbar buttons)
+  const notebookRef = useRef<RmdNotebookHandle | IpynbNotebookHandle | null>(null)
+  notebookRef.current = selectedFileId ? (notebookRefsMap.current.get(selectedFileId) ?? null) : null
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
@@ -1459,68 +1460,83 @@ export function FilesPage() {
                   {/* Top: editor + output (horizontal split) */}
                   <Allotment.Pane>
                     <Allotment>
-                      {/* Editor panel */}
+                      {/* Editor panel — notebooks are kept alive (hidden when inactive) */}
                       <Allotment.Pane minSize={150} visible={editorVisible}>
-                        {selectedNode && isIpynbFile ? (
-                          <Suspense fallback={
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                              Loading notebook...
+                        {/* Keep-alive notebooks: render ALL open notebook files, hide inactive ones */}
+                        {openFileIds.map((fid) => {
+                          const node = nodes.find((n) => n.id === fid)
+                          if (!node) return null
+                          const isIpynb = node.name.endsWith('.ipynb')
+                          const isRmd = /\.(rmd|qmd)$/i.test(node.name)
+                          if (!isIpynb && !isRmd) return null
+                          const isActive = fid === selectedFileId
+                          const isVirtual = node.virtual === true
+                          return (
+                            <div
+                              key={fid}
+                              className="h-full w-full"
+                              style={{ display: isActive ? 'block' : 'none' }}
+                            >
+                              <Suspense fallback={
+                                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                                  Loading notebook...
+                                </div>
+                              }>
+                                {isIpynb ? (
+                                  <LazyIpynbNotebook
+                                    ref={(handle) => {
+                                      if (handle) notebookRefsMap.current.set(fid, handle)
+                                      else notebookRefsMap.current.delete(fid)
+                                    }}
+                                    content={node.content ?? ''}
+                                    onChange={isVirtual ? undefined : (v) =>
+                                      updateFileContent(node.id, v)
+                                    }
+                                    readOnly={isVirtual}
+                                    onSave={handleSaveFile}
+                                    onRenderOutput={(html, title) => {
+                                      addOutputTab({
+                                        id: `render-${fid}`,
+                                        label: `Render — ${title}`,
+                                        type: 'html',
+                                        content: html,
+                                      })
+                                      setOutputVisible(true)
+                                    }}
+                                    activeConnectionId={activeConnectionId}
+                                    fileName={node.name}
+                                  />
+                                ) : (
+                                  <LazyRmdNotebook
+                                    ref={(handle) => {
+                                      if (handle) notebookRefsMap.current.set(fid, handle)
+                                      else notebookRefsMap.current.delete(fid)
+                                    }}
+                                    content={node.content ?? ''}
+                                    onChange={isVirtual ? undefined : (v) =>
+                                      updateFileContent(node.id, v)
+                                    }
+                                    readOnly={isVirtual}
+                                    onSave={handleSaveFile}
+                                    onRenderOutput={(html, title) => {
+                                      addOutputTab({
+                                        id: `render-${fid}`,
+                                        label: `Render — ${title}`,
+                                        type: 'html',
+                                        content: html,
+                                      })
+                                      setOutputVisible(true)
+                                    }}
+                                    activeConnectionId={activeConnectionId}
+                                  />
+                                )}
+                              </Suspense>
                             </div>
-                          }>
-                            <LazyIpynbNotebook
-                              ref={notebookRef}
-                              key={selectedFileId}
-                              content={selectedNode.content ?? ''}
-                              onChange={isVirtualFile ? undefined : (v) =>
-                                updateFileContent(selectedNode.id, v)
-                              }
-                              readOnly={isVirtualFile}
-                              onSave={handleSaveFile}
-                              onRenderOutput={(html, title) => {
-                                addOutputTab({
-                                  id: `render-${selectedFileId}`,
-                                  label: `Render — ${title}`,
-                                  type: 'html',
-                                  content: html,
-                                })
-                                setOutputVisible(true)
-                              }}
-                              activeConnectionId={activeConnectionId}
-                              fileName={selectedNode.name}
-                              initialCellStates={cellStatesCacheRef.current.get(selectedFileId!)}
-                              onCellStatesChange={(states) => { cellStatesCacheRef.current.set(selectedFileId!, states) }}
-                            />
-                          </Suspense>
-                        ) : selectedNode && isRmdNotebook ? (
-                          <Suspense fallback={
-                            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                              Loading notebook...
-                            </div>
-                          }>
-                            <LazyRmdNotebook
-                              ref={notebookRef}
-                              key={selectedFileId}
-                              content={selectedNode.content ?? ''}
-                              onChange={isVirtualFile ? undefined : (v) =>
-                                updateFileContent(selectedNode.id, v)
-                              }
-                              readOnly={isVirtualFile}
-                              onSave={handleSaveFile}
-                              onRenderOutput={(html, title) => {
-                                addOutputTab({
-                                  id: `render-${selectedFileId}`,
-                                  label: `Render — ${title}`,
-                                  type: 'html',
-                                  content: html,
-                                })
-                                setOutputVisible(true)
-                              }}
-                              activeConnectionId={activeConnectionId}
-                              initialCellStates={cellStatesCacheRef.current.get(selectedFileId!)}
-                              onCellStatesChange={(states) => { cellStatesCacheRef.current.set(selectedFileId!, states) }}
-                            />
-                          </Suspense>
-                        ) : selectedNode ? (
+                          )
+                        })}
+
+                        {/* Non-notebook files: standard CodeEditor (only the selected one) */}
+                        {selectedNode && !isIpynbFile && !isRmdNotebook && (
                           <CodeEditor
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}
@@ -1534,7 +1550,10 @@ export function FilesPage() {
                             onRunSelectionOrLine={isVirtualFile ? undefined : handleRunSelectionOrLine}
                             onRunFile={isVirtualFile ? undefined : handleRunFile}
                           />
-                        ) : (
+                        )}
+
+                        {/* Empty state */}
+                        {!selectedNode && (
                           <div className="flex h-full items-center justify-center">
                             <div className="text-center">
                               <FileCode
