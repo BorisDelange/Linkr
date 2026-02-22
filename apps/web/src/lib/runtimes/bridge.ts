@@ -64,12 +64,8 @@ export async function registerDuckDBBridgeR(
   (globalThis as Record<string, unknown>).__linkr_active_connection_id = activeConnectionId
   ;(globalThis as Record<string, unknown>).__linkr_query_fn = async (sql: string) => {
     if (!activeConnectionId) throw new Error('No active database connection. Select a connection before using sql_query().')
-    console.log('[R bridge] sql_query called, connectionId:', activeConnectionId, 'sql:', sql.slice(0, 80))
     const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql)
-    console.log('[R bridge] queryDataSource returned', rows.length, 'rows')
-    const json = JSON.stringify(rows)
-    console.log('[R bridge] JSON length:', json.length, 'first 200 chars:', json.slice(0, 200))
-    return json
+    return JSON.stringify(rows)
   }
 
   // Define the R wrapper function.

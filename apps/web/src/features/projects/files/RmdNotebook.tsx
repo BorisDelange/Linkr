@@ -40,6 +40,7 @@ import {
   Check,
   XCircle,
   ChevronsUpDown,
+  Copy,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -175,6 +176,7 @@ interface RmdNotebookProps {
 /** Imperative handle exposed to the parent for toolbar actions */
 export interface RmdNotebookHandle {
   runCell: () => void
+  runCellAndAdvance: () => void
   runAll: () => void
   runAbove: () => void
   renderPreview: () => void
@@ -795,6 +797,17 @@ ${bodyParts.join('\n')}
       // Only use the window handler as fallback (e.g. focus on cell header).
       if (inMonaco) return
 
+      // Run cell (stay — no advance) — test BEFORE run_chunk+run_selection_or_line
+      // because in Jupyter preset both run_chunk_stay and run_selection_or_line
+      // map to Cmd+Enter; the more specific binding must win.
+      if (matchCombo(e, getBinding(nb('run_chunk_stay')))) {
+        e.preventDefault()
+        if (activeCell) {
+          if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
+          else if (activeCellObj?.type === 'code') runCell(activeCell)
+        }
+        return
+      }
       // Run cell and advance
       if (
         matchCombo(e, getBinding(nb('run_chunk'))) ||
@@ -806,15 +819,6 @@ ${bodyParts.join('\n')}
           else if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
           // yaml: nothing to run, just advance
           advanceCell()
-        }
-        return
-      }
-      // Run cell (stay — no advance)
-      if (matchCombo(e, getBinding(nb('run_chunk_stay')))) {
-        e.preventDefault()
-        if (activeCell) {
-          if (activeCellObj?.type === 'markdown') togglePreview(activeCell)
-          else runCell(activeCell)
         }
         return
       }
@@ -890,6 +894,13 @@ ${bodyParts.join('\n')}
       if (cell?.type === 'markdown') togglePreview(activeCell)
       else if (cell?.type === 'code') runCell(activeCell)
     },
+    runCellAndAdvance: () => {
+      if (!activeCell) return
+      const cell = cellsRef.current.find((c) => c.id === activeCell)
+      if (cell?.type === 'code') runCell(activeCell)
+      else if (cell?.type === 'markdown') togglePreview(activeCell)
+      advanceCell()
+    },
     runAll,
     runAbove,
     renderPreview: handleRenderPreview,
@@ -911,7 +922,7 @@ ${bodyParts.join('\n')}
       setSourceView((v) => !v)
     },
     scrollToCell,
-  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn, scrollToCell])
+  }), [activeCell, runCell, advanceCell, togglePreview, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates, sourceView, serializeFn, scrollToCell])
 
   // Source view: when user edits the raw text, debounce re-parsing into cells
   const sourceDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1366,6 +1377,8 @@ function RmdCellBlock({
   const onFocusRef = useRef(onFocus)
   onFocusRef.current = onFocus
 
+  const [copied, setCopied] = useState(false)
+
   const lineCount = cell.content.split('\n').length
   const isLong = lineCount > RMD_COLLAPSE_LINE_THRESHOLD
   const [collapsed, setCollapsed] = useState(false)
@@ -1414,6 +1427,16 @@ function RmdCellBlock({
           const gb = useShortcutStore.getState().getBinding
           const nbId = (suffix: string) => `${shortcutPrefix}_${suffix}` as ShortcutActionId
 
+          // Run cell stay (no advance) — test BEFORE run_chunk+run_selection_or_line
+          // because in Jupyter preset both bindings map to Cmd+Enter
+          if (matchCombo(e, gb(nbId('run_chunk_stay')))) {
+            e.preventDefault()
+            e.stopPropagation()
+            if (cell.type === 'code') onRunRef.current()
+            else if (cell.type === 'markdown') onTogglePreviewRef.current()
+            return
+          }
+
           // Run cell and advance
           if (matchCombo(e, gb(nbId('run_chunk'))) || matchCombo(e, gb('run_selection_or_line'))) {
             e.preventDefault()
@@ -1422,15 +1445,6 @@ function RmdCellBlock({
             else if (cell.type === 'markdown') onTogglePreviewRef.current()
             // yaml: nothing to run, just advance
             onAdvanceRef.current()
-            return
-          }
-
-          // Run cell stay (no advance)
-          if (matchCombo(e, gb(nbId('run_chunk_stay')))) {
-            e.preventDefault()
-            e.stopPropagation()
-            if (cell.type === 'code') onRunRef.current()
-            else if (cell.type === 'markdown') onTogglePreviewRef.current()
             return
           }
         })
@@ -1567,7 +1581,7 @@ function RmdCellBlock({
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {cell.type === 'code' && !readOnly && (
               <button
-                onClick={(e) => { e.stopPropagation(); onRun() }}
+                onClick={(e) => { e.stopPropagation(); onRun(); onAdvance() }}
                 className="p-0.5 rounded hover:bg-accent"
                 title={t('files.notebook_run_cell')}
               >
@@ -1592,6 +1606,18 @@ function RmdCellBlock({
                 {isPreview ? <Pencil size={11} /> : <Eye size={11} />}
               </button>
             )}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                navigator.clipboard.writeText(cell.content)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              }}
+              className="p-0.5 rounded hover:bg-accent text-muted-foreground"
+              title={t('files.copy')}
+            >
+              {copied ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+            </button>
             {!readOnly && (
               <button
                 onClick={(e) => { e.stopPropagation(); onRemove() }}

@@ -136,46 +136,6 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Toolbar: column visibility (hidden in compact mode) */}
-      {!compact && (
-        <div className="flex items-center justify-between border-b px-2 py-1">
-          <span className="text-xs text-muted-foreground">
-            {hasActiveFilters
-              ? t('files.table_total', { count: totalCount }) +
-                ` / ${rows.length}`
-              : ''}
-          </span>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs">
-                <Settings2 size={12} />
-                {t('files.columns', 'Columns')}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="max-h-[300px] w-[180px] overflow-y-auto">
-              <DropdownMenuLabel className="text-xs">
-                {t('files.columns', 'Columns')}
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {headers.map((h, idx) => (
-                <DropdownMenuCheckboxItem
-                  key={idx}
-                  checked={!hiddenColumns.has(idx)}
-                  onCheckedChange={() => toggleColumn(idx)}
-                  onSelect={(e) => e.preventDefault()}
-                  className="text-xs"
-                >
-                  <div className="flex items-center gap-1.5">
-                    <TypeBadge type={columnTypes[idx]} size="sm" />
-                    <span className="truncate">{h}</span>
-                  </div>
-                </DropdownMenuCheckboxItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
-
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full text-xs border-collapse">
@@ -259,9 +219,42 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
 
       {/* Pagination bar */}
       <div className={cn('flex shrink-0 items-center justify-between border-t', compact ? 'px-2 py-0.5' : 'px-3 py-1.5')}>
-        <span className="text-xs text-muted-foreground">
-          {t('files.table_total', { count: totalCount })}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">
+            {hasActiveFilters
+              ? `${totalCount} / ${rows.length}`
+              : t('files.table_total', { count: totalCount })}
+          </span>
+          {!compact && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-6 w-6">
+                  <Settings2 size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-[300px] w-[180px] overflow-y-auto">
+                <DropdownMenuLabel className="text-xs">
+                  {t('files.columns', 'Columns')}
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {headers.map((h, idx) => (
+                  <DropdownMenuCheckboxItem
+                    key={idx}
+                    checked={!hiddenColumns.has(idx)}
+                    onCheckedChange={() => toggleColumn(idx)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <TypeBadge type={columnTypes[idx]} size="sm" />
+                      <span className="truncate">{h}</span>
+                    </div>
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {!compact && (
             <>

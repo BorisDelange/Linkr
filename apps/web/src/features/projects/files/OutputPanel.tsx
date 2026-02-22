@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
-import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check } from 'lucide-react'
+import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -292,8 +292,12 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
         {showExecContent && (
           <ScrollArea className="h-full" ref={scrollAreaRef}>
             <div className="p-2 space-y-1">
-              {executionResults.map((result) => (
-                <ResultCard key={result.id} result={result} />
+              {executionResults.map((result, idx) => (
+                <ResultCard
+                  key={result.id}
+                  result={result}
+                  defaultCollapsed={idx < executionResults.length - 1}
+                />
               ))}
               <div ref={scrollSentinelRef} />
             </div>
@@ -363,13 +367,22 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
 // ResultCard — single execution result with copy + show-code toggle
 // ---------------------------------------------------------------------------
 
-function ResultCard({ result }: { result: ExecutionResult }) {
+const COLLAPSED_LINES = 5
+
+function ResultCard({ result, defaultCollapsed }: { result: ExecutionResult; defaultCollapsed?: boolean }) {
   const { t } = useTranslation()
   const [showCode, setShowCode] = useState(false)
   const [copied, setCopied] = useState(false)
 
   const displayText = showCode ? (result.code ?? '') : result.output
   const hasCode = !!result.code
+  const lineCount = displayText.split('\n').length
+  const isLong = defaultCollapsed && lineCount > COLLAPSED_LINES
+  const [collapsed, setCollapsed] = useState(isLong)
+
+  const shownText = collapsed
+    ? displayText.split('\n').slice(0, COLLAPSED_LINES).join('\n')
+    : displayText
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(displayText).then(() => {
@@ -382,16 +395,32 @@ function ResultCard({ result }: { result: ExecutionResult }) {
     <TooltipProvider delayDuration={300}>
       <div
         className={cn(
-          'rounded-md border p-3',
+          'rounded-md border',
+          collapsed ? 'p-1.5' : 'p-3',
           result.success
             ? 'border-green-500/30 bg-green-500/5'
             : 'border-red-500/30 bg-red-500/5'
         )}
       >
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-xs font-medium">
-            {result.fileName}
-          </span>
+        <div className={cn('flex items-center justify-between', collapsed ? 'mb-0' : 'mb-1.5')}>
+          <div className="flex items-center gap-1.5">
+            {isLong && (
+              <button
+                onClick={() => setCollapsed((c) => !c)}
+                className="rounded p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+              >
+                <ChevronsUpDown size={11} />
+              </button>
+            )}
+            <span className={cn('text-xs font-medium', collapsed && 'text-muted-foreground')}>
+              {result.fileName}
+            </span>
+            {collapsed && (
+              <span className="text-[10px] text-muted-foreground">
+                ({lineCount} lines)
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             {hasCode && (
               <Tooltip>
@@ -434,9 +463,11 @@ function ResultCard({ result }: { result: ExecutionResult }) {
             )}
           </div>
         </div>
-        <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
-          {displayText}
-        </pre>
+        {!collapsed && (
+          <pre className="text-xs whitespace-pre-wrap font-mono text-muted-foreground">
+            {shownText}
+          </pre>
+        )}
       </div>
     </TooltipProvider>
   )

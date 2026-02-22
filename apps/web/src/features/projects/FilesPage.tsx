@@ -874,15 +874,15 @@ export function FilesPage() {
                   <>
                     <div className="mx-1 h-4 w-px bg-border" />
                     <div className="flex items-center gap-1.5">
-                      {/* Run cell + dropdown */}
+                      {/* Run cell and advance + dropdown */}
                       <div className="flex">
                         <Button
                           size="xs"
                           className="gap-1 rounded-r-none"
-                          onClick={() => notebookRef.current?.runCell()}
+                          onClick={() => notebookRef.current?.runCellAndAdvance()}
                         >
                           <Play size={12} />
-                          Run cell
+                          {t('shortcuts.nb_run_chunk')}
                         </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -894,8 +894,11 @@ export function FilesPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.runCell()}>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runCellAndAdvance()}>
                               {t('shortcuts.nb_run_chunk')}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => notebookRef.current?.runCell()}>
+                              {t('shortcuts.nb_run_chunk_stay')}
                             </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => notebookRef.current?.runAll()}>
                               {t('shortcuts.nb_run_all')}

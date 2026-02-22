@@ -84,6 +84,7 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
     // so that methods like runCell/runAll always use the latest RmdNotebook handle.
     useImperativeHandle(ref, () => ({
       runCell: () => rmdRef.current?.runCell(),
+      runCellAndAdvance: () => rmdRef.current?.runCellAndAdvance(),
       runAll: () => rmdRef.current?.runAll(),
       runAbove: () => rmdRef.current?.runAbove(),
       renderPreview: () => rmdRef.current?.renderPreview(),
