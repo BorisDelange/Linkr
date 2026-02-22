@@ -486,18 +486,18 @@ export function PluginEditor() {
                     onChange={(name) => updateManifestField('icon', name)}
                     iconColor={pluginIconColor && !PRESET_COLORS.some(c => c.value === pluginIconColor) ? pluginIconColor : undefined}
                   />
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <div className="flex flex-wrap items-center gap-1 pt-1">
                     <button
                       type="button"
                       onClick={() => updateManifestField('iconColor', undefined)}
                       className={cn(
-                        'flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
+                        'flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 text-[8px] font-medium ring-offset-background transition-all',
                         !pluginIconColor
                           ? 'border-foreground/40 ring-2 ring-ring ring-offset-2'
                           : 'border-muted-foreground/30 hover:ring-1 hover:ring-ring hover:ring-offset-1',
                       )}
                     >
-                      <X size={10} className="text-muted-foreground" />
+                      <X size={8} className="text-muted-foreground" />
                     </button>
                     {PRESET_COLORS.map((c) => (
                       <button
@@ -505,7 +505,7 @@ export function PluginEditor() {
                         type="button"
                         onClick={() => updateManifestField('iconColor', c.value)}
                         className={cn(
-                          'h-6 w-6 shrink-0 rounded-full ring-offset-background transition-all',
+                          'h-5 w-5 shrink-0 rounded-full ring-offset-background transition-all',
                           c.swatch,
                           pluginIconColor === c.value
                             ? 'ring-2 ring-ring ring-offset-2'
@@ -518,18 +518,18 @@ export function PluginEditor() {
                         type="color"
                         value={pluginIconColor && isCustomColor(pluginIconColor) ? pluginIconColor : '#6366f1'}
                         onChange={(e) => updateManifestField('iconColor', e.target.value)}
-                        className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
+                        className="absolute inset-0 h-5 w-5 cursor-pointer opacity-0"
                       />
                       <div
                         className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
+                          'flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
                           pluginIconColor && isCustomColor(pluginIconColor)
                             ? 'ring-2 ring-ring ring-offset-2'
                             : 'hover:border-muted-foreground/60',
                         )}
                         style={pluginIconColor && isCustomColor(pluginIconColor) ? { backgroundColor: pluginIconColor, borderStyle: 'solid', borderColor: pluginIconColor } : undefined}
                       >
-                        {!(pluginIconColor && isCustomColor(pluginIconColor)) && <Plus size={10} />}
+                        {!(pluginIconColor && isCustomColor(pluginIconColor)) && <Plus size={8} />}
                       </div>
                     </div>
                   </div>
@@ -626,14 +626,14 @@ export function PluginEditor() {
                     placeholder={t('plugins.badge_label_placeholder')}
                     className="h-7 text-[11px]"
                   />
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     {PRESET_COLORS.map((c) => (
                       <button
                         key={c.value}
                         type="button"
                         onClick={() => setNewBadgeColor(c.value)}
                         className={cn(
-                          'h-6 w-6 rounded-full ring-offset-background transition-all',
+                          'h-5 w-5 rounded-full ring-offset-background transition-all',
                           c.swatch,
                           newBadgeColor === c.value
                             ? 'ring-2 ring-ring ring-offset-2'
@@ -646,18 +646,18 @@ export function PluginEditor() {
                         type="color"
                         value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
                         onChange={(e) => setNewBadgeColor(e.target.value)}
-                        className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
+                        className="absolute inset-0 h-5 w-5 cursor-pointer opacity-0"
                       />
                       <div
                         className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
+                          'flex h-5 w-5 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all',
                           isCustomColor(newBadgeColor)
                             ? 'ring-2 ring-ring ring-offset-2'
                             : 'hover:border-muted-foreground/60',
                         )}
                         style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
                       >
-                        {!isCustomColor(newBadgeColor) && <Plus size={10} />}
+                        {!isCustomColor(newBadgeColor) && <Plus size={8} />}
                       </div>
                     </div>
                   </div>

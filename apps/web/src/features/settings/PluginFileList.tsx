@@ -118,9 +118,9 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
     return ['python', 'r'] as ('python' | 'r')[]
   }, [manifestLanguages])
 
-  // Connected data sources for warehouse mode (exclude vocabulary references)
+  // Connected data sources for warehouse mode (exclude vocabulary references, require schema mapping with patient table)
   const connectedSources = useMemo(
-    () => dataSources.filter((ds) => ds.status === 'connected' && !ds.isVocabularyReference),
+    () => dataSources.filter((ds) => ds.status === 'connected' && !ds.isVocabularyReference && !!ds.schemaMapping?.patientTable),
     [dataSources],
   )
 
@@ -157,23 +157,30 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
     if (testProjectUid) loadDatasets(testProjectUid)
   }, [testProjectUid, loadDatasets])
 
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+
   // --- Warehouse: load patients when data source changes ---
   useEffect(() => {
     if (!testDataSourceId || !selectedSourceMapping) {
       setPatients([])
       return
     }
+    let cancelled = false
     const sql = buildPatientListQuery(selectedSourceMapping, null, 200, 0)
     if (!sql) { setPatients([]); return }
-    queryDataSource(testDataSourceId, sql)
+    ensureMounted(testDataSourceId)
+      .then(() => queryDataSource(testDataSourceId, sql))
       .then((rows) => {
-        setPatients(rows.map((r) => ({
-          id: String(r.patient_id),
-          label: String(r.patient_id),
-        })))
+        if (!cancelled) {
+          setPatients(rows.map((r) => ({
+            id: String(r.patient_id),
+            label: String(r.patient_id),
+          })))
+        }
       })
-      .catch(() => setPatients([]))
-  }, [testDataSourceId, selectedSourceMapping])
+      .catch(() => { if (!cancelled) setPatients([]) })
+    return () => { cancelled = true }
+  }, [testDataSourceId, selectedSourceMapping, ensureMounted])
 
   // --- Warehouse: load visits when patient changes ---
   useEffect(() => {
@@ -181,18 +188,23 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
       setVisits([])
       return
     }
+    let cancelled = false
     const sql = buildVisitListQuery(selectedSourceMapping, testPersonId)
     if (!sql) { setVisits([]); return }
-    queryDataSource(testDataSourceId, sql)
+    ensureMounted(testDataSourceId)
+      .then(() => queryDataSource(testDataSourceId, sql))
       .then((rows) => {
-        setVisits(rows.map((r) => {
-          const id = String(r.visit_id)
-          const date = r.start_date ? ` (${String(r.start_date).slice(0, 10)})` : ''
-          return { id, label: `${id}${date}` }
-        }))
+        if (!cancelled) {
+          setVisits(rows.map((r) => {
+            const id = String(r.visit_id)
+            const date = r.start_date ? ` (${String(r.start_date).slice(0, 10)})` : ''
+            return { id, label: `${id}${date}` }
+          }))
+        }
       })
-      .catch(() => setVisits([]))
-  }, [testDataSourceId, selectedSourceMapping, testPersonId])
+      .catch(() => { if (!cancelled) setVisits([]) })
+    return () => { cancelled = true }
+  }, [testDataSourceId, selectedSourceMapping, testPersonId, ensureMounted])
 
   // --- Warehouse: load visit details when visit changes ---
   useEffect(() => {
@@ -200,19 +212,24 @@ export function PluginFileList({ onCollapse, isRunning, onRun, readOnly, scope =
       setVisitDetails([])
       return
     }
+    let cancelled = false
     const sql = buildVisitDetailListQuery(selectedSourceMapping, testVisitId)
     if (!sql) { setVisitDetails([]); return }
-    queryDataSource(testDataSourceId, sql)
+    ensureMounted(testDataSourceId)
+      .then(() => queryDataSource(testDataSourceId, sql))
       .then((rows) => {
-        setVisitDetails(rows.map((r) => {
-          const id = String(r.visit_detail_id)
-          const unit = r.unit ? ` – ${String(r.unit)}` : ''
-          const date = r.start_date ? ` (${String(r.start_date).slice(0, 10)})` : ''
-          return { id, label: `${id}${unit}${date}` }
-        }))
+        if (!cancelled) {
+          setVisitDetails(rows.map((r) => {
+            const id = String(r.visit_detail_id)
+            const unit = r.unit ? ` – ${String(r.unit)}` : ''
+            const date = r.start_date ? ` (${String(r.start_date).slice(0, 10)})` : ''
+            return { id, label: `${id}${unit}${date}` }
+          }))
+        }
       })
-      .catch(() => setVisitDetails([]))
-  }, [testDataSourceId, selectedSourceMapping, testVisitId])
+      .catch(() => { if (!cancelled) setVisitDetails([]) })
+    return () => { cancelled = true }
+  }, [testDataSourceId, selectedSourceMapping, testVisitId, ensureMounted])
 
   const filenames = Object.keys(files).sort((a, b) => {
     if (a === 'plugin.json') return -1

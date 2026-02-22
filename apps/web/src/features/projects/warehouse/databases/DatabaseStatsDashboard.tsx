@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import type {
   DatabaseStatsCache, AgePyramidBucket, AdmissionTimelineBucket,
   DescriptiveStats, GenderDistribution, SchemaMapping,
@@ -32,9 +33,12 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     })
   }, [dataSourceId])
 
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+
   const refresh = useCallback(async () => {
     setIsLoading(true)
     try {
+      await ensureMounted(dataSourceId)
       const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
       await getStorage().databaseStatsCache.save(stats)
       setCache(stats)
@@ -43,7 +47,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     } finally {
       setIsLoading(false)
     }
-  }, [dataSourceId, schemaMapping])
+  }, [dataSourceId, schemaMapping, ensureMounted])
 
   // Auto-compute if no cache or cache is from an older schema (missing genderDistribution)
   // Wait until the source is connected before querying to avoid getting zeros from unmounted schemas
