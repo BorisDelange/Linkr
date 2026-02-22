@@ -30,6 +30,7 @@ import {
   FileText,
   Code,
   Loader2,
+  Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -90,6 +91,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
 const LazyIpynbNotebook = lazy(() => import('./files/IpynbNotebook').then(m => ({ default: m.IpynbNotebook })))
 import type { RmdNotebookHandle } from './files/RmdNotebook'
+import type { IpynbNotebookHandle } from './files/IpynbNotebook'
 
 export function FilesPage() {
   const { t } = useTranslation()
@@ -215,7 +217,7 @@ export function FilesPage() {
   }, [activeProjectUid, loadProjectConnections, loadProjectFiles, loadDataSources, loadCohorts, loadPipelines, loadProjectDatasets])
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
-  const notebookRef = useRef<RmdNotebookHandle>(null)
+  const notebookRef = useRef<RmdNotebookHandle | IpynbNotebookHandle>(null)
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
@@ -853,41 +855,71 @@ export function FilesPage() {
                         </DropdownMenu>
                       </div>
 
-                      {/* Render + dropdown */}
-                      <div className="flex">
-                        <Button
-                          variant="outline"
-                          size="xs"
-                          className="gap-1 rounded-r-none"
-                          onClick={() => notebookRef.current?.renderPreview()}
-                        >
-                          <FileDown size={12} />
-                          Render
-                        </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="outline"
-                              size="xs"
-                              className="rounded-l-none border-l-0 px-1"
-                            >
-                              <ChevronDown size={12} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="start">
-                            <DropdownMenuItem onClick={() => notebookRef.current?.renderPreview()}>
-                              Preview
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => notebookRef.current?.renderHtml()}>
-                              Download HTML
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => notebookRef.current?.renderPdf()}>
-                              Print / PDF
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                      {/* ipynb: Download dropdown / Rmd: Render + dropdown */}
+                      {isIpynbFile ? (
+                        <div className="flex">
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="gap-1 rounded-r-none"
+                            onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(true)}
+                          >
+                            <Download size={12} />
+                            Download
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="rounded-l-none border-l-0 px-1"
+                              >
+                                <ChevronDown size={12} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(true)}>
+                                Download with outputs
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => (notebookRef.current as IpynbNotebookHandle)?.downloadNotebook(false)}>
+                                Download without outputs
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      ) : (
+                        <div className="flex">
+                          <Button
+                            variant="outline"
+                            size="xs"
+                            className="gap-1 rounded-r-none"
+                            onClick={() => notebookRef.current?.renderPreview()}
+                          >
+                            <FileDown size={12} />
+                            Render
+                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                className="rounded-l-none border-l-0 px-1"
+                              >
+                                <ChevronDown size={12} />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="start">
+                              <DropdownMenuItem onClick={() => notebookRef.current?.renderPreview()}>
+                                Preview
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem onClick={() => notebookRef.current?.renderHtml()}>
+                                Download HTML
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                      )}
 
                       {/* Add cell + dropdown */}
                       <div className="flex">
@@ -1389,6 +1421,7 @@ export function FilesPage() {
                                 setOutputVisible(true)
                               }}
                               activeConnectionId={activeConnectionId}
+                              fileName={selectedNode.name}
                             />
                           </Suspense>
                         ) : selectedNode && isRmdNotebook ? (

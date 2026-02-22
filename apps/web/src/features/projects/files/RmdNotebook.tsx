@@ -66,7 +66,7 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 type CellStatus = 'idle' | 'running' | 'success' | 'error'
 
-interface CellState {
+export interface CellState {
   status: CellStatus
   output: RuntimeOutput | null
 }
@@ -164,6 +164,9 @@ export interface RmdNotebookHandle {
   addCell: (type: 'markdown' | 'code' | 'yaml', language?: string) => void
   hasYamlCell: boolean
   isRendering: boolean
+  /** Access internal cells and their execution states (used by IpynbNotebook for download). */
+  getCells: () => RmdCell[]
+  getCellStates: () => Map<string, CellState>
 }
 
 // ---------------------------------------------------------------------------
@@ -541,7 +544,8 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
 <title>${escapeHtml(title)}</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #1a1a1a; }
+  :root { color-scheme: light dark; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #1a1a1a; background: #fff; }
   .md-cell { margin: 1rem 0; }
   .code-cell { background: #f5f5f5; border: 1px solid #e0e0e0; border-radius: 4px; padding: 0.75rem 1rem; overflow-x: auto; font-size: 13px; }
   .output { margin: 0.25rem 0 1rem; padding: 0.5rem 1rem; border-radius: 4px; font-size: 12px; white-space: pre-wrap; }
@@ -557,6 +561,16 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   h1, h2, h3, h4, h5, h6 { margin-top: 1.5em; margin-bottom: 0.5em; }
   p { margin: 0.5em 0; }
   code { font-family: 'SF Mono', Monaco, Consolas, monospace; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e0e0e0; background: #1a1a1a; }
+    .code-cell { background: #2a2a2a; border-color: #3a3a3a; color: #d4d4d4; }
+    .stdout { background: #222; color: #aaa; }
+    .stderr { background: #2a1515; color: #f88; }
+    .output-table th, .output-table td { border-color: #3a3a3a; }
+    .output-table th { background: #2a2a2a; }
+    .output-table tr:nth-child(even) { background: #222; }
+    a { color: #6ab0f3; }
+  }
   @media print { .code-cell { break-inside: avoid; } .figure { break-inside: avoid; } .output-table { break-inside: avoid; font-size: 10px; } }
 </style>
 </head>
@@ -772,12 +786,14 @@ ${bodyParts.join('\n')}
     },
     hasYamlCell,
     isRendering,
-  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering])
+    getCells: () => cells,
+    getCellStates: () => cellStates,
+  }), [activeCell, runCell, runAll, runAbove, handleRenderPreview, handleRenderHtml, handleRenderPdf, addCell, cells, hasYamlCell, isRendering, cellStates])
 
   return (
     <div className="flex h-full flex-col">
       {/* Cells — rendered in stable DOM order, visually ordered via CSS `order` */}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         <div className="max-w-4xl mx-auto py-3 px-3 flex flex-col gap-2">
           {renderOrder.map((cellId) => {
             const logicalIdx = cells.findIndex((c) => c.id === cellId)

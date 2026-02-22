@@ -208,6 +208,7 @@ export function serializeIpynbFile(notebook: IpynbNotebook): string {
 // ---------------------------------------------------------------------------
 
 import type { RmdCell } from '@/lib/rmd-parser'
+import type { RuntimeOutput } from '@/lib/runtimes/types'
 
 /** Convert parsed ipynb cells to RmdCell[] for use in RmdNotebook. */
 export function ipynbToRmdCells(notebook: IpynbNotebook): RmdCell[] {
@@ -241,4 +242,98 @@ export function rmdCellsToIpynb(cells: RmdCell[], metadata: IpynbNotebook['metad
     })),
   }
   return serializeIpynbFile(notebook)
+}
+
+/**
+ * Convert RmdCell[] to ipynb JSON string with execution outputs embedded.
+ * `cellOutputs` maps cell ID → RuntimeOutput from execution.
+ */
+export function rmdCellsToIpynbWithOutputs(
+  cells: RmdCell[],
+  metadata: IpynbNotebook['metadata'],
+  cellOutputs: Map<string, RuntimeOutput>,
+): string {
+  let execCount = 0
+  const notebook: IpynbNotebook = {
+    nbformat: 4,
+    nbformat_minor: 5,
+    metadata,
+    cells: cells.map((cell) => {
+      if (cell.type !== 'code') {
+        return {
+          cell_type: 'markdown',
+          source: cell.content,
+          metadata: {},
+        }
+      }
+      const runtimeOut = cellOutputs.get(cell.id)
+      const hasOutput = runtimeOut && (runtimeOut.stdout || runtimeOut.stderr || runtimeOut.figures.length > 0 || runtimeOut.table || runtimeOut.html)
+      const count = hasOutput ? ++execCount : null
+      return {
+        cell_type: 'code' as const,
+        source: cell.content,
+        metadata: {},
+        execution_count: count,
+        outputs: hasOutput ? runtimeOutputToIpynb(runtimeOut) : [],
+      }
+    }),
+  }
+  return serializeIpynbFile(notebook)
+}
+
+/** Convert a RuntimeOutput to an array of IpynbOutput for serialization. */
+function runtimeOutputToIpynb(out: RuntimeOutput): IpynbOutput[] {
+  const outputs: IpynbOutput[] = []
+
+  if (out.stdout) {
+    outputs.push({ output_type: 'stream', name: 'stdout', text: out.stdout })
+  }
+  if (out.stderr) {
+    outputs.push({ output_type: 'stream', name: 'stderr', text: out.stderr })
+  }
+
+  // Figures → display_data
+  for (const fig of out.figures) {
+    const data: Record<string, string> = {}
+    if (fig.type === 'svg') {
+      data['image/svg+xml'] = fig.data
+    } else {
+      // PNG data URI → raw base64
+      const base64 = fig.data.replace(/^data:image\/png;base64,/, '')
+      data['image/png'] = base64
+    }
+    data['text/plain'] = fig.label || '<Figure>'
+    outputs.push({ output_type: 'display_data', data, metadata: {} })
+  }
+
+  // Table → execute_result as text/plain
+  if (out.table) {
+    const { headers, rows } = out.table
+    const colWidths = headers.map((h: string, i: number) =>
+      Math.max(h.length, ...rows.map((r: string[]) => (r[i] ?? '').length))
+    )
+    const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - s.length))
+    const headerLine = headers.map((h: string, i: number) => pad(h, colWidths[i])).join('  ')
+    const sepLine = colWidths.map((w: number) => '-'.repeat(w)).join('  ')
+    const dataLines = rows.map((r: string[]) => r.map((v: string, i: number) => pad(v, colWidths[i])).join('  '))
+    const text = [headerLine, sepLine, ...dataLines].join('\n')
+    outputs.push({
+      output_type: 'execute_result',
+      data: { 'text/plain': text },
+      metadata: {},
+      execution_count: null,
+    })
+  }
+
+  // HTML/markdown → execute_result
+  if (out.html) {
+    outputs.push({
+      output_type: 'execute_result',
+      data: { 'text/html': out.html, 'text/plain': out.html },
+      metadata: {},
+      execution_count: null,
+    })
+  }
+
+  return outputs
 }

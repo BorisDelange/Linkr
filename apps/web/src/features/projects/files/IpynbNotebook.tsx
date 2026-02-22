@@ -12,6 +12,7 @@ import {
   parseIpynbFile,
   ipynbToRmdCells,
   rmdCellsToIpynb,
+  rmdCellsToIpynbWithOutputs,
   type IpynbNotebook as IpynbNotebookType,
 } from '@/lib/ipynb-parser'
 import type { RmdCell } from '@/lib/rmd-parser'
@@ -23,10 +24,15 @@ interface IpynbNotebookProps {
   onSave?: () => void
   onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
+  fileName?: string
 }
 
-export const IpynbNotebook = forwardRef<RmdNotebookHandle, IpynbNotebookProps>(
-  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId }, ref) {
+export interface IpynbNotebookHandle extends RmdNotebookHandle {
+  downloadNotebook: (withOutputs: boolean) => void
+}
+
+export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>(
+  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName }, ref) {
     const rmdRef = useRef<RmdNotebookHandle>(null)
     const metadataRef = useRef<IpynbNotebookType['metadata']>({})
 
@@ -46,8 +52,37 @@ export const IpynbNotebook = forwardRef<RmdNotebookHandle, IpynbNotebookProps>(
       return rmdCellsToIpynb(cells, metadataRef.current)
     }, [])
 
-    // Forward imperative handle
-    useImperativeHandle(ref, () => rmdRef.current!, [])
+    // Download as .ipynb file
+    const downloadNotebook = useCallback((withOutputs: boolean) => {
+      if (!rmdRef.current) return
+      const cells = rmdRef.current.getCells()
+      const cellStates = rmdRef.current.getCellStates()
+
+      let json: string
+      if (withOutputs) {
+        const outputMap = new Map<string, import('@/lib/runtimes/types').RuntimeOutput>()
+        for (const [id, state] of cellStates) {
+          if (state.output) outputMap.set(id, state.output)
+        }
+        json = rmdCellsToIpynbWithOutputs(cells, metadataRef.current, outputMap)
+      } else {
+        json = rmdCellsToIpynb(cells, metadataRef.current)
+      }
+
+      const blob = new Blob([json], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName ?? 'notebook.ipynb'
+      a.click()
+      URL.revokeObjectURL(url)
+    }, [fileName])
+
+    // Forward imperative handle with downloadNotebook added
+    useImperativeHandle(ref, () => ({
+      ...rmdRef.current!,
+      downloadNotebook,
+    }), [downloadNotebook])
 
     return (
       <RmdNotebook
