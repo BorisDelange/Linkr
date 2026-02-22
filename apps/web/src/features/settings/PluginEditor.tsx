@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, Lock } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -651,18 +651,7 @@ export function PluginEditor() {
         </div>
       </div>
 
-      {/* System plugins: simplified view (no code editor) */}
-      {isSystemPlugin && (
-        <div className="flex-1 flex items-center justify-center p-8">
-          <div className="text-center space-y-2">
-            <Lock size={32} className="mx-auto text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">{t('plugins.system_plugin_info')}</p>
-          </div>
-        </div>
-      )}
-
       {/* Main area: file sidebar | (tab bar + editor/output) */}
-      {!isSystemPlugin && (
       <div className="min-h-0 flex-1">
         <Allotment>
           {/* File list sidebar */}
@@ -895,7 +884,6 @@ export function PluginEditor() {
           </Allotment.Pane>
         </Allotment>
       </div>
-      )}
     </div>
   )
 }
