@@ -538,22 +538,35 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
     [activeConnectionId, t, scrollToCell],
   )
 
+  // ---- Markdown preview toggle ----
+  const togglePreview = useCallback((cellId: string, forceOn?: boolean) => {
+    setPreviewCells((prev) => {
+      const next = new Set(prev)
+      if (forceOn) { next.add(cellId) }
+      else if (next.has(cellId)) next.delete(cellId)
+      else next.add(cellId)
+      return next
+    })
+  }, [])
+
   const runAll = useCallback(async () => {
-    const codeCells = cells.filter((c) => c.type === 'code' && c.content.trim())
-    for (const cell of codeCells) {
-      await runCell(cell.id)
+    const runnableCells = cells.filter((c) => (c.type === 'code' || c.type === 'markdown') && c.content.trim())
+    for (const cell of runnableCells) {
+      if (cell.type === 'code') await runCell(cell.id)
+      else togglePreview(cell.id, true)
     }
-  }, [cells, runCell])
+  }, [cells, runCell, togglePreview])
 
   const runAbove = useCallback(async () => {
     if (!activeCell) return
     const idx = cells.findIndex((c) => c.id === activeCell)
     if (idx < 0) return
-    const above = cells.slice(0, idx).filter((c) => c.type === 'code' && c.content.trim())
+    const above = cells.slice(0, idx).filter((c) => (c.type === 'code' || c.type === 'markdown') && c.content.trim())
     for (const cell of above) {
-      await runCell(cell.id)
+      if (cell.type === 'code') await runCell(cell.id)
+      else togglePreview(cell.id, true)
     }
-  }, [cells, activeCell, runCell])
+  }, [cells, activeCell, runCell, togglePreview])
 
   /** Advance activeCell to the next cell (any type) and focus its editor */
   const advanceCell = useCallback(() => {
@@ -747,15 +760,6 @@ ${bodyParts.join('\n')}
   // Keyboard shortcut → preview in output tab
   const handleRender = handleRenderPreview
 
-  // ---- Markdown preview toggle ----
-  const togglePreview = useCallback((cellId: string) => {
-    setPreviewCells((prev) => {
-      const next = new Set(prev)
-      if (next.has(cellId)) next.delete(cellId)
-      else next.add(cellId)
-      return next
-    })
-  }, [])
 
   // ---- Keyboard shortcuts ----
   const getBinding = useShortcutStore((s) => s.getBinding)
