@@ -166,7 +166,6 @@ const PARQUET_FILES_RAW = [
   'd_labitems',
   'datetimeevents',
   'demo_subject_id',
-  'discharge',
   'diagnoses_icd',
   'drgcodes',
   'emar',
@@ -440,10 +439,8 @@ const DEMO_ETL_DATASOURCE_ID = '00000000-0000-0000-0000-000000000009'
 export async function seedEtlTargetDatabase(): Promise<void> {
   const storage = getStorage()
 
-  // Check if the datasource already exists in IndexedDB (guard against localStorage/IDB desync)
   const existing = await storage.dataSources.getById(DEMO_ETL_DATASOURCE_ID)
   if (existing) {
-    // Also set the localStorage flag if it was missing
     if (!localStorage.getItem(SEED_KEY_ETL_DB)) {
       localStorage.setItem(SEED_KEY_ETL_DB, '1')
     }
@@ -451,9 +448,7 @@ export async function seedEtlTargetDatabase(): Promise<void> {
     return
   }
 
-  // Check if already flagged as seeded but DB doesn't exist (shouldn't happen with above check)
   if (localStorage.getItem(SEED_KEY_ETL_DB)) {
-    // Clear the flag since the DB doesn't exist
     localStorage.removeItem(SEED_KEY_ETL_DB)
   }
 
@@ -473,9 +468,9 @@ export async function seedEtlTargetDatabase(): Promise<void> {
 
     const dataSource: DataSource = {
       id: DEMO_ETL_DATASOURCE_ID,
-      alias: 'mimic_iv_etl',
-      name: 'MIMIC-IV ETL (OMOP)',
-      description: 'Empty OMOP CDM 5.4 target database for the MIMIC-IV ETL pipeline. Will be populated when the ETL is run.',
+      alias: 'omop_etl_example',
+      name: 'OMOP ETL Pipeline Example',
+      description: 'Empty OMOP CDM 5.4 target database for the ETL pipeline example. Populated when the ETL is run.',
       sourceType: 'database',
       connectionConfig,
       schemaMapping,
@@ -486,8 +481,7 @@ export async function seedEtlTargetDatabase(): Promise<void> {
 
     await storage.dataSources.create(dataSource)
 
-    // Create the DuckDB schema with full OMOP DDL tables
-    await engine.mountEmptyFromDDL(DEMO_ETL_DATASOURCE_ID, schemaMapping.ddl!, 'mimic_iv_etl')
+    await engine.mountEmptyFromDDL(DEMO_ETL_DATASOURCE_ID, schemaMapping.ddl!, 'omop_etl_example')
 
     localStorage.setItem(SEED_KEY_ETL_DB, '1')
     console.info('[demo-seed] ETL target database seeded successfully')
@@ -653,7 +647,7 @@ export async function seedDemoEtlPipeline(): Promise<void> {
 
 const SEED_KEY_ETL_FILES = 'linkr-demo-etl-files-seeded'
 /** Bump this version whenever mimic-iv-etl-scripts.json is updated to force re-seed. */
-const ETL_FILES_VERSION = 11
+const ETL_FILES_VERSION = 12
 
 /** Row from mimic-iv-etl-scripts.json */
 interface EtlScriptRow {
