@@ -898,6 +898,11 @@
     "unit_stays": "Unit stays",
     "hospitalizations_list": "Hospitalizations",
     "days_short": "{{count}}d",
+    "days_unit": "days",
+    "view_text": "Text view",
+    "view_timeline": "Timeline view",
+    "go_to_hospitalization": "Go to this hospitalization",
+    "go_to_unit_stay": "Go to this unit stay",
     "widgets_overflow_warning": "Some widgets extend beyond the visible area. Enable overflow in settings or resize them."
   },
   "files": {

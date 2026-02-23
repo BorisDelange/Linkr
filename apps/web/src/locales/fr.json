@@ -898,6 +898,11 @@
     "unit_stays": "Séjours en unité",
     "hospitalizations_list": "Hospitalisations",
     "days_short": "{{count}}j",
+    "days_unit": "jours",
+    "view_text": "Vue texte",
+    "view_timeline": "Vue timeline",
+    "go_to_hospitalization": "Aller à cette hospitalisation",
+    "go_to_unit_stay": "Aller à ce séjour en unité",
     "widgets_overflow_warning": "Des widgets dépassent la zone visible. Activez le défilement dans les paramètres ou redimensionnez-les."
   },
   "files": {
