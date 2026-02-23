@@ -548,7 +548,7 @@ function buildPatientBaseQuery(
   if (!pt) return null
   const vt = mapping.visitTable
 
-  if (cohort && cohort.criteria.length > 0) {
+  if (cohort && cohort.criteriaTree.children.length > 0) {
     const parts = buildCohortQueryParts(cohort, mapping)
     if (!parts) return null
 

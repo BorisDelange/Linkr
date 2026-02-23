@@ -362,7 +362,7 @@ export interface DashboardTab {
 }
 
 export type DashboardWidgetSource =
-  | { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
+  | { type: 'plugin'; pluginId: string; language?: 'python' | 'r'; config: Record<string, unknown> }
   | { type: 'inline'; language: 'python' | 'r' | 'sql'; code: string; config: Record<string, unknown> }
 
 export interface DashboardWidget {
@@ -386,64 +386,28 @@ export type Language = 'en' | 'fr'
 
 export type AppMode = 'full' | 'dashboard' | 'viewer' | 'static'
 
-// --- Cohort Types ---
+// --- Cohort Types (re-exported from cohort.ts) ---
 
-export type CohortLevel = 'patient' | 'visit'
-
-export type CriteriaType = 'age' | 'sex' | 'period' | 'duration' | 'concept'
-
-export interface AgeCriteriaConfig {
-  min?: number
-  max?: number
-}
-
-export interface SexCriteriaConfig {
-  values: string[]
-}
-
-export interface PeriodCriteriaConfig {
-  startDate?: string
-  endDate?: string
-}
-
-export interface DurationCriteriaConfig {
-  minDays?: number
-  maxDays?: number
-}
-
-export interface ConceptCriteriaConfig {
-  domain: string
-  conceptSetId: string
-  valueFilter?: { operator: string; value: number; unitConceptId?: number }
-  occurrenceCount?: { operator: string; count: number }
-  timeWindow?: { daysBefore?: number; daysAfter?: number }
-}
-
-export type CriteriaConfig =
-  | AgeCriteriaConfig
-  | SexCriteriaConfig
-  | PeriodCriteriaConfig
-  | DurationCriteriaConfig
-  | ConceptCriteriaConfig
-
-export interface CohortCriteria {
-  id: string
-  type: CriteriaType
-  config: CriteriaConfig
-  exclude: boolean
-}
-
-export interface Cohort {
-  id: string
-  projectUid: string
-  name: string
-  description: string
-  level: CohortLevel
-  criteria: CohortCriteria[]
-  resultCount?: number
-  createdAt: string
-  updatedAt: string
-}
+export type {
+  CohortLevel,
+  CriteriaGroupOperator,
+  CriteriaType,
+  AgeCriteriaConfig,
+  SexCriteriaConfig,
+  DeathCriteriaConfig,
+  PeriodCriteriaConfig,
+  DurationCriteriaConfig,
+  VisitTypeCriteriaConfig,
+  ConceptCriteriaConfig,
+  CriteriaConfig,
+  CriterionNode,
+  CriteriaGroupNode,
+  CriteriaTreeNode,
+  Cohort,
+  AttritionStep,
+  CohortExecutionResult,
+  LegacyCohortCriteria,
+} from './cohort'
 
 // --- IDE Connection Types ---
 

@@ -21,7 +21,8 @@ import { SummaryPage } from '@/features/projects/SummaryPage'
 import { PipelinePage } from '@/features/projects/PipelinePage'
 import { DatabasesPage } from '@/features/projects/warehouse/DatabasesPage'
 import { ConceptsPage } from '@/features/projects/warehouse/ConceptsPage'
-import { WarehouseCohortsPage } from '@/features/projects/warehouse/CohortsPage'
+import { CohortListPage } from '@/features/projects/warehouse/cohorts/CohortListPage'
+import { CohortBuilderPage } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
 import { PatientDataPage } from '@/features/projects/warehouse/PatientDataPage'
 import { DatasetsPage } from '@/features/projects/lab/DatasetsPage'
 import { IdePage } from '@/features/projects/lab/IdePage'
@@ -155,7 +156,8 @@ export function App() {
             {/* Project warehouse routes */}
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases" element={<WorkspaceGuard><DatabasesPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ConceptsPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><WarehouseCohortsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><CohortListPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts/:cohortId" element={<WorkspaceGuard><CohortBuilderPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><PatientDataPage /></WorkspaceGuard>} />
 
             {/* Project lab routes */}
