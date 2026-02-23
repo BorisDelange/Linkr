@@ -21,14 +21,14 @@ import {
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
-import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
-import { getAnalysisPlugin, ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
+import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
+import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
 import type { DashboardWidget, DashboardWidgetSource } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
-import type { PluginConfigField } from '@/types/analysis-plugin'
+import type { PluginConfigField } from '@/types/plugin'
 
 interface WidgetEditorDialogProps {
   widget: DashboardWidget | null
@@ -73,12 +73,14 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
   const isInline = source.type === 'inline'
 
   // Resolve plugin info
-  const plugin = isPlugin ? getAnalysisPlugin(source.pluginId) : null
+  const plugin = isPlugin ? getPlugin(source.pluginId) : null
   const hasConfigSchema = plugin?.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
 
-  // Detect language
+  // Detect language — use persisted value if available, otherwise default
+  const hasBothLanguages = isPlugin && plugin?.templates?.python && plugin?.templates?.r
   const language: 'python' | 'r' = isInline
     ? ((source.language === 'r' ? 'r' : 'python') as 'python' | 'r')
+    : (isPlugin && source.language) ? source.language
     : plugin?.templates?.python
       ? 'python'
       : 'r'
@@ -160,6 +162,13 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
     persistSource({ config: { ...config, isCodeCustomized: false, userCode: undefined } })
   }, [config, persistSource])
 
+  // Language change (for plugin widgets)
+  const handleLanguageChange = useCallback((newLang: 'python' | 'r') => {
+    persistSource({ language: newLang } as Partial<DashboardWidgetSource>)
+    setIsCodeCustomized(false)
+    setUserCode('')
+  }, [persistSource])
+
   // Run execution
   const handleRun = useCallback(async () => {
     if (isExecutingRef.current) return
@@ -218,6 +227,17 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
             ))}
           </SelectContent>
         </Select>
+        {hasBothLanguages && (
+          <Select value={language} onValueChange={(v) => handleLanguageChange(v as 'python' | 'r')}>
+            <SelectTrigger className="h-6 w-auto gap-1 text-xs border-dashed">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent position="popper" sideOffset={4}>
+              <SelectItem value="python">Python</SelectItem>
+              <SelectItem value="r">R</SelectItem>
+            </SelectContent>
+          </Select>
+        )}
         <Button variant="ghost" size="icon-xs" onClick={onClose}>
           <X size={14} />
         </Button>
@@ -308,7 +328,7 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
           </Allotment.Pane>
 
           <Allotment.Pane minSize={200}>
-            <AnalysisOutputRenderer
+            <PluginOutputRenderer
               result={result}
               isExecuting={isExecuting}
               statusMessage={statusMessage}
@@ -327,7 +347,7 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
 // ---------------------------------------------------------------------------
 
 function useGeneratedCode(
-  plugin: ReturnType<typeof getAnalysisPlugin>,
+  plugin: ReturnType<typeof getPlugin>,
   config: Record<string, unknown>,
   columns: { id: string; name: string; type: string }[],
   language: 'python' | 'r',
@@ -344,7 +364,7 @@ function useGeneratedCode(
       setCode('')
       return
     }
-    import('@/lib/analysis-plugins/template-resolver').then(({ resolveTemplate }) => {
+    import('@/lib/plugins/template-resolver').then(({ resolveTemplate }) => {
       const resolved = resolveTemplate(
         template,
         config,

@@ -96,7 +96,7 @@ function WidgetWithData({
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, activeFilters } = useDashboardStore()
+  const { updateWidgetLayout, removeWidget, updateWidgetName, activeFilters } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
@@ -179,6 +179,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
+              onRename={(name) => updateWidgetName(widget.id, name)}
               onEdit={() => setEditingWidgetId(widget.id)}
               editMode={editMode}
               hideTitleBar={hideTitleBars}

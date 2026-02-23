@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -7,8 +7,9 @@ import {
   type PluginWidgetConfig,
 } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
-import { getAnalysisPlugin, ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
-import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
+import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
+import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
+import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
 
 interface WarehousePluginWidgetRendererProps {
   widgetId: string
@@ -16,7 +17,7 @@ interface WarehousePluginWidgetRendererProps {
 
 export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidgetRendererProps) {
   const { t } = useTranslation()
-  const { dataSourceId, projectUid } = usePatientChartContext()
+  const { dataSourceId, projectUid, schemaMapping } = usePatientChartContext()
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
@@ -31,7 +32,31 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
   const language = config?.language
   const pluginConfig = config?.pluginConfig
 
-  const plugin = pluginId ? getAnalysisPlugin(pluginId) : null
+  const plugin = pluginId ? getPlugin(pluginId) : null
+
+  // Build extra preamble for plugins with needsConceptPicker (inject pre-built SQL)
+  const extraPreamble = useMemo(() => {
+    if (!plugin?.manifest.needsConceptPicker || !schemaMapping || !selectedPatientId) return undefined
+    const conceptIds = (pluginConfig as Record<string, unknown> | undefined)?.conceptIds as number[] | undefined
+    const timelineSql = conceptIds?.length
+      ? buildTimelineQuery(schemaMapping, conceptIds, selectedPatientId, selectedVisitId)
+      : null
+    const visitSummarySql = buildPatientVisitSummaryQuery(schemaMapping, selectedPatientId)
+
+    if (language === 'python') {
+      return [
+        `timeline_sql = ${timelineSql ? JSON.stringify(timelineSql) : 'None'}`,
+        `visit_summary_sql = ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'None'}`,
+        '',
+      ].join('\n')
+    }
+    // R
+    return [
+      `timeline_sql <- ${timelineSql ? JSON.stringify(timelineSql) : 'NULL'}`,
+      `visit_summary_sql <- ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'NULL'}`,
+      '',
+    ].join('\n')
+  }, [plugin, schemaMapping, selectedPatientId, selectedVisitId, pluginConfig, language])
 
   const execute = useCallback(async () => {
     if (!plugin || !plugin.templates || !language || !dataSourceId) return
@@ -50,7 +75,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       await ensurePluginDependencies(plugin.manifest.id, language)
 
       // Resolve template with plugin config
-      const { resolveTemplate } = await import('@/lib/analysis-plugins/template-resolver')
+      const { resolveTemplate } = await import('@/lib/plugins/template-resolver')
       const code = resolveTemplate(
         template,
         pluginConfig ?? {},
@@ -71,6 +96,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
         selectedPatientId,
         selectedVisitId,
         selectedVisitDetailId,
+        extraPreamble,
       )
       setResult(output)
     } catch (err) {
@@ -78,7 +104,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
     } finally {
       setLoading(false)
     }
-  }, [plugin, language, pluginConfig, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId])
+  }, [plugin, language, pluginConfig, dataSourceId, selectedPatientId, selectedVisitId, selectedVisitDetailId, extraPreamble])
 
   // Re-execute when patient context or config changes
   useEffect(() => {
@@ -117,7 +143,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
 
   return (
     <div className="h-full overflow-hidden">
-      <AnalysisOutputRenderer
+      <PluginOutputRenderer
         result={result}
         isExecuting={loading}
         onRerun={() => setRunCount((c) => c + 1)}

@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { DatasetColumn } from '@/types'
-import type { PluginConfigField } from '@/types/analysis-plugin'
+import type { PluginConfigField } from '@/types/plugin'
 
 interface GenericConfigPanelProps {
   schema: Record<string, PluginConfigField>

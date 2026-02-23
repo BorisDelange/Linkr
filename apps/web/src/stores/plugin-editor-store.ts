@@ -1,21 +1,21 @@
 import { create } from 'zustand'
-import type { AnalysisPluginManifest } from '@/types/analysis-plugin'
+import type { PluginManifest } from '@/types/plugin'
 import type { UserPlugin } from '@/types'
 import { getStorage } from '@/lib/storage'
 import {
-  getAllAnalysisPlugins,
-  registerAnalysisPlugin,
-  unregisterAnalysisPlugin,
-} from '@/lib/analysis-plugins/registry'
-import { SYSTEM_PLUGIN_IDS } from '@/lib/analysis-plugins/builtin-widget-plugins'
-import { buildPlugin } from '@/lib/analysis-plugins/default-plugins'
+  getAllPlugins,
+  registerPlugin,
+  unregisterPlugin,
+} from '@/lib/plugins/registry'
+import { SYSTEM_PLUGIN_IDS } from '@/lib/plugins/builtin-widget-plugins'
+import { buildPlugin } from '@/lib/plugins/default-plugins'
 import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
 
 export interface PluginListItem {
   id: string
-  manifest: AnalysisPluginManifest
+  manifest: PluginManifest
   isBuiltIn: boolean
   /** System plugins are built-in patient data widgets — metadata-only editing, no code. */
   isSystemPlugin: boolean
@@ -139,7 +139,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
   async refreshPluginList() {
     // Built-in plugins from registry
-    const registryPlugins = getAllAnalysisPlugins()
+    const registryPlugins = getAllPlugins()
     if (builtInIds.size === 0) {
       for (const p of registryPlugins) {
         builtInIds.add(p.manifest.id)
@@ -168,7 +168,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // Add user plugins not yet in registry
     for (const up of userPlugins) {
       try {
-        const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as AnalysisPluginManifest
+        const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
         if (!list.some(p => p.id === manifest.id)) {
           list.push({ id: manifest.id ?? up.id, manifest, isBuiltIn: false, isSystemPlugin: false })
         }
@@ -209,7 +209,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       return
     }
     // Built-in plugin: reconstruct files from registry
-    const plugin = getAllAnalysisPlugins().find(p => p.manifest.id === id)
+    const plugin = getAllPlugins().find(p => p.manifest.id === id)
     if (!plugin) return
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(plugin.manifest, null, 2),
@@ -262,7 +262,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
-    registerAnalysisPlugin(buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate }))
+    registerPlugin(buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate }))
     set({
       editingPluginId: id,
       isBuiltIn: false,
@@ -286,7 +286,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       sourceFiles = { ...userPlugin.files }
     } else {
       // Built-in: reconstruct from registry
-      const plugin = getAllAnalysisPlugins().find(p => p.manifest.id === sourceId)
+      const plugin = getAllPlugins().find(p => p.manifest.id === sourceId)
       if (!plugin) return sourceId
       sourceFiles = { 'plugin.json': JSON.stringify(plugin.manifest, null, 2) }
       if (plugin.templates) {
@@ -320,7 +320,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* skip */ }
 
     await state.refreshPluginList()
@@ -332,7 +332,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   async deletePlugin(id: string) {
     const storage = getStorage()
     await storage.userPlugins.delete(id)
-    unregisterAnalysisPlugin(id)
+    unregisterPlugin(id)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
   },
@@ -346,7 +346,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     if (isSystemPlugin) {
       try {
         const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-        const { saveOverride } = await import('@/lib/analysis-plugins/builtin-widget-plugins')
+        const { saveOverride } = await import('@/lib/plugins/builtin-widget-plugins')
         saveOverride(editingPluginId, {
           name: manifest.name,
           description: manifest.description,
@@ -355,7 +355,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
           badges: manifest.badges,
         })
         // Re-register with updated manifest
-        const { registerBuiltinWidgetPlugins } = await import('@/lib/analysis-plugins/builtin-widget-plugins')
+        const { registerBuiltinWidgetPlugins } = await import('@/lib/plugins/builtin-widget-plugins')
         registerBuiltinWidgetPlugins()
       } catch { /* invalid plugin.json */ }
       set({ isDirty: false, originalFiles: { ...files } })
@@ -407,7 +407,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         else if (filename.endsWith('.R.template')) templates.r = content
       }
       // Re-register (overwrites previous)
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* invalid plugin.json — still saved to IDB */ }
 
     set({ isDirty: false, originalFiles: { ...files } })

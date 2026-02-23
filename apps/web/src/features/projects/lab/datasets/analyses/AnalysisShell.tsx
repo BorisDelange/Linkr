@@ -24,8 +24,8 @@ import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
-import { ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
-import { AnalysisOutputRenderer } from './AnalysisOutputRenderer'
+import { ensurePluginDependencies } from '@/lib/plugins/registry'
+import { PluginOutputRenderer } from './PluginOutputRenderer'
 import type { DatasetAnalysis } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 
@@ -318,7 +318,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
 
             {/* Right: Output */}
             <Allotment.Pane minSize={rightVisible ? 200 : 0} visible={rightVisible}>
-              <AnalysisOutputRenderer
+              <PluginOutputRenderer
                 result={result}
                 isExecuting={isExecuting}
                 statusMessage={statusMessage}

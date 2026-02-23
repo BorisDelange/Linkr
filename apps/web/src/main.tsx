@@ -8,7 +8,7 @@ import '@fontsource/inter/700.css'
 import '@/lib/i18n'
 import '@/index.css'
 import { App } from '@/app/App'
-import { registerDefaultPlugins, registerUserPlugins } from '@/lib/analysis-plugins/default-plugins'
+import { registerDefaultPlugins, registerUserPlugins } from '@/lib/plugins/default-plugins'
 import { initStorage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
 

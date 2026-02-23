@@ -20,8 +20,8 @@ import {
 } from '@/components/ui/select'
 import { PluginPicker } from '@/components/PluginPicker'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { getLabPlugins } from '@/lib/analysis-plugins/registry'
-import type { AnalysisPlugin } from '@/types/analysis-plugin'
+import { getLabPlugins } from '@/lib/plugins/registry'
+import type { Plugin } from '@/types/plugin'
 import type { AnalysisLanguage } from '@/types'
 
 interface CreateAnalysisDialogProps {
@@ -39,7 +39,7 @@ const LANGUAGE_LABELS: Record<AnalysisLanguage, { en: string; fr: string }> = {
   r: { en: 'R', fr: 'R' },
 }
 
-function getAvailableLanguages(plugin: AnalysisPlugin): AnalysisLanguage[] {
+function getAvailableLanguages(plugin: Plugin): AnalysisLanguage[] {
   const langs: AnalysisLanguage[] = []
   for (const l of plugin.manifest.languages) langs.push(l)
   return langs
@@ -74,7 +74,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const handleSelectPlugin = (plugin: AnalysisPlugin) => {
+  const handleSelectPlugin = (plugin: Plugin) => {
     const prevPlugin = plugins.find(p => p.manifest.id === selectedPluginId)
     const isDefaultName =
       !name.trim() ||

@@ -1,5 +1,5 @@
-import type { AnalysisPlugin, AnalysisPluginManifest } from '@/types/analysis-plugin'
-import { registerAnalysisPlugin } from './registry'
+import type { Plugin, PluginManifest } from '@/types/plugin'
+import { registerPlugin } from './registry'
 import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 
@@ -8,7 +8,6 @@ import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import distributionManifest from '@default-plugins/analyses/distribution/plugin.json'
 import correlationManifest from '@default-plugins/analyses/correlation/plugin.json'
 import crosstabManifest from '@default-plugins/analyses/crosstab/plugin.json'
-
 // --- Code templates (raw strings) ---
 import table1Py from '@default-plugins/analyses/table1/table1.py.template?raw'
 import table1R from '@default-plugins/analyses/table1/table1.R.template?raw'
@@ -20,11 +19,11 @@ import crosstabPy from '@default-plugins/analyses/crosstab/crosstab.py.template?
 import crosstabR from '@default-plugins/analyses/crosstab/crosstab.R.template?raw'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
-function normaliseManifest(raw: Record<string, unknown>): AnalysisPluginManifest {
-  const m = raw as unknown as AnalysisPluginManifest
+function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
+  const m = raw as unknown as PluginManifest
   // Handle legacy `runtime: "script"` (string) → `["script"]`
   if (typeof (m as unknown as { runtime: unknown }).runtime === 'string') {
-    m.runtime = [(m as unknown as { runtime: string }).runtime] as AnalysisPluginManifest['runtime']
+    m.runtime = [(m as unknown as { runtime: string }).runtime] as PluginManifest['runtime']
   }
   return m
 }
@@ -32,23 +31,23 @@ function normaliseManifest(raw: Record<string, unknown>): AnalysisPluginManifest
 export function buildPlugin(
   rawManifest: Record<string, unknown>,
   templates: Record<string, string> | null,
-): AnalysisPlugin {
+): Plugin {
   const manifest = normaliseManifest(rawManifest)
   return { manifest, templates }
 }
 
 export function registerDefaultPlugins() {
-  // Lab analysis plugins
-  registerAnalysisPlugin(
+  // Lab plugins
+  registerPlugin(
     buildPlugin(table1Manifest as unknown as Record<string, unknown>, { python: table1Py, r: table1R }),
   )
-  registerAnalysisPlugin(
+  registerPlugin(
     buildPlugin(distributionManifest as unknown as Record<string, unknown>, { python: distributionPy, r: distributionR }),
   )
-  registerAnalysisPlugin(
+  registerPlugin(
     buildPlugin(correlationManifest as unknown as Record<string, unknown>, { python: correlationPy, r: correlationR }),
   )
-  registerAnalysisPlugin(
+  registerPlugin(
     buildPlugin(crosstabManifest as unknown as Record<string, unknown>, { python: crosstabPy, r: crosstabR }),
   )
 
@@ -71,7 +70,7 @@ export async function registerUserPlugins() {
           if (filename.endsWith('.py.template')) templates.python = content
           else if (filename.endsWith('.R.template')) templates.r = content
         }
-        registerAnalysisPlugin(
+        registerPlugin(
           buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null),
         )
       } catch {

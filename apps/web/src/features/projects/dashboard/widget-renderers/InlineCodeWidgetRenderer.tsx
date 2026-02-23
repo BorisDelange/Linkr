@@ -4,7 +4,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { useDashboardData } from '../DashboardDataProvider'
-import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
+import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 
 interface InlineCodeWidgetRendererProps {
   widget: DashboardWidget
@@ -64,7 +64,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
 
   return (
     <div className="h-full overflow-hidden">
-      <AnalysisOutputRenderer
+      <PluginOutputRenderer
         result={result}
         isExecuting={loading}
         onRerun={() => setRunCount(c => c + 1)}

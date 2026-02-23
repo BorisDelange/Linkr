@@ -195,19 +195,7 @@ export function CohortBuilderPage() {
           </SelectContent>
         </Select>
 
-        {/* ATLAS import/export */}
-        <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="gap-1 text-xs h-7">
-          <Upload size={12} />
-          ATLAS
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-1 text-xs h-7">
-          <Download size={12} />
-          ATLAS
-        </Button>
-
-        <div className="flex-1" />
-
-        {/* View toggles */}
+        {/* View toggles (left pane: criteria vs SQL) */}
         <div className="flex items-center rounded-md border p-0.5">
           <button
             type="button"
@@ -234,6 +222,18 @@ export function CohortBuilderPage() {
             SQL
           </button>
         </div>
+
+        <div className="flex-1" />
+
+        {/* ATLAS import/export */}
+        <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="gap-1 text-xs h-7">
+          <Upload size={12} />
+          ATLAS
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-1 text-xs h-7">
+          <Download size={12} />
+          ATLAS
+        </Button>
 
         {/* Execute */}
         <Button

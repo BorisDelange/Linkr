@@ -270,33 +270,59 @@ export function CriteriaGroupNodeComponent({
               items={node.children.map((c) => c.id)}
               strategy={verticalListSortingStrategy}
             >
-              <div className="space-y-2 pt-2">
-                {node.children.map((child) =>
-                  child.kind === 'criterion' ? (
-                    <CriterionCard
-                      key={child.id}
-                      node={child}
-                      onUpdate={onUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
-                      onRemove={onRemoveNode}
-                      eventTableLabels={eventTableLabels}
-                      genderValues={genderValues}
-                    />
-                  ) : (
-                    <CriteriaGroupNodeComponent
-                      key={child.id}
-                      node={child}
-                      depth={depth + 1}
-                      onUpdate={onUpdate}
-                      onRemove={onRemoveNode}
-                      onAddNode={onAddNode}
-                      onRemoveNode={onRemoveNode}
-                      onUpdateNode={onUpdateNode}
-                      onMoveNode={onMoveNode}
-                      eventTableLabels={eventTableLabels}
-                      genderValues={genderValues}
-                    />
-                  ),
-                )}
+              <div className="space-y-0 pt-2">
+                {node.children.map((child, index) => (
+                  <div key={child.id}>
+                    {/* Operator separator between children */}
+                    {index > 0 && (
+                      <div className="flex items-center justify-center py-1">
+                        <div className={cn(
+                          'h-px flex-1',
+                          isAnd ? 'bg-blue-500/20' : 'bg-orange-500/20',
+                        )} />
+                        <button
+                          type="button"
+                          onClick={toggleOperator}
+                          className={cn(
+                            'mx-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors select-none',
+                            isAnd
+                              ? 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 dark:text-blue-400'
+                              : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 dark:text-orange-400',
+                          )}
+                          title={t('cohorts.toggle_operator')}
+                        >
+                          {node.operator}
+                        </button>
+                        <div className={cn(
+                          'h-px flex-1',
+                          isAnd ? 'bg-blue-500/20' : 'bg-orange-500/20',
+                        )} />
+                      </div>
+                    )}
+                    {child.kind === 'criterion' ? (
+                      <CriterionCard
+                        node={child}
+                        onUpdate={onUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
+                        onRemove={onRemoveNode}
+                        eventTableLabels={eventTableLabels}
+                        genderValues={genderValues}
+                      />
+                    ) : (
+                      <CriteriaGroupNodeComponent
+                        node={child}
+                        depth={depth + 1}
+                        onUpdate={onUpdate}
+                        onRemove={onRemoveNode}
+                        onAddNode={onAddNode}
+                        onRemoveNode={onRemoveNode}
+                        onUpdateNode={onUpdateNode}
+                        onMoveNode={onMoveNode}
+                        eventTableLabels={eventTableLabels}
+                        genderValues={genderValues}
+                      />
+                    )}
+                  </div>
+                ))}
               </div>
             </SortableContext>
           </DndContext>

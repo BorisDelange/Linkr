@@ -27,12 +27,20 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(title)
   const inputRef = useRef<HTMLInputElement>(null)
+  // When true, the dropdown close should NOT restore focus to its trigger
+  // (because we want focus to go to the rename input instead).
+  const renamePendingRef = useRef(false)
 
   useEffect(() => {
     if (renaming) {
       setRenameValue(title)
-      // Focus after render
-      setTimeout(() => inputRef.current?.select(), 0)
+      requestAnimationFrame(() => {
+        const el = inputRef.current
+        if (el) {
+          el.focus()
+          el.select()
+        }
+      })
     }
   }, [renaming, title])
 
@@ -58,6 +66,8 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
                 if (e.key === 'Enter') confirmRename()
                 if (e.key === 'Escape') setRenaming(false)
               }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               className="h-5 text-xs font-semibold px-1 py-0 border-none shadow-none focus-visible:ring-1"
             />
           ) : (
@@ -72,9 +82,20 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
                   <MoreHorizontal size={12} />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent
+                align="end"
+                onCloseAutoFocus={(e) => {
+                  // When rename was just triggered, prevent Radix from moving
+                  // focus back to the trigger button — that would steal focus
+                  // from the rename input and cause an immediate blur.
+                  if (renamePendingRef.current) {
+                    e.preventDefault()
+                    renamePendingRef.current = false
+                  }
+                }}
+              >
                 {onRename && (
-                  <DropdownMenuItem onClick={() => setRenaming(true)}>
+                  <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
                     <Type size={14} />
                     {t('dashboard.rename_widget')}
                   </DropdownMenuItem>

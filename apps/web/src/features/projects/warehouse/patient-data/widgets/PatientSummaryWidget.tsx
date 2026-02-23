@@ -717,10 +717,8 @@ export function PatientSummaryWidget() {
     // Fetch visit list
     const visitSql = buildPatientVisitSummaryQuery(schemaMapping, patientId)
     if (visitSql) {
-      console.log('[PatientSummary] visitSql:', visitSql)
       queryDataSource(dataSourceId, visitSql)
         .then((rows) => {
-          console.log('[PatientSummary] visit rows:', JSON.stringify(rows, null, 2))
           if (!cancelled) setVisits(rows as VisitRow[])
         })
         .catch(() => {

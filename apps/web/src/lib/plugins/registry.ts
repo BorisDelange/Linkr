@@ -1,4 +1,4 @@
-import type { AnalysisPlugin } from '@/types/analysis-plugin'
+import type { Plugin } from '@/types/plugin'
 import {
   installPythonPackage,
   listPythonPackages,
@@ -9,7 +9,7 @@ import {
 } from '@/lib/runtimes/webr-engine'
 
 /** Module-level plugin registry. Populated once at startup. */
-const plugins = new Map<string, AnalysisPlugin>()
+const plugins = new Map<string, Plugin>()
 
 /** Legacy type-name → plugin-id mapping. */
 const LEGACY_IDS: Record<string, string> = {
@@ -23,29 +23,29 @@ const LEGACY_IDS: Record<string, string> = {
 /** Tracks which plugin+language combos have had their deps verified this session. */
 const depsChecked = new Set<string>()
 
-export function registerAnalysisPlugin(plugin: AnalysisPlugin) {
+export function registerPlugin(plugin: Plugin) {
   plugins.set(plugin.manifest.id, plugin)
 }
 
-export function unregisterAnalysisPlugin(id: string) {
+export function unregisterPlugin(id: string) {
   plugins.delete(id)
 }
 
-export function getAnalysisPlugin(id: string): AnalysisPlugin | undefined {
+export function getPlugin(id: string): Plugin | undefined {
   return plugins.get(id) ?? plugins.get(resolvePluginId(id))
 }
 
-export function getAllAnalysisPlugins(): AnalysisPlugin[] {
+export function getAllPlugins(): Plugin[] {
   return Array.from(plugins.values())
 }
 
 /** Return only plugins scoped to Lab (datasets/dashboards). */
-export function getLabPlugins(): AnalysisPlugin[] {
+export function getLabPlugins(): Plugin[] {
   return Array.from(plugins.values()).filter(p => (p.manifest.scope ?? 'lab') === 'lab')
 }
 
 /** Return only plugins scoped to Warehouse (patient data). */
-export function getWarehousePlugins(): AnalysisPlugin[] {
+export function getWarehousePlugins(): Plugin[] {
   return Array.from(plugins.values()).filter(p => p.manifest.scope === 'warehouse')
 }
 
@@ -67,7 +67,7 @@ export async function ensurePluginDependencies(
   const key = `${pluginId}:${language}`
   if (depsChecked.has(key)) return []
 
-  const plugin = getAnalysisPlugin(pluginId)
+  const plugin = getPlugin(pluginId)
   if (!plugin) return []
 
   const deps = plugin.manifest.dependencies?.[language]

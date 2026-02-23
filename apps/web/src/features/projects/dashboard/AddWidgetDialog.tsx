@@ -4,8 +4,8 @@ import { Code2, ArrowLeft, Database } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { getLabPlugins } from '@/lib/analysis-plugins/registry'
-import type { AnalysisPlugin } from '@/types/analysis-plugin'
+import { getLabPlugins } from '@/lib/plugins/registry'
+import type { Plugin } from '@/types/plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
 import { Button } from '@/components/ui/button'
@@ -54,30 +54,38 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   const [selectedPluginId, setSelectedPluginId] = useState('')
 
   // Plugin config step
-  const [configPlugin, setConfigPlugin] = useState<AnalysisPlugin | null>(null)
+  const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
+  const [pluginLanguage, setPluginLanguage] = useState<'python' | 'r'>('python')
 
   const resetAndClose = () => {
     setConfigPlugin(null)
     setPluginConfig({})
+    setPluginLanguage('python')
     setSelectedPluginId('')
     setDatasetFileId(null)
     onOpenChange(false)
   }
 
-  const handleSelectPlugin = (plugin: AnalysisPlugin) => {
+  const handleSelectPlugin = (plugin: Plugin) => {
     setSelectedPluginId(plugin.manifest.id)
     const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
+    const hasBothLangs = !!(plugin.templates?.python && plugin.templates?.r)
 
-    if (hasConfig) {
+    // Default language for this plugin
+    const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
+
+    if (hasConfig || hasBothLangs) {
       setConfigPlugin(plugin)
       setPluginConfig({})
+      setPluginLanguage(defaultLang)
     } else {
       // No config needed, add immediately
       const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
       const source: DashboardWidgetSource = {
         type: 'plugin',
         pluginId: plugin.manifest.id,
+        language: defaultLang,
         config: {},
       }
       addWidget(tabId, source, name, datasetFileId)
@@ -91,6 +99,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     const source: DashboardWidgetSource = {
       type: 'plugin',
       pluginId: configPlugin.manifest.id,
+      language: pluginLanguage,
       config: { ...pluginConfig },
     }
     addWidget(tabId, source, name, datasetFileId)
@@ -137,6 +146,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   // Plugin config step view
   if (configPlugin) {
     const pluginName = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
+    const configHasBothLangs = !!(configPlugin.templates?.python && configPlugin.templates?.r)
+    const hasConfigSchema = configPlugin.manifest.configSchema && Object.keys(configPlugin.manifest.configSchema).length > 0
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
         <DialogContent className="sm:max-w-4xl">
@@ -156,13 +167,32 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
             </DialogDescription>
           </DialogHeader>
 
-          <div className="max-h-80 overflow-y-auto">
-            <GenericConfigPanel
-              schema={configPlugin.manifest.configSchema!}
-              config={pluginConfig}
-              columns={columns}
-              onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
-            />
+          <div className="space-y-4">
+            {configHasBothLangs && (
+              <div className="space-y-1">
+                <Label className="text-xs">{t('common.language')}</Label>
+                <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
+                  <SelectTrigger className="h-8 w-40 text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper" sideOffset={4}>
+                    <SelectItem value="python">Python</SelectItem>
+                    <SelectItem value="r">R</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {hasConfigSchema && (
+              <div className="max-h-80 overflow-y-auto">
+                <GenericConfigPanel
+                  schema={configPlugin.manifest.configSchema!}
+                  config={pluginConfig}
+                  columns={columns}
+                  onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
+                />
+              </div>
+            )}
           </div>
 
           <DialogFooter>

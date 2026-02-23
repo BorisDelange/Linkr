@@ -28,7 +28,7 @@ export type PluginRuntime = 'script'
 export type PluginScope = 'lab' | 'warehouse'
 
 /** The full plugin manifest, matching the JSON schema from plugin.json files. */
-export interface AnalysisPluginManifest {
+export interface PluginManifest {
   id: string
   name: { en: string; fr: string; [key: string]: string }
   description: { en: string; fr: string; [key: string]: string }
@@ -43,6 +43,8 @@ export interface AnalysisPluginManifest {
   /** Color for the plugin icon (preset name or hex string). Defaults to muted-foreground. */
   iconColor?: BadgeColor
   configSchema: Record<string, PluginConfigField>
+  /** If true, the plugin uses ConceptPickerDialog for concept selection (warehouse plugins). */
+  needsConceptPicker?: boolean
   /** Package dependencies per language, auto-installed on first run. */
   dependencies?: {
     python?: string[]
@@ -66,8 +68,8 @@ export interface AnalysisPluginManifest {
 }
 
 /** Resolved plugin with loaded templates. */
-export interface AnalysisPlugin {
-  manifest: AnalysisPluginManifest
+export interface Plugin {
+  manifest: PluginManifest
   /** Loaded template strings, keyed by language. */
   templates: Record<string, string> | null
 }

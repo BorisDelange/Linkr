@@ -3,8 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useDatasetStore } from '@/stores/dataset-store'
-import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
-import { resolveTemplate } from '@/lib/analysis-plugins/template-resolver'
+import { getPlugin } from '@/lib/plugins/registry'
+import { resolveTemplate } from '@/lib/plugins/template-resolver'
 import { AnalysisShell } from './analyses/AnalysisShell'
 import { GenericConfigPanel } from './analyses/GenericConfigPanel'
 import { CreateAnalysisDialog } from './CreateAnalysisDialog'
@@ -19,14 +19,14 @@ interface AnalysesPanelProps {
  * Infer the default language for a legacy analysis that has no `config.language`.
  */
 function inferDefaultLanguage(pluginId: string): AnalysisLanguage {
-  const plugin = getAnalysisPlugin(pluginId)
+  const plugin = getPlugin(pluginId)
   if (!plugin) return 'python'
   if (plugin.manifest.languages.length > 0) return plugin.manifest.languages[0]
   return 'python'
 }
 
 function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
-  const plugin = getAnalysisPlugin(analysis.type)
+  const plugin = getPlugin(analysis.type)
   const language = (analysis.config.language as AnalysisLanguage | undefined) ?? inferDefaultLanguage(analysis.type)
 
   // Script mode (python / r): resolve template + AnalysisShell + GenericConfigPanel
@@ -58,7 +58,7 @@ function ScriptAnalysis({
   const { t } = useTranslation()
   const { files } = useDatasetStore()
 
-  const plugin = getAnalysisPlugin(analysis.type)!
+  const plugin = getPlugin(analysis.type)!
   const file = files.find(f => f.id === analysis.datasetFileId)
   const columns = file?.columns ?? []
 

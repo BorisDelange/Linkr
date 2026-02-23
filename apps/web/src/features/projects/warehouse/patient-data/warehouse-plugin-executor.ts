@@ -55,10 +55,12 @@ export async function executeWarehousePluginPython(
   personId: string | null,
   visitOccurrenceId: string | null,
   visitDetailId: string | null,
+  extraPreamble?: string,
 ): Promise<RuntimeOutput> {
   const { executePython } = await import('@/lib/runtimes/pyodide-engine')
   const preamble = buildPythonPreamble(personId, visitOccurrenceId, visitDetailId)
-  return executePython(preamble + code, dataSourceId)
+  const extra = extraPreamble ? extraPreamble + '\n' : ''
+  return executePython(preamble + extra + code, dataSourceId)
 }
 
 /**
@@ -71,8 +73,10 @@ export async function executeWarehousePluginR(
   personId: string | null,
   visitOccurrenceId: string | null,
   visitDetailId: string | null,
+  extraPreamble?: string,
 ): Promise<RuntimeOutput> {
   const { executeR } = await import('@/lib/runtimes/webr-engine')
   const preamble = buildRPreamble(personId, visitOccurrenceId, visitDetailId)
-  return executeR(preamble + code, dataSourceId)
+  const extra = extraPreamble ? extraPreamble + '\n' : ''
+  return executeR(preamble + extra + code, dataSourceId)
 }

@@ -9,14 +9,14 @@ import {
 } from '@/stores/patient-chart-store'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
-import { TimelineWidget } from './widgets/TimelineWidget'
 import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
 import { MedicationWidget } from './widgets/MedicationWidget'
 import { DiagnosisWidget } from './widgets/DiagnosisWidget'
 import { NotesWidget } from './widgets/NotesWidget'
+import { TimelineWidget } from './widgets/TimelineWidget'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
-import { PluginConfigDialog } from './PluginConfigDialog'
+import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   AlertDialog,
@@ -38,7 +38,7 @@ interface PatientChartGridProps {
 }
 
 /** Widget types that support concept editing. */
-const CONCEPT_WIDGET_TYPES = new Set(['timeline', 'clinical_table'])
+const CONCEPT_WIDGET_TYPES = new Set(['clinical_table', 'timeline'])
 
 /** Widget types that support plugin config editing. */
 const PLUGIN_WIDGET_TYPES = new Set(['plugin'])
@@ -53,8 +53,6 @@ function renderWidgetContent(
   switch (widget.type) {
     case 'patient_summary':
       return <PatientSummaryWidget />
-    case 'timeline':
-      return <TimelineWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
     case 'clinical_table':
       return <ClinicalTableWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
     case 'medications':
@@ -63,6 +61,8 @@ function renderWidgetContent(
       return <DiagnosisWidget />
     case 'notes':
       return <NotesWidget widgetId={widget.id} />
+    case 'timeline':
+      return <TimelineWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
     case 'plugin':
       return <WarehousePluginWidgetRenderer widgetId={widget.id} />
     default:
@@ -244,9 +244,10 @@ export function PatientChartGrid({
         onConfirm={handleConceptsConfirm}
       />
 
-      {/* Plugin config dialog */}
-      <PluginConfigDialog
+      {/* Plugin editor sidebar */}
+      <WarehousePluginEditorSheet
         widgetId={editingPluginWidgetId}
+        open={editingPluginWidgetId !== null}
         onOpenChange={(open) => {
           if (!open) setEditingPluginWidgetId(null)
         }}

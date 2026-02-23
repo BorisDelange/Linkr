@@ -35,7 +35,7 @@ import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-edito
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { PluginEditor } from './PluginEditor'
-import type { PluginScope } from '@/types/analysis-plugin'
+import type { PluginScope } from '@/types/plugin'
 
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
   python: { label: 'PY', color: 'text-yellow-500 bg-yellow-500/10' },
@@ -258,15 +258,15 @@ export function PluginsTab() {
 
     // Hot-register
     try {
-      const { buildPlugin } = await import('@/lib/analysis-plugins/default-plugins')
-      const { registerAnalysisPlugin } = await import('@/lib/analysis-plugins/registry')
+      const { buildPlugin } = await import('@/lib/plugins/default-plugins')
+      const { registerPlugin } = await import('@/lib/plugins/registry')
       const manifest = JSON.parse(files['plugin.json'] ?? '{}') as Record<string, unknown>
       const templates: Record<string, string> = {}
       for (const [filename, content] of Object.entries(files)) {
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerAnalysisPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
     } catch { /* skip */ }
 
     await refreshPluginList()

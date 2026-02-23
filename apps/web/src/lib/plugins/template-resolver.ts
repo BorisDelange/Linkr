@@ -1,5 +1,5 @@
 import type { DatasetColumn } from '@/types'
-import type { PluginConfigField } from '@/types/analysis-plugin'
+import type { PluginConfigField } from '@/types/plugin'
 
 /**
  * Resolve a plugin template by replacing `{{placeholder}}` tokens
@@ -14,7 +14,7 @@ export function resolveTemplate(
 ): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const field = schema[key]
-    const value = config[key]
+    const value = config[key] ?? field?.default
     if (!field) return serialise(value, language)
     return serialiseField(field, value, columns, language)
   })

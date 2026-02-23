@@ -1,20 +1,19 @@
 import { useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { CodeEditor } from '@/components/editor/CodeEditor'
-import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
-import { resolveTemplate } from '@/lib/analysis-plugins/template-resolver'
+import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
+import { resolveTemplate } from '@/lib/plugins/template-resolver'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientSummaryWidget } from '@/features/projects/warehouse/patient-data/widgets/PatientSummaryWidget'
-import { TimelineWidget } from '@/features/projects/warehouse/patient-data/widgets/TimelineWidget'
 import { ClinicalTableWidget } from '@/features/projects/warehouse/patient-data/widgets/ClinicalTableWidget'
 import { MedicationWidget } from '@/features/projects/warehouse/patient-data/widgets/MedicationWidget'
 import { DiagnosisWidget } from '@/features/projects/warehouse/patient-data/widgets/DiagnosisWidget'
 import { NotesWidget } from '@/features/projects/warehouse/patient-data/widgets/NotesWidget'
 import { PluginConfigPreview } from './PluginConfigPreview'
-import type { PluginConfigField } from '@/types/analysis-plugin'
+import type { PluginConfigField } from '@/types/plugin'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { DatasetColumn } from '@/types'
 import type { PatientWidgetType } from '@/stores/patient-chart-store'
@@ -39,8 +38,6 @@ function renderPreviewWidget(type: PatientWidgetType) {
   switch (type) {
     case 'patient_summary':
       return <PatientSummaryWidget />
-    case 'timeline':
-      return <TimelineWidget widgetId="__preview__" />
     case 'clinical_table':
       return <ClinicalTableWidget widgetId="__preview__" />
     case 'medications':
@@ -159,7 +156,7 @@ export function PluginTestPanel({ activeTab, isExecuting, result, statusMessage,
             {systemWidgetPreview ? (
               <SystemWidgetPreviewRenderer widgetType={systemWidgetPreview} />
             ) : (result || isExecuting) ? (
-              <AnalysisOutputRenderer
+              <PluginOutputRenderer
                 result={result}
                 isExecuting={isExecuting}
                 statusMessage={statusMessage}

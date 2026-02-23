@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import type { AnalysisPlugin, PluginBadge } from '@/types/analysis-plugin'
+import type { Plugin, PluginBadge } from '@/types/plugin'
 import type { BadgeColor } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -60,9 +60,9 @@ function fuzzyMatch(text: string, query: string): boolean {
 // ---------------------------------------------------------------------------
 
 interface PluginPickerProps {
-  plugins: AnalysisPlugin[]
+  plugins: Plugin[]
   selectedPluginId: string
-  onSelectPlugin: (plugin: AnalysisPlugin) => void
+  onSelectPlugin: (plugin: Plugin) => void
   lang: 'en' | 'fr'
   /** Max height for the scrollable area. Default: "max-h-80" */
   maxHeight?: string

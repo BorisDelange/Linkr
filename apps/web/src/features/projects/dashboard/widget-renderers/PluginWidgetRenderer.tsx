@@ -3,9 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
-import { getAnalysisPlugin, ensurePluginDependencies } from '@/lib/analysis-plugins/registry'
+import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { useDashboardData } from '../DashboardDataProvider'
-import { AnalysisOutputRenderer } from '@/features/projects/lab/datasets/analyses/AnalysisOutputRenderer'
+import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -15,7 +15,7 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
   if (widget.source.type !== 'plugin') return null
   const { pluginId } = widget.source
 
-  const plugin = getAnalysisPlugin(pluginId)
+  const plugin = getPlugin(pluginId)
 
   if (!plugin) {
     return (
@@ -35,7 +35,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
   const [loading, setLoading] = useState(false)
   const [runCount, setRunCount] = useState(0)
 
-  const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
+  const source = widget.source as { type: 'plugin'; pluginId: string; language?: 'python' | 'r'; config: Record<string, unknown> }
 
   const execute = useCallback(async () => {
     if (columns.length === 0) return
@@ -45,14 +45,14 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
 
     try {
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
-      const plugin = getAnalysisPlugin(source.pluginId)
+      const plugin = getPlugin(source.pluginId)
       if (!plugin || !plugin.templates) {
         setResult({ stdout: '', stderr: 'Plugin templates not found', figures: [], table: null, html: null })
         return
       }
 
-      // Detect language: prefer Python, fallback to R
-      const language = plugin.templates.python ? 'python' : 'r'
+      // Use persisted language or default
+      const language = source.language ?? (plugin.templates.python ? 'python' : 'r')
       const template = language === 'python' ? plugin.templates.python : plugin.templates.r
       if (!template) {
         setResult({ stdout: '', stderr: 'No code template found', figures: [], table: null, html: null })
@@ -62,7 +62,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
       // Ensure plugin dependencies are installed (cached per session)
       await ensurePluginDependencies(source.pluginId, language)
 
-      const { resolveTemplate } = await import('@/lib/analysis-plugins/template-resolver')
+      const { resolveTemplate } = await import('@/lib/plugins/template-resolver')
       const code = resolveTemplate(
         template,
         source.config,
@@ -79,7 +79,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
     } finally {
       setLoading(false)
     }
-  }, [filteredRows, columns, source.pluginId, source.config])
+  }, [filteredRows, columns, source.pluginId, source.language, source.config])
 
   useEffect(() => {
     execute()
@@ -97,7 +97,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
 
   return (
     <div className="h-full overflow-hidden">
-      <AnalysisOutputRenderer
+      <PluginOutputRenderer
         result={result}
         isExecuting={loading}
         onRerun={() => setRunCount(c => c + 1)}

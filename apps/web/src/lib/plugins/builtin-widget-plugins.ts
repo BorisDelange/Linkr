@@ -6,10 +6,10 @@
  * so users can see and customise their metadata (name, icon, badges).
  */
 
-import type { AnalysisPlugin, AnalysisPluginManifest } from '@/types/analysis-plugin'
-import type { PluginBadge } from '@/types/analysis-plugin'
+import type { Plugin, PluginManifest } from '@/types/plugin'
+import type { PluginBadge } from '@/types/plugin'
 import type { PatientWidgetType } from '@/stores/patient-chart-store'
-import { registerAnalysisPlugin } from './registry'
+import { registerPlugin } from './registry'
 
 // ---------------------------------------------------------------------------
 // System plugin ID ↔ PatientWidgetType mapping
@@ -17,8 +17,8 @@ import { registerAnalysisPlugin } from './registry'
 
 export const SYSTEM_WIDGET_TYPE_MAP: Record<string, PatientWidgetType> = {
   'linkr-widget-patient-summary': 'patient_summary',
-  'linkr-widget-timeline': 'timeline',
   'linkr-widget-clinical-table': 'clinical_table',
+  'linkr-widget-timeline': 'timeline',
   'linkr-widget-medications': 'medications',
   'linkr-widget-diagnoses': 'diagnoses',
   'linkr-widget-notes': 'notes',
@@ -31,7 +31,7 @@ export const SYSTEM_PLUGIN_IDS = new Set(Object.keys(SYSTEM_WIDGET_TYPE_MAP))
 // Default manifests
 // ---------------------------------------------------------------------------
 
-const defaultManifests: AnalysisPluginManifest[] = [
+const defaultManifests: PluginManifest[] = [
   {
     id: 'linkr-widget-patient-summary',
     name: { en: 'Patient summary', fr: 'Résumé patient' },
@@ -49,22 +49,6 @@ const defaultManifests: AnalysisPluginManifest[] = [
     configSchema: {},
   },
   {
-    id: 'linkr-widget-timeline',
-    name: { en: 'Timeline', fr: 'Chronologie' },
-    description: {
-      en: 'Line chart of numeric values over time for selected concepts.',
-      fr: 'Graphique de valeurs numériques dans le temps pour les concepts sélectionnés.',
-    },
-    version: '1.0.0',
-    scope: 'warehouse',
-    tags: ['chart', 'timeline', 'measurement'],
-    runtime: [],
-    languages: [],
-    icon: 'TrendingUp',
-    iconColor: 'blue',
-    configSchema: {},
-  },
-  {
     id: 'linkr-widget-clinical-table',
     name: { en: 'Clinical table', fr: 'Tableau clinique' },
     description: {
@@ -78,6 +62,22 @@ const defaultManifests: AnalysisPluginManifest[] = [
     languages: [],
     icon: 'TableIcon',
     iconColor: 'green',
+    configSchema: {},
+  },
+  {
+    id: 'linkr-widget-timeline',
+    name: { en: 'Timeline', fr: 'Chronologie' },
+    description: {
+      en: 'Interactive timeline chart for clinical measurements (dygraphs).',
+      fr: 'Graphique chronologique interactif pour les mesures cliniques (dygraphs).',
+    },
+    version: '1.0.0',
+    scope: 'warehouse',
+    tags: ['timeline', 'chart', 'measurement'],
+    runtime: [],
+    languages: [],
+    icon: 'TrendingUp',
+    iconColor: 'blue',
     configSchema: {},
   },
   {
@@ -161,7 +161,7 @@ export function saveOverride(pluginId: string, override: BuiltinOverride): void 
 }
 
 /** Merge default manifest with any user overrides from localStorage. */
-function applyOverrides(manifest: AnalysisPluginManifest): AnalysisPluginManifest {
+function applyOverrides(manifest: PluginManifest): PluginManifest {
   const overrides = loadOverrides()
   const override = overrides[manifest.id]
   if (!override) return manifest
@@ -183,7 +183,7 @@ function applyOverrides(manifest: AnalysisPluginManifest): AnalysisPluginManifes
 export function registerBuiltinWidgetPlugins(): void {
   for (const base of defaultManifests) {
     const manifest = applyOverrides(base)
-    const plugin: AnalysisPlugin = { manifest, templates: null }
-    registerAnalysisPlugin(plugin)
+    const plugin: Plugin = { manifest, templates: null }
+    registerPlugin(plugin)
   }
 }

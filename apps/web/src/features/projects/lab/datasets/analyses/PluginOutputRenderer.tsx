@@ -78,7 +78,7 @@ function splitStderr(stderr: string): { errors: string; warnings: string } {
   }
 }
 
-interface AnalysisOutputRendererProps {
+interface PluginOutputRendererProps {
   result: RuntimeOutput | null
   isExecuting: boolean
   statusMessage?: string | null
@@ -88,7 +88,7 @@ interface AnalysisOutputRendererProps {
   compact?: boolean
 }
 
-export function AnalysisOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun, compact }: AnalysisOutputRendererProps) {
+export function PluginOutputRenderer({ result, isExecuting, statusMessage, installedDeps, onRerun, compact }: PluginOutputRendererProps) {
   const { t } = useTranslation()
   const [expandedPanel, setExpandedPanel] = useState<'info' | 'warnings' | null>(null)
 

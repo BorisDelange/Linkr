@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertCircle } from 'lucide-react'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
-import type { PluginConfigField } from '@/types/analysis-plugin'
+import type { PluginConfigField } from '@/types/plugin'
 import type { DatasetColumn } from '@/types'
 
 /** Sample columns for preview when no test dataset is loaded. */

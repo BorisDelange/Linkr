@@ -12,17 +12,13 @@ export interface PatientChartTab {
 }
 
 export type PatientWidgetType =
-  | 'timeline'
   | 'clinical_table'
   | 'patient_summary'
   | 'medications'
   | 'diagnoses'
   | 'notes'
+  | 'timeline'
   | 'plugin'
-
-export interface TimelineConfig {
-  conceptIds: number[]
-}
 
 export interface ClinicalTableConfig {
   conceptIds: number[]
@@ -34,6 +30,10 @@ export interface NotesConfig {
   wordSets?: Array<{ label: string; words: string[] }>
 }
 
+export interface TimelineConfig {
+  conceptIds: number[]
+}
+
 export interface PluginWidgetConfig {
   pluginId: string
   language: 'python' | 'r'
@@ -41,8 +41,8 @@ export interface PluginWidgetConfig {
 }
 
 export type PatientWidgetConfig =
-  | TimelineConfig
   | ClinicalTableConfig
+  | TimelineConfig
   | NotesConfig
   | PluginWidgetConfig
   | Record<string, unknown>
@@ -112,11 +112,11 @@ interface PatientChartState {
 // ---------------------------------------------------------------------------
 
 const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
-  timeline: { w: 32, h: 14 },
   clinical_table: { w: 48, h: 16 },
   patient_summary: { w: 48, h: 24 },
   medications: { w: 24, h: 12 },
   diagnoses: { w: 24, h: 12 },
+  timeline: { w: 48, h: 14 },
   notes: { w: 48, h: 20 },
   plugin: { w: 24, h: 14 },
 }
@@ -127,13 +127,13 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
 
 function defaultConfigForType(type: PatientWidgetType): PatientWidgetConfig {
   switch (type) {
-    case 'timeline':
-      return { conceptIds: [] } as TimelineConfig
     case 'clinical_table':
       return {
         conceptIds: [],
         orientation: 'concepts-as-rows',
       } as ClinicalTableConfig
+    case 'timeline':
+      return { conceptIds: [] } as TimelineConfig
     default:
       return {}
   }
@@ -361,7 +361,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           tabId: haemoTabId,
           type: 'timeline',
           name: 'Timeline',
-          layout: { x: 0, y: 0, w: 48, h: 10 },
+          layout: { x: 0, y: 0, w: 48, h: 14 },
           config: { conceptIds: [3027018] } as TimelineConfig,
         },
       ]

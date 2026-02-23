@@ -53,7 +53,7 @@ import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
 import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
-import { getAnalysisPlugin } from '@/lib/analysis-plugins/registry'
+import { getPlugin } from '@/lib/plugins/registry'
 import type { AnalysisLanguage } from '@/types'
 
 const LANG_BADGE: Record<string, { label: string; color: string }> = {
@@ -65,7 +65,7 @@ function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: 
   // Infer from plugin if not set
   let lang = language
   if (!lang) {
-    const plugin = getAnalysisPlugin(type)
+    const plugin = getPlugin(type)
     if (plugin && plugin.manifest.languages.length > 0) {
       lang = plugin.manifest.languages[0]
     }
