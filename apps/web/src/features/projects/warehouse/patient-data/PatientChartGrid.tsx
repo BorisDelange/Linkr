@@ -17,6 +17,7 @@ import { NotesWidget } from './widgets/NotesWidget'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { PluginConfigDialog } from './PluginConfigDialog'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +33,8 @@ interface PatientChartGridProps {
   widgets: PatientChartWidget[]
   editMode: boolean
   hideTitleBars?: boolean
+  /** When true, grid content can scroll beyond the visible area. */
+  scrollable?: boolean
 }
 
 /** Widget types that support concept editing. */
@@ -69,16 +72,23 @@ function renderWidgetContent(
   }
 }
 
+export const GRID_ROWS = 48
+const MARGIN: [number, number] = [8, 8]
+const PADDING: [number, number] = [12, 12]
+
 export function PatientChartGrid({
   widgets,
   editMode,
   hideTitleBars,
+  scrollable,
 }: PatientChartGridProps) {
   const { t } = useTranslation()
   const { updateWidgetLayout, removeWidget, renameWidget, updateWidgetConfig } =
     usePatientChartStore()
-  const containerRef = useRef<HTMLDivElement>(null)
+  // Outer ref: always overflow-hidden, used to measure available space.
+  const measureRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
+  const [viewportHeight, setViewportHeight] = useState(800)
 
   // Concept picker state — lifted here so WidgetCard "Edit" can open it
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
@@ -98,17 +108,25 @@ export function PatientChartGrid({
     }
   }, [])
 
+  // Measure the outer (bounded) container for both width and height.
   useEffect(() => {
-    if (!containerRef.current) return
+    if (!measureRef.current) return
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
         setContainerWidth(entry.contentRect.width)
+        setViewportHeight(entry.contentRect.height)
       }
     })
-    observer.observe(containerRef.current)
-    setContainerWidth(containerRef.current.clientWidth)
+    observer.observe(measureRef.current)
+    setContainerWidth(measureRef.current.clientWidth)
+    setViewportHeight(measureRef.current.clientHeight)
     return () => observer.disconnect()
   }, [])
+
+  // Dynamic row height: h:48 ≈ full visible height.
+  // Subtract a small buffer (1px) to compensate for Math.round in react-grid-layout
+  // position calculations that can add fractional pixels.
+  const rowHeight = Math.max(1, (viewportHeight - 1 - 2 * PADDING[1] - (GRID_ROWS - 1) * MARGIN[1]) / GRID_ROWS)
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -120,8 +138,10 @@ export function PatientChartGrid({
         h: w.layout.h,
         minW: 4,
         minH: 4,
+        // In bounded mode, prevent resize beyond the grid bottom.
+        ...(scrollable ? {} : { maxH: Math.max(4, GRID_ROWS - w.layout.y) }),
       })),
-    [widgets],
+    [widgets, scrollable],
   )
 
   const handleLayoutChange = useCallback(
@@ -157,50 +177,60 @@ export function PatientChartGrid({
     [editingWidget, updateWidgetConfig],
   )
 
+  const gridContent = (
+    <GridLayout
+      layout={layout}
+      width={containerWidth}
+      gridConfig={{
+        cols: 48,
+        rowHeight: rowHeight,
+        margin: MARGIN,
+        containerPadding: PADDING,
+      }}
+      dragConfig={{
+        enabled: editMode,
+      }}
+      resizeConfig={{
+        enabled: editMode,
+      }}
+      onLayoutChange={handleLayoutChange}
+      autoSize={!!scrollable}
+    >
+      {widgets.map((widget) => (
+        <div key={widget.id}>
+          <WidgetCard
+            title={widget.name}
+            onRemove={() => setConfirmDeleteWidgetId(widget.id)}
+            onRename={(name) => renameWidget(widget.id, name)}
+            onEdit={
+              EDITABLE_WIDGET_TYPES.has(widget.type)
+                ? () => handleEditWidget(widget)
+                : undefined
+            }
+            editMode={editMode}
+            hideTitleBar={hideTitleBars}
+          >
+            {renderWidgetContent(
+              widget,
+              CONCEPT_WIDGET_TYPES.has(widget.type)
+                ? () => setEditingWidgetId(widget.id)
+                : undefined,
+            )}
+          </WidgetCard>
+        </div>
+      ))}
+    </GridLayout>
+  )
+
   return (
-    <div ref={containerRef} className="w-full">
-      <GridLayout
-        layout={layout}
-        width={containerWidth}
-        gridConfig={{
-          cols: 48,
-          rowHeight: 20,
-          margin: [8, 8] as [number, number],
-          containerPadding: [12, 12] as [number, number],
-        }}
-        dragConfig={{
-          enabled: editMode,
-        }}
-        resizeConfig={{
-          enabled: editMode,
-        }}
-        onLayoutChange={handleLayoutChange}
-        autoSize
-      >
-        {widgets.map((widget) => (
-          <div key={widget.id}>
-            <WidgetCard
-              title={widget.name}
-              onRemove={() => setConfirmDeleteWidgetId(widget.id)}
-              onRename={(name) => renameWidget(widget.id, name)}
-              onEdit={
-                EDITABLE_WIDGET_TYPES.has(widget.type)
-                  ? () => handleEditWidget(widget)
-                  : undefined
-              }
-              editMode={editMode}
-              hideTitleBar={hideTitleBars}
-            >
-              {renderWidgetContent(
-                widget,
-                CONCEPT_WIDGET_TYPES.has(widget.type)
-                  ? () => setEditingWidgetId(widget.id)
-                  : undefined,
-              )}
-            </WidgetCard>
-          </div>
-        ))}
-      </GridLayout>
+    <div ref={measureRef} className="w-full h-full overflow-hidden">
+      {scrollable ? (
+        <ScrollArea className="h-full">
+          {gridContent}
+        </ScrollArea>
+      ) : (
+        gridContent
+      )}
 
       {/* Shared concept picker dialog */}
       <ConceptPickerDialog

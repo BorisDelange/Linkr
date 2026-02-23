@@ -172,7 +172,9 @@
     "show_widget_titles_hint": "When disabled, title bars are hidden in view mode.",
     "filter_apply": "Apply filters",
     "edit_layout": "Edit",
+    "edit_layout_hint": "Unlock widgets to move and resize them",
     "lock_layout": "Done",
+    "lock_layout_hint": "Lock the layout to prevent changes",
     "dashboards_title": "Dashboards",
     "dashboards_description": "Create and manage data dashboards for this project.",
     "create_dashboard": "Create dashboard",
@@ -895,7 +897,8 @@
     "age_last_visit": "Age last hosp.",
     "unit_stays": "Unit stays",
     "hospitalizations_list": "Hospitalizations",
-    "days_short": "{{count}}d"
+    "days_short": "{{count}}d",
+    "widgets_overflow_warning": "Some widgets extend beyond the visible area. Enable overflow in settings or resize them."
   },
   "files": {
     "explorer": "Explorer",

@@ -172,7 +172,9 @@
     "show_widget_titles_hint": "Lorsque désactivé, les barres de titre sont masquées en mode consultation.",
     "filter_apply": "Appliquer les filtres",
     "edit_layout": "Modifier",
+    "edit_layout_hint": "Déverrouiller les widgets pour les déplacer et redimensionner",
     "lock_layout": "Terminé",
+    "lock_layout_hint": "Verrouiller la disposition pour empêcher les modifications",
     "dashboards_title": "Dashboards",
     "dashboards_description": "Créez et gérez les dashboards de ce projet.",
     "create_dashboard": "Créer un dashboard",
@@ -895,7 +897,8 @@
     "age_last_visit": "Âge dern. hospit.",
     "unit_stays": "Séjours en unité",
     "hospitalizations_list": "Hospitalisations",
-    "days_short": "{{count}}j"
+    "days_short": "{{count}}j",
+    "widgets_overflow_warning": "Des widgets dépassent la zone visible. Activez le défilement dans les paramètres ou redimensionnez-les."
   },
   "files": {
     "explorer": "Explorateur",

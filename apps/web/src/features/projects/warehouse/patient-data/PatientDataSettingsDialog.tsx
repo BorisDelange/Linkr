@@ -28,12 +28,12 @@ export function PatientDataSettingsDialog({
   const { showWidgetTitles, setShowWidgetTitles, allowWidgetScroll, setAllowWidgetScroll } = usePatientChartStore()
 
   const [localShowTitles, setLocalShowTitles] = useState(showWidgetTitles[projectUid] ?? true)
-  const [localAllowScroll, setLocalAllowScroll] = useState(allowWidgetScroll[projectUid] ?? true)
+  const [localAllowScroll, setLocalAllowScroll] = useState(allowWidgetScroll[projectUid] ?? false)
 
   useEffect(() => {
     if (open) {
       setLocalShowTitles(showWidgetTitles[projectUid] ?? true)
-      setLocalAllowScroll(allowWidgetScroll[projectUid] ?? true)
+      setLocalAllowScroll(allowWidgetScroll[projectUid] ?? false)
     }
   }, [open, showWidgetTitles, allowWidgetScroll, projectUid])
 

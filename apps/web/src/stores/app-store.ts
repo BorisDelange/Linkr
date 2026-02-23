@@ -316,19 +316,23 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Seed demo workspace + project on first launch
     if (projects.length === 0 && !localStorage.getItem(SEED_KEY)) {
-      const demoOrg = createDemoOrganization()
-      await storage.organizations.create(demoOrg)
-      const demoWs = createDemoWorkspace()
-      await storage.workspaces.create(demoWs)
-      const demo = createDemoProject()
-      await storage.projects.create(demo)
+      try {
+        const demoOrg = createDemoOrganization()
+        await storage.organizations.create(demoOrg)
+        const demoWs = createDemoWorkspace()
+        await storage.workspaces.create(demoWs)
+        const demo = createDemoProject()
+        await storage.projects.create(demo)
+        projects = [demo]
+        // Reload org + workspace stores so they pick up the seeded data
+        const { useOrganizationStore } = await import('./organization-store')
+        useOrganizationStore.getState().loadOrganizations()
+        const { useWorkspaceStore } = await import('./workspace-store')
+        useWorkspaceStore.getState().loadWorkspaces()
+      } catch {
+        // Demo data may already exist in IndexedDB from a previous session
+      }
       localStorage.setItem(SEED_KEY, '1')
-      projects = [demo]
-      // Reload org + workspace stores so they pick up the seeded data
-      const { useOrganizationStore } = await import('./organization-store')
-      useOrganizationStore.getState().loadOrganizations()
-      const { useWorkspaceStore } = await import('./workspace-store')
-      useWorkspaceStore.getState().loadWorkspaces()
     }
 
     const lang = get().language

@@ -1,17 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
+import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { ScrollArea } from '@/components/ui/scroll-area'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+  TooltipProvider,
+} from '@/components/ui/tooltip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
-import { PatientChartGrid } from './patient-data/PatientChartGrid'
+import { PatientChartGrid, GRID_ROWS } from './patient-data/PatientChartGrid'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
@@ -42,6 +47,13 @@ export function PatientDataPage() {
     .sort((a, b) => a.displayOrder - b.displayOrder)
   const currentTabId = activeTabId[projectUid] ?? projectTabs[0]?.id
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
+
+  const isScrollable = allowWidgetScroll[projectUid] ?? false
+  // Detect widgets that overflow beyond the visible grid in bounded mode.
+  const hasOverflow = useMemo(() => {
+    if (isScrollable) return false
+    return tabWidgets.some((w) => w.layout.y + w.layout.h > GRID_ROWS)
+  }, [tabWidgets, isScrollable])
 
   // No data source
   if (!mappedSource) {
@@ -97,52 +109,90 @@ export function PatientDataPage() {
         <div className="flex items-center border-b px-3 shrink-0">
           <PatientChartTabBar projectUid={projectUid} editMode={editMode} />
 
-          <div className="ml-auto flex items-center gap-1 py-1">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setSettingsOpen(true)}
-              title={t('patient_data.settings_title')}
-            >
-              <Settings2 size={13} />
-            </Button>
-            {editMode && (
-              <Button
-                size="xs"
-                className="gap-1"
-                onClick={() => setAddWidgetOpen(true)}
-              >
-                <Plus size={12} />
-                {t('dashboard.add_widget')}
-              </Button>
-            )}
-            <Button
-              variant={editMode ? 'default' : 'ghost'}
-              size="xs"
-              className="gap-1"
-              onClick={() => setEditMode(!editMode)}
-            >
-              {editMode ? (
-                <>
-                  <Lock size={12} />
-                  {t('dashboard.lock_layout')}
-                </>
-              ) : (
-                <>
-                  <Pencil size={12} />
-                  {t('dashboard.edit_layout')}
-                </>
+          <TooltipProvider delayDuration={300}>
+            <div className="ml-auto flex items-center gap-1 py-1">
+              {hasOverflow && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className="gap-1 text-amber-500 hover:text-amber-600"
+                      onClick={() => setSettingsOpen(true)}
+                    >
+                      <AlertTriangle size={13} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    {t('patient_data.widgets_overflow_warning')}
+                  </TooltipContent>
+                </Tooltip>
               )}
-            </Button>
-            <Button
-              variant={sidebarVisible ? 'ghost' : 'secondary'}
-              size="icon-xs"
-              onClick={() => setSidebarVisible(!sidebarVisible)}
-              title={t('patient_data.toggle_sidebar')}
-            >
-              <PanelRight size={13} />
-            </Button>
-          </div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={() => setSettingsOpen(true)}
+                  >
+                    <Settings2 size={13} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t('patient_data.settings_title')}
+                </TooltipContent>
+              </Tooltip>
+              {editMode && (
+                <Button
+                  size="xs"
+                  className="gap-1"
+                  onClick={() => setAddWidgetOpen(true)}
+                >
+                  <Plus size={12} />
+                  {t('dashboard.add_widget')}
+                </Button>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={editMode ? 'default' : 'ghost'}
+                    size="xs"
+                    className="gap-1"
+                    onClick={() => setEditMode(!editMode)}
+                  >
+                    {editMode ? (
+                      <>
+                        <Lock size={12} />
+                        {t('dashboard.lock_layout')}
+                      </>
+                    ) : (
+                      <>
+                        <Pencil size={12} />
+                        {t('dashboard.edit_layout')}
+                      </>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {editMode ? t('dashboard.lock_layout_hint') : t('dashboard.edit_layout_hint')}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={sidebarVisible ? 'ghost' : 'secondary'}
+                    size="icon-xs"
+                    onClick={() => setSidebarVisible(!sidebarVisible)}
+                  >
+                    <PanelRight size={13} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t('patient_data.toggle_sidebar')}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
         </div>
 
         {/* Main content: dashboard + sidebar */}
@@ -150,23 +200,12 @@ export function PatientDataPage() {
           <Allotment>
             <Allotment.Pane minSize={500}>
               {tabWidgets.length > 0 ? (
-                (allowWidgetScroll[projectUid] ?? true) ? (
-                  <ScrollArea className="h-full">
-                    <PatientChartGrid
-                      widgets={tabWidgets}
-                      editMode={editMode}
-                      hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
-                    />
-                  </ScrollArea>
-                ) : (
-                  <div className="h-full overflow-hidden">
-                    <PatientChartGrid
-                      widgets={tabWidgets}
-                      editMode={editMode}
-                      hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
-                    />
-                  </div>
-                )
+                <PatientChartGrid
+                  widgets={tabWidgets}
+                  editMode={editMode}
+                  hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
+                  scrollable={allowWidgetScroll[projectUid] ?? false}
+                />
               ) : (
                 <div className="flex h-full items-center justify-center p-8">
                   <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">

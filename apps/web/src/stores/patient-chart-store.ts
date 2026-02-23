@@ -114,7 +114,7 @@ interface PatientChartState {
 const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
   timeline: { w: 32, h: 14 },
   clinical_table: { w: 48, h: 16 },
-  patient_summary: { w: 48, h: 20 },
+  patient_summary: { w: 48, h: 24 },
   medications: { w: 24, h: 12 },
   diagnoses: { w: 24, h: 12 },
   notes: { w: 48, h: 20 },
@@ -353,7 +353,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           tabId: summaryTabId,
           type: 'patient_summary',
           name: 'Patient Summary',
-          layout: { x: 0, y: 0, w: 48, h: 20 },
+          layout: { x: 0, y: 0, w: 48, h: 24 },
           config: {},
         },
         {
