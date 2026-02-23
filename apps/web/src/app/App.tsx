@@ -14,6 +14,7 @@ import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
+import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
 import { HomePage } from '@/features/home/HomePage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
 import { SummaryPage } from '@/features/projects/SummaryPage'
@@ -110,6 +111,7 @@ export function App() {
 
   return (
     <SidebarProvider className="!min-h-0 h-screen">
+      <VersionCheckDialog />
       <AppSidebar />
       <SidebarInset className="flex flex-col overflow-hidden">
         <Header />

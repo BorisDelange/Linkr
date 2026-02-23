@@ -1680,6 +1680,15 @@
     "warning": "This action cannot be undone.",
     "confirm": "Delete all data"
   },
+  "version_check": {
+    "title": "New version detected",
+    "description": "A new version of Linkr has been deployed since your last visit. We recommend reloading the page to use the latest version.",
+    "schema_warning": "The data structure has changed. It is strongly recommended to reset your data to avoid errors.",
+    "dev_notice": "Linkr is under active development — updates may require reloading or resetting local data.",
+    "reload": "Reload",
+    "reset_data": "Reset data",
+    "dismiss": "Ignore"
+  },
   "common": {
     "save": "Save",
     "cancel": "Cancel",
