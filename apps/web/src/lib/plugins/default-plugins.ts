@@ -75,11 +75,13 @@ export function registerDefaultPlugins() {
           type: 'column-select',
           label: { en: 'Column', fr: 'Colonne' },
           filter: 'numeric',
+          row: 'data',
         },
         aggregate: {
           type: 'select',
           label: { en: 'Aggregate function', fr: "Fonction d'agrégation" },
           default: 'mean',
+          row: 'data',
           options: [
             { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' } },
             { value: 'median', label: { en: 'Median', fr: 'Médiane' } },
@@ -102,11 +104,13 @@ export function registerDefaultPlugins() {
           type: 'icon-select',
           label: { en: 'Icon', fr: 'Icône' },
           default: 'Activity',
+          row: 'style',
         },
         color: {
           type: 'color-select',
           label: { en: 'Color', fr: 'Couleur' },
           default: 'blue',
+          row: 'style',
         },
         chartType: {
           type: 'select',
@@ -125,6 +129,7 @@ export function registerDefaultPlugins() {
           default: 15,
           min: 5,
           max: 50,
+          visibleWhen: { field: 'chartType', value: 'histogram' },
         },
       },
     },
@@ -151,9 +156,9 @@ export async function registerUserPlugins() {
           if (filename.endsWith('.py.template')) templates.python = content
           else if (filename.endsWith('.R.template')) templates.r = content
         }
-        registerPlugin(
-          buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null),
-        )
+        const plugin = buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null)
+        plugin.workspaceId = up.workspaceId
+        registerPlugin(plugin)
       } catch {
         // Skip plugins with invalid plugin.json
       }

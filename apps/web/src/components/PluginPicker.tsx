@@ -66,6 +66,8 @@ interface PluginPickerProps {
   lang: 'en' | 'fr'
   /** Max height for the scrollable area. Default: "max-h-80" */
   maxHeight?: string
+  /** When true, the picker stretches to fill available space in a flex parent. */
+  fillHeight?: boolean
 }
 
 export function PluginPicker({
@@ -74,6 +76,7 @@ export function PluginPicker({
   onSelectPlugin,
   lang,
   maxHeight = 'max-h-80',
+  fillHeight,
 }: PluginPickerProps) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState('')
@@ -118,9 +121,9 @@ export function PluginPicker({
   }
 
   return (
-    <div className="space-y-2">
+    <div className={cn('flex flex-col gap-2', fillHeight && 'min-h-0 flex-1')}>
       {/* Search + Badge filters */}
-      <div className="relative">
+      <div className="relative shrink-0">
         <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <Input
           value={searchQuery}
@@ -130,7 +133,7 @@ export function PluginPicker({
         />
       </div>
       {allBadges.length > 0 && (
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 shrink-0">
           {allBadges.map((badge) => (
             <button
               key={badge.label}
@@ -152,7 +155,7 @@ export function PluginPicker({
       )}
 
       {/* Plugin cards */}
-      <div className={cn(maxHeight, 'overflow-auto')}>
+      <div className={cn(fillHeight ? 'min-h-0 flex-1 overflow-auto' : maxHeight, !fillHeight && 'overflow-auto')}>
         <div className="grid grid-cols-1 gap-3 p-0.5 sm:grid-cols-2 lg:grid-cols-3">
           {filteredPlugins.map((plugin) => {
             const m = plugin.manifest

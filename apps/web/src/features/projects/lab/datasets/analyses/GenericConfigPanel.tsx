@@ -37,19 +37,65 @@ export function GenericConfigPanel({
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
 
+  // Filter out fields whose visibleWhen condition is not met
+  const visibleEntries = Object.entries(schema).filter(([, field]) => {
+    if (!field.visibleWhen) return true
+    const depValue = config[field.visibleWhen.field]
+    return depValue === field.visibleWhen.value
+  })
+
+  // Group fields by `row` — fields with the same row value are rendered side-by-side
+  const groups: { keys: string[]; fields: PluginConfigField[] }[] = []
+  const seen = new Set<number>()
+  for (let i = 0; i < visibleEntries.length; i++) {
+    if (seen.has(i)) continue
+    const [, field] = visibleEntries[i]
+    if (field.row) {
+      const rowKeys: string[] = []
+      const rowFields: PluginConfigField[] = []
+      for (let j = i; j < visibleEntries.length; j++) {
+        if (visibleEntries[j][1].row === field.row) {
+          seen.add(j)
+          rowKeys.push(visibleEntries[j][0])
+          rowFields.push(visibleEntries[j][1])
+        }
+      }
+      groups.push({ keys: rowKeys, fields: rowFields })
+    } else {
+      seen.add(i)
+      groups.push({ keys: [visibleEntries[i][0]], fields: [visibleEntries[i][1]] })
+    }
+  }
+
   return (
     <div className="space-y-4 p-3">
-      {Object.entries(schema).map(([key, field]) => (
-        <FieldRenderer
-          key={key}
-          fieldKey={key}
-          field={field}
-          value={config[key]}
-          columns={columns}
-          lang={lang}
-          onConfigChange={onConfigChange}
-        />
-      ))}
+      {groups.map((group) =>
+        group.keys.length === 1 ? (
+          <FieldRenderer
+            key={group.keys[0]}
+            fieldKey={group.keys[0]}
+            field={group.fields[0]}
+            value={config[group.keys[0]]}
+            columns={columns}
+            lang={lang}
+            onConfigChange={onConfigChange}
+          />
+        ) : (
+          <div key={group.keys.join('-')} className="grid gap-4" style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
+            {group.keys.map((key, idx) => (
+              <FieldRenderer
+                key={key}
+                fieldKey={key}
+                field={group.fields[idx]}
+                value={config[key]}
+                columns={columns}
+                lang={lang}
+                onConfigChange={onConfigChange}
+              />
+            ))}
+          </div>
+        ),
+      )}
     </div>
   )
 }

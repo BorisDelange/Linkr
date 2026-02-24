@@ -23,8 +23,11 @@ export const SYSTEM_WIDGET_TYPE_MAP: Record<string, PatientWidgetType> = {
   'linkr-widget-notes': 'notes',
 }
 
-/** Set of all system plugin IDs for quick lookup. */
-export const SYSTEM_PLUGIN_IDS = new Set(Object.keys(SYSTEM_WIDGET_TYPE_MAP))
+/** Set of all system plugin IDs for quick lookup (warehouse widgets + built-in component plugins). */
+export const SYSTEM_PLUGIN_IDS = new Set([
+  ...Object.keys(SYSTEM_WIDGET_TYPE_MAP),
+  'linkr-analysis-key-indicator',
+])
 
 // ---------------------------------------------------------------------------
 // Default manifests

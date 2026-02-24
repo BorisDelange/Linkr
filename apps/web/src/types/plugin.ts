@@ -19,6 +19,10 @@ export interface PluginConfigField {
   min?: number
   max?: number
   options?: { value: string; label: { en: string; fr: string } }[]
+  /** Fields sharing the same row value are rendered side-by-side. */
+  row?: string
+  /** Only show this field when another field has a specific value. */
+  visibleWhen?: { field: string; value: unknown }
 }
 
 /** Runtime mode(s) the plugin supports. */
@@ -74,4 +78,6 @@ export interface Plugin {
   templates: Record<string, string> | null
   /** For component-runtime plugins: ID mapping to a registered React component. */
   componentId?: string
+  /** Workspace this plugin belongs to (undefined for built-in plugins). */
+  workspaceId?: string
 }
