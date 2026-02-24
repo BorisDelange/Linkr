@@ -7,6 +7,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useCohortStore } from '@/stores/cohort-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -94,6 +95,7 @@ export function Header() {
   const etlPipelines = useEtlStore((s) => s.etlPipelines)
   const catalogs = useCatalogStore((s) => s.catalogs)
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
+  const cohorts = useCohortStore((s) => s.cohorts)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -125,6 +127,13 @@ export function Header() {
       if (dashMatch) {
         const dash = dashboards.find((d) => d.id === dashMatch[1])
         return dash?.name ?? t('project_nav.dashboards')
+      }
+
+      // Cohort builder: show cohort name
+      const cohortMatch = segment.match(/^warehouse\/cohorts\/(.+)$/)
+      if (cohortMatch) {
+        const cohort = cohorts.find((c) => c.id === cohortMatch[1])
+        return cohort?.name ?? t('project_nav.cohorts')
       }
 
       const key = projectSegmentTitleKeys[segment]

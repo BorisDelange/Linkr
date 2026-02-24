@@ -1,22 +1,30 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
 import { Allotment } from 'allotment'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import * as engine from '@/lib/duckdb/engine'
 import {
   Play,
   Loader2,
   ArrowLeft,
   Code2,
   List,
-  Pencil,
-  Check,
   Upload,
   Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -29,7 +37,7 @@ import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
-import type { Cohort, CohortLevel, CriteriaGroupNode } from '@/types'
+import type { CohortLevel, CriteriaGroupNode } from '@/types'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
@@ -50,10 +58,10 @@ export function CohortBuilderPage() {
   const mapping = activeSource?.schemaMapping
 
   const [leftView, setLeftView] = useState<'criteria' | 'sql'>('criteria')
-  const [editingName, setEditingName] = useState(false)
-  const [nameValue, setNameValue] = useState('')
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
+  const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
+  const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
@@ -63,6 +71,23 @@ export function CohortBuilderPage() {
     [mapping],
   )
 
+  // Load min/max visit dates for period criteria defaults
+  const [visitDateRange, setVisitDateRange] = useState<{ minDate: string; maxDate: string } | undefined>()
+  useEffect(() => {
+    if (!activeSource || !mapping?.visitTable) return
+    const vt = mapping.visitTable
+    if (!vt.startDateColumn) return
+    const sql = `SELECT MIN("${vt.startDateColumn}")::DATE::TEXT AS min_date, MAX("${vt.startDateColumn}")::DATE::TEXT AS max_date FROM "${vt.table}"`
+    engine.queryDataSource(activeSource.id, sql).then((rows) => {
+      if (rows[0]?.min_date && rows[0]?.max_date) {
+        setVisitDateRange({
+          minDate: String(rows[0].min_date),
+          maxDate: String(rows[0].max_date),
+        })
+      }
+    }).catch(() => {})
+  }, [activeSource, mapping?.visitTable])
+
   const handleBack = () => {
     navigate(`/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`)
   }
@@ -70,10 +95,25 @@ export function CohortBuilderPage() {
   const handleUpdateTree = useCallback(
     (tree: CriteriaGroupNode) => {
       if (!cohortId) return
+      // If there's a custom SQL, confirm overwriting it
+      const currentCohort = cohorts.find((c) => c.id === cohortId)
+      if (currentCohort?.customSql) {
+        pendingTreeRef.current = tree
+        setOverwriteSqlDialogOpen(true)
+        return
+      }
       updateCohort(cohortId, { criteriaTree: tree })
     },
-    [cohortId, updateCohort],
+    [cohortId, cohorts, updateCohort],
   )
+
+  const handleConfirmOverwriteSql = useCallback(() => {
+    if (!cohortId || !pendingTreeRef.current) return
+    setCustomSql(cohortId, null)
+    updateCohort(cohortId, { criteriaTree: pendingTreeRef.current })
+    pendingTreeRef.current = null
+    setOverwriteSqlDialogOpen(false)
+  }, [cohortId, updateCohort, setCustomSql])
 
   const handleLevelChange = useCallback(
     (level: CohortLevel) => {
@@ -121,17 +161,6 @@ export function CohortBuilderPage() {
     URL.revokeObjectURL(url)
   }, [result, cohort, cohortId])
 
-  const handleStartEditName = () => {
-    setNameValue(cohort?.name ?? '')
-    setEditingName(true)
-  }
-
-  const handleSaveName = () => {
-    if (!cohortId || !nameValue.trim()) return
-    updateCohort(cohortId, { name: nameValue.trim() })
-    setEditingName(false)
-  }
-
   const handleAtlasImport = useCallback(
     (tree: CriteriaGroupNode) => {
       if (!cohortId) return
@@ -156,30 +185,8 @@ export function CohortBuilderPage() {
           <ArrowLeft size={16} />
         </Button>
 
-        {/* Name */}
-        {editingName ? (
-          <div className="flex items-center gap-1">
-            <Input
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSaveName()}
-              className="h-7 text-sm w-48"
-              autoFocus
-            />
-            <Button variant="ghost" size="icon-sm" onClick={handleSaveName}>
-              <Check size={14} />
-            </Button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={handleStartEditName}
-            className="flex items-center gap-1.5 text-sm font-semibold hover:text-primary transition-colors"
-          >
-            {cohort.name}
-            <Pencil size={12} className="text-muted-foreground" />
-          </button>
-        )}
+        {/* Name (read-only) */}
+        <span className="text-sm font-semibold truncate">{cohort.name}</span>
 
         {/* Level selector */}
         <Select value={cohort.level} onValueChange={(v) => handleLevelChange(v as CohortLevel)}>
@@ -220,19 +227,22 @@ export function CohortBuilderPage() {
           >
             <Code2 size={12} />
             SQL
+            {cohort.customSql && (
+              <span className="size-1.5 rounded-full bg-amber-500 shrink-0" />
+            )}
           </button>
         </div>
 
         <div className="flex-1" />
 
-        {/* ATLAS import/export */}
+        {/* Import/Export */}
         <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="gap-1 text-xs h-7">
           <Upload size={12} />
-          ATLAS
+          {t('common.import')}
         </Button>
         <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-1 text-xs h-7">
           <Download size={12} />
-          ATLAS
+          {t('common.export')}
         </Button>
 
         {/* Execute */}
@@ -258,6 +268,9 @@ export function CohortBuilderPage() {
                   onChange={handleUpdateTree}
                   eventTableLabels={eventTableLabels}
                   genderValues={mapping?.genderValues}
+                  visitDateRange={visitDateRange}
+                  dataSourceId={activeSource?.id}
+                  schemaMapping={mapping}
                 />
               </div>
             ) : (
@@ -265,6 +278,7 @@ export function CohortBuilderPage() {
                 cohort={cohort}
                 mapping={mapping}
                 onCustomSqlChange={handleCustomSqlChange}
+                onExecute={handleExecute}
               />
             )}
           </Allotment.Pane>
@@ -279,7 +293,7 @@ export function CohortBuilderPage() {
         </Allotment>
       </div>
 
-      {/* ATLAS dialogs */}
+      {/* Import/Export dialogs */}
       <ImportAtlasDialog
         open={importDialogOpen}
         onOpenChange={setImportDialogOpen}
@@ -290,6 +304,27 @@ export function CohortBuilderPage() {
         onOpenChange={setExportDialogOpen}
         cohort={cohort}
       />
+
+      {/* Confirm overwriting custom SQL when criteria change */}
+      <AlertDialog open={overwriteSqlDialogOpen} onOpenChange={(open) => {
+        if (!open) pendingTreeRef.current = null
+        setOverwriteSqlDialogOpen(open)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.sql_overwrite_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.sql_overwrite_description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmOverwriteSql}>
+              {t('cohorts.sql_overwrite_confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

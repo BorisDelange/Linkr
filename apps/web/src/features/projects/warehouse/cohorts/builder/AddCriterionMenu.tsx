@@ -1,13 +1,13 @@
 import { useTranslation } from 'react-i18next'
 import {
+  Building2,
+  Cake,
   Calendar,
   Clock,
-  Heart,
+  HeartOff,
   Plus,
-  Search,
-  Skull,
+  Beaker,
   User,
-  Users,
   FolderTree,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -28,13 +28,13 @@ interface AddCriterionMenuProps {
 }
 
 const criteriaItems: { type: CriteriaType; labelKey: string; icon: typeof User }[] = [
-  { type: 'age', labelKey: 'cohorts.criteria_age', icon: User },
-  { type: 'sex', labelKey: 'cohorts.criteria_sex', icon: Users },
-  { type: 'death', labelKey: 'cohorts.criteria_death', icon: Skull },
+  { type: 'age', labelKey: 'cohorts.criteria_age', icon: Cake },
+  { type: 'sex', labelKey: 'cohorts.criteria_sex', icon: User },
+  { type: 'death', labelKey: 'cohorts.criteria_death', icon: HeartOff },
   { type: 'period', labelKey: 'cohorts.criteria_period', icon: Calendar },
   { type: 'duration', labelKey: 'cohorts.criteria_duration', icon: Clock },
-  { type: 'visit_type', labelKey: 'cohorts.criteria_visit_type', icon: Heart },
-  { type: 'concept', labelKey: 'cohorts.criteria_concept', icon: Search },
+  { type: 'care_site', labelKey: 'cohorts.criteria_care_site', icon: Building2 },
+  { type: 'concept', labelKey: 'cohorts.criteria_concept', icon: Beaker },
 ]
 
 export function AddCriterionMenu({ onAddCriterion, onAddGroup }: AddCriterionMenuProps) {

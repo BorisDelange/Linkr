@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { CriterionCard } from './CriterionCard'
 import { AddCriterionMenu } from './AddCriterionMenu'
+import { OperatorSeparator } from './OperatorSeparator'
 import type {
   CriteriaGroupNode,
   CriteriaTreeNode,
@@ -43,6 +44,9 @@ interface CriteriaGroupNodeComponentProps {
   onMoveNode: (groupId: string, fromIdx: number, toIdx: number) => void
   eventTableLabels: string[]
   genderValues?: SchemaMapping['genderValues']
+  visitDateRange?: { minDate: string; maxDate: string }
+  dataSourceId?: string
+  schemaMapping?: SchemaMapping
 }
 
 export function CriteriaGroupNodeComponent({
@@ -56,13 +60,13 @@ export function CriteriaGroupNodeComponent({
   onMoveNode,
   eventTableLabels,
   genderValues,
+  visitDateRange,
+  dataSourceId,
+  schemaMapping,
 }: CriteriaGroupNodeComponentProps) {
   const { t } = useTranslation()
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState(node.label ?? '')
-
-  const isRoot = depth === 0
-  const isAnd = node.operator === 'AND'
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -78,21 +82,30 @@ export function CriteriaGroupNodeComponent({
     onMoveNode(node.id, fromIdx, toIdx)
   }
 
-  const toggleOperator = () => {
-    onUpdate(node.id, { operator: isAnd ? 'OR' : 'AND' })
-  }
-
   const handleLabelSave = () => {
     onUpdate(node.id, { label: labelDraft.trim() || undefined })
     setEditingLabel(false)
   }
 
+  const handleToggleChildOperator = (childId: string) => {
+    const child = node.children.find((c) => c.id === childId)
+    if (!child) return
+    onUpdateNode(childId, {
+      operator: child.operator === 'AND' ? 'OR' : 'AND',
+    })
+  }
+
   const handleAddCriterion = (type: CriteriaType) => {
+    let config = getDefaultConfigForType(type)
+    if (type === 'period' && visitDateRange) {
+      config = { startDate: visitDateRange.minDate, endDate: visitDateRange.maxDate }
+    }
     const newNode: CriteriaTreeNode = {
       kind: 'criterion',
       id: crypto.randomUUID(),
       type,
-      config: getDefaultConfigForType(type),
+      config,
+      operator: 'AND',
       exclude: false,
       enabled: true,
     }
@@ -111,7 +124,7 @@ export function CriteriaGroupNodeComponent({
     onAddNode(node.id, newGroup)
   }
 
-  // Sortable wrapper for this group node (used when depth > 0)
+  // Sortable wrapper for this group node
   const {
     attributes,
     listeners,
@@ -119,29 +132,26 @@ export function CriteriaGroupNodeComponent({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: node.id, disabled: isRoot })
+  } = useSortable({ id: node.id })
 
-  const sortableStyle = !isRoot
-    ? {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        zIndex: isDragging ? 50 : undefined,
-      }
-    : undefined
+  const sortableStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+  }
 
-  const content = (
-    <div
-      className={cn(
-        'rounded-lg border',
-        !isRoot && 'bg-muted/20',
-        isDragging && 'opacity-50',
-        !node.enabled && 'opacity-50',
-      )}
-    >
-      {/* Header bar */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5">
-        {/* Drag handle (non-root only) */}
-        {!isRoot && (
+  return (
+    <div ref={setSortableRef} style={sortableStyle}>
+      <div
+        className={cn(
+          'rounded-lg border bg-muted/20',
+          isDragging && 'opacity-50',
+          !node.enabled && 'opacity-50',
+        )}
+      >
+        {/* Header bar */}
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5">
+          {/* Drag handle */}
           <button
             type="button"
             className="cursor-grab touch-none text-muted-foreground hover:text-foreground"
@@ -150,96 +160,79 @@ export function CriteriaGroupNodeComponent({
           >
             <GripVertical size={14} />
           </button>
-        )}
 
-        {/* Operator toggle badge */}
-        <button
-          type="button"
-          onClick={toggleOperator}
-          className={cn(
-            'rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide transition-colors select-none',
-            isAnd
-              ? 'bg-blue-500/15 text-blue-600 hover:bg-blue-500/25 dark:text-blue-400'
-              : 'bg-orange-500/15 text-orange-600 hover:bg-orange-500/25 dark:text-orange-400',
-          )}
-          title={t('cohorts.toggle_operator')}
-        >
-          {node.operator}
-        </button>
+          {/* Group label (editable inline) */}
+          <div className="flex-1 min-w-0 flex items-center gap-1">
+            {editingLabel ? (
+              <div className="flex items-center gap-1 flex-1">
+                <Input
+                  value={labelDraft}
+                  onChange={(e) => setLabelDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleLabelSave()
+                    if (e.key === 'Escape') setEditingLabel(false)
+                  }}
+                  placeholder={t('cohorts.group_label_placeholder')}
+                  className="h-6 text-xs flex-1"
+                  autoFocus
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5"
+                  onClick={handleLabelSave}
+                >
+                  <Check size={10} />
+                </Button>
+              </div>
+            ) : (
+              <>
+                <span className="text-xs text-muted-foreground truncate">
+                  {node.label || t('cohorts.group_default_label')}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 shrink-0"
+                  onClick={() => {
+                    setLabelDraft(node.label ?? '')
+                    setEditingLabel(true)
+                  }}
+                >
+                  <Pencil size={10} />
+                </Button>
+              </>
+            )}
+          </div>
 
-        {/* Group label (editable inline) */}
-        <div className="flex-1 min-w-0 flex items-center gap-1">
-          {editingLabel ? (
-            <div className="flex items-center gap-1 flex-1">
-              <Input
-                value={labelDraft}
-                onChange={(e) => setLabelDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleLabelSave()
-                  if (e.key === 'Escape') setEditingLabel(false)
-                }}
-                placeholder={t('cohorts.group_label_placeholder')}
-                className="h-6 text-xs flex-1"
-                autoFocus
-              />
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5"
-                onClick={handleLabelSave}
-              >
-                <Check size={10} />
-              </Button>
-            </div>
-          ) : (
-            <>
-              <span className="text-xs text-muted-foreground truncate">
-                {node.label || t('cohorts.group_default_label')}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 shrink-0"
-                onClick={() => {
-                  setLabelDraft(node.label ?? '')
-                  setEditingLabel(true)
-                }}
-              >
-                <Pencil size={10} />
-              </Button>
-            </>
-          )}
-        </div>
+          {/* Exclude toggle (NOT) */}
+          <div className="flex items-center gap-1">
+            <Switch
+              id={`not-group-${node.id}`}
+              checked={node.exclude}
+              onCheckedChange={(checked) => onUpdate(node.id, { exclude: checked })}
+              className="scale-75"
+            />
+            <label
+              htmlFor={`not-group-${node.id}`}
+              className="text-[10px] font-medium text-muted-foreground cursor-pointer select-none"
+            >
+              NOT
+            </label>
+          </div>
 
-        {/* Exclude toggle (NOT) */}
-        <div className="flex items-center gap-1">
-          <Switch
-            id={`not-group-${node.id}`}
-            checked={node.exclude}
-            onCheckedChange={(checked) => onUpdate(node.id, { exclude: checked })}
-            className="scale-75"
-          />
-          <label
-            htmlFor={`not-group-${node.id}`}
-            className="text-[10px] font-medium text-muted-foreground cursor-pointer select-none"
+          {/* Enable toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            onClick={() => onUpdate(node.id, { enabled: !node.enabled })}
+            title={node.enabled ? t('cohorts.disable') : t('cohorts.enable')}
           >
-            NOT
-          </label>
-        </div>
+            <Power size={12} className={node.enabled ? 'text-foreground' : 'text-muted-foreground'} />
+          </Button>
 
-        {/* Enable toggle */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6 shrink-0"
-          onClick={() => onUpdate(node.id, { enabled: !node.enabled })}
-          title={node.enabled ? t('cohorts.disable') : t('cohorts.enable')}
-        >
-          <Power size={12} className={node.enabled ? 'text-foreground' : 'text-muted-foreground'} />
-        </Button>
-
-        {/* Remove (non-root only) */}
-        {!isRoot && (
+          {/* Remove */}
           <Button
             variant="ghost"
             size="icon"
@@ -249,103 +242,79 @@ export function CriteriaGroupNodeComponent({
           >
             <X size={12} />
           </Button>
-        )}
-      </div>
+        </div>
 
-      {/* Children area with accent line */}
-      <div
-        className={cn(
-          'ml-3 border-l-2 pl-3 pb-2.5 pr-2.5 space-y-2',
-          isAnd ? 'border-blue-500/40' : 'border-orange-500/40',
-        )}
-      >
-        {node.children.length > 0 ? (
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            modifiers={[restrictToVerticalAxis]}
-            onDragEnd={handleDragEnd}
-          >
-            <SortableContext
-              items={node.children.map((c) => c.id)}
-              strategy={verticalListSortingStrategy}
+        {/* Children area */}
+        <div className="ml-3 border-l-2 border-muted-foreground/20 pl-3 pb-2.5 pr-2.5 space-y-0">
+          {node.children.length > 0 ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              modifiers={[restrictToVerticalAxis]}
+              onDragEnd={handleDragEnd}
             >
-              <div className="space-y-0 pt-2">
-                {node.children.map((child, index) => (
-                  <div key={child.id}>
-                    {/* Operator separator between children */}
-                    {index > 0 && (
-                      <div className="flex items-center justify-center py-1">
-                        <div className={cn(
-                          'h-px flex-1',
-                          isAnd ? 'bg-blue-500/20' : 'bg-orange-500/20',
-                        )} />
-                        <button
-                          type="button"
-                          onClick={toggleOperator}
-                          className={cn(
-                            'mx-2 rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide transition-colors select-none',
-                            isAnd
-                              ? 'bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 dark:text-blue-400'
-                              : 'bg-orange-500/10 text-orange-500 hover:bg-orange-500/20 dark:text-orange-400',
-                          )}
-                          title={t('cohorts.toggle_operator')}
-                        >
-                          {node.operator}
-                        </button>
-                        <div className={cn(
-                          'h-px flex-1',
-                          isAnd ? 'bg-blue-500/20' : 'bg-orange-500/20',
-                        )} />
-                      </div>
-                    )}
-                    {child.kind === 'criterion' ? (
-                      <CriterionCard
-                        node={child}
-                        onUpdate={onUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
-                        onRemove={onRemoveNode}
-                        eventTableLabels={eventTableLabels}
-                        genderValues={genderValues}
-                      />
-                    ) : (
-                      <CriteriaGroupNodeComponent
-                        node={child}
-                        depth={depth + 1}
-                        onUpdate={onUpdate}
-                        onRemove={onRemoveNode}
-                        onAddNode={onAddNode}
-                        onRemoveNode={onRemoveNode}
-                        onUpdateNode={onUpdateNode}
-                        onMoveNode={onMoveNode}
-                        eventTableLabels={eventTableLabels}
-                        genderValues={genderValues}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            </SortableContext>
-          </DndContext>
-        ) : (
-          <p className="py-3 text-center text-xs text-muted-foreground">
-            {t('cohorts.group_empty')}
-          </p>
-        )}
+              <SortableContext
+                items={node.children.map((c) => c.id)}
+                strategy={verticalListSortingStrategy}
+              >
+                <div className="space-y-0 pt-2">
+                  {node.children.map((child, index) => (
+                    <div key={child.id}>
+                      {/* Operator separator between children */}
+                      {index > 0 && (
+                        <OperatorSeparator
+                          operator={child.operator}
+                          onToggle={() => handleToggleChildOperator(child.id)}
+                        />
+                      )}
+                      {child.kind === 'criterion' ? (
+                        <CriterionCard
+                          node={child}
+                          onUpdate={onUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
+                          onRemove={onRemoveNode}
+                          eventTableLabels={eventTableLabels}
+                          genderValues={genderValues}
+                          visitDateRange={visitDateRange}
+                          dataSourceId={dataSourceId}
+                          schemaMapping={schemaMapping}
+                        />
+                      ) : (
+                        <CriteriaGroupNodeComponent
+                          node={child}
+                          depth={depth + 1}
+                          onUpdate={onUpdate}
+                          onRemove={onRemoveNode}
+                          onAddNode={onAddNode}
+                          onRemoveNode={onRemoveNode}
+                          onUpdateNode={onUpdateNode}
+                          onMoveNode={onMoveNode}
+                          eventTableLabels={eventTableLabels}
+                          genderValues={genderValues}
+                          visitDateRange={visitDateRange}
+                          dataSourceId={dataSourceId}
+                          schemaMapping={schemaMapping}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
+          ) : (
+            <p className="py-3 text-center text-xs text-muted-foreground">
+              {t('cohorts.group_empty')}
+            </p>
+          )}
 
-        {/* Add button */}
-        <AddCriterionMenu
-          onAddCriterion={handleAddCriterion}
-          onAddGroup={handleAddGroup}
-        />
+          {/* Add button */}
+          <div className="pt-2">
+            <AddCriterionMenu
+              onAddCriterion={handleAddCriterion}
+              onAddGroup={handleAddGroup}
+            />
+          </div>
+        </div>
       </div>
-    </div>
-  )
-
-  if (isRoot) return content
-
-  return (
-    <div ref={setSortableRef} style={sortableStyle}>
-      {content}
     </div>
   )
 }
@@ -363,9 +332,9 @@ function getDefaultConfigForType(type: CriteriaType): CriteriaConfig {
     case 'period':
       return { startDate: undefined, endDate: undefined }
     case 'duration':
-      return { minDays: undefined, maxDays: undefined }
-    case 'visit_type':
-      return { values: [] }
+      return { durationLevel: 'visit', minDays: undefined, maxDays: undefined }
+    case 'care_site':
+      return { careSiteLevel: 'visit_detail', values: [] }
     case 'concept':
       return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
   }

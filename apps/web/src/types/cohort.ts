@@ -3,8 +3,8 @@
 /** Extraction level for the cohort */
 export type CohortLevel = 'patient' | 'visit' | 'visit_detail'
 
-/** Logical operator combining children of a group */
-export type CriteriaGroupOperator = 'AND' | 'OR'
+/** Logical operator linking a node to the previous sibling */
+export type CriteriaOperator = 'AND' | 'OR'
 
 /** All possible criteria types */
 export type CriteriaType =
@@ -13,7 +13,7 @@ export type CriteriaType =
   | 'death'
   | 'period'
   | 'duration'
-  | 'visit_type'
+  | 'care_site'
   | 'concept'
 
 // --- Criteria Config Types ---
@@ -40,12 +40,23 @@ export interface PeriodCriteriaConfig {
 }
 
 export interface DurationCriteriaConfig {
+  /** Which level to compute duration on: 'visit' = hospitalization, 'visit_detail' = unit stay */
+  durationLevel: 'visit' | 'visit_detail'
   minDays?: number
   maxDays?: number
 }
 
-export interface VisitTypeCriteriaConfig {
+export interface CareSiteCriteriaConfig {
+  /** Which level to filter on: 'visit' = hospitalization, 'visit_detail' = unit stay */
+  careSiteLevel: 'visit' | 'visit_detail'
+  /** Care site / unit values to match (names or IDs) */
   values: string[]
+}
+
+export interface ValueFilter {
+  operator: '>' | '>=' | '=' | '<=' | '<' | '!=' | 'between'
+  value: number
+  value2?: number
 }
 
 export interface ConceptCriteriaConfig {
@@ -55,21 +66,12 @@ export interface ConceptCriteriaConfig {
   conceptIds: number[]
   /** Human-readable names keyed by concept_id */
   conceptNames: Record<number, string>
-  /** Optional value filter (measurements) */
-  valueFilter?: {
-    operator: '>' | '>=' | '=' | '<=' | '<' | '!=' | 'between'
-    value: number
-    value2?: number
-  }
+  /** Optional value filters (measurements) — multiple conditions ANDed together */
+  valueFilters?: ValueFilter[]
   /** Minimum occurrence count */
   occurrenceCount?: {
     operator: '>=' | '>' | '=' | '<=' | '<'
     count: number
-  }
-  /** Time window relative to visit start */
-  timeWindow?: {
-    daysBefore?: number
-    daysAfter?: number
   }
 }
 
@@ -79,7 +81,7 @@ export type CriteriaConfig =
   | DeathCriteriaConfig
   | PeriodCriteriaConfig
   | DurationCriteriaConfig
-  | VisitTypeCriteriaConfig
+  | CareSiteCriteriaConfig
   | ConceptCriteriaConfig
 
 // --- Criteria Tree Nodes ---
@@ -90,18 +92,25 @@ export interface CriterionNode {
   id: string
   type: CriteriaType
   config: CriteriaConfig
+  /** Operator linking this node to the previous sibling (ignored for first child) */
+  operator: CriteriaOperator
   /** Negate this criterion (NOT) */
   exclude: boolean
   /** If false, criterion is skipped during SQL generation */
   enabled: boolean
 }
 
-/** A group of criteria/sub-groups combined by AND or OR */
+/**
+ * A group of criteria/sub-groups (parentheses).
+ * The group itself does not define an operator for its children — each child
+ * carries its own `operator` field defining how it links to the previous sibling.
+ */
 export interface CriteriaGroupNode {
   kind: 'group'
   id: string
   label?: string
-  operator: CriteriaGroupOperator
+  /** Operator linking this group to the previous sibling (ignored for first child / root) */
+  operator: CriteriaOperator
   children: CriteriaTreeNode[]
   /** Negate the entire group (NOT) */
   exclude: boolean
@@ -120,7 +129,7 @@ export interface Cohort {
   name: string
   description: string
   level: CohortLevel
-  /** Root criteria tree (always a group node) */
+  /** Root criteria tree (always a group node acting as container) */
   criteriaTree: CriteriaGroupNode
   /** User-edited SQL override (null = auto-generated) */
   customSql?: string | null
@@ -128,7 +137,7 @@ export interface Cohort {
   resultCount?: number
   /** Attrition data from last execution */
   attrition?: AttritionStep[]
-  /** Schema version for migration (current = 2) */
+  /** Schema version for migration (current = 3) */
   schemaVersion: number
   createdAt: string
   updatedAt: string

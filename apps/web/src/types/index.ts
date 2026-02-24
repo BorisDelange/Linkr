@@ -390,14 +390,15 @@ export type AppMode = 'full' | 'dashboard' | 'viewer' | 'static'
 
 export type {
   CohortLevel,
-  CriteriaGroupOperator,
+  CriteriaOperator,
   CriteriaType,
   AgeCriteriaConfig,
   SexCriteriaConfig,
   DeathCriteriaConfig,
   PeriodCriteriaConfig,
   DurationCriteriaConfig,
-  VisitTypeCriteriaConfig,
+  CareSiteCriteriaConfig,
+  ValueFilter,
   ConceptCriteriaConfig,
   CriteriaConfig,
   CriterionNode,

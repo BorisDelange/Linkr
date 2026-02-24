@@ -15,28 +15,60 @@ import type {
 // Migration: v1 flat criteria → v2 criteria tree
 // ---------------------------------------------------------------------------
 
+const CURRENT_SCHEMA_VERSION = 4
+
 function migrateCohortIfNeeded(raw: Record<string, unknown>): Cohort {
-  // Already v2
-  if (typeof raw.schemaVersion === 'number' && raw.schemaVersion >= 2) {
+  // Already at latest version
+  if (typeof raw.schemaVersion === 'number' && raw.schemaVersion >= CURRENT_SCHEMA_VERSION) {
     return raw as unknown as Cohort
   }
 
-  // v1 → v2: wrap flat criteria[] in a root AND group
-  const oldCriteria = (raw.criteria ?? []) as Array<{
-    id: string
-    type: string
-    config: Record<string, unknown>
-    exclude: boolean
-  }>
+  let version = (raw.schemaVersion as number) ?? 1
 
-  const children = oldCriteria.map((c) => ({
-    kind: 'criterion' as const,
-    id: c.id,
-    type: c.type as Cohort['criteriaTree']['children'][number] extends { type: infer T } ? T : never,
-    config: migrateConfig(c.type, c.config),
-    exclude: c.exclude,
-    enabled: true,
-  }))
+  // v1 → v3: wrap flat criteria[] in a root container group
+  if (version < 2) {
+    const oldCriteria = (raw.criteria ?? []) as Array<{
+      id: string
+      type: string
+      config: Record<string, unknown>
+      exclude: boolean
+    }>
+
+    const children = oldCriteria.map((c) => ({
+      kind: 'criterion' as const,
+      id: c.id,
+      type: c.type as Cohort['criteriaTree']['children'][number] extends { type: infer T } ? T : never,
+      config: migrateConfig(c.type, c.config),
+      operator: 'AND' as const,
+      exclude: c.exclude,
+      enabled: true,
+    }))
+
+    raw.criteriaTree = {
+      kind: 'group',
+      id: crypto.randomUUID(),
+      operator: 'AND',
+      children,
+      exclude: false,
+      enabled: true,
+    }
+    raw.customSql = raw.customSql ?? null
+    version = 2
+  }
+
+  // v2 → v3: add `operator: 'AND'` to every node that doesn't have one
+  if (version < 3) {
+    const tree = raw.criteriaTree as Record<string, unknown>
+    addOperatorToTree(tree)
+    version = 3
+  }
+
+  // v3 → v4: visit_type → care_site, valueFilter → valueFilters, add durationLevel
+  if (version < 4) {
+    const tree = raw.criteriaTree as Record<string, unknown>
+    migrateTreeV3toV4(tree)
+    version = 4
+  }
 
   return {
     id: raw.id as string,
@@ -44,19 +76,61 @@ function migrateCohortIfNeeded(raw: Record<string, unknown>): Cohort {
     name: (raw.name as string) ?? '',
     description: (raw.description as string) ?? '',
     level: (raw.level as CohortLevel) ?? 'patient',
-    criteriaTree: {
-      kind: 'group',
-      id: crypto.randomUUID(),
-      operator: 'AND',
-      children,
-      exclude: false,
-      enabled: true,
-    },
-    customSql: null,
+    criteriaTree: raw.criteriaTree as unknown as CriteriaGroupNode,
+    customSql: (raw.customSql as string | null) ?? null,
     resultCount: raw.resultCount as number | undefined,
-    schemaVersion: 2,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     createdAt: (raw.createdAt as string) ?? new Date().toISOString(),
     updatedAt: (raw.updatedAt as string) ?? new Date().toISOString(),
+  }
+}
+
+/** Recursively add `operator: 'AND'` to all nodes missing it (v2 → v3 migration) */
+function addOperatorToTree(node: Record<string, unknown>): void {
+  if (!node.operator) node.operator = 'AND'
+  const children = node.children as Record<string, unknown>[] | undefined
+  if (children) {
+    for (const child of children) {
+      addOperatorToTree(child)
+    }
+  }
+}
+
+/** Recursively migrate v3→v4: visit_type→care_site, valueFilter→valueFilters, add durationLevel */
+function migrateTreeV3toV4(node: Record<string, unknown>): void {
+  const children = node.children as Record<string, unknown>[] | undefined
+  if (children) {
+    for (const child of children) {
+      if (child.kind === 'group') {
+        migrateTreeV3toV4(child)
+      } else if (child.kind === 'criterion') {
+        // visit_type → care_site
+        if (child.type === 'visit_type') {
+          child.type = 'care_site'
+          const config = child.config as Record<string, unknown>
+          child.config = {
+            careSiteLevel: 'visit',
+            values: (config.values as string[]) ?? [],
+          }
+        }
+        // duration: add durationLevel if missing
+        if (child.type === 'duration') {
+          const config = child.config as Record<string, unknown>
+          if (!config.durationLevel) {
+            config.durationLevel = 'visit'
+          }
+        }
+        // concept: valueFilter → valueFilters, remove timeWindow
+        if (child.type === 'concept') {
+          const config = child.config as Record<string, unknown>
+          if (config.valueFilter && !config.valueFilters) {
+            config.valueFilters = [config.valueFilter]
+          }
+          delete config.valueFilter
+          delete config.timeWindow
+        }
+      }
+    }
   }
 }
 
@@ -129,7 +203,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     for (const raw of rawAll) {
       const cohort = migrateCohortIfNeeded(raw as unknown as Record<string, unknown>)
       // Persist migration back to IDB if schema changed
-      if (!(raw as Record<string, unknown>).schemaVersion || (raw as Record<string, unknown>).schemaVersion !== 2) {
+      if (!(raw as Record<string, unknown>).schemaVersion || (raw as Record<string, unknown>).schemaVersion !== CURRENT_SCHEMA_VERSION) {
         await getStorage().cohorts.update(cohort.id, cohort)
       }
       migrated.push(cohort)
@@ -150,7 +224,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       description: source.description,
       level: source.level,
       criteriaTree: source.criteriaTree ?? makeEmptyTree(),
-      schemaVersion: 2,
+      schemaVersion: CURRENT_SCHEMA_VERSION,
       createdAt: now,
       updatedAt: now,
     }

@@ -587,7 +587,7 @@
     "criteria_death": "Décès",
     "criteria_period": "Période",
     "criteria_duration": "Durée de séjour",
-    "criteria_visit_type": "Type de visite",
+    "criteria_care_site": "Unité de soins",
     "criteria_concept": "Concept",
 
     "age_reference": "Référence d'âge",
@@ -606,20 +606,22 @@
     "period_start": "Date de début",
     "period_end": "Date de fin",
 
+    "duration_level": "Niveau",
     "duration_min": "Min",
     "duration_max": "Max",
     "duration_days": "jours",
 
-    "visit_type_values": "Types de visite",
-    "visit_type_hint": "Identifiants concept séparés par des virgules (ex. 9201, 9203)",
+    "care_site_level": "Niveau",
+    "care_site_values": "Noms des unités",
+    "care_site_hint": "Noms d'unités séparés par des virgules",
 
     "concept_event_table": "Table d'événements",
     "concept_selected": "Concepts sélectionnés",
+    "concept_pick": "Sélectionner des concepts",
     "concept_value_filter": "Filtre de valeur",
+    "concept_add_value_filter": "Ajouter un filtre de valeur",
     "concept_occurrence": "Nombre d'occurrences",
-    "concept_time_window": "Fenêtre temporelle",
-    "concept_days_before": "Jours avant",
-    "concept_days_after": "Jours après",
+    "concept_occurrence_hint": "Au niveau d'extraction de la cohorte (patient, hospitalisation ou unité)",
 
     "toggle_operator": "Basculer ET / OU",
     "group_label_placeholder": "Nom du groupe...",
@@ -632,9 +634,13 @@
     "section_criteria": "Critères",
     "section_logic": "Logique",
 
-    "sql_edit_mode": "Modifier le SQL",
+    "sql_modified": "Modifié",
+    "sql_unsaved": "Modifications non enregistrées (Cmd+S pour sauvegarder)",
     "sql_reset": "Réinitialiser",
     "sql_copy": "Copier",
+    "sql_overwrite_title": "Écraser le SQL personnalisé ?",
+    "sql_overwrite_description": "Vous avez modifié le SQL manuellement. Modifier les critères va régénérer le SQL et écraser vos modifications.",
+    "sql_overwrite_confirm": "Écraser",
 
     "results_empty": "Exécutez la requête pour voir les résultats.",
     "results_table": "Résultats",
@@ -642,6 +648,9 @@
 
     "attrition_empty": "Aucune donnée d'attrition",
     "attrition_count": "effectif",
+
+    "criterion_delete_title": "Supprimer le critère",
+    "criterion_delete_description": "Voulez-vous vraiment supprimer ce critère ?",
 
     "remove_confirm_title": "Supprimer la cohorte",
     "remove_confirm_description": "Voulez-vous vraiment supprimer cette cohorte ? Cette action est irréversible.",
@@ -1778,6 +1787,8 @@
     "name": "Nom",
     "description": "Description",
     "import": "Importer",
+    "export": "Exporter",
+    "copied": "Copié",
     "close": "Fermer",
     "clear": "Effacer",
     "page": "Page",

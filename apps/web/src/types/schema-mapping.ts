@@ -41,6 +41,14 @@ export interface SchemaMapping {
     endDateColumn?: string
     /** Optional column describing the visit type (e.g. visit_source_value, admission_type). */
     typeColumn?: string
+    /** Optional care site column on the visit table (e.g. care_site_id in OMOP). */
+    careSiteColumn?: string
+    /** Optional lookup table to resolve care site IDs to names (e.g. care_site). */
+    careSiteNameTable?: string
+    /** ID column in the lookup table (e.g. care_site_id). */
+    careSiteNameIdColumn?: string
+    /** Name column in the lookup table (e.g. care_site_name). */
+    careSiteNameColumn?: string
   }
 
   /**

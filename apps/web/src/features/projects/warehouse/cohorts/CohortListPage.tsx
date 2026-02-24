@@ -2,35 +2,26 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
 import { useCohortStore } from '@/stores/cohort-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { UsersRound, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { CohortCard } from './CohortCard'
 import { CreateCohortDialog } from './CreateCohortDialog'
-import type { Cohort, CohortLevel } from '@/types'
 
 export function CohortListPage() {
   const { t } = useTranslation()
   const { uid, wsUid } = useParams()
   const navigate = useNavigate()
-  const { getProjectCohorts, addCohort, removeCohort, executeCohort } = useCohortStore()
-  const { getActiveSource } = useDataSourceStore()
+  const { getProjectCohorts, addCohort, removeCohort, updateCohort } = useCohortStore()
   const [dialogOpen, setDialogOpen] = useState(false)
 
   const cohorts = uid ? getProjectCohorts(uid) : []
-  const activeSource = uid ? getActiveSource(uid) : undefined
   const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
 
-  const handleCreate = async (data: { name: string; description: string; level: CohortLevel }) => {
+  const handleCreate = async (data: { name: string; description: string }) => {
     if (!uid) return
-    const id = await addCohort({ projectUid: uid, ...data })
+    const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
     navigate(`${basePath}/${id}`)
-  }
-
-  const handleExecute = async (cohort: Cohort) => {
-    if (!activeSource) return
-    await executeCohort(cohort.id, activeSource.id, activeSource.schemaMapping)
   }
 
   return (
@@ -66,8 +57,7 @@ export function CohortListPage() {
                 cohort={cohort}
                 basePath={basePath}
                 onRemove={() => removeCohort(cohort.id)}
-                onExecute={() => handleExecute(cohort)}
-                hasDataSource={!!activeSource}
+                onRename={(name) => updateCohort(cohort.id, { name })}
               />
             ))}
           </div>

@@ -587,7 +587,7 @@
     "criteria_death": "Death",
     "criteria_period": "Time period",
     "criteria_duration": "Length of stay",
-    "criteria_visit_type": "Visit type",
+    "criteria_care_site": "Care site",
     "criteria_concept": "Concept",
 
     "age_reference": "Age reference",
@@ -606,20 +606,22 @@
     "period_start": "Start date",
     "period_end": "End date",
 
+    "duration_level": "Level",
     "duration_min": "Min",
     "duration_max": "Max",
     "duration_days": "days",
 
-    "visit_type_values": "Visit type values",
-    "visit_type_hint": "Comma-separated concept IDs (e.g. 9201, 9203)",
+    "care_site_level": "Level",
+    "care_site_values": "Care site names",
+    "care_site_hint": "Comma-separated care site names",
 
     "concept_event_table": "Event table",
     "concept_selected": "Selected concepts",
+    "concept_pick": "Select concepts",
     "concept_value_filter": "Value filter",
+    "concept_add_value_filter": "Add value filter",
     "concept_occurrence": "Occurrence count",
-    "concept_time_window": "Time window",
-    "concept_days_before": "Days before",
-    "concept_days_after": "Days after",
+    "concept_occurrence_hint": "At the cohort extraction level (patient, hospitalization, or unit stay)",
 
     "toggle_operator": "Toggle AND / OR",
     "group_label_placeholder": "Group label...",
@@ -632,9 +634,13 @@
     "section_criteria": "Criteria",
     "section_logic": "Logic",
 
-    "sql_edit_mode": "Edit SQL",
+    "sql_modified": "Modified",
+    "sql_unsaved": "Unsaved changes (Cmd+S to save)",
     "sql_reset": "Reset",
     "sql_copy": "Copy",
+    "sql_overwrite_title": "Overwrite custom SQL?",
+    "sql_overwrite_description": "You have manually edited the SQL. Changing criteria will regenerate the SQL and discard your edits.",
+    "sql_overwrite_confirm": "Overwrite",
 
     "results_empty": "Run the query to see results.",
     "results_table": "Results",
@@ -642,6 +648,9 @@
 
     "attrition_empty": "No attrition data",
     "attrition_count": "count",
+
+    "criterion_delete_title": "Delete criterion",
+    "criterion_delete_description": "Are you sure you want to delete this criterion?",
 
     "remove_confirm_title": "Delete cohort",
     "remove_confirm_description": "Are you sure you want to delete this cohort? This action cannot be undone.",
@@ -1778,6 +1787,8 @@
     "name": "Name",
     "description": "Description",
     "import": "Import",
+    "export": "Export",
+    "copied": "Copied",
     "close": "Close",
     "clear": "Clear",
     "page": "Page",

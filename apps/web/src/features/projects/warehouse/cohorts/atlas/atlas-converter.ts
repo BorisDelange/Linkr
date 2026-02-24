@@ -7,7 +7,7 @@
  *
  * Limitations (logged as warnings):
  *  – EndStrategy / CensoringCriteria / CollapseSettings are dropped on import
- *  – Temporal correlations (StartWindow/EndWindow) → timeWindow approximation
+ *  – Temporal correlations (StartWindow/EndWindow) are dropped on import
  *  – visit_detail level has no ATLAS equivalent
  *  – Eras / ObservationPeriod criteria are not supported
  */
@@ -21,6 +21,7 @@ import type {
   ConceptCriteriaConfig,
   AgeCriteriaConfig,
   SexCriteriaConfig,
+  ValueFilter,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -219,7 +220,8 @@ function importCriteriaGroup(
   conceptSets: Map<number, AtlasConceptSet>,
   warnings: string[],
 ): CriteriaGroupNode {
-  const operator = group.Type === 'ANY' ? 'OR' : 'AND'
+  // ATLAS: ALL = all children linked by AND, ANY = all children linked by OR
+  const childOperator = group.Type === 'ANY' ? 'OR' : 'AND'
   const children: CriteriaTreeNode[] = []
 
   // Correlated criteria
@@ -242,10 +244,15 @@ function importCriteriaGroup(
     }
   }
 
+  // Set operator on all children (how they link to previous sibling)
+  for (const child of children) {
+    (child as CriteriaTreeNode).operator = childOperator
+  }
+
   return {
     kind: 'group',
     id: crypto.randomUUID(),
-    operator,
+    operator: 'AND', // how this group links to its previous sibling
     children,
     exclude: false,
     enabled: true,
@@ -285,17 +292,11 @@ function importCorrelatedCriterion(
   const node = buildConceptCriterion(domainKey, domainObj, conceptSets, warnings)
   if (!node) return null
 
-  // Extract time window
   const config = node.config as ConceptCriteriaConfig
-  if (cc.StartWindow) {
-    const daysBefore = cc.StartWindow.Start?.Days
-    const daysAfter = cc.StartWindow.End?.Days
-    if (daysBefore != null || daysAfter != null) {
-      config.timeWindow = {
-        daysBefore: daysBefore != null ? Math.abs(daysBefore) : undefined,
-        daysAfter: daysAfter != null ? Math.abs(daysAfter) : undefined,
-      }
-    }
+
+  // Time window from ATLAS is noted as a warning (not supported in our model)
+  if (cc.StartWindow?.Start?.Days || cc.StartWindow?.End?.Days) {
+    warnings.push('Time window constraint was ignored (not supported).')
   }
 
   // Extract occurrence count
@@ -331,6 +332,7 @@ function buildConceptCriterion(
       id: crypto.randomUUID(),
       type: 'death',
       config: { isDead: true },
+      operator: 'AND',
       exclude: false,
       enabled: true,
     }
@@ -359,10 +361,10 @@ function buildConceptCriterion(
   }
 
   // Extract value filter (Measurement)
-  let valueFilter: ConceptCriteriaConfig['valueFilter']
+  let valueFilters: ValueFilter[] | undefined
   if (domainObj.ValueAsNumber) {
     const vr = domainObj.ValueAsNumber as AtlasNumericRange
-    const opMap: Record<string, ConceptCriteriaConfig['valueFilter'] extends { operator: infer O } ? O : never> = {
+    const opMap: Record<string, ValueFilter['operator']> = {
       gt: '>',
       gte: '>=',
       eq: '=',
@@ -370,11 +372,11 @@ function buildConceptCriterion(
       lte: '<=',
       bt: 'between',
     }
-    valueFilter = {
+    valueFilters = [{
       operator: opMap[vr.Op] ?? '>',
       value: vr.Value,
       value2: vr.Op === 'bt' ? vr.Extent : undefined,
-    }
+    }]
   }
 
   // Inline demographics (Age, Gender on the domain criterion)
@@ -396,8 +398,9 @@ function buildConceptCriterion(
       eventTableLabel,
       conceptIds,
       conceptNames,
-      valueFilter,
+      valueFilters,
     } as ConceptCriteriaConfig,
+    operator: 'AND',
     exclude: false,
     enabled: true,
   }
@@ -457,6 +460,7 @@ function importAgeRange(range: AtlasNumericRange): CriterionNode | null {
     id: crypto.randomUUID(),
     type: 'age',
     config: { ageReference: 'admission', min, max } as AgeCriteriaConfig,
+    operator: 'AND',
     exclude: false,
     enabled: true,
   }
@@ -471,6 +475,7 @@ function importGenderList(genders: AtlasGenderConcept[]): CriterionNode | null {
     id: crypto.randomUUID(),
     type: 'sex',
     config: { values } as SexCriteriaConfig,
+    operator: 'AND',
     exclude: false,
     enabled: true,
   }
@@ -618,7 +623,6 @@ function exportGroupAsInclusionRule(
 ): AtlasInclusionRule | null {
   if (!group.enabled) return null
 
-  const type = group.operator === 'OR' ? 'ANY' : 'ALL'
   const criteriaList: AtlasCorrelatedCriteria[] = []
   const demographicList: AtlasDemographicCriteria[] = []
   const subGroups: AtlasCriteriaGroup[] = []
@@ -644,6 +648,8 @@ function exportGroupAsInclusionRule(
   if (criteriaList.length === 0 && demographicList.length === 0 && subGroups.length === 0) {
     return null
   }
+
+  const type = deriveAtlasGroupType(group)
 
   return {
     name: group.label || 'Criteria group',
@@ -666,7 +672,6 @@ function exportGroupAsCriteriaGroup(
 ): AtlasCriteriaGroup | null {
   if (!group.enabled) return null
 
-  const type = group.operator === 'OR' ? 'ANY' : 'ALL'
   const criteriaList: AtlasCorrelatedCriteria[] = []
   const demographicList: AtlasDemographicCriteria[] = []
   const subGroups: AtlasCriteriaGroup[] = []
@@ -693,6 +698,8 @@ function exportGroupAsCriteriaGroup(
     return null
   }
 
+  const type = deriveAtlasGroupType(group)
+
   return {
     Type: group.exclude ? 'AT_MOST' : type,
     Count: group.exclude ? 0 : undefined,
@@ -700,6 +707,20 @@ function exportGroupAsCriteriaGroup(
     DemographicCriteriaList: demographicList,
     Groups: subGroups,
   }
+}
+
+/**
+ * Derive the ATLAS group type (ALL/ANY) from children's operators.
+ * If all children use the same operator → use that.
+ * If mixed → default to ALL (ATLAS doesn't support mixed operators in a group).
+ */
+function deriveAtlasGroupType(group: CriteriaGroupNode): 'ALL' | 'ANY' {
+  const enabledChildren = group.children.filter((c) => c.enabled)
+  if (enabledChildren.length <= 1) return 'ALL'
+  // Check operators of children from index 1+ (first child's operator is irrelevant)
+  const ops = enabledChildren.slice(1).map((c) => c.operator)
+  const allOr = ops.every((op) => op === 'OR')
+  return allOr ? 'ANY' : 'ALL'
 }
 
 interface ExportedCriterion {
@@ -806,30 +827,30 @@ function exportCriterion(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const domainObj: any = { CodesetId: codesetId }
 
-      // Value filter
-      if (config.valueFilter && atlasDomain === 'Measurement') {
+      // Value filter (export first filter only — ATLAS supports one)
+      const firstFilter = config.valueFilters?.[0]
+      if (firstFilter && atlasDomain === 'Measurement') {
         const opMap: Record<string, string> = {
           '>': 'gt', '>=': 'gte', '=': 'eq', '<': 'lt', '<=': 'lte', '!=': 'gt', 'between': 'bt',
         }
         domainObj.ValueAsNumber = {
-          Value: config.valueFilter.value,
-          Op: opMap[config.valueFilter.operator] ?? 'gt',
-          ...(config.valueFilter.operator === 'between' ? { Extent: config.valueFilter.value2 } : {}),
+          Value: firstFilter.value,
+          Op: opMap[firstFilter.operator] ?? 'gt',
+          ...(firstFilter.operator === 'between' ? { Extent: firstFilter.value2 } : {}),
+        }
+        if (config.valueFilters && config.valueFilters.length > 1) {
+          warnings.push('Only the first value filter was exported (ATLAS supports a single value filter).')
         }
       }
 
       const domain: AtlasDomainCriterion = { [atlasDomain]: domainObj }
 
-      // Build correlated criterion with time window
+      // Build correlated criterion
       const correlated: AtlasCorrelatedCriteria = {
         Criteria: domain,
         StartWindow: {
-          Start: config.timeWindow?.daysBefore != null
-            ? { Days: config.timeWindow.daysBefore, Coeff: -1 }
-            : { Coeff: -1 },
-          End: config.timeWindow?.daysAfter != null
-            ? { Days: config.timeWindow.daysAfter, Coeff: 1 }
-            : { Coeff: 1 },
+          Start: { Coeff: -1 },
+          End: { Coeff: 1 },
           UseEventEnd: false,
         },
         Occurrence: {
@@ -843,7 +864,7 @@ function exportCriterion(
 
     case 'period':
     case 'duration':
-    case 'visit_type':
+    case 'care_site':
       warnings.push(`Criterion type "${node.type}" has no direct ATLAS equivalent and was skipped.`)
       return null
 

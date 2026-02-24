@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import type { Cohort } from '@/types'
@@ -5,10 +6,10 @@ import {
   UsersRound,
   MoreHorizontal,
   Trash2,
-  Play,
-  ExternalLink,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu,
@@ -22,8 +23,7 @@ interface CohortCardProps {
   cohort: Cohort
   basePath: string
   onRemove: () => void
-  onExecute: () => void
-  hasDataSource: boolean
+  onRename: (name: string) => void
 }
 
 const levelColors: Record<string, string> = {
@@ -36,28 +36,71 @@ export function CohortCard({
   cohort,
   basePath,
   onRemove,
-  onExecute,
-  hasDataSource,
+  onRename,
 }: CohortCardProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const [renaming, setRenaming] = useState(false)
+  const [nameValue, setNameValue] = useState('')
 
   const levelLabel = t(`cohorts.level_${cohort.level}`)
   const criteriaCount = countCriteria(cohort.criteriaTree)
 
+  const handleClick = () => {
+    if (renaming) return
+    navigate(`${basePath}/${cohort.id}`)
+  }
+
+  const handleStartRename = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setNameValue(cohort.name)
+    setRenaming(true)
+  }
+
+  const handleSaveRename = () => {
+    if (nameValue.trim()) {
+      onRename(nameValue.trim())
+    }
+    setRenaming(false)
+  }
+
   return (
-    <Card className="hover:border-primary/30 transition-colors">
-      <CardContent className="p-5">
+    <Card
+      className="hover:border-primary/30 hover:bg-accent/50 transition-colors cursor-pointer"
+    >
+      <CardContent
+        className="p-5"
+        role="button"
+        tabIndex={0}
+        onClick={handleClick}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
+      >
         {/* Header row */}
         <div className="flex items-start justify-between">
-          <div className="flex items-start gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
               <UsersRound size={18} className="text-emerald-600 dark:text-emerald-400" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">{cohort.name}</h3>
-                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
+                {renaming ? (
+                  <Input
+                    value={nameValue}
+                    onChange={(e) => setNameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      e.stopPropagation()
+                      if (e.key === 'Enter') handleSaveRename()
+                      if (e.key === 'Escape') setRenaming(false)
+                    }}
+                    onBlur={handleSaveRename}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-7 text-sm w-48"
+                    autoFocus
+                  />
+                ) : (
+                  <h3 className="text-sm font-semibold truncate">{cohort.name}</h3>
+                )}
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${levelColors[cohort.level] ?? ''}`}>
                   {levelLabel}
                 </span>
               </div>
@@ -66,6 +109,32 @@ export function CohortCard({
               )}
             </div>
           </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <MoreHorizontal size={14} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={handleStartRename}>
+                <Pencil size={14} />
+                {t('cohorts.rename')}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={(e) => { e.stopPropagation(); onRemove() }}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 size={14} />
+                {t('cohorts.remove')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
 
         {/* Stats */}
@@ -76,49 +145,6 @@ export function CohortCard({
               {cohort.resultCount.toLocaleString()} {t('cohorts.results_count')}
             </span>
           )}
-        </div>
-
-        {/* Actions */}
-        <div className="mt-4 flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => navigate(`${basePath}/${cohort.id}`)}
-            className="gap-1.5 text-xs"
-          >
-            <ExternalLink size={12} />
-            {t('cohorts.open')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onExecute}
-            disabled={!hasDataSource}
-            className="gap-1.5 text-xs"
-          >
-            <Play size={12} />
-            {t('cohorts.execute')}
-          </Button>
-
-          <div className="flex-1" />
-
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm">
-                <MoreHorizontal size={14} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={onRemove}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 size={14} />
-                {t('cohorts.remove')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
         </div>
       </CardContent>
     </Card>

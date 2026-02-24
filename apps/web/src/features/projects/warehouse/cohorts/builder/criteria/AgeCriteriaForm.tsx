@@ -12,8 +12,8 @@ export function AgeCriteriaForm({ config, onChange }: AgeCriteriaFormProps) {
   const { t } = useTranslation()
 
   const referenceOptions: { value: AgeCriteriaConfig['ageReference']; labelKey: string }[] = [
-    { value: 'current', labelKey: 'cohorts.age_current' },
     { value: 'admission', labelKey: 'cohorts.age_admission' },
+    { value: 'current', labelKey: 'cohorts.age_current' },
   ]
 
   return (

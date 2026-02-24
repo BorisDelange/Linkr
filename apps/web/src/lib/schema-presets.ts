@@ -88,6 +88,10 @@ const omop54: SchemaMapping = {
     startDateColumn: 'visit_start_datetime',
     endDateColumn: 'visit_end_datetime',
     typeColumn: 'visit_source_value',
+    careSiteColumn: 'care_site_id',
+    careSiteNameTable: 'care_site',
+    careSiteNameIdColumn: 'care_site_id',
+    careSiteNameColumn: 'care_site_name',
   },
   noteTable: {
     table: 'note',
