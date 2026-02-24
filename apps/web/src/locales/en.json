@@ -166,6 +166,8 @@
     "widget_dataset": "Dataset",
     "widget_dataset_placeholder": "Select a dataset...",
     "widget_dataset_none": "No dataset",
+    "no_dataset_confirm_title": "No dataset selected",
+    "no_dataset_confirm_description": "This widget will have no data source. You can assign a dataset later from the widget settings. Continue anyway?",
     "source_custom_code": "Custom code",
     "custom_code_description": "Write custom {{language}} code for this widget",
     "show_widget_titles": "Show widget title bars",

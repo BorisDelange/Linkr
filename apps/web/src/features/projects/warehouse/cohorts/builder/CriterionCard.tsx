@@ -251,6 +251,8 @@ function CriteriaConfigForm({
   eventTableLabels,
   genderValues,
   visitDateRange,
+  dataSourceId,
+  schemaMapping,
   onOpenConceptPicker,
 }: {
   type: CriteriaType
@@ -259,6 +261,8 @@ function CriteriaConfigForm({
   eventTableLabels: string[]
   genderValues?: SchemaMapping['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
+  dataSourceId?: string
+  schemaMapping?: SchemaMapping
   onOpenConceptPicker?: () => void
 }) {
   switch (type) {
@@ -273,7 +277,7 @@ function CriteriaConfigForm({
     case 'duration':
       return <DurationCriteriaForm config={config} onChange={onChange} />
     case 'care_site':
-      return <CareSiteCriteriaForm config={config} onChange={onChange} />
+      return <CareSiteCriteriaForm config={config} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
     case 'concept':
       return <ConceptCriteriaForm config={config} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
     default:
@@ -443,6 +447,8 @@ export function CriterionCard({
             eventTableLabels={eventTableLabels}
             genderValues={genderValues}
             visitDateRange={visitDateRange}
+            dataSourceId={dataSourceId}
+            schemaMapping={schemaMapping}
             onOpenConceptPicker={() => setConceptPickerOpen(true)}
           />
         )}

@@ -139,7 +139,7 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
 
   return (
     <div className="h-full overflow-auto">
-      <Component config={source.config} columns={columns} rows={filteredRows} />
+      <Component config={source.config} columns={columns} rows={filteredRows} compact />
     </div>
   )
 }

@@ -106,7 +106,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-5xl">
+      <DialogContent className="sm:max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{t('datasets.new_analysis')}</DialogTitle>
           <DialogDescription>{t('datasets.new_analysis_description')}</DialogDescription>
@@ -117,6 +117,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
           selectedPluginId={selectedPluginId}
           onSelectPlugin={handleSelectPlugin}
           lang={lang}
+          maxHeight="max-h-[50vh]"
         />
 
         {/* Language selector (only shown if plugin supports multiple modes) */}

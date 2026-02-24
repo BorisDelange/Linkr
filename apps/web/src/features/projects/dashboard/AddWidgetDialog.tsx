@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Code2, ArrowLeft, Database } from 'lucide-react'
 import type { DashboardWidgetSource } from '@/types'
@@ -19,6 +19,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -26,6 +36,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+const LAST_DATASET_KEY = 'linkr-add-widget-last-dataset'
 
 interface AddWidgetDialogProps {
   open: boolean
@@ -41,11 +53,46 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   const [activeTab, setActiveTab] = useState('plugin')
   const lang = i18n.language as 'en' | 'fr'
 
+  // Restore last-used dataset for this project
   const [datasetFileId, setDatasetFileId] = useState<string | null>(null)
 
   const projectDatasetFiles = datasetFiles.filter(
     (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
   )
+
+  // When dialog opens, restore last-used dataset (if it still exists)
+  useEffect(() => {
+    if (open) {
+      try {
+        const stored = localStorage.getItem(LAST_DATASET_KEY)
+        if (stored) {
+          const map = JSON.parse(stored) as Record<string, string>
+          const lastId = map[projectUid]
+          if (lastId && projectDatasetFiles.some(f => f.id === lastId)) {
+            setDatasetFileId(lastId)
+            return
+          }
+        }
+      } catch { /* ignore */ }
+      setDatasetFileId(null)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // Persist dataset choice to localStorage
+  const handleSetDatasetFileId = useCallback((id: string | null) => {
+    setDatasetFileId(id)
+    try {
+      const stored = localStorage.getItem(LAST_DATASET_KEY)
+      const map = stored ? (JSON.parse(stored) as Record<string, string>) : {}
+      if (id) {
+        map[projectUid] = id
+      } else {
+        delete map[projectUid]
+      }
+      localStorage.setItem(LAST_DATASET_KEY, JSON.stringify(map))
+    } catch { /* ignore */ }
+  }, [projectUid])
 
   const selectedDatasetFile = datasetFiles.find((f) => f.id === datasetFileId)
   const columns = selectedDatasetFile?.columns ?? []
@@ -58,16 +105,19 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
   const [pluginLanguage, setPluginLanguage] = useState<'python' | 'r'>('python')
 
+  // Confirmation dialog for adding widget without dataset
+  const [pendingAction, setPendingAction] = useState<(() => void) | null>(null)
+
   const resetAndClose = () => {
     setConfigPlugin(null)
     setPluginConfig({})
     setPluginLanguage('python')
     setSelectedPluginId('')
-    setDatasetFileId(null)
+    setPendingAction(null)
     onOpenChange(false)
   }
 
-  const handleSelectPlugin = (plugin: Plugin) => {
+  const doSelectPlugin = (plugin: Plugin) => {
     setSelectedPluginId(plugin.manifest.id)
     const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
     const hasBothLangs = !!(plugin.templates?.python && plugin.templates?.r)
@@ -93,6 +143,14 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     }
   }
 
+  const handleSelectPlugin = (plugin: Plugin) => {
+    if (!datasetFileId) {
+      setPendingAction(() => () => doSelectPlugin(plugin))
+    } else {
+      doSelectPlugin(plugin)
+    }
+  }
+
   const handleConfirmPlugin = () => {
     if (!configPlugin) return
     const name = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
@@ -106,7 +164,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     resetAndClose()
   }
 
-  const handleAddInline = (language: 'python' | 'r' | 'sql') => {
+  const doAddInline = (language: 'python' | 'r' | 'sql') => {
     const source: DashboardWidgetSource = {
       type: 'inline',
       language,
@@ -117,13 +175,21 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     resetAndClose()
   }
 
+  const handleAddInline = (language: 'python' | 'r' | 'sql') => {
+    if (!datasetFileId) {
+      setPendingAction(() => () => doAddInline(language))
+    } else {
+      doAddInline(language)
+    }
+  }
+
   // Dataset selector shared between views
   const datasetSelector = (
     <div className="space-y-1">
       <Label className="text-xs">{t('dashboard.widget_dataset')}</Label>
       <Select
         value={datasetFileId ?? '__none__'}
-        onValueChange={(v) => setDatasetFileId(v === '__none__' ? null : v)}
+        onValueChange={(v) => handleSetDatasetFileId(v === '__none__' ? null : v)}
       >
         <SelectTrigger className="h-8 text-sm">
           <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
@@ -209,6 +275,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
       <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
@@ -263,5 +330,24 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={!!pendingAction} onOpenChange={(v) => { if (!v) setPendingAction(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('dashboard.no_dataset_confirm_title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('dashboard.no_dataset_confirm_description')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => { pendingAction?.(); setPendingAction(null) }}>
+            {t('common.confirm')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    </>
   )
 }

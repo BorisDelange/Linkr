@@ -138,7 +138,7 @@ function buildHistogramData(values: number[], bins: number) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function KeyIndicatorComponent({ config, columns, rows }: ComponentPluginProps) {
+export function KeyIndicatorComponent({ config, columns, rows, compact }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
 
@@ -189,43 +189,59 @@ export function KeyIndicatorComponent({ config, columns, rows }: ComponentPlugin
     )
   }
 
+  const content = (
+    <>
+      {/* Icon + title */}
+      <div className="flex items-center gap-2 mb-1">
+        <Icon size={compact ? 16 : 18} className={color.text} />
+        <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
+      </div>
+
+      {/* Big number */}
+      <div className={cn('font-bold tracking-tight mt-2', color.text, compact ? 'text-3xl' : 'text-4xl')}>
+        {formatNumber(result)}
+      </div>
+
+      {/* Subtitle */}
+      {stats && (
+        <div className="mt-1.5 text-xs text-muted-foreground">
+          n = {stats.n.toLocaleString()}
+          {aggregate !== 'count' && aggregate !== 'sd' && (
+            <> &middot; SD = {formatNumber(stats.sd)}</>
+          )}
+        </div>
+      )}
+
+      {/* Mini-chart */}
+      {chartType !== 'none' && values.length > 0 && (
+        <div className="mt-3">
+          <MiniChart
+            values={values}
+            chartType={chartType}
+            bins={chartBins}
+            hexColor={color.hex}
+            column={column}
+            rows={rows}
+          />
+        </div>
+      )}
+    </>
+  )
+
+  // Compact mode: fill entire widget, no inner card border
+  if (compact) {
+    return (
+      <div className={cn('flex h-full flex-col justify-center p-4', color.bg)}>
+        {content}
+      </div>
+    )
+  }
+
+  // Standard mode (analysis panel): centered card with border
   return (
     <div className="flex h-full flex-col items-center justify-center p-6">
       <div className={cn('w-full max-w-sm rounded-xl border p-6', color.bg, color.accent)}>
-        {/* Icon + title */}
-        <div className="flex items-center gap-2 mb-1">
-          <Icon size={18} className={color.text} />
-          <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
-        </div>
-
-        {/* Big number */}
-        <div className={cn('text-4xl font-bold tracking-tight mt-2', color.text)}>
-          {formatNumber(result)}
-        </div>
-
-        {/* Subtitle */}
-        {stats && (
-          <div className="mt-1.5 text-xs text-muted-foreground">
-            n = {stats.n.toLocaleString()}
-            {aggregate !== 'count' && aggregate !== 'sd' && (
-              <> &middot; SD = {formatNumber(stats.sd)}</>
-            )}
-          </div>
-        )}
-
-        {/* Mini-chart */}
-        {chartType !== 'none' && values.length > 0 && (
-          <div className="mt-4">
-            <MiniChart
-              values={values}
-              chartType={chartType}
-              bins={chartBins}
-              hexColor={color.hex}
-              column={column}
-              rows={rows}
-            />
-          </div>
-        )}
+        {content}
       </div>
     </div>
   )
@@ -276,8 +292,9 @@ function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChar
         <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
           <Bar dataKey="count" fill={hexColor} opacity={0.7} radius={[2, 2, 0, 0]} />
           <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px' }}
-            labelStyle={{ fontSize: 10 }}
+            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
+            labelStyle={{ fontSize: 10, color: '#fff' }}
+            cursor={{ fill: 'rgba(255,255,255,.15)' }}
           />
         </BarChart>
       </ResponsiveContainer>
@@ -292,7 +309,8 @@ function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChar
           <YAxis type="category" dataKey="name" width={60} tick={{ fontSize: 9 }} />
           <Bar dataKey="value" fill={hexColor} opacity={0.7} radius={[0, 2, 2, 0]} />
           <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px' }}
+            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
+            cursor={{ fill: 'rgba(255,255,255,.15)' }}
           />
         </BarChart>
       </ResponsiveContainer>
@@ -319,7 +337,7 @@ function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChar
             ))}
           </Pie>
           <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px' }}
+            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
           />
         </PieChart>
       </ResponsiveContainer>
