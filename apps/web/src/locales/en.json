@@ -612,8 +612,10 @@
     "duration_days": "days",
 
     "care_site_level": "Level",
-    "care_site_values": "Care site names",
-    "care_site_hint": "Comma-separated care site names",
+    "care_site_values": "Care sites",
+    "care_site_placeholder": "Select care sites...",
+    "care_site_search": "Search...",
+    "care_site_no_values": "No care sites found",
 
     "concept_event_table": "Event table",
     "concept_selected": "Selected concepts",
@@ -818,6 +820,8 @@
     "analysis_save_tooltip": "Save analysis configuration",
     "analysis_auto_run": "Auto",
     "analysis_auto_run_tooltip": "Auto-run on open (hides config panel)",
+    "kpi_no_column": "Select a column to display the indicator.",
+    "kpi_no_data": "No data available for this column.",
     "import_settings": "Import settings",
     "import_settings_title": "Import settings",
     "import_settings_description": "Change how this file is parsed and re-import the data.",

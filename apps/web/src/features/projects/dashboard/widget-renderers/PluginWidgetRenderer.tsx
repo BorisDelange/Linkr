@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
+import { getComponent } from '@/lib/plugins/component-registry'
 import { useDashboardData } from '../DashboardDataProvider'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 
@@ -23,6 +24,11 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
         Plugin not found: {pluginId}
       </div>
     )
+  }
+
+  // Component-runtime plugins render directly
+  if (plugin.componentId && plugin.manifest.runtime.includes('component')) {
+    return <ComponentPluginWidget widget={widget} componentId={plugin.componentId} />
   }
 
   return <ScriptPluginWidget widget={widget} />
@@ -103,6 +109,37 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
         onRerun={() => setRunCount(c => c + 1)}
         compact
       />
+    </div>
+  )
+}
+
+function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidget; componentId: string }) {
+  const { t } = useTranslation()
+  const { filteredRows, columns } = useDashboardData()
+  const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
+
+  const Component = getComponent(componentId)
+
+  if (columns.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center gap-2 p-3 text-xs text-muted-foreground">
+        <AlertTriangle size={14} />
+        {t('dashboard.widget_no_dataset')}
+      </div>
+    )
+  }
+
+  if (!Component) {
+    return (
+      <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+        Component not found: {componentId}
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-auto">
+      <Component config={source.config} columns={columns} rows={filteredRows} />
     </div>
   )
 }

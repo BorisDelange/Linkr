@@ -6,9 +6,11 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { getPlugin } from '@/lib/plugins/registry'
 import { resolveTemplate } from '@/lib/plugins/template-resolver'
 import { AnalysisShell } from './analyses/AnalysisShell'
+import { ComponentAnalysisShell } from './analyses/ComponentAnalysisShell'
 import { GenericConfigPanel } from './analyses/GenericConfigPanel'
 import { CreateAnalysisDialog } from './CreateAnalysisDialog'
 import type { DatasetAnalysis, AnalysisLanguage } from '@/types'
+import type { Plugin } from '@/types/plugin'
 
 interface AnalysesPanelProps {
   datasetFileId: string
@@ -27,9 +29,14 @@ function inferDefaultLanguage(pluginId: string): AnalysisLanguage {
 
 function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
   const plugin = getPlugin(analysis.type)
-  const language = (analysis.config.language as AnalysisLanguage | undefined) ?? inferDefaultLanguage(analysis.type)
+
+  // Component mode: plugin has runtime=['component'] and a componentId
+  if (plugin?.componentId && plugin.manifest.runtime.includes('component')) {
+    return <ComponentAnalysis analysis={analysis} plugin={plugin} />
+  }
 
   // Script mode (python / r): resolve template + AnalysisShell + GenericConfigPanel
+  const language = (analysis.config.language as AnalysisLanguage | undefined) ?? inferDefaultLanguage(analysis.type)
   if (plugin && (language === 'python' || language === 'r')) {
     return (
       <ScriptAnalysis
@@ -44,6 +51,31 @@ function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
     <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
       Unknown analysis type: {analysis.type}
     </div>
+  )
+}
+
+/** Wrapper for component-runtime plugins (live React rendering, no script execution). */
+function ComponentAnalysis({ analysis, plugin }: { analysis: DatasetAnalysis; plugin: Plugin }) {
+  const { files } = useDatasetStore()
+  const file = files.find(f => f.id === analysis.datasetFileId)
+  const columns = file?.columns ?? []
+  const schema = plugin.manifest.configSchema
+
+  const renderConfigPanel = (onConfigChange: (changes: Record<string, unknown>) => void) => (
+    <GenericConfigPanel
+      schema={schema}
+      config={analysis.config}
+      columns={columns}
+      onConfigChange={onConfigChange}
+    />
+  )
+
+  return (
+    <ComponentAnalysisShell
+      analysis={analysis}
+      configPanel={renderConfigPanel}
+      componentId={plugin.componentId!}
+    />
   )
 }
 

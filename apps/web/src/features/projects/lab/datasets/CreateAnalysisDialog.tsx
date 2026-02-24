@@ -97,7 +97,9 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
   const handleCreate = () => {
     const trimmed = name.trim()
     if (!trimmed || nameExists || !selectedPlugin) return
-    createAnalysis(datasetFileId, trimmed, selectedPlugin.manifest.id, { language: selectedLanguage })
+    const isComponent = selectedPlugin.manifest.runtime.includes('component')
+    const initialConfig = isComponent ? {} : { language: selectedLanguage }
+    createAnalysis(datasetFileId, trimmed, selectedPlugin.manifest.id, initialConfig)
     setName('')
     onOpenChange(false)
   }

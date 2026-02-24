@@ -612,8 +612,10 @@
     "duration_days": "jours",
 
     "care_site_level": "Niveau",
-    "care_site_values": "Noms des unités",
-    "care_site_hint": "Noms d'unités séparés par des virgules",
+    "care_site_values": "Unités de soins",
+    "care_site_placeholder": "Sélectionner des unités...",
+    "care_site_search": "Rechercher...",
+    "care_site_no_values": "Aucune unité trouvée",
 
     "concept_event_table": "Table d'événements",
     "concept_selected": "Concepts sélectionnés",
@@ -818,6 +820,8 @@
     "analysis_save_tooltip": "Sauvegarder la configuration de l'analyse",
     "analysis_auto_run": "Auto",
     "analysis_auto_run_tooltip": "Exécuter automatiquement à l'ouverture (masque le panneau config)",
+    "kpi_no_column": "Sélectionnez une colonne pour afficher l'indicateur.",
+    "kpi_no_data": "Aucune donnée disponible pour cette colonne.",
     "import_settings": "Options d'import",
     "import_settings_title": "Options d'import",
     "import_settings_description": "Modifiez la façon dont ce fichier est lu et ré-importez les données.",

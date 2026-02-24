@@ -204,6 +204,11 @@ export function PluginPicker({
                   {fullDesc}
                 </p>
                 <div className="flex items-center gap-1 flex-wrap">
+                  {m.runtime?.includes('component') && (
+                    <span className="shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-500 bg-emerald-500/10">
+                      REACT
+                    </span>
+                  )}
                   {m.languages?.map((l) => {
                     const lb = LANG_BADGE[l]
                     if (!lb) return null

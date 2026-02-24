@@ -1,6 +1,7 @@
-import { useCallback } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check } from 'lucide-react'
+import { Check, Search, Puzzle } from 'lucide-react'
+import * as LucideIcons from 'lucide-react'
 import {
   Select,
   SelectContent,
@@ -8,6 +9,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -114,6 +120,26 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
     case 'string':
       return (
         <StringField
+          fieldKey={fieldKey}
+          field={field}
+          value={value}
+          lang={lang}
+          onConfigChange={onConfigChange}
+        />
+      )
+    case 'icon-select':
+      return (
+        <IconSelectField
+          fieldKey={fieldKey}
+          field={field}
+          value={value}
+          lang={lang}
+          onConfigChange={onConfigChange}
+        />
+      )
+    case 'color-select':
+      return (
+        <ColorSelectField
           fieldKey={fieldKey}
           field={field}
           value={value}
@@ -364,6 +390,151 @@ function StringField({
         value={current}
         onChange={e => onConfigChange({ [fieldKey]: e.target.value })}
       />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Icon select (Lucide icon picker)
+// ---------------------------------------------------------------------------
+
+const CURATED_ICONS = [
+  'Activity', 'AlertTriangle', 'BarChart3', 'Beaker', 'Brain', 'Calculator',
+  'Calendar', 'CheckCircle', 'Clock', 'Crosshair', 'DollarSign', 'Droplet',
+  'Eye', 'FileText', 'Flame', 'Gauge', 'Heart', 'HeartPulse', 'Hospital',
+  'Layers', 'LineChart', 'Map', 'Microscope', 'Moon', 'Percent', 'PieChart',
+  'Pill', 'Scale', 'Shield', 'Sigma', 'Stethoscope', 'Sun', 'Syringe',
+  'Target', 'TestTube', 'Thermometer', 'Timer', 'TrendingDown', 'TrendingUp',
+  'User', 'Users', 'Zap',
+]
+
+function getLucideIcon(name: string): LucideIcons.LucideIcon {
+  const icon = (LucideIcons as Record<string, unknown>)[name]
+  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
+  return Puzzle
+}
+
+function IconSelectField({
+  fieldKey,
+  field,
+  value,
+  lang,
+  onConfigChange,
+}: Omit<FieldRendererProps, 'columns'>) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'Activity'
+  const CurrentIcon = getLucideIcon(current)
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return CURATED_ICONS
+    const q = search.toLowerCase()
+    return CURATED_ICONS.filter(name => name.toLowerCase().includes(q))
+  }, [search])
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="flex h-8 items-center gap-2 rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+          >
+            <CurrentIcon size={14} />
+            <span className="text-muted-foreground">{current}</span>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-64 p-2" align="start">
+          <div className="relative mb-2">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search icons..."
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+          <ScrollArea className="max-h-[200px]">
+            <div className="grid grid-cols-6 gap-1">
+              {filtered.map(name => {
+                const Icon = getLucideIcon(name)
+                const isSelected = name === current
+                return (
+                  <button
+                    key={name}
+                    onClick={() => {
+                      onConfigChange({ [fieldKey]: name })
+                      setOpen(false)
+                    }}
+                    title={name}
+                    className={cn(
+                      'flex size-8 items-center justify-center rounded transition-colors',
+                      isSelected
+                        ? 'bg-primary text-primary-foreground'
+                        : 'hover:bg-accent text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    <Icon size={16} />
+                  </button>
+                )
+              })}
+            </div>
+            {filtered.length === 0 && (
+              <p className="py-4 text-center text-xs text-muted-foreground">No icons found</p>
+            )}
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Color select (palette picker)
+// ---------------------------------------------------------------------------
+
+const COLOR_PALETTE = [
+  { name: 'red', bg: 'bg-red-500', ring: 'ring-red-500' },
+  { name: 'rose', bg: 'bg-rose-500', ring: 'ring-rose-500' },
+  { name: 'amber', bg: 'bg-amber-500', ring: 'ring-amber-500' },
+  { name: 'green', bg: 'bg-green-500', ring: 'ring-green-500' },
+  { name: 'emerald', bg: 'bg-emerald-500', ring: 'ring-emerald-500' },
+  { name: 'cyan', bg: 'bg-cyan-500', ring: 'ring-cyan-500' },
+  { name: 'blue', bg: 'bg-blue-500', ring: 'ring-blue-500' },
+  { name: 'indigo', bg: 'bg-indigo-500', ring: 'ring-indigo-500' },
+  { name: 'violet', bg: 'bg-violet-500', ring: 'ring-violet-500' },
+  { name: 'slate', bg: 'bg-slate-500', ring: 'ring-slate-500' },
+]
+
+function ColorSelectField({
+  fieldKey,
+  field,
+  value,
+  lang,
+  onConfigChange,
+}: Omit<FieldRendererProps, 'columns'>) {
+  const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {COLOR_PALETTE.map(c => {
+          const isSelected = c.name === current
+          return (
+            <button
+              key={c.name}
+              onClick={() => onConfigChange({ [fieldKey]: c.name })}
+              title={c.name}
+              className={cn(
+                'size-6 rounded-full transition-all',
+                c.bg,
+                isSelected && `ring-2 ${c.ring} ring-offset-2 ring-offset-background`,
+              )}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }

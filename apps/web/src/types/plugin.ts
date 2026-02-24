@@ -9,7 +9,7 @@ export interface PluginBadge {
 
 /** Schema definition for a single config field in a plugin's configSchema. */
 export interface PluginConfigField {
-  type: 'column-select' | 'number' | 'select' | 'boolean' | 'string'
+  type: 'column-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select'
   label: { en: string; fr: string }
   multi?: boolean
   optional?: boolean
@@ -22,7 +22,7 @@ export interface PluginConfigField {
 }
 
 /** Runtime mode(s) the plugin supports. */
-export type PluginRuntime = 'script'
+export type PluginRuntime = 'script' | 'component'
 
 /** Where the plugin can be used: lab (datasets/dashboards) or warehouse (patient data). */
 export type PluginScope = 'lab' | 'warehouse'
@@ -72,4 +72,6 @@ export interface Plugin {
   manifest: PluginManifest
   /** Loaded template strings, keyed by language. */
   templates: Record<string, string> | null
+  /** For component-runtime plugins: ID mapping to a registered React component. */
+  componentId?: string
 }
