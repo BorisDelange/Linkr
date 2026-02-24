@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -31,6 +31,7 @@ export interface ProjectStorage {
 export interface DataSourceStorage {
   getAll(): Promise<DataSource[]>
   getByProject(projectUid: string): Promise<DataSource[]>
+  getByWorkspace(workspaceId: string): Promise<DataSource[]>
   getById(id: string): Promise<DataSource | undefined>
   create(dataSource: DataSource): Promise<void>
   update(id: string, changes: Partial<DataSource>): Promise<void>
@@ -82,6 +83,7 @@ export interface FileHandleStorage {
 /** Storage interface for custom schema presets. */
 export interface SchemaPresetStorage {
   getAll(): Promise<CustomSchemaPreset[]>
+  getByWorkspace(workspaceId: string): Promise<CustomSchemaPreset[]>
   getById(presetId: string): Promise<CustomSchemaPreset | undefined>
   save(preset: CustomSchemaPreset): Promise<void>
   delete(presetId: string): Promise<void>
@@ -154,6 +156,7 @@ export interface DatasetAnalysisStorage {
 /** Storage interface for user-created plugins. */
 export interface UserPluginStorage {
   getAll(): Promise<UserPlugin[]>
+  getByWorkspace(workspaceId: string): Promise<UserPlugin[]>
   getById(id: string): Promise<UserPlugin | undefined>
   create(plugin: UserPlugin): Promise<void>
   update(id: string, changes: Partial<UserPlugin>): Promise<void>
@@ -228,6 +231,26 @@ export interface EtlFileStorage {
   update(id: string, changes: Partial<EtlFile>): Promise<void>
   delete(id: string): Promise<void>
   deleteByPipeline(pipelineId: string): Promise<void>
+}
+
+/** Storage interface for SQL script collection persistence. */
+export interface SqlScriptCollectionStorage {
+  getAll(): Promise<SqlScriptCollection[]>
+  getByWorkspace(workspaceId: string): Promise<SqlScriptCollection[]>
+  getById(id: string): Promise<SqlScriptCollection | undefined>
+  create(collection: SqlScriptCollection): Promise<void>
+  update(id: string, changes: Partial<SqlScriptCollection>): Promise<void>
+  delete(id: string): Promise<void>
+}
+
+/** Storage interface for SQL script file persistence. */
+export interface SqlScriptFileStorage {
+  getByCollection(collectionId: string): Promise<SqlScriptFile[]>
+  getById(id: string): Promise<SqlScriptFile | undefined>
+  create(file: SqlScriptFile): Promise<void>
+  update(id: string, changes: Partial<SqlScriptFile>): Promise<void>
+  delete(id: string): Promise<void>
+  deleteByCollection(collectionId: string): Promise<void>
 }
 
 /** Storage interface for DQ rule set persistence. */
@@ -336,6 +359,8 @@ export interface Storage {
   wikiAttachments: WikiAttachmentStorage
   etlPipelines: EtlPipelineStorage
   etlFiles: EtlFileStorage
+  sqlScriptCollections: SqlScriptCollectionStorage
+  sqlScriptFiles: SqlScriptFileStorage
   dqRuleSets: DqRuleSetStorage
   dqCustomChecks: DqCustomCheckStorage
   conceptSets: ConceptSetStorage

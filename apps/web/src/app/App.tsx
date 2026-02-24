@@ -41,6 +41,7 @@ import { AppDatabasesPage } from '@/features/warehouse/AppDatabasesPage'
 import { SchemaPresetsPage } from '@/features/warehouse/SchemaPresetsPage'
 import { ConceptMappingPage } from '@/features/warehouse/ConceptMappingPage'
 import { EtlPage } from '@/features/warehouse/EtlPage'
+import { SqlScriptsPage } from '@/features/warehouse/SqlScriptsPage'
 import { DqPage } from '@/features/warehouse/DqPage'
 import { DataCatalogPage } from '@/features/warehouse/DataCatalogPage'
 import { AppVersioningPage } from '@/features/versioning/AppVersioningPage'
@@ -142,6 +143,8 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/data-quality/:ruleSetId" element={<WorkspaceGuard><DqPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/etl/:pipelineId" element={<WorkspaceGuard><EtlPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/sql-scripts" element={<WorkspaceGuard><SqlScriptsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/sql-scripts/:collectionId" element={<WorkspaceGuard><SqlScriptsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/catalog" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/catalog/:catalogId" element={<WorkspaceGuard><DataCatalogPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/versioning" element={<WorkspaceGuard><AppVersioningPage /></WorkspaceGuard>} />

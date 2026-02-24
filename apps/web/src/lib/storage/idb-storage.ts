@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -27,6 +27,7 @@ interface LinkrDB extends DBSchema {
     value: DataSource
     indexes: {
       'by-project': string
+      'by-workspace': string
     }
   }
   files: {
@@ -64,6 +65,9 @@ interface LinkrDB extends DBSchema {
   schema_presets: {
     key: string
     value: CustomSchemaPreset
+    indexes: {
+      'by-workspace': string
+    }
   }
   file_handles: {
     key: string
@@ -111,6 +115,9 @@ interface LinkrDB extends DBSchema {
   user_plugins: {
     key: string
     value: UserPlugin
+    indexes: {
+      'by-workspace': string
+    }
   }
   dashboards: {
     key: string
@@ -161,6 +168,20 @@ interface LinkrDB extends DBSchema {
     value: EtlFile
     indexes: {
       'by-pipeline': string
+    }
+  }
+  sql_script_collections: {
+    key: string
+    value: SqlScriptCollection
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  sql_script_files: {
+    key: string
+    value: SqlScriptFile
+    indexes: {
+      'by-collection': string
     }
   }
   dq_rule_sets: {
@@ -219,7 +240,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 25
+const DB_VERSION = 28
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -517,6 +538,126 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
           }
         })
       }
+      // Version 26: Scope user_plugins, schema_presets, data_sources by workspace
+      if (oldVersion < 26) {
+        // Add by-workspace index to user_plugins
+        if (oldVersion >= 14) {
+          const pluginStore = transaction.objectStore('user_plugins')
+          if (!pluginStore.indexNames.contains('by-workspace')) {
+            pluginStore.createIndex('by-workspace', 'workspaceId')
+          }
+        }
+        // Add by-workspace index to schema_presets
+        if (oldVersion >= 8) {
+          const presetStore = transaction.objectStore('schema_presets')
+          if (!presetStore.indexNames.contains('by-workspace')) {
+            presetStore.createIndex('by-workspace', 'workspaceId')
+          }
+        }
+        // Add by-workspace index to data_sources
+        if (oldVersion >= 2) {
+          const dsStore = transaction.objectStore('data_sources')
+          if (!dsStore.indexNames.contains('by-workspace')) {
+            dsStore.createIndex('by-workspace', 'workspaceId')
+          }
+        }
+        // Migrate existing records: stamp workspaceId from first workspace
+        if (oldVersion >= 16) {
+          const wsStore = transaction.objectStore('workspaces')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(wsStore.getAll() as Promise<any[]>).then((workspaces) => {
+            const firstWsId = workspaces.length > 0 ? workspaces[0].id : undefined
+            if (!firstWsId) return
+            // Stamp user_plugins
+            if (oldVersion >= 14) {
+              const pluginStore = transaction.objectStore('user_plugins')
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(pluginStore.getAll() as Promise<any[]>).then((plugins) => {
+                for (const p of plugins) {
+                  if (!p.workspaceId) {
+                    p.workspaceId = firstWsId
+                    pluginStore.put(p)
+                  }
+                }
+              })
+            }
+            // Stamp schema_presets
+            if (oldVersion >= 8) {
+              const presetStore = transaction.objectStore('schema_presets')
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(presetStore.getAll() as Promise<any[]>).then((presets) => {
+                for (const p of presets) {
+                  if (!p.workspaceId) {
+                    p.workspaceId = firstWsId
+                    presetStore.put(p)
+                  }
+                }
+              })
+            }
+            // Stamp data_sources
+            if (oldVersion >= 2) {
+              const dsStore = transaction.objectStore('data_sources')
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              ;(dsStore.getAll() as Promise<any[]>).then((sources) => {
+                for (const ds of sources) {
+                  if (!ds.workspaceId) {
+                    ds.workspaceId = firstWsId
+                    dsStore.put(ds)
+                  }
+                }
+              })
+            }
+          })
+        }
+      }
+      // Version 27: SQL script collections and files
+      if (oldVersion < 27) {
+        const collStore = db.createObjectStore('sql_script_collections', { keyPath: 'id' })
+        collStore.createIndex('by-workspace', 'workspaceId')
+        const fileStore = db.createObjectStore('sql_script_files', { keyPath: 'id' })
+        fileStore.createIndex('by-collection', 'collectionId')
+      }
+      // Version 28: Ensure by-workspace indexes exist (fixes v27 fresh installs that skipped v26 migration)
+      if (oldVersion < 28) {
+        const ensureIndex = (storeName: string, indexName: string, keyPath: string) => {
+          try {
+            const store = transaction.objectStore(storeName as never)
+            if (!store.indexNames.contains(indexName)) {
+              store.createIndex(indexName, keyPath)
+            }
+          } catch { /* store might not exist yet */ }
+        }
+        ensureIndex('user_plugins', 'by-workspace', 'workspaceId')
+        ensureIndex('schema_presets', 'by-workspace', 'workspaceId')
+        ensureIndex('data_sources', 'by-workspace', 'workspaceId')
+
+        // Stamp existing records that don't have workspaceId yet
+        try {
+          const wsStore = transaction.objectStore('workspaces')
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ;(wsStore.getAll() as Promise<any[]>).then((workspaces) => {
+            const firstWsId = workspaces.length > 0 ? workspaces[0].id : undefined
+            if (!firstWsId) return
+            const stampRecords = (storeName: string) => {
+              try {
+                const store = transaction.objectStore(storeName as never)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ;(store.getAll() as Promise<any[]>).then((records) => {
+                  for (const r of records) {
+                    if (!r.workspaceId) {
+                      r.workspaceId = firstWsId
+                      store.put(r)
+                    }
+                  }
+                })
+              } catch { /* store might not exist */ }
+            }
+            stampRecords('user_plugins')
+            stampRecords('schema_presets')
+            stampRecords('data_sources')
+          })
+        } catch { /* workspaces store might not exist */ }
+      }
     },
   })
   _dbPromise.catch(() => { _dbPromise = null })
@@ -619,6 +760,11 @@ class IDBDataSourceStorage implements DataSourceStorage {
   async getByProject(projectUid: string): Promise<DataSource[]> {
     const db = await getDB()
     return db.getAllFromIndex('data_sources', 'by-project', projectUid)
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<DataSource[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('data_sources', 'by-workspace', workspaceId)
   }
 
   async getById(id: string): Promise<DataSource | undefined> {
@@ -787,6 +933,11 @@ class IDBSchemaPresetStorage implements SchemaPresetStorage {
   async getAll(): Promise<CustomSchemaPreset[]> {
     const db = await getDB()
     return db.getAll('schema_presets')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<CustomSchemaPreset[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('schema_presets', 'by-workspace', workspaceId)
   }
 
   async getById(presetId: string): Promise<CustomSchemaPreset | undefined> {
@@ -1033,6 +1184,11 @@ class IDBUserPluginStorage implements UserPluginStorage {
   async getAll(): Promise<UserPlugin[]> {
     const db = await getDB()
     return db.getAll('user_plugins')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<UserPlugin[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('user_plugins', 'by-workspace', workspaceId)
   }
 
   async getById(id: string): Promise<UserPlugin | undefined> {
@@ -1317,6 +1473,79 @@ class IDBEtlFileStorage implements EtlFileStorage {
     const db = await getDB()
     const files = await db.getAllFromIndex('etl_files', 'by-pipeline', pipelineId)
     const tx = db.transaction('etl_files', 'readwrite')
+    for (const file of files) {
+      tx.store.delete(file.id)
+    }
+    await tx.done
+  }
+}
+
+class IDBSqlScriptCollectionStorage implements SqlScriptCollectionStorage {
+  async getAll(): Promise<SqlScriptCollection[]> {
+    const db = await getDB()
+    return db.getAll('sql_script_collections')
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<SqlScriptCollection[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('sql_script_collections', 'by-workspace', workspaceId)
+  }
+
+  async getById(id: string): Promise<SqlScriptCollection | undefined> {
+    const db = await getDB()
+    return db.get('sql_script_collections', id)
+  }
+
+  async create(collection: SqlScriptCollection): Promise<void> {
+    const db = await getDB()
+    await db.add('sql_script_collections', collection)
+  }
+
+  async update(id: string, changes: Partial<SqlScriptCollection>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('sql_script_collections', id)
+    if (!existing) return
+    await db.put('sql_script_collections', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('sql_script_collections', id)
+  }
+}
+
+class IDBSqlScriptFileStorage implements SqlScriptFileStorage {
+  async getByCollection(collectionId: string): Promise<SqlScriptFile[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('sql_script_files', 'by-collection', collectionId)
+  }
+
+  async getById(id: string): Promise<SqlScriptFile | undefined> {
+    const db = await getDB()
+    return db.get('sql_script_files', id)
+  }
+
+  async create(file: SqlScriptFile): Promise<void> {
+    const db = await getDB()
+    await db.add('sql_script_files', file)
+  }
+
+  async update(id: string, changes: Partial<SqlScriptFile>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('sql_script_files', id)
+    if (!existing) return
+    await db.put('sql_script_files', { ...existing, ...changes })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('sql_script_files', id)
+  }
+
+  async deleteByCollection(collectionId: string): Promise<void> {
+    const db = await getDB()
+    const files = await db.getAllFromIndex('sql_script_files', 'by-collection', collectionId)
+    const tx = db.transaction('sql_script_files', 'readwrite')
     for (const file of files) {
       tx.store.delete(file.id)
     }
@@ -1635,6 +1864,8 @@ export function createIDBStorage(): Storage {
     wikiAttachments: new IDBWikiAttachmentStorage(),
     etlPipelines: new IDBEtlPipelineStorage(),
     etlFiles: new IDBEtlFileStorage(),
+    sqlScriptCollections: new IDBSqlScriptCollectionStorage(),
+    sqlScriptFiles: new IDBSqlScriptFileStorage(),
     dqRuleSets: new IDBDqRuleSetStorage(),
     dqCustomChecks: new IDBDqCustomCheckStorage(),
     conceptSets: new IDBConceptSetStorage(),

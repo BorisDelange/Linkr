@@ -228,6 +228,7 @@ export interface DatabaseStatsCache {
 
 export interface DataSource {
   id: string
+  workspaceId?: string
   /** Short, URL-safe identifier used as the DuckDB schema name. Auto-generated from `name`, editable. */
   alias: string
   name: string
@@ -664,6 +665,30 @@ export interface EtlSourceProfile {
   totalColumns: number
 }
 
+// --- SQL Script Types ---
+
+export interface SqlScriptCollection {
+  id: string
+  workspaceId: string
+  name: string
+  description: string
+  defaultDataSourceId?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SqlScriptFile {
+  id: string
+  collectionId: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  content?: string
+  order: number
+  dataSourceId?: string  // per-file DB override
+  createdAt: string
+}
+
 // --- Data Quality Types ---
 
 export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
@@ -702,6 +727,7 @@ export interface DqCustomCheck {
 
 export interface UserPlugin {
   id: string
+  workspaceId?: string
   files: Record<string, string>
   createdAt: string
   updatedAt: string

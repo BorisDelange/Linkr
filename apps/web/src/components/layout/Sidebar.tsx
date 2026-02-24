@@ -28,6 +28,7 @@ import {
   Puzzle,
   Building2,
   ChevronRight,
+  SquareTerminal,
 } from 'lucide-react'
 import {
   Sidebar,
@@ -120,9 +121,10 @@ const workspaceNavItems: SegmentNavEntry[] = [
     children: [
       { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: 'text-teal-500' },
       { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/catalog', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
       { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/sql-scripts', icon: SquareTerminal, labelKey: 'app_warehouse.nav_sql_scripts', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/catalog', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', iconColor: 'text-teal-500' },
       { segment: 'warehouse/etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', iconColor: 'text-teal-500' },
     ],
   },
