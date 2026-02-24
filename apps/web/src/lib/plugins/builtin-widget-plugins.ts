@@ -7,7 +7,6 @@
  */
 
 import type { Plugin, PluginManifest } from '@/types/plugin'
-import type { PluginBadge } from '@/types/plugin'
 import type { PatientWidgetType } from '@/stores/patient-chart-store'
 import { registerPlugin } from './registry'
 
@@ -131,58 +130,12 @@ const defaultManifests: PluginManifest[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Metadata overrides (localStorage)
-// ---------------------------------------------------------------------------
-
-const OVERRIDES_KEY = 'linkr-builtin-widget-overrides'
-
-interface BuiltinOverride {
-  name?: { en: string; fr: string }
-  description?: { en: string; fr: string }
-  icon?: string
-  iconColor?: string
-  badges?: PluginBadge[]
-}
-
-function loadOverrides(): Record<string, BuiltinOverride> {
-  try {
-    const raw = localStorage.getItem(OVERRIDES_KEY)
-    if (!raw) return {}
-    return JSON.parse(raw) as Record<string, BuiltinOverride>
-  } catch {
-    return {}
-  }
-}
-
-export function saveOverride(pluginId: string, override: BuiltinOverride): void {
-  const overrides = loadOverrides()
-  overrides[pluginId] = override
-  localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides))
-}
-
-/** Merge default manifest with any user overrides from localStorage. */
-function applyOverrides(manifest: PluginManifest): PluginManifest {
-  const overrides = loadOverrides()
-  const override = overrides[manifest.id]
-  if (!override) return manifest
-  return {
-    ...manifest,
-    ...(override.name && { name: override.name }),
-    ...(override.description && { description: override.description }),
-    ...(override.icon && { icon: override.icon }),
-    ...(override.iconColor !== undefined && { iconColor: override.iconColor || undefined }),
-    ...(override.badges && { badges: override.badges }),
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
 /** Register all built-in patient data widgets as system plugins. */
 export function registerBuiltinWidgetPlugins(): void {
-  for (const base of defaultManifests) {
-    const manifest = applyOverrides(base)
+  for (const manifest of defaultManifests) {
     const plugin: Plugin = { manifest, templates: null }
     registerPlugin(plugin)
   }

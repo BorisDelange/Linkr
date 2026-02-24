@@ -341,17 +341,25 @@ export function PluginEditor() {
             {badge.label}
           </span>
         ))}
-        {isDirty && (
+        {isSystemPlugin && (
+          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+            {t('plugins.system_plugin')}
+          </Badge>
+        )}
+        {isDirty && !isSystemPlugin && (
           <Badge variant="secondary" className="text-[10px]">
             {t('plugins.unsaved_changes')}
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" onClick={handleSave} disabled={!isDirty} className="gap-1 text-xs">
-            <Save size={12} />
-            {t('plugins.save')}
-          </Button>
+          {!isSystemPlugin && (
+            <Button size="sm" onClick={handleSave} disabled={!isDirty} className="gap-1 text-xs">
+              <Save size={12} />
+              {t('plugins.save')}
+            </Button>
+          )}
           {/* Settings popover (appearance, version, badges, publishing) */}
+          {!isSystemPlugin && (
           <Popover>
               <PopoverTrigger asChild>
                 <Button variant="ghost" size="sm" className="gap-1 text-xs">
@@ -707,6 +715,7 @@ export function PluginEditor() {
                 )}
               </PopoverContent>
             </Popover>
+          )}
           {!isSystemPlugin && (
             <>
               <Button variant="ghost" size="sm" onClick={handleDuplicate} className="gap-1 text-xs">
@@ -929,11 +938,12 @@ export function PluginEditor() {
                           value={activeContent}
                           language={activeLanguage}
                           onChange={(val) => {
-                            if (activeFile && val !== undefined) {
+                            if (activeFile && val !== undefined && !isSystemPlugin) {
                               updateFileContent(activeFile, val)
                             }
                           }}
-                          onSave={handleSave}
+                          onSave={isSystemPlugin ? undefined : handleSave}
+                          readOnly={isSystemPlugin}
                         />
                       ) : (
                         <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

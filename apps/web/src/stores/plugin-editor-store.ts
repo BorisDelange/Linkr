@@ -342,26 +342,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     let { files } = get()
     if (!editingPluginId) return
 
-    // System plugins: save metadata overrides to localStorage, not IDB
-    if (isSystemPlugin) {
-      try {
-        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-        const { saveOverride } = await import('@/lib/plugins/builtin-widget-plugins')
-        saveOverride(editingPluginId, {
-          name: manifest.name,
-          description: manifest.description,
-          icon: manifest.icon,
-          iconColor: manifest.iconColor,
-          badges: manifest.badges,
-        })
-        // Re-register with updated manifest
-        const { registerBuiltinWidgetPlugins } = await import('@/lib/plugins/builtin-widget-plugins')
-        registerBuiltinWidgetPlugins()
-      } catch { /* invalid plugin.json */ }
-      set({ isDirty: false, originalFiles: { ...files } })
-      await get().refreshPluginList()
-      return
-    }
+    // System plugins are read-only — nothing to save
+    if (isSystemPlugin) return
 
     // Compute content hash + auto-stamp workspace organization into plugin.json
     try {
