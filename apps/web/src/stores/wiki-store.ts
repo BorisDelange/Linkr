@@ -101,6 +101,17 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     }
     await getStorage().wikiPages.create(page)
     set((s) => ({ pages: [...s.pages, page] }))
+
+    // Git commit
+    try {
+      const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+      const store = useWorkspaceVersioningStore.getState()
+      await store.ensureRepo(workspaceId)
+      await store.commitWikiPageChange(workspaceId, page, 'create')
+    } catch (err) {
+      console.warn('[wiki-store] Git commit for page creation failed:', err)
+    }
+
     return id
   },
 
@@ -121,18 +132,36 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     if (!page) return
 
     const now = new Date().toISOString()
-    const snapshot: WikiSnapshot = {
-      id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      content: page.content,
-      savedAt: now,
+
+    // Backward compat: keep inline snapshots only for pages that already have them
+    let history = page.history
+    if (page.history.length > 0) {
+      const snapshot: WikiSnapshot = {
+        id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        content: page.content,
+        savedAt: now,
+      }
+      history = [...page.history, snapshot].slice(-50)
     }
-    // Keep last 50 snapshots
-    const history = [...page.history, snapshot].slice(-50)
+
     const updates = { content, history, updatedAt: now }
     await getStorage().wikiPages.update(id, updates)
+    const updatedPage = { ...page, ...updates }
     set((s) => ({
-      pages: s.pages.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+      pages: s.pages.map((p) => (p.id === id ? updatedPage : p)),
     }))
+
+    // Git commit
+    if (page.workspaceId) {
+      try {
+        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+        const store = useWorkspaceVersioningStore.getState()
+        await store.ensureRepo(page.workspaceId)
+        await store.commitWikiPageChange(page.workspaceId, updatedPage, 'update')
+      } catch (err) {
+        console.warn('[wiki-store] Git commit failed, changes saved to IDB only:', err)
+      }
+    }
   },
 
   deletePage: async (id) => {
@@ -148,6 +177,10 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     }
     collectDescendants(id)
 
+    // Capture pages before deletion for git commit
+    const deletedPages = allPages.filter((p) => toDelete.has(p.id))
+    const workspaceId = get().currentWorkspaceId
+
     const storage = getStorage()
     for (const pageId of toDelete) {
       await storage.wikiAttachments.deleteByPage(pageId)
@@ -158,6 +191,20 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       pages: s.pages.filter((p) => !toDelete.has(p.id)),
       activePageId: toDelete.has(s.activePageId ?? '') ? null : s.activePageId,
     }))
+
+    // Git commits for deleted pages
+    if (workspaceId) {
+      try {
+        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+        const store = useWorkspaceVersioningStore.getState()
+        await store.ensureRepo(workspaceId)
+        for (const page of deletedPages) {
+          await store.commitWikiPageChange(workspaceId, page, 'delete')
+        }
+      } catch (err) {
+        console.warn('[wiki-store] Git commit for page deletion failed:', err)
+      }
+    }
   },
 
   movePage: async (id, newParentId, newSortOrder) => {

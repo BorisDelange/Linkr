@@ -224,6 +224,7 @@ export interface EventTable {
  */
 export interface CustomSchemaPreset {
   presetId: string
+  workspaceId?: string
   mapping: SchemaMapping
   createdAt: string
   updatedAt: string

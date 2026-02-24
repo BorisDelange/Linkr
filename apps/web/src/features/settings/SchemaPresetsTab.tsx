@@ -38,6 +38,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { SchemaERD } from './SchemaERD'
 import type {
   SchemaMapping,
@@ -927,6 +928,7 @@ export function SchemaPresetsTab() {
       mapping: newMapping,
       createdAt: now,
       updatedAt: now,
+      workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
@@ -999,6 +1001,7 @@ export function SchemaPresetsTab() {
         mapping: imported,
         createdAt: now,
         updatedAt: now,
+        workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       }
       await getStorage().schemaPresets.save(preset)
       await loadCustomPresets()
@@ -1027,6 +1030,7 @@ export function SchemaPresetsTab() {
       mapping: newMapping,
       createdAt: now,
       updatedAt: now,
+      workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()

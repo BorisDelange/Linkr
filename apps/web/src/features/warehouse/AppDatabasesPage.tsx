@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
@@ -59,6 +60,7 @@ function CreateFromPresetDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
+  const { wsUid } = useParams<{ wsUid: string }>()
   const { createEmptyDatabase } = useDataSourceStore()
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
   const [selectedPresetId, setSelectedPresetId] = useState('')
@@ -67,12 +69,14 @@ function CreateFromPresetDialog({
 
   const loadPresets = useCallback(async () => {
     try {
-      const presets = await getStorage().schemaPresets.getAll()
+      const presets = wsUid
+        ? await getStorage().schemaPresets.getByWorkspace(wsUid)
+        : await getStorage().schemaPresets.getAll()
       setCustomPresets(presets)
     } catch {
       // IDB not ready
     }
-  }, [])
+  }, [wsUid])
 
   useEffect(() => {
     if (open) loadPresets()

@@ -1223,12 +1223,14 @@ export function SchemaPresetsPage() {
 
   const loadCustomPresets = useCallback(async () => {
     try {
-      const presets = await getStorage().schemaPresets.getAll()
+      const presets = wsUid
+        ? await getStorage().schemaPresets.getByWorkspace(wsUid)
+        : await getStorage().schemaPresets.getAll()
       setCustomPresets(presets)
     } catch {
       // IDB not ready yet
     }
-  }, [])
+  }, [wsUid])
 
   useEffect(() => {
     loadCustomPresets()
@@ -1266,6 +1268,7 @@ export function SchemaPresetsPage() {
       mapping: newMapping,
       createdAt: now,
       updatedAt: now,
+      workspaceId: wsUid,
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
@@ -1284,6 +1287,7 @@ export function SchemaPresetsPage() {
       mapping: { ...mapping, presetId },
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
+      workspaceId: wsUid ?? existing?.workspaceId,
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
@@ -1319,6 +1323,7 @@ export function SchemaPresetsPage() {
         mapping: imported,
         createdAt: now,
         updatedAt: now,
+        workspaceId: wsUid,
       }
       await getStorage().schemaPresets.save(preset)
       await loadCustomPresets()
@@ -1347,6 +1352,7 @@ export function SchemaPresetsPage() {
       mapping: newMapping,
       createdAt: now,
       updatedAt: now,
+      workspaceId: wsUid,
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()

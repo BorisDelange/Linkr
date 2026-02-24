@@ -32,6 +32,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { PluginEditor } from './PluginEditor'
@@ -249,11 +250,12 @@ export function PluginsTab() {
     const storage = getStorage()
 
     // If a plugin with this id already exists, update it; otherwise create
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
     const existing = await storage.userPlugins.getById(id)
     if (existing) {
-      await storage.userPlugins.update(id, { files, updatedAt: now })
+      await storage.userPlugins.update(id, { files, updatedAt: now, workspaceId: wsId ?? undefined })
     } else {
-      await storage.userPlugins.create({ id, files, createdAt: now, updatedAt: now })
+      await storage.userPlugins.create({ id, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined })
     }
 
     // Hot-register
@@ -266,7 +268,9 @@ export function PluginsTab() {
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      const plugin = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
+      plugin.workspaceId = wsId ?? undefined
+      registerPlugin(plugin)
     } catch { /* skip */ }
 
     await refreshPluginList()

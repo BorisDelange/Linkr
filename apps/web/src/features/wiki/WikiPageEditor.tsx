@@ -120,6 +120,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
     return (
       <WikiHistoryPanel
         page={page}
+        workspaceId={workspaceId}
         resolveAttachmentUrls={resolveAttachmentUrls}
         onRestore={handleRestoreVersion}
         onClose={() => setViewMode('view')}

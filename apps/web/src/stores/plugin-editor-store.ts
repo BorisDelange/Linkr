@@ -138,17 +138,20 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   setActivePluginTab(tab) { set({ activePluginTab: tab }) },
 
   async refreshPluginList() {
-    // Built-in plugins from registry
+    // Built-in plugins from registry (no workspaceId = true built-in)
     const registryPlugins = getAllPlugins()
     if (builtInIds.size === 0) {
       for (const p of registryPlugins) {
-        builtInIds.add(p.manifest.id)
+        if (!p.workspaceId) builtInIds.add(p.manifest.id)
       }
     }
 
-    // User plugins from IDB
+    // User plugins from IDB — filtered by active workspace
     const storage = getStorage()
-    const userPlugins = await storage.userPlugins.getAll()
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    const userPlugins = wsId
+      ? await storage.userPlugins.getByWorkspace(wsId)
+      : await storage.userPlugins.getAll()
     const userIds = new Set(userPlugins.map(up => {
       try {
         const m = JSON.parse(up.files['plugin.json'] ?? '{}')
@@ -157,20 +160,27 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }))
 
     const list: PluginListItem[] = []
+    // Add built-in plugins (those without workspaceId)
     for (const p of registryPlugins) {
+      if (p.workspaceId) continue // skip user plugins in registry — we add them from IDB below
       list.push({
         id: p.manifest.id,
         manifest: p.manifest,
-        isBuiltIn: builtInIds.has(p.manifest.id) && !userIds.has(p.manifest.id),
+        isBuiltIn: !userIds.has(p.manifest.id),
         isSystemPlugin: SYSTEM_PLUGIN_IDS.has(p.manifest.id),
       })
     }
-    // Add user plugins not yet in registry
+    // Add user plugins from IDB (current workspace only)
     for (const up of userPlugins) {
       try {
         const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
-        if (!list.some(p => p.id === manifest.id)) {
-          list.push({ id: manifest.id ?? up.id, manifest, isBuiltIn: false, isSystemPlugin: false })
+        const id = manifest.id ?? up.id
+        // If this user plugin overrides a built-in, replace the built-in entry
+        const existingIdx = list.findIndex(p => p.id === id)
+        if (existingIdx >= 0) {
+          list[existingIdx] = { id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id) }
+        } else {
+          list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: false })
         }
       } catch { /* skip invalid */ }
     }
@@ -258,11 +268,14 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       'analysis.py.template': scaffoldTemplate,
     }
     const now = new Date().toISOString()
-    const userPlugin: UserPlugin = { id, files, createdAt: now, updatedAt: now }
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    const userPlugin: UserPlugin = { id, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
-    registerPlugin(buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate }))
+    const plugin = buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate })
+    plugin.workspaceId = wsId ?? undefined
+    registerPlugin(plugin)
     set({
       editingPluginId: id,
       isBuiltIn: false,
@@ -273,6 +286,19 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       isDirty: false,
     })
     await get().refreshPluginList()
+
+    // Git commit
+    if (wsId) {
+      try {
+        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+        const store = useWorkspaceVersioningStore.getState()
+        await store.ensureRepo(wsId)
+        await store.commitPluginChange(wsId, id, pluginName, 'create')
+      } catch (err) {
+        console.warn('[plugin-editor] Git commit for plugin creation failed:', err)
+      }
+    }
+
     return id
   },
 
@@ -309,7 +335,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     } catch { /* keep as-is */ }
 
     const now = new Date().toISOString()
-    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, createdAt: now, updatedAt: now }
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
     await storage.userPlugins.create(newPlugin)
 
     // Register
@@ -320,7 +347,9 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      const plugin = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
+      plugin.workspaceId = wsId ?? undefined
+      registerPlugin(plugin)
     } catch { /* skip */ }
 
     await state.refreshPluginList()
@@ -330,11 +359,28 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async deletePlugin(id: string) {
+    // Get plugin name before deletion for commit message
+    const plugin = get().pluginList.find((p) => p.id === id)
+    const pluginName = plugin?.manifest.name?.en ?? id
+
     const storage = getStorage()
     await storage.userPlugins.delete(id)
     unregisterPlugin(id)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
+
+    // Git commit
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    if (wsId) {
+      try {
+        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+        const store = useWorkspaceVersioningStore.getState()
+        await store.ensureRepo(wsId)
+        await store.commitPluginChange(wsId, id, pluginName, 'delete')
+      } catch (err) {
+        console.warn('[plugin-editor] Git commit for plugin deletion failed:', err)
+      }
+    }
   },
 
   async savePlugin() {
@@ -371,7 +417,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
     if (isBuiltIn) {
       // First save of a built-in plugin: create as user plugin
-      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now })
+      const wsId = useWorkspaceStore.getState().activeWorkspaceId
+      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined })
       set({ isBuiltIn: false })
     } else {
       await storage.userPlugins.update(editingPluginId, {
@@ -394,6 +441,21 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
     set({ isDirty: false, originalFiles: { ...files } })
     await get().refreshPluginList()
+
+    // Git commit
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    if (wsId) {
+      try {
+        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+        const pluginName = manifest.name?.en ?? editingPluginId
+        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+        const store = useWorkspaceVersioningStore.getState()
+        await store.ensureRepo(wsId)
+        await store.commitPluginChange(wsId, editingPluginId, pluginName, 'update')
+      } catch (err) {
+        console.warn('[plugin-editor] Git commit for plugin save failed:', err)
+      }
+    }
   },
 
   // File actions

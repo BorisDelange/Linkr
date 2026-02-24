@@ -1,26 +1,58 @@
+import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitBranch } from 'lucide-react'
-import { Card } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
+import { useParams } from 'react-router'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
+import { WsLocalHistoryTab } from './WsLocalHistoryTab'
+import { WsRemoteGitTab } from './WsRemoteGitTab'
+import { WsExportTab } from './WsExportTab'
 
 export function AppVersioningPage() {
   const { t } = useTranslation()
+  const { wsUid } = useParams<{ wsUid: string }>()
+  const { ensureRepo, loadCommits, refreshStatus } = useWorkspaceVersioningStore()
+
+  useEffect(() => {
+    if (wsUid) {
+      ensureRepo(wsUid).then(() => {
+        loadCommits(wsUid)
+        refreshStatus(wsUid)
+      })
+    }
+  }, [wsUid, ensureRepo, loadCommits, refreshStatus])
+
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 px-6 pt-6 pb-2">
         <h1 className="text-2xl font-bold text-foreground">{t('app_versioning.title')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{t('app_versioning.description')}</p>
-        <Card className="mt-6">
-          <div className="flex flex-col items-center py-12">
-            <GitBranch size={40} className="text-muted-foreground" />
-            <div className="mt-4 flex items-center gap-2">
-              <p className="text-sm font-medium text-foreground">{t('app_versioning.title')}</p>
-              <Badge variant="secondary" className="text-[10px]">{t('app_versioning.coming_soon')}</Badge>
-            </div>
-            <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">{t('app_versioning.coming_soon_description')}</p>
-          </div>
-        </Card>
       </div>
+
+      <Tabs defaultValue="history" className="flex min-h-0 flex-1 flex-col px-6">
+        <TabsList className="mx-auto w-fit shrink-0">
+          <TabsTrigger value="history">{t('versioning.tab_history')}</TabsTrigger>
+          <TabsTrigger value="remote">{t('versioning.tab_remote')}</TabsTrigger>
+          <TabsTrigger value="export">{t('versioning.tab_export')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="history" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl space-y-6 pt-2">
+            <WsLocalHistoryTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="remote" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl space-y-6 pt-2">
+            <WsRemoteGitTab />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="export" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl space-y-6 pt-2">
+            <WsExportTab />
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

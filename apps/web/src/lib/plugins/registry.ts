@@ -39,14 +39,24 @@ export function getAllPlugins(): Plugin[] {
   return Array.from(plugins.values())
 }
 
-/** Return only plugins scoped to Lab (datasets/dashboards). */
-export function getLabPlugins(): Plugin[] {
-  return Array.from(plugins.values()).filter(p => (p.manifest.scope ?? 'lab') === 'lab')
+/** Return only plugins scoped to Lab (datasets/dashboards).
+ *  If workspaceId is provided, only include user plugins belonging to that workspace (built-ins always included). */
+export function getLabPlugins(workspaceId?: string): Plugin[] {
+  return Array.from(plugins.values()).filter(p => {
+    if ((p.manifest.scope ?? 'lab') !== 'lab') return false
+    if (workspaceId && p.workspaceId && p.workspaceId !== workspaceId) return false
+    return true
+  })
 }
 
-/** Return only plugins scoped to Warehouse (patient data). */
-export function getWarehousePlugins(): Plugin[] {
-  return Array.from(plugins.values()).filter(p => p.manifest.scope === 'warehouse')
+/** Return only plugins scoped to Warehouse (patient data).
+ *  If workspaceId is provided, only include user plugins belonging to that workspace (built-ins always included). */
+export function getWarehousePlugins(workspaceId?: string): Plugin[] {
+  return Array.from(plugins.values()).filter(p => {
+    if (p.manifest.scope !== 'warehouse') return false
+    if (workspaceId && p.workspaceId && p.workspaceId !== workspaceId) return false
+    return true
+  })
 }
 
 /** Maps a legacy short name (e.g. 'table1') to its full plugin id. */

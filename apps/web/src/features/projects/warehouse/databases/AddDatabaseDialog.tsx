@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
@@ -97,6 +98,7 @@ export function AddDatabaseDialog({
   editingSource,
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
+  const { wsUid } = useParams<{ wsUid: string }>()
   const { addDataSource, updateDataSource, removeDataSource } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
@@ -107,8 +109,11 @@ export function AddDatabaseDialog({
 
   // Load custom presets from IDB
   useEffect(() => {
-    getStorage().schemaPresets.getAll().then(setCustomPresets).catch(() => {})
-  }, [open])
+    const loader = wsUid
+      ? getStorage().schemaPresets.getByWorkspace(wsUid)
+      : getStorage().schemaPresets.getAll()
+    loader.then(setCustomPresets).catch(() => {})
+  }, [open, wsUid])
 
   // Pre-populate fields when editing
   useEffect(() => {
