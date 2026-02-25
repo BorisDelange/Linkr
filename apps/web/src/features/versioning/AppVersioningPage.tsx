@@ -10,16 +10,15 @@ import { WsExportTab } from './WsExportTab'
 export function AppVersioningPage() {
   const { t } = useTranslation()
   const { wsUid } = useParams<{ wsUid: string }>()
-  const { ensureRepo, loadCommits, refreshStatus } = useWorkspaceVersioningStore()
+  const { ensureRepo, loadCommits } = useWorkspaceVersioningStore()
 
   useEffect(() => {
     if (wsUid) {
       ensureRepo(wsUid).then(() => {
         loadCommits(wsUid)
-        refreshStatus(wsUid)
       })
     }
-  }, [wsUid, ensureRepo, loadCommits, refreshStatus])
+  }, [wsUid, ensureRepo, loadCommits])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

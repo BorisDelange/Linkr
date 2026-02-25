@@ -4,12 +4,14 @@ import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 import { KeyIndicatorComponent } from '@/features/projects/lab/datasets/analyses/KeyIndicatorComponent'
+import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/PlotBuilderComponent'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import distributionManifest from '@default-plugins/analyses/distribution/plugin.json'
 import correlationManifest from '@default-plugins/analyses/correlation/plugin.json'
 import crosstabManifest from '@default-plugins/analyses/crosstab/plugin.json'
+import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.json'
 // --- Code templates (raw strings) ---
 import table1Py from '@default-plugins/analyses/table1/table1.py.template?raw'
 import table1R from '@default-plugins/analyses/table1/table1.R.template?raw'
@@ -52,9 +54,9 @@ export function registerDefaultPlugins() {
   registerPlugin(
     buildPlugin(crosstabManifest as unknown as Record<string, unknown>, { python: crosstabPy, r: crosstabR }),
   )
-
   // Component-based lab plugins
   registerComponent('key-indicator', KeyIndicatorComponent)
+  registerComponent('plot-builder', PlotBuilderComponent)
   registerPlugin({
     manifest: {
       id: 'linkr-analysis-key-indicator',
@@ -135,6 +137,11 @@ export function registerDefaultPlugins() {
     },
     templates: null,
     componentId: 'key-indicator',
+  })
+  registerPlugin({
+    manifest: normaliseManifest(plotBuilderManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'plot-builder',
   })
 
   // Warehouse system plugins (built-in patient data widgets)

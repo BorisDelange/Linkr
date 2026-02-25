@@ -1254,6 +1254,18 @@ export function SchemaPresetsPage() {
     return result
   }, [customPresets])
 
+  const autoCommitPreset = async (presetId: string, presetName: string, changeType: 'create' | 'update' | 'delete') => {
+    if (!wsUid) return
+    try {
+      const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+      const store = useWorkspaceVersioningStore.getState()
+      await store.ensureRepo(wsUid)
+      await store.commitSchemaPresetChange(wsUid, presetId, presetName, changeType)
+    } catch (err) {
+      console.warn('[schema-presets] Git commit failed:', err)
+    }
+  }
+
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
     const now = new Date().toISOString()
@@ -1272,16 +1284,21 @@ export function SchemaPresetsPage() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, newMapping.presetLabel, 'create')
   }
 
   const deletePreset = async (presetId: string) => {
+    const preset = customPresets.find((p) => p.presetId === presetId)
+    const presetName = preset?.mapping?.presetLabel ?? presetId
     await getStorage().schemaPresets.delete(presetId)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, presetName, 'delete')
   }
 
   const savePreset = async (presetId: string, mapping: SchemaMapping) => {
     const now = new Date().toISOString()
     const existing = customPresets.find((p) => p.presetId === presetId)
+    const isCreate = !existing
     const preset: CustomSchemaPreset = {
       presetId,
       mapping: { ...mapping, presetId },
@@ -1291,6 +1308,7 @@ export function SchemaPresetsPage() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, mapping.presetLabel, isCreate ? 'create' : 'update')
   }
 
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1327,6 +1345,7 @@ export function SchemaPresetsPage() {
       }
       await getStorage().schemaPresets.save(preset)
       await loadCustomPresets()
+      await autoCommitPreset(presetId, imported.presetLabel, 'create')
       navigate(presetId)
     } catch {
       // Invalid JSON — silently ignore
@@ -1356,6 +1375,7 @@ export function SchemaPresetsPage() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, name, 'create')
     setShowCreateDialog(false)
     navigate(presetId)
   }

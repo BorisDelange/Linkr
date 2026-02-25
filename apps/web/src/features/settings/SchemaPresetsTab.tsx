@@ -932,11 +932,28 @@ export function SchemaPresetsTab() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, newMapping.presetLabel, 'create')
+  }
+
+  const autoCommitPreset = async (presetId: string, presetName: string, changeType: 'create' | 'update' | 'delete') => {
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    if (!wsId) return
+    try {
+      const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
+      const store = useWorkspaceVersioningStore.getState()
+      await store.ensureRepo(wsId)
+      await store.commitSchemaPresetChange(wsId, presetId, presetName, changeType)
+    } catch (err) {
+      console.warn('[schema-presets] Git commit failed:', err)
+    }
   }
 
   const deletePreset = async (presetId: string) => {
+    const preset = customPresets.find((p) => p.presetId === presetId)
+    const presetName = preset?.mapping?.presetLabel ?? presetId
     await getStorage().schemaPresets.delete(presetId)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, presetName, 'delete')
     if (openPresetId === presetId) setOpenPresetId(null)
     if (editingId === presetId) {
       setEditingId(null)
@@ -966,6 +983,7 @@ export function SchemaPresetsTab() {
     }
     await getStorage().schemaPresets.save(updated)
     await loadCustomPresets()
+    await autoCommitPreset(editingId, editMapping.presetLabel, 'update')
     setEditingId(null)
     setEditMapping(null)
   }
@@ -1005,6 +1023,7 @@ export function SchemaPresetsTab() {
       }
       await getStorage().schemaPresets.save(preset)
       await loadCustomPresets()
+      await autoCommitPreset(presetId, imported.presetLabel, 'create')
       setOpenPresetId(presetId)
     } catch {
       // Invalid JSON — silently ignore
@@ -1034,6 +1053,7 @@ export function SchemaPresetsTab() {
     }
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
+    await autoCommitPreset(presetId, name, 'create')
     setShowCreateDialog(false)
     setOpenPresetId(presetId)
     setEditingId(presetId)

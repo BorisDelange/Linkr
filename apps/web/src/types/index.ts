@@ -457,6 +457,21 @@ export interface GitRemoteConfig {
   authToken?: string
 }
 
+export type FileChangeType = 'added' | 'modified' | 'deleted'
+
+export interface CommitFileChange {
+  filepath: string
+  changeType: FileChangeType
+  parentBlobOid: string | null
+  commitBlobOid: string | null
+}
+
+export interface RestoreResult {
+  success: boolean
+  restoredFiles: string[]
+  commitOid?: string
+}
+
 // --- Pipeline Types ---
 
 export type PipelineNodeType = 'database' | 'cohort' | 'scripts' | 'dataset' | 'dashboard' | 'group'
