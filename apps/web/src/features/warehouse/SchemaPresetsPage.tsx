@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, Suspense, lazy, useMemo } from 'react'
+import { useState, useEffect, useCallback, Suspense, lazy, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
 import {
@@ -18,6 +18,7 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -45,8 +46,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
@@ -861,6 +868,7 @@ function SchemaCard({
   onDelete?: () => void
 }) {
   const { t } = useTranslation()
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Count mapped tables (all distinct table names referenced in the mapping)
   const mappedTableNames = new Set<string>()
@@ -877,10 +885,10 @@ function SchemaCard({
   return (
     <div
       className="rounded-lg border bg-card hover:bg-accent/30 transition-colors cursor-pointer"
-      onClick={onNavigate}
+      onClick={() => { if (!menuOpen) onNavigate() }}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onNavigate() }}
+      onKeyDown={(e) => { if (!menuOpen && (e.key === 'Enter' || e.key === ' ')) onNavigate() }}
     >
       <div className="flex w-full items-center gap-3 px-4 py-3">
         <div className="flex flex-1 items-center gap-3 min-w-0">
@@ -902,30 +910,38 @@ function SchemaCard({
         </div>
 
         {/* Actions */}
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
               <MoreHorizontal size={14} />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onEdit}>
+          <DropdownMenuContent align="end" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuItem onSelect={onEdit}>
               <Pencil size={14} />
               {t('common.edit')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onExport}>
+            <DropdownMenuItem onSelect={onExport}>
               <Download size={14} />
               {t('settings.schema_preset_export')}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onDuplicate}>
+            <DropdownMenuItem onSelect={onDuplicate}>
               <Copy size={14} />
               {t('settings.schema_preset_duplicate')}
             </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <History size={14} />
+              {t('common.history')}
+              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+            </DropdownMenuItem>
             {onDelete && (
-              <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-                <Trash2 size={14} />
-                {t('settings.schema_preset_delete')}
-              </DropdownMenuItem>
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
+                  <Trash2 size={14} />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </>
             )}
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1294,8 +1310,6 @@ export function SchemaPresetsPage() {
     await loadCustomPresets()
   }
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
   const exportPreset = (mapping: SchemaMapping) => {
     const exportData = structuredClone(mapping)
     delete (exportData as { knownTables?: string[] }).knownTables
@@ -1307,31 +1321,6 @@ export function SchemaPresetsPage() {
     a.download = `linkr-schema-${mapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const importPreset = async (file: File) => {
-    try {
-      const text = await file.text()
-      const imported = JSON.parse(text) as SchemaMapping
-      if (!imported.presetLabel) {
-        imported.presetLabel = file.name.replace(/\.json$/, '')
-      }
-      const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
-      const now = new Date().toISOString()
-      imported.presetId = presetId
-      const preset: CustomSchemaPreset = {
-        presetId,
-        mapping: imported,
-        createdAt: now,
-        updatedAt: now,
-        workspaceId: wsUid,
-      }
-      await getStorage().schemaPresets.save(preset)
-      await loadCustomPresets()
-      navigate(presetId)
-    } catch {
-      // Invalid JSON — silently ignore
-    }
   }
 
   const openCreateDialog = () => {
@@ -1406,23 +1395,19 @@ export function SchemaPresetsPage() {
               <h1 className="text-2xl font-bold text-foreground">{t('schemas.title')}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{t('schemas.description')}</p>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) importPreset(file)
-                  e.target.value = ''
-                }}
-              />
-              <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={14} />
-                {t('settings.schema_preset_import')}
-              </Button>
-              <Button size="sm" onClick={openCreateDialog}>
+            <div className="flex items-center gap-1 shrink-0">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                      <Upload size={14} />
+                      {t('common.import')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+              </Tooltip>
+              <Button size="sm" onClick={openCreateDialog} className="gap-1 text-xs">
                 <Plus size={14} />
                 {t('schemas.new_schema')}
               </Button>

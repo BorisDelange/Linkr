@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { Workflow, Plus, Trash2, Pencil, Database, ArrowRight, MoreHorizontal } from 'lucide-react'
+import { Workflow, Plus, Trash2, Pencil, Download, History, Database, ArrowRight, MoreHorizontal, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -9,8 +9,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,10 +82,23 @@ export function EtlListPage() {
               {t('etl.description')}
             </p>
           </div>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus size={16} />
-            {t('etl.new_pipeline')}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                    <Upload size={14} />
+                    {t('common.import')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+            </Tooltip>
+            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+              <Plus size={14} />
+              {t('etl.new_pipeline')}
+            </Button>
+          </div>
         </div>
 
         {pipelines.length === 0 ? (
@@ -149,6 +168,17 @@ export function EtlListPage() {
                           <Pencil size={14} />
                           {t('common.edit')}
                         </DropdownMenuItem>
+                        <DropdownMenuItem disabled>
+                          <Download size={14} />
+                          {t('common.export')}
+                          <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled>
+                          <History size={14} />
+                          {t('common.history')}
+                          <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem
                           onClick={(e) => { e.stopPropagation(); setPipelineToDelete(pipeline) }}
                           className="text-destructive focus:text-destructive"

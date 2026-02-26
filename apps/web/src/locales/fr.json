@@ -68,6 +68,8 @@
     "action_plugins_description": "Gérer les plugins de l'espace de travail",
     "action_databases": "Bases de données",
     "action_databases_description": "Connecter et configurer les sources de données",
+    "action_concept_mapping": "Mapping de concepts",
+    "action_concept_mapping_description": "Mapper les concepts sources vers des vocabulaires standards",
     "action_versioning": "Versioning",
     "action_versioning_description": "Suivre les changements et collaborer",
     "settings_title": "Paramètres de l'espace de travail",
@@ -1447,7 +1449,7 @@
     "schema_preset_new": "Nouveau preset",
     "schema_preset_new_name": "Nouveau modèle de schéma",
     "schema_preset_new_description": "Entrez un nom pour le nouveau preset de schéma.",
-    "schema_preset_export": "Exporter JSON",
+    "schema_preset_export": "Exporter",
     "schema_preset_import": "Importer",
     "tab_users": "Utilisateurs",
     "tab_organizations": "Organisations",
@@ -1806,7 +1808,10 @@
     "clear": "Effacer",
     "page": "Page",
     "settings": "Paramètres",
-    "name_already_exists": "Ce nom est déjà utilisé."
+    "name_already_exists": "Ce nom est déjà utilisé.",
+    "history": "Historique",
+    "duplicate": "Dupliquer",
+    "upload": "Importer"
   },
   "user_menu": {
     "profile": "Profil",

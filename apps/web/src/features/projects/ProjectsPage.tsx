@@ -3,10 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { Plus, FolderOpen, Search } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 
@@ -55,10 +60,23 @@ export function ProjectsPage() {
           <h1 className="text-2xl font-bold text-foreground">
             {t('projects.title')}
           </h1>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus size={16} />
-            {t('projects.create')}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                    <Upload size={14} />
+                    {t('common.import')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+            </Tooltip>
+            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+              <Plus size={14} />
+              {t('projects.create')}
+            </Button>
+          </div>
         </div>
 
         {displayProjects.length > 0 && (

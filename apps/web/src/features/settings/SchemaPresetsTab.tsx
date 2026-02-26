@@ -1,17 +1,18 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Database,
   Lock,
   Copy,
   Trash2,
-  Pencil,
   Plus,
   X,
   Check,
-  Eye,
   Download,
   Upload,
+  MoreHorizontal,
+  History,
+  Pencil,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,18 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -854,21 +867,37 @@ function PresetCard({
         </button>
 
         {/* Actions */}
-        <div className="flex items-center gap-1 shrink-0">
-          <Button variant="ghost" size="icon-sm" onClick={onOpen} title="View">
-            <Eye size={13} />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onExport} title={t('settings.schema_preset_export')}>
-            <Download size={13} />
-          </Button>
-          <Button variant="ghost" size="icon-sm" onClick={onDuplicate} title={t('settings.schema_preset_duplicate')}>
-            <Copy size={13} />
-          </Button>
-          {!isBuiltin && onDelete && (
-            <Button variant="ghost" size="icon-sm" onClick={onDelete} title={t('settings.schema_preset_delete')} className="text-destructive">
-              <Trash2 size={13} />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal size={14} />
             </Button>
-          )}
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onExport}>
+              <Download size={14} />
+              {t('settings.schema_preset_export')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onDuplicate}>
+              <Copy size={14} />
+              {t('settings.schema_preset_duplicate')}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <History size={14} />
+              {t('common.history')}
+              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+            </DropdownMenuItem>
+            {!isBuiltin && onDelete && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                  <Trash2 size={14} />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
         </div>
       </div>
     </div>
@@ -971,8 +1000,6 @@ export function SchemaPresetsTab() {
     setEditMapping(null)
   }
 
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
   const exportPreset = (mapping: SchemaMapping) => {
     // Export only the mapping (no internal IDs)
     const exportData = structuredClone(mapping)
@@ -985,31 +1012,6 @@ export function SchemaPresetsTab() {
     a.download = `linkr-schema-${mapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const importPreset = async (file: File) => {
-    try {
-      const text = await file.text()
-      const imported = JSON.parse(text) as SchemaMapping
-      if (!imported.presetLabel) {
-        imported.presetLabel = file.name.replace(/\.json$/, '')
-      }
-      const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
-      const now = new Date().toISOString()
-      imported.presetId = presetId
-      const preset: CustomSchemaPreset = {
-        presetId,
-        mapping: imported,
-        createdAt: now,
-        updatedAt: now,
-        workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
-      }
-      await getStorage().schemaPresets.save(preset)
-      await loadCustomPresets()
-      setOpenPresetId(presetId)
-    } catch {
-      // Invalid JSON — silently ignore
-    }
   }
 
   const openCreateDialog = () => {
@@ -1057,23 +1059,19 @@ export function SchemaPresetsTab() {
           <h3 className="text-sm font-medium text-foreground">{t('settings.schema_presets_title')}</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.schema_presets_description')}</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) importPreset(file)
-              e.target.value = ''
-            }}
-          />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-            <Upload size={14} />
-            {t('settings.schema_preset_import')}
-          </Button>
-          <Button size="sm" onClick={openCreateDialog}>
+        <div className="flex items-center gap-1 shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0}>
+                <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                  <Upload size={14} />
+                  {t('common.import')}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+          </Tooltip>
+          <Button size="sm" onClick={openCreateDialog} className="gap-1 text-xs">
             <Plus size={14} />
             {t('settings.schema_preset_new')}
           </Button>

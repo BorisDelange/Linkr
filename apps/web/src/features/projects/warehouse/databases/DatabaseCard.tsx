@@ -10,6 +10,7 @@ import {
   Trash2,
   Check,
   Download,
+  History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -167,6 +168,11 @@ export function DatabaseCard({
                       {t('databases.export')}
                     </DropdownMenuItem>
                   )}
+                  <DropdownMenuItem disabled>
+                    <History size={14} />
+                    {t('common.history')}
+                    <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={(e) => { e.stopPropagation(); onRemove() }}

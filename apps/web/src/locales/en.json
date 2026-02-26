@@ -68,6 +68,8 @@
     "action_plugins_description": "Manage workspace plugins",
     "action_databases": "Databases",
     "action_databases_description": "Connect and configure data sources",
+    "action_concept_mapping": "Concept Mapping",
+    "action_concept_mapping_description": "Map source concepts to standard vocabularies",
     "action_versioning": "Versioning",
     "action_versioning_description": "Track changes and collaborate",
     "settings_title": "Workspace Settings",
@@ -1447,7 +1449,7 @@
     "schema_preset_new": "New preset",
     "schema_preset_new_name": "New schema preset",
     "schema_preset_new_description": "Enter a name for the new schema preset.",
-    "schema_preset_export": "Export JSON",
+    "schema_preset_export": "Export",
     "schema_preset_import": "Import",
     "tab_users": "Users",
     "tab_organizations": "Organizations",
@@ -1806,7 +1808,10 @@
     "clear": "Clear",
     "page": "Page",
     "settings": "Settings",
-    "name_already_exists": "This name is already taken."
+    "name_already_exists": "This name is already taken.",
+    "history": "History",
+    "duplicate": "Duplicate",
+    "upload": "Upload"
   },
   "user_menu": {
     "profile": "Profile",

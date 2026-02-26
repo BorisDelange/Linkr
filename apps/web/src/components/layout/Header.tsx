@@ -8,6 +8,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
+import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
@@ -98,6 +99,7 @@ export function Header() {
   const catalogs = useCatalogStore((s) => s.catalogs)
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const cohorts = useCohortStore((s) => s.cohorts)
+  const dqRuleSets = useDqStore((s) => s.dqRuleSets)
   const sqlCollections = useSqlScriptsStore((s) => s.collections)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
@@ -174,6 +176,13 @@ export function Header() {
       if (cmMatch) {
         const mp = mappingProjects.find((p) => p.id === cmMatch[1])
         return mp?.name ?? t('app_warehouse.nav_concept_mapping')
+      }
+
+      // Data quality rule set detail: show rule set name
+      const dqMatch = segment.match(/^warehouse\/data-quality\/(.+)$/)
+      if (dqMatch) {
+        const rs = dqRuleSets.find((r) => r.id === dqMatch[1])
+        return rs?.name ?? t('app_warehouse.nav_data_quality')
       }
 
       // Schema detail: show preset label

@@ -6,6 +6,7 @@ import { useAppStore } from '@/stores/app-store'
 import {
   FolderOpen,
   ArrowRight,
+  ArrowRightLeft,
   BookOpen,
   Database,
   GitBranch,
@@ -70,6 +71,13 @@ export function WorkspaceHomePage() {
       descKey: 'workspaces.action_databases_description',
       color: 'bg-teal-500/10 text-teal-600',
       path: `warehouse/databases`,
+    },
+    {
+      icon: ArrowRightLeft,
+      labelKey: 'workspaces.action_concept_mapping',
+      descKey: 'workspaces.action_concept_mapping_description',
+      color: 'bg-violet-500/10 text-violet-600',
+      path: `warehouse/concept-mapping`,
     },
     {
       icon: GitBranch,

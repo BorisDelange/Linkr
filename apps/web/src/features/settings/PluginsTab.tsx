@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
@@ -29,8 +29,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
@@ -113,8 +119,19 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDelete, t }: PluginCardP
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={(e) => onExport(plugin.id, e as unknown as React.MouseEvent)}>
                 <Download size={14} />
-                {t('plugins.export')}
+                {t('common.export')}
               </DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                <Copy size={14} />
+                {t('common.duplicate')}
+                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>
+                <History size={14} />
+                {t('common.history')}
+                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={(e) => { e.stopPropagation(); onDelete(plugin.id) }}
                 className="text-destructive focus:text-destructive"
@@ -185,7 +202,6 @@ export function PluginsTab() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPluginName, setNewPluginName] = useState('')
   const [createScope, setCreateScope] = useState<PluginScope>('lab')
-  const importRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     refreshPluginList()
@@ -227,55 +243,6 @@ export function PluginsTab() {
     URL.revokeObjectURL(url)
   }, [])
 
-  // Import plugin from ZIP
-  const handleImport = useCallback(async (file: File) => {
-    const zip = await JSZip.loadAsync(file)
-    const files: Record<string, string> = {}
-    for (const [path, entry] of Object.entries(zip.files)) {
-      if (!entry.dir) {
-        files[path] = await entry.async('string')
-      }
-    }
-
-    // Determine plugin ID from manifest
-    let id: string
-    try {
-      const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-      id = manifest.id ?? `user-plugin-${Date.now()}`
-    } catch {
-      id = `user-plugin-${Date.now()}`
-    }
-
-    const now = new Date().toISOString()
-    const storage = getStorage()
-
-    // If a plugin with this id already exists, update it; otherwise create
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    const existing = await storage.userPlugins.getById(id)
-    if (existing) {
-      await storage.userPlugins.update(id, { files, updatedAt: now, workspaceId: wsId ?? undefined })
-    } else {
-      await storage.userPlugins.create({ id, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined })
-    }
-
-    // Hot-register
-    try {
-      const { buildPlugin } = await import('@/lib/plugins/default-plugins')
-      const { registerPlugin } = await import('@/lib/plugins/registry')
-      const manifest = JSON.parse(files['plugin.json'] ?? '{}') as Record<string, unknown>
-      const templates: Record<string, string> = {}
-      for (const [filename, content] of Object.entries(files)) {
-        if (filename.endsWith('.py.template')) templates.python = content
-        else if (filename.endsWith('.R.template')) templates.r = content
-      }
-      const plugin = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
-      plugin.workspaceId = wsId ?? undefined
-      registerPlugin(plugin)
-    } catch { /* skip */ }
-
-    await refreshPluginList()
-  }, [refreshPluginList])
-
   // If editing a plugin, show the editor instead of the list
   if (editingPluginId) {
     return <PluginEditor />
@@ -313,26 +280,17 @@ export function PluginsTab() {
           <p className="text-sm text-muted-foreground">{t('plugins.description')}</p>
         </div>
         <div className="flex items-center gap-1">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => importRef.current?.click()}
-            className="gap-1 text-xs"
-          >
-            <Upload size={14} />
-            {t('plugins.import')}
-          </Button>
-          <input
-            ref={importRef}
-            type="file"
-            accept=".zip"
-            className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) handleImport(file)
-              e.target.value = ''
-            }}
-          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0}>
+                <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                  <Upload size={14} />
+                  {t('common.import')}
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+          </Tooltip>
           <Button size="sm" onClick={() => { setNewPluginName(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
             <Plus size={14} />
             {t('plugins.new_plugin')}
