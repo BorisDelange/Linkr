@@ -160,6 +160,8 @@
     "empty_description": "Ajoutez des widgets pour visualiser vos données. Glissez-déposez pour organiser votre dashboard.",
     "add_widget_title": "Ajouter un widget",
     "add_widget_description": "Choisissez un widget à ajouter à l'onglet actif.",
+    "widget_name": "Nom du widget",
+    "widget_name_placeholder": "Saisir un nom...",
     "edit_widget": "Éditer le widget",
     "rename_widget": "Renommer",
     "widget_no_dataset": "Aucun dataset configuré pour ce widget.",
@@ -923,6 +925,8 @@
     "no_diagnosis_table": "Aucune table de diagnostics dans cette base.",
     "add_widget_title": "Ajouter un widget",
     "add_widget_description": "Choisissez un type de widget pour le dossier patient.",
+    "widget_name": "Nom du widget",
+    "widget_name_placeholder": "Saisir un nom...",
     "widget_summary": "Résumé patient",
     "widget_summary_desc": "Démographie, âge, sexe et nombre d'hospitalisations.",
     "widget_timeline": "Chronologie",
@@ -1188,7 +1192,9 @@
     "import_drop": "Déposez un fichier ZIP ici ou cliquez pour parcourir",
     "import_button": "Importer",
     "coming_soon": "Bientôt disponible",
-    "coming_soon_description": "Le versioning vous permettra de suivre les modifications, créer des instantanés et synchroniser votre projet avec un dépôt Git distant."
+    "coming_soon_description": "Le versioning vous permettra de suivre les modifications, créer des instantanés et synchroniser votre projet avec un dépôt Git distant.",
+    "requires_backend": "Le versioning nécessite une connexion au backend",
+    "requires_backend_description": "L'historique des versions, les commits et la restauration sont disponibles avec un serveur Linkr. En mode local, vous pouvez toujours exporter et importer vos données au format ZIP."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -1867,7 +1873,16 @@
     "help_mermaid": "Diagramme Mermaid (flowchart, séquence, Gantt...)",
     "help_details": "Bloc repliable/dépliable",
     "help_toc": "Table des matières auto-générée",
-    "help_wikilink": "Lien vers une autre page wiki par son nom"
+    "help_wikilink": "Lien vers une autre page wiki par son nom",
+    "wiki_history": "Historique du wiki",
+    "no_wiki_history": "Aucun historique du wiki.",
+    "no_wiki_history_description": "Les modifications des pages wiki apparaîtront ici après la première sauvegarde.",
+    "restore_wiki_title": "Restaurer le wiki ?",
+    "restore_wiki_description": "Cela restaurera toutes les pages wiki à l'état du commit « {{message}} » ({{hash}}). Les autres entités (plugins, schémas, bases de données) ne seront pas affectées.",
+    "preview": "Aperçu",
+    "preview_tooltip": "Aperçu du rendu markdown",
+    "diff": "Diff",
+    "diff_tooltip": "Diff source côte à côte"
   },
   "app_warehouse": {
     "title": "Entrepôt de données",

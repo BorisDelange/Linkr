@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   TableIcon,
@@ -113,6 +114,9 @@ export function AddPatientWidgetDialog({
   const lang = i18n.language as 'en' | 'fr'
   const { addWidget } = usePatientChartStore()
 
+  // Widget name
+  const [widgetName, setWidgetName] = useState('')
+
   // Plugin config step state
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   const [pluginLanguage, setPluginLanguage] = useState<'python' | 'r'>('python')
@@ -128,11 +132,12 @@ export function AddPatientWidgetDialog({
     setConfigPlugin(null)
     setPluginConfig({})
     setPluginLanguage('python')
+    setWidgetName('')
     onOpenChange(false)
   }
 
   const handleAdd = (wt: WidgetTypeOption) => {
-    addWidget(tabId, wt.type, t(wt.nameKey))
+    addWidget(tabId, wt.type, widgetName.trim() || t(wt.nameKey))
     resetAndClose()
   }
 
@@ -141,32 +146,34 @@ export function AddPatientWidgetDialog({
     const hasBothLangs = !!(plugin.templates?.python && plugin.templates?.r)
     const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
 
+    const defaultName = plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.manifest.id
+    setWidgetName((prev) => prev || defaultName)
+
     if (hasConfig || hasBothLangs) {
       setConfigPlugin(plugin)
       setPluginConfig({})
       setPluginLanguage(defaultLang)
     } else {
       // No config needed, add immediately
-      const name = plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.manifest.id
       const config: PluginWidgetConfig = {
         pluginId: plugin.manifest.id,
         language: defaultLang,
         pluginConfig: {},
       }
-      addWidget(tabId, 'plugin', name, config)
+      addWidget(tabId, 'plugin', widgetName.trim() || defaultName, config)
       resetAndClose()
     }
   }
 
   const handleConfirmPlugin = () => {
     if (!configPlugin) return
-    const name = configPlugin.manifest.name?.[lang] ?? configPlugin.manifest.name?.en ?? configPlugin.manifest.id
+    const fallbackName = configPlugin.manifest.name?.[lang] ?? configPlugin.manifest.name?.en ?? configPlugin.manifest.id
     const config: PluginWidgetConfig = {
       pluginId: configPlugin.manifest.id,
       language: pluginLanguage,
       pluginConfig: { ...pluginConfig },
     }
-    addWidget(tabId, 'plugin', name, config)
+    addWidget(tabId, 'plugin', widgetName.trim() || fallbackName, config)
     resetAndClose()
   }
 
@@ -196,6 +203,16 @@ export function AddPatientWidgetDialog({
           </DialogHeader>
 
           <div className="space-y-4">
+            <div className="space-y-1">
+              <Label className="text-xs">{t('patient_data.widget_name')}</Label>
+              <Input
+                value={widgetName}
+                onChange={(e) => setWidgetName(e.target.value)}
+                placeholder={t('patient_data.widget_name_placeholder')}
+                className="h-8 text-sm"
+              />
+            </div>
+
             {configHasBothLangs && (
               <div className="space-y-1">
                 <Label className="text-xs">{t('common.language')}</Label>
@@ -245,6 +262,16 @@ export function AddPatientWidgetDialog({
             {t('patient_data.add_widget_description')}
           </DialogDescription>
         </DialogHeader>
+        <div className="space-y-1">
+          <Label className="text-xs">{t('patient_data.widget_name')}</Label>
+          <Input
+            value={widgetName}
+            onChange={(e) => setWidgetName(e.target.value)}
+            placeholder={t('patient_data.widget_name_placeholder')}
+            className="h-8 text-sm"
+          />
+        </div>
+
         <div className="mt-2 grid gap-2">
           {widgetTypes.map((wt) => (
             <button

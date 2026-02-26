@@ -160,6 +160,8 @@
     "empty_description": "Add widgets to visualize your data. Drag and drop to arrange your dashboard.",
     "add_widget_title": "Add a widget",
     "add_widget_description": "Choose a widget to add to the current tab.",
+    "widget_name": "Widget name",
+    "widget_name_placeholder": "Enter a name...",
     "edit_widget": "Edit widget",
     "rename_widget": "Rename",
     "widget_no_dataset": "No dataset configured for this widget.",
@@ -923,6 +925,8 @@
     "no_diagnosis_table": "No diagnosis table in this database.",
     "add_widget_title": "Add a widget",
     "add_widget_description": "Choose a widget type for the patient chart.",
+    "widget_name": "Widget name",
+    "widget_name_placeholder": "Enter a name...",
     "widget_summary": "Patient summary",
     "widget_summary_desc": "Demographics, age, gender, and hospitalization count.",
     "widget_timeline": "Timeline",
@@ -1188,7 +1192,9 @@
     "import_drop": "Drop a ZIP file here or click to browse",
     "import_button": "Import",
     "coming_soon": "Coming soon",
-    "coming_soon_description": "Version control will let you track changes, create snapshots, and synchronize your project with a remote Git repository."
+    "coming_soon_description": "Version control will let you track changes, create snapshots, and synchronize your project with a remote Git repository.",
+    "requires_backend": "Versioning requires a backend connection",
+    "requires_backend_description": "Version history, commits, and restore features are available when connected to a Linkr server. In local mode, you can still export and import your data as a ZIP archive."
   },
   "summary": {
     "tab_overview": "Overview",
@@ -1867,7 +1873,16 @@
     "help_mermaid": "Mermaid diagram (flowchart, sequence, Gantt...)",
     "help_details": "Collapsible/expandable block",
     "help_toc": "Auto-generated table of contents",
-    "help_wikilink": "Link to another wiki page by name"
+    "help_wikilink": "Link to another wiki page by name",
+    "wiki_history": "Wiki history",
+    "no_wiki_history": "No wiki history yet.",
+    "no_wiki_history_description": "Changes to wiki pages will appear here after the first save.",
+    "restore_wiki_title": "Restore wiki?",
+    "restore_wiki_description": "This will restore all wiki pages to the state of commit \"{{message}}\" ({{hash}}). Other entities (plugins, schemas, databases) will not be affected.",
+    "preview": "Preview",
+    "preview_tooltip": "Rendered markdown preview",
+    "diff": "Diff",
+    "diff_tooltip": "Side-by-side source diff"
   },
   "app_warehouse": {
     "title": "Data Warehouse",

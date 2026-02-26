@@ -9,6 +9,7 @@ import type { Plugin } from '@/types/plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
   Dialog,
@@ -100,6 +101,9 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   const plugins = useMemo(() => getLabPlugins(), [])
   const [selectedPluginId, setSelectedPluginId] = useState('')
 
+  // Widget name
+  const [widgetName, setWidgetName] = useState('')
+
   // Plugin config step
   const [configPlugin, setConfigPlugin] = useState<Plugin | null>(null)
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
@@ -113,6 +117,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     setPluginConfig({})
     setPluginLanguage('python')
     setSelectedPluginId('')
+    setWidgetName('')
     setPendingAction(null)
     onOpenChange(false)
   }
@@ -125,20 +130,22 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     // Default language for this plugin
     const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
 
+    const defaultName = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
+    setWidgetName(defaultName)
+
     if (hasConfig || hasBothLangs) {
       setConfigPlugin(plugin)
       setPluginConfig({})
       setPluginLanguage(defaultLang)
     } else {
       // No config needed, add immediately
-      const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
       const source: DashboardWidgetSource = {
         type: 'plugin',
         pluginId: plugin.manifest.id,
         language: defaultLang,
         config: {},
       }
-      addWidget(tabId, source, name, datasetFileId)
+      addWidget(tabId, source, widgetName.trim() || defaultName, datasetFileId)
       resetAndClose()
     }
   }
@@ -153,14 +160,14 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
 
   const handleConfirmPlugin = () => {
     if (!configPlugin) return
-    const name = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
+    const fallbackName = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
     const source: DashboardWidgetSource = {
       type: 'plugin',
       pluginId: configPlugin.manifest.id,
       language: pluginLanguage,
       config: { ...pluginConfig },
     }
-    addWidget(tabId, source, name, datasetFileId)
+    addWidget(tabId, source, widgetName.trim() || fallbackName, datasetFileId)
     resetAndClose()
   }
 
@@ -171,7 +178,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
       code: `# ${language} code here\n`,
       config: {},
     }
-    addWidget(tabId, source, `Custom ${language}`, datasetFileId)
+    addWidget(tabId, source, widgetName.trim() || `Custom ${language}`, datasetFileId)
     resetAndClose()
   }
 
@@ -182,6 +189,19 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
       doAddInline(language)
     }
   }
+
+  // Widget name input shared between views
+  const nameInput = (
+    <div className="space-y-1">
+      <Label className="text-xs">{t('dashboard.widget_name')}</Label>
+      <Input
+        value={widgetName}
+        onChange={(e) => setWidgetName(e.target.value)}
+        placeholder={t('dashboard.widget_name_placeholder')}
+        className="h-8 text-sm"
+      />
+    </div>
+  )
 
   // Dataset selector shared between views
   const datasetSelector = (
@@ -234,6 +254,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
           </DialogHeader>
 
           <div className="space-y-4 flex-1 min-h-0 overflow-y-auto">
+            {nameInput}
+
             {configHasBothLangs && (
               <div className="space-y-1">
                 <Label className="text-xs">{t('common.language')}</Label>
@@ -285,7 +307,10 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
           </DialogDescription>
         </DialogHeader>
 
-        {datasetSelector}
+        <div className="grid grid-cols-2 gap-3">
+          {nameInput}
+          {datasetSelector}
+        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2 flex-1 min-h-0 flex flex-col">
           <TabsList className="shrink-0">
