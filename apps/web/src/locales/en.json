@@ -1531,6 +1531,7 @@
     "no_config_schema": "No configSchema defined in plugin.json.",
     "import": "Import",
     "export": "Export",
+    "history": "History",
     "version": "Version",
     "badges": "Badges",
     "badge_label_placeholder": "Label",
@@ -1877,7 +1878,7 @@
     "nav_concept_mapping": "Concept Mapping",
     "nav_data_quality": "Data Quality",
     "nav_etl": "ETL Pipelines",
-    "nav_sql_scripts": "SQL Scripts",
+    "nav_sql_scripts": "Script Collections",
     "nav_catalog": "Catalog",
     "databases_description": "{{count}} database(s) available across all projects.",
     "databases_placeholder": "Database management will be available here.",
@@ -2065,8 +2066,8 @@
     "comparison_mapping_concepts": "concepts"
   },
   "sql_scripts": {
-    "title": "SQL Scripts",
-    "description": "Write and run SQL queries against your workspace databases.",
+    "title": "Script Collections",
+    "description": "Organize and run SQL scripts against your workspace databases.",
     "new_collection": "New collection",
     "no_collections": "No script collections",
     "no_collections_description": "Create your first collection to start writing SQL scripts.",
@@ -2141,6 +2142,10 @@
     "restore_title": "Restore to previous version?",
     "restore_description": "This will restore all workspace content (wiki, plugins, schemas, databases) to the state at commit \"{{message}}\" ({{hash}}). A new commit will be created to record this restore.",
     "restore_confirm": "Restore",
+    "restore_entity_title": "Restore {{entityType}}?",
+    "restore_entity_description": "This will restore \"{{name}}\" to the state at commit \"{{message}}\" ({{hash}}). Other entities will not be affected. A new commit will be created.",
+    "no_entity_commits": "No history found",
+    "no_entity_commits_description": "Changes will appear here after the first save.",
     "export_description": "Download your workspace content as a ZIP archive."
   },
   "concept_mapping": {

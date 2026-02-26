@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import {
@@ -72,6 +72,7 @@ interface Props {
 export function SqlScriptsEditorPage({ collectionId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { wsUid } = useParams()
   const {
     collections,
     collectionsLoaded,
@@ -200,7 +201,17 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const executeSql = useCallback(
     async (sql: string, label: string, dataSourceId?: string) => {
       const dsId = dataSourceId ?? collection?.defaultDataSourceId
-      if (!dsId) return
+      if (!dsId) {
+        addExecutionResult({
+          id: `exec-${Date.now()}`,
+          fileName: label,
+          timestamp: Date.now(),
+          duration: 0,
+          success: false,
+          output: t('sql_scripts.no_database_selected'),
+        })
+        return
+      }
       const { testConnection } = useDataSourceStore.getState()
       await testConnection(dsId)
       const start = Date.now()
@@ -326,7 +337,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         <div className="flex items-center gap-2 border-b px-3 py-2">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={() => navigate('..')}>
+              <Button variant="ghost" size="icon-xs" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/sql-scripts`)}>
                 <ArrowLeft size={14} />
               </Button>
             </TooltipTrigger>
@@ -731,7 +742,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                           <CodeEditor
                             key={selectedFileId}
                             value={selectedFile.content ?? ''}
-                            language="sql"
+                            language={selectedFile.name.endsWith('.md') ? 'markdown' : 'sql'}
                             onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
                             onSave={handleSaveFile}
                             onRunFile={handleRunFile}

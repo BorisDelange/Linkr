@@ -8,6 +8,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
+import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -55,6 +56,7 @@ const workspaceSegmentTitleKeys: Record<string, string> = {
   'warehouse/concept-mapping': 'app_warehouse.nav_concept_mapping',
   'warehouse/data-quality': 'app_warehouse.nav_data_quality',
   'warehouse/etl': 'app_warehouse.nav_etl',
+  'warehouse/sql-scripts': 'app_warehouse.nav_sql_scripts',
   'warehouse/catalog': 'app_warehouse.nav_catalog',
   'versioning': 'workspace_nav.versioning',
   'settings': 'workspace_nav.settings',
@@ -96,6 +98,7 @@ export function Header() {
   const catalogs = useCatalogStore((s) => s.catalogs)
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const cohorts = useCohortStore((s) => s.cohorts)
+  const sqlCollections = useSqlScriptsStore((s) => s.collections)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   const handleLanguageToggle = () => {
@@ -150,6 +153,13 @@ export function Header() {
       if (etlMatch) {
         const pipeline = etlPipelines.find((p) => p.id === etlMatch[1])
         return pipeline?.name ?? t('app_warehouse.nav_etl')
+      }
+
+      // SQL script collection: show collection name
+      const sqlMatch = segment.match(/^warehouse\/sql-scripts\/(.+)$/)
+      if (sqlMatch) {
+        const col = sqlCollections.find((c) => c.id === sqlMatch[1])
+        return col?.name ?? t('app_warehouse.nav_sql_scripts')
       }
 
       // Catalog detail: show catalog name

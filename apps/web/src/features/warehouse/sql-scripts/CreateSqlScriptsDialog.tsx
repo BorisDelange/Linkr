@@ -20,7 +20,7 @@ import {
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
-import type { SqlScriptCollection } from '@/types'
+import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 interface Props {
   open: boolean
@@ -33,7 +33,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createCollection, updateCollection } = useSqlScriptsStore()
+  const { createCollection, updateCollection, createFile } = useSqlScriptsStore()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -79,6 +79,18 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           updatedAt: now,
         }
         await createCollection(collection)
+        // Create default README.md
+        const readme: SqlScriptFile = {
+          id: crypto.randomUUID(),
+          collectionId: collection.id,
+          name: 'README.md',
+          type: 'file',
+          parentId: null,
+          content: `# ${name.trim()}\n\n${description.trim() ? description.trim() + '\n' : ''}`,
+          order: 0,
+          createdAt: now,
+        }
+        await createFile(readme)
         onOpenChange(false)
         setName('')
         setDescription('')
