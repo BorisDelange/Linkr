@@ -45,26 +45,29 @@ linkr/
 │   │   │   │   │   │   ├── databases/   # Database cards, import, stats dashboard
 │   │   │   │   │   │   ├── concepts/    # OMOP concept browser (table, detail, stats)
 │   │   │   │   │   │   ├── subsets/     # Cohort builder (criteria forms, editor, cards)
-│   │   │   │   │   │   ├── cohorts/     # Legacy cohort builder (being replaced by subsets/)
+│   │   │   │   │   │   ├── cohorts/     # Cohort builder (ATLAS-style, builder, SQL, results)
 │   │   │   │   │   │   └── patient-data/# Patient timeline, widgets, charts
 │   │   │   │   │   ├── lab/        # Lab pages
 │   │   │   │   │   │   └── datasets/    # Dataset management, analyses, code generators
-│   │   │   │   │   │       └── analyses/# Built-in analysis types (Table1, Distribution, etc.)
+│   │   │   │   │   │       └── analyses/# Built-in analysis types (Table1, KeyIndicator, PlotBuilder, etc.)
 │   │   │   │   │   ├── dashboard/  # Dashboard system (react-grid-layout, widgets, renderers)
 │   │   │   │   │   ├── files/      # IDE: file tree, code editor, notebooks, terminal, connections
 │   │   │   │   │   └── versioning/ # Project versioning (local history, remote git, export)
 │   │   │   │   └── settings/     # App settings, plugin editor, schema presets, users, organizations
-│   │   │   ├── stores/           # Zustand state stores (21 stores)
-│   │   │   ├── hooks/            # Custom React hooks (6 hooks)
+│   │   │   ├── stores/           # Zustand state stores (23 stores)
+│   │   │   ├── hooks/            # Custom React hooks (7 hooks)
 │   │   │   ├── lib/
 │   │   │   │   ├── duckdb/       # DuckDB-WASM engine, OMOP tables, stats, cohort, catalog, DQ queries
 │   │   │   │   ├── runtimes/     # Pyodide + WebR execution engines + bridge + shared-fs
 │   │   │   │   ├── storage/      # IndexedDB persistence layer (idb)
-│   │   │   │   ├── analysis-plugins/ # Analysis plugin system + code templates
+│   │   │   │   ├── plugins/      # Plugin system (registry, builtin widgets, default analysis plugins)
 │   │   │   │   ├── schema-ddl/   # DDL definitions (OMOP 5.4, MIMIC-III, MIMIC-IV)
 │   │   │   │   ├── concept-mapping/ # Concept mapping queries + export
-│   │   │   │   └── dcat-ap/      # DCAT-AP catalog vocabulary, JSON-LD, HTML export
-│   │   │   ├── types/            # TypeScript type definitions (7 files)
+│   │   │   │   ├── dcat-ap/      # DCAT-AP catalog vocabulary, JSON-LD, HTML export
+│   │   │   │   ├── format-helpers.ts # Centralized date/gender formatting, SQL escaping (escSql)
+│   │   │   │   ├── entity-io.ts  # Generic import/export for projects and plugins (ZIP)
+│   │   │   │   └── sanitize.ts   # HTML sanitizer for dangerouslySetInnerHTML
+│   │   │   ├── types/            # TypeScript type definitions (9 files)
 │   │   │   └── locales/          # i18n JSON files (en.json, fr.json)
 │   │   ├── vite.config.ts
 │   │   └── tailwind.config.ts
@@ -78,7 +81,7 @@ linkr/
 │       ├── schemas/
 │       └── migrations/
 │
-├── packages/default-plugins/     # Built-in analysis plugins (table1, distribution, correlation, crosstab)
+├── packages/default-plugins/     # Built-in analysis plugins (table1, plot-builder)
 ├── docker/                       # Docker configs (compose, Dockerfile.web, Dockerfile.api, nginx)
 └── v1/                           # Legacy R/Shiny codebase (reference only)
 ```
@@ -108,7 +111,8 @@ The app uses a **3-level navigation hierarchy**: App → Workspace → Project. 
    ├── 📚 Data Catalog              /workspaces/:wsUid/warehouse/catalog
    ├── ✅ Data Quality              /workspaces/:wsUid/warehouse/data-quality
    ├── ⇄ Concept Mapping           /workspaces/:wsUid/warehouse/concept-mapping
-   └── ⚙️ ETL                       /workspaces/:wsUid/warehouse/etl
+   ├── ⚙️ ETL                       /workspaces/:wsUid/warehouse/etl
+   └── 📝 SQL Scripts               /workspaces/:wsUid/warehouse/sql-scripts
 🌳 Versioning                       /workspaces/:wsUid/versioning
 ── footer ──
 ⚙️ Settings                         /workspaces/:wsUid/settings
@@ -209,7 +213,7 @@ docker compose -f docker/docker-compose.yml up --build  # Rebuild and run
 | Analytics | DuckDB (native + WASM) |
 | WASM Runtimes | Pyodide 0.29 + webR 0.5 |
 | Client Storage | IndexedDB (via idb) — projects, data sources, files, stats cache |
-| Git (local mode) | isomorphic-git + lightning-fs |
+| Git | Server-side only (backend git, no browser git) |
 | File I/O | jszip, xlsx, papaparse |
 | i18n | react-i18next |
 | Icons | lucide-react |
@@ -290,7 +294,7 @@ const { t } = useTranslation()
 - **Database tables**: snake_case (`widget_configs`)
 
 ### Component Organization
-- **components/ui/**: Generic, reusable UI components (shadcn/ui, 27 files)
+- **components/ui/**: Generic, reusable UI components (shadcn/ui, 28 files)
 - **components/layout/**: App shell components (Sidebar, Header, StatusBar)
 - **components/editor/**: CodeEditor (Monaco), MarkdownRenderer, MarkdownToolbar, CellOutput, monaco-themes
 - **components/terminal/**: TerminalPanel (xterm.js)
@@ -301,10 +305,11 @@ const { t } = useTranslation()
   - **warehouse/concept-mapping/**: Concept mapping projects (mapping editor, concept sets, progress, export)
   - **warehouse/data-quality/**: Data quality rule sets (checks, results, run history, scoring, category charts)
   - **warehouse/catalog/**: Data catalog (DCAT-AP, anonymization, data tabs, export)
+  - **warehouse/sql-scripts/**: SQL script files (editor, execution, list page)
   - Schema presets, ERD visualization (SchemaERD, DdlERD), app-level databases
 - **features/projects/warehouse/**: Project-level warehouse pages (Databases, Concepts, Cohorts, Patient Data)
   - **warehouse/subsets/**: Cohort builder (criteria forms: age, sex, concept, period, duration)
-  - **warehouse/cohorts/**: Legacy cohort builder (being replaced by subsets/)
+  - **warehouse/cohorts/**: Cohort builder (ATLAS-style criteria, builder, SQL generation, results)
   - **warehouse/patient-data/**: Patient timeline, built-in widgets (summary, timeline, notes), plugin executor
 - **features/projects/lab/**: Lab pages (Datasets, Dashboards, Reports)
   - **lab/datasets/**: Dataset management with built-in analyses (Table1, Key Indicator, Plot Builder), code generators
@@ -312,7 +317,7 @@ const { t } = useTranslation()
 - **features/projects/dashboard/**: Dashboard system (react-grid-layout, widget renderers: inline code, plugin)
 - **features/projects/pipeline/**: Pipeline DAG editor (React Flow canvas, node palette, config panel)
 - **features/projects/summary/**: Project overview tabs (Overview counts, Readme editor with history, Tasks)
-- **features/projects/versioning/**: Git-like versioning (local history, remote git, export)
+- **features/projects/versioning/**: Git-like versioning (remote git, export — server-only in v2)
 - **features/settings/**: App settings (users, organizations, plugin editor, schema presets ERD, editor settings)
 
 ### shadcn/ui Usage (IMPORTANT)
@@ -325,7 +330,7 @@ Currently installed components are in `apps/web/src/components/ui/`. To add a ne
 4. Place the component in `apps/web/src/components/ui/`
 
 ### State Management
-- **Zustand stores** for client-side state (21 stores total)
+- **Zustand stores** for client-side state (23 stores total)
 - **TanStack Query** for server data (projects, datasets, plugins)
 - Core stores:
   - `useAppStore` — projects, active project/workspace, user, UI preferences, editor settings
@@ -349,6 +354,8 @@ Currently installed components are in `apps/web/src/components/ui/`. To add a ne
   - `useDqStore` — data quality rule sets, checks, run history
   - `useConceptMappingStore` — concept sets, mapping projects, mappings
   - `useCatalogStore` — data catalogs, service mappings, dimension configs
+  - `useSqlScriptsStore` — workspace SQL script files, execution state
+  - `useWorkspaceVersioningStore` — workspace-level versioning (git remote, branches)
 
 ### Path Aliases
 Use `@/` prefix for imports from `src/`:
@@ -374,7 +381,7 @@ The legacy R/Shiny code is in `v1/` for reference. Key files:
 
 ## Project File Structure (Canonical)
 
-Each project follows this canonical file structure. This structure is used for git versioning (isomorphic-git in local mode, real git in server mode), export/import ZIP, and separation of config (versioned) vs data (gitignored).
+Each project follows this canonical file structure. This structure is used for git versioning (server mode only), export/import ZIP, and separation of config (versioned) vs data (gitignored).
 
 ```
 my-project/
