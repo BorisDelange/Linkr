@@ -157,7 +157,7 @@ export function DatabasesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleUnlink}>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleUnlink}>
               {t('app_warehouse.unlink')}
             </AlertDialogAction>
           </AlertDialogFooter>

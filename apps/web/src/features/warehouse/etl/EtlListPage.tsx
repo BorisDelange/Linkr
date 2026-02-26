@@ -7,7 +7,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateEtlDialog } from './CreateEtlDialog'
@@ -47,7 +47,7 @@ export function EtlListPage() {
         { filename: 'pipeline.json', data: pipeline },
         { filename: 'files.json', data: files },
       ],
-      `${slugify(pipeline.name)}.zip`,
+      `${slugify(pipeline.name)}-${timestamp()}.zip`,
     )
   }, [])
 

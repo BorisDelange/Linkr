@@ -4,7 +4,7 @@ import { SquareTerminal } from 'lucide-react'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
@@ -31,7 +31,7 @@ export function SqlScriptsListPage() {
         { filename: 'collection.json', data: collection },
         { filename: 'files.json', data: files },
       ],
-      `${slugify(collection.name)}.zip`,
+      `${slugify(collection.name)}-${timestamp()}.zip`,
     )
   }, [])
 

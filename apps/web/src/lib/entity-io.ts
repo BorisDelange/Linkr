@@ -23,7 +23,7 @@ export function downloadJson(data: unknown, filename: string): void {
 }
 
 // ---------------------------------------------------------------------------
-// Slugify
+// Slugify & timestamp
 // ---------------------------------------------------------------------------
 
 export function slugify(name: string): string {
@@ -31,6 +31,13 @@ export function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '') || 'export'
+}
+
+/** Returns a timestamp string like `2025-12-01_13-23-43`. */
+export function timestamp(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`
 }
 
 // ---------------------------------------------------------------------------

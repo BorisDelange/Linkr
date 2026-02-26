@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Database,
@@ -44,14 +44,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
+import { timestamp } from '@/lib/entity-io'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { SchemaERD } from './SchemaERD'
 import type {
   SchemaMapping,
@@ -917,6 +914,8 @@ export function SchemaPresetsTab() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPresetName, setNewPresetName] = useState('')
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping } | null>(null)
 
   const loadCustomPresets = useCallback(async () => {
     try {
@@ -1009,10 +1008,49 @@ export function SchemaPresetsTab() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `linkr-schema-${mapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}.json`
+    a.download = `linkr-schema-${mapping.presetLabel.replace(/[^a-zA-Z0-9-_ ]/g, '').replace(/\s+/g, '-').toLowerCase()}-${timestamp()}.json`
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const text = await file.text()
+      const mapping = JSON.parse(text) as SchemaMapping
+      if (!mapping.presetId || !mapping.presetLabel) return
+      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
+      if (existing) {
+        setImportConflict({ name: existing.mapping.presetLabel, mapping })
+      } else {
+        await doPresetImport(mapping, false)
+      }
+    } catch { /* invalid JSON */ }
+  }, [customPresets]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean) => {
+    const now = new Date().toISOString()
+    const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
+    const importedMapping: SchemaMapping = {
+      ...mapping,
+      presetId,
+      presetLabel: duplicate ? `${mapping.presetLabel} (copy)` : mapping.presetLabel,
+    }
+    if (!duplicate) {
+      await getStorage().schemaPresets.delete(mapping.presetId!).catch(() => {})
+    }
+    const preset: CustomSchemaPreset = {
+      presetId,
+      mapping: importedMapping,
+      createdAt: now,
+      updatedAt: now,
+      workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
+    }
+    await getStorage().schemaPresets.save(preset)
+    await loadCustomPresets()
+  }, [loadCustomPresets])
 
   const openCreateDialog = () => {
     setNewPresetName(t('settings.schema_preset_new_name'))
@@ -1060,17 +1098,22 @@ export function SchemaPresetsTab() {
           <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.schema_presets_description')}</p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
-                <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
-                  <Upload size={14} />
-                  {t('common.import')}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.coming_soon')}</TooltipContent>
-          </Tooltip>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1 text-xs"
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload size={14} />
+            {t('common.import')}
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleImportFile}
+          />
           <Button size="sm" onClick={openCreateDialog} className="gap-1 text-xs">
             <Plus size={14} />
             {t('settings.schema_preset_new')}
@@ -1144,6 +1187,15 @@ export function SchemaPresetsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import conflict */}
+      <ImportConflictDialog
+        open={!!importConflict}
+        onOpenChange={(open) => { if (!open) setImportConflict(null) }}
+        existingName={importConflict?.name ?? ''}
+        onDuplicate={() => { if (importConflict) doPresetImport(importConflict.mapping, true); setImportConflict(null) }}
+        onOverwrite={() => { if (importConflict) doPresetImport(importConflict.mapping, false); setImportConflict(null) }}
+      />
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null) }}>

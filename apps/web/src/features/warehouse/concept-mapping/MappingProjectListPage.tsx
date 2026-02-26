@@ -7,7 +7,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
@@ -50,7 +50,7 @@ export function MappingProjectListPage() {
         { filename: 'concept-sets.json', data: conceptSets },
         { filename: 'mappings.json', data: mappings },
       ],
-      `${slugify(project.name)}.zip`,
+      `${slugify(project.name)}-${timestamp()}.zip`,
     )
   }, [])
 

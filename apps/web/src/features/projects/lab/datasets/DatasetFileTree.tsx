@@ -410,7 +410,7 @@ export function DatasetFileTree() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirmDelete}>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleConfirmDelete}>
               {t('datasets.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -1,8 +1,10 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
+import { timestamp } from '@/lib/entity-io'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -203,6 +205,8 @@ export function PluginsTab() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPluginName, setNewPluginName] = useState('')
   const [createScope, setCreateScope] = useState<PluginScope>('lab')
+  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
 
   useEffect(() => {
     refreshPluginList()
@@ -239,10 +243,59 @@ export function PluginsTab() {
       const m = JSON.parse(userPlugin.files['plugin.json'] ?? '{}')
       name = m.id ?? pluginId
     } catch { /* use pluginId */ }
-    a.download = `${name}.zip`
+    a.download = `${name}-${timestamp()}.zip`
     a.click()
     URL.revokeObjectURL(url)
   }, [])
+
+  // Import a plugin from ZIP
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const zip = await JSZip.loadAsync(file)
+    const files: Record<string, string> = {}
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue
+      files[path] = await entry.async('string')
+    }
+    // Parse plugin.json to get ID
+    let pluginId = crypto.randomUUID()
+    let pluginName = 'Imported Plugin'
+    try {
+      const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+      if (manifest.id) pluginId = manifest.id
+      if (manifest.name?.en) pluginName = manifest.name.en
+    } catch { /* ignore */ }
+
+    const existing = await getStorage().userPlugins.getById(pluginId)
+    if (existing) {
+      setImportConflict({ name: pluginName, files, pluginId })
+    } else {
+      await doPluginImport(files, pluginId, false)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doPluginImport = useCallback(async (files: Record<string, string>, pluginId: string, duplicate: boolean) => {
+    const id = duplicate ? crypto.randomUUID() : pluginId
+    // If duplicating, update plugin.json with new ID and name
+    const updatedFiles = { ...files }
+    if (duplicate) {
+      try {
+        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+        manifest.id = id
+        if (manifest.name?.en) manifest.name.en = `${manifest.name.en} (copy)`
+        if (manifest.name?.fr) manifest.name.fr = `${manifest.name.fr} (copie)`
+        updatedFiles['plugin.json'] = JSON.stringify(manifest, null, 2)
+      } catch { /* ignore */ }
+    }
+    if (!duplicate) {
+      // Overwrite: delete old plugin first
+      await getStorage().userPlugins.delete(pluginId).catch(() => {})
+    }
+    await getStorage().userPlugins.create({ id, files: updatedFiles })
+    await refreshPluginList()
+  }, [refreshPluginList])
 
   // If editing a plugin, show the editor instead of the list
   if (editingPluginId) {
@@ -282,17 +335,22 @@ export function PluginsTab() {
           <p className="text-sm text-muted-foreground">{t('plugins.description')}</p>
         </div>
         <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
-                <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
-                  <Upload size={14} />
-                  {t('common.import')}
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.coming_soon')}</TooltipContent>
-          </Tooltip>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1 text-xs"
+            onClick={() => importInputRef.current?.click()}
+          >
+            <Upload size={14} />
+            {t('common.import')}
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={handleImportFile}
+          />
           <Button size="sm" onClick={() => { setNewPluginName(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
             <Plus size={14} />
             {t('plugins.new_plugin')}
@@ -381,6 +439,15 @@ export function PluginsTab() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Import conflict */}
+      <ImportConflictDialog
+        open={!!importConflict}
+        onOpenChange={(open) => { if (!open) setImportConflict(null) }}
+        existingName={importConflict?.name ?? ''}
+        onDuplicate={() => { if (importConflict) doPluginImport(importConflict.files, importConflict.pluginId, true); setImportConflict(null) }}
+        onOverwrite={() => { if (importConflict) doPluginImport(importConflict.files, importConflict.pluginId, false); setImportConflict(null) }}
+      />
 
       {/* Delete confirmation */}
       <AlertDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) setDeleteId(null) }}>
