@@ -885,7 +885,7 @@ function PresetCard({
             <DropdownMenuItem disabled>
               <History size={14} />
               {t('common.history')}
-              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.server_only')}</span>
             </DropdownMenuItem>
             {!isBuiltin && onDelete && (
               <>

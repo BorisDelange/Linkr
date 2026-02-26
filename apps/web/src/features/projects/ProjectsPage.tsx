@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { Plus, FolderOpen, Search, Upload } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -12,6 +12,23 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 
@@ -20,10 +37,14 @@ export function ProjectsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { wsUid } = useParams()
-  const { _projectsRaw, projects, getWorkspaceProjects, openProject } = useAppStore()
+  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Delete confirmation state
+  const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -51,6 +72,13 @@ export function ProjectsPage() {
     } else {
       navigate(`/workspaces/${activeWorkspaceId}/projects/${uid}/summary`)
     }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    await deleteProject(deleteTarget.uid)
+    setDeleteTarget(null)
+    setDeleteConfirm('')
   }
 
   return (
@@ -121,7 +149,7 @@ export function ProjectsPage() {
               return (
                 <Card
                   key={project.uid}
-                  className="cursor-pointer transition-colors hover:bg-accent"
+                  className="relative cursor-pointer transition-colors hover:bg-accent"
                   onClick={() => handleOpenProject(project.uid, project.name)}
                 >
                   <div className="p-4">
@@ -132,10 +160,44 @@ export function ProjectsPage() {
                         </div>
                         <span className="truncate text-sm font-medium text-card-foreground">{project.name}</span>
                       </div>
-                      <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${getStatusClasses(status)}`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(status)}`} />
-                        {t(`project_settings.status_${status}`)}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${getStatusClasses(status)}`}>
+                          <span className={`h-1.5 w-1.5 rounded-full ${getStatusDotClass(status)}`} />
+                          {t(`project_settings.status_${status}`)}
+                        </span>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+                              <MoreHorizontal size={14} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem disabled>
+                              <Download size={14} />
+                              {t('common.export')}
+                              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled>
+                              <Copy size={14} />
+                              {t('common.duplicate')}
+                              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled>
+                              <History size={14} />
+                              {t('common.history')}
+                              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.server_only')}</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ uid: project.uid, name: project.name }) }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 size={14} />
+                              {t('common.delete')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </div>
                     {project.description && (
                       <p className="mt-2 truncate text-xs text-muted-foreground" title={project.description}>
@@ -164,6 +226,42 @@ export function ProjectsPage() {
       </div>
 
       <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
+
+      {/* Delete project confirmation */}
+      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('project_settings.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                <p>{t('project_settings.delete_confirm_description')}</p>
+                <p className="text-sm">
+                  {t('project_settings.delete_confirm_type')}{' '}
+                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
+                </p>
+                <Input
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder={deleteTarget?.name}
+                  className="mt-2"
+                />
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDeleteTarget(null); setDeleteConfirm('') }}>
+              {t('common.cancel')}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteConfirm !== deleteTarget?.name}
+              className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
+              onClick={handleDelete}
+            >
+              {t('project_settings.delete_project')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

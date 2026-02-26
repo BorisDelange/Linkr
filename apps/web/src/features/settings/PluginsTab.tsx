@@ -93,11 +93,12 @@ interface PluginCardProps {
   lang: 'en' | 'fr'
   onOpen: (id: string) => void
   onExport: (id: string, e: React.MouseEvent) => void
+  onDuplicate: (id: string) => void
   onDelete: (id: string) => void
   t: (key: string) => string
 }
 
-function PluginCard({ plugin, lang, onOpen, onExport, onDelete, t }: PluginCardProps) {
+function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }: PluginCardProps) {
   const Icon = getIcon(plugin.manifest.icon)
   const isSystem = plugin.isSystemPlugin
   return (
@@ -121,15 +122,14 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDelete, t }: PluginCardP
                 <Download size={14} />
                 {t('common.export')}
               </DropdownMenuItem>
-              <DropdownMenuItem disabled>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(plugin.id) }}>
                 <Copy size={14} />
                 {t('common.duplicate')}
-                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
               </DropdownMenuItem>
               <DropdownMenuItem disabled>
                 <History size={14} />
                 {t('common.history')}
-                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.server_only')}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -193,6 +193,7 @@ export function PluginsTab() {
     editingPluginId,
     openPlugin,
     createPlugin,
+    duplicatePlugin,
     deletePlugin,
     activePluginTab: activeTab,
     setActivePluginTab: setActiveTab,
@@ -258,6 +259,7 @@ export function PluginsTab() {
             lang={lang}
             onOpen={openPlugin}
             onExport={handleExport}
+            onDuplicate={duplicatePlugin}
             onDelete={setDeleteId}
             t={t}
           />

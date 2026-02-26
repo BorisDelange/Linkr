@@ -752,9 +752,10 @@ export function PluginEditor() {
                   <Download size={14} />
                   {t('plugins.export')}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                <DropdownMenuItem disabled>
                   <History size={14} />
                   {t('plugins.history')}
+                  <span className="ml-auto text-[10px] text-muted-foreground">{t('common.server_only')}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDuplicate}>
                   <Copy size={14} />
