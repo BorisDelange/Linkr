@@ -35,7 +35,7 @@ function resolveWidgetFilters(
   widget: DashboardWidget,
   dashboard: Dashboard,
   activeFilters: Record<string, FilterValue>,
-  widgetColumns: Set<string>,
+  columnNameToId: Map<string, string>,
 ): Record<string, FilterValue> | undefined {
   const result: Record<string, FilterValue> = {}
   let hasAny = false
@@ -48,10 +48,13 @@ function resolveWidgetFilters(
       // Direct match: filter targets this widget's dataset
       result[filter.columnId] = filterValue
       hasAny = true
-    } else if (filter.propagate && widgetColumns.has(filter.columnName)) {
-      // Propagation: filter propagates to matching column name
-      result[filter.columnName] = filterValue
-      hasAny = true
+    } else if (filter.propagate) {
+      // Propagation: resolve matching column name to target dataset's column ID
+      const targetColumnId = columnNameToId.get(filter.columnName)
+      if (targetColumnId) {
+        result[targetColumnId] = filterValue
+        hasAny = true
+      }
     }
   }
 
@@ -69,14 +72,14 @@ function WidgetWithData({
 }) {
   const { files } = useDatasetStore()
   const datasetFile = files.find((f) => f.id === widget.datasetFileId)
-  const widgetColumns = useMemo(
-    () => new Set((datasetFile?.columns ?? []).map((c) => c.name)),
+  const columnNameToId = useMemo(
+    () => new Map((datasetFile?.columns ?? []).map((c) => [c.name, c.id])),
     [datasetFile?.columns]
   )
 
   const filters = useMemo(
-    () => resolveWidgetFilters(widget, dashboard, activeFilters, widgetColumns),
-    [widget, dashboard, activeFilters, widgetColumns]
+    () => resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId),
+    [widget, dashboard, activeFilters, columnNameToId]
   )
 
   return (
