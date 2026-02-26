@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
@@ -175,6 +176,18 @@ const projectBottomItems: SegmentNavItem[] = [
 
 // ── Component ────────────────────────────────────────────────────
 
+// Segments that have sub-routes (e.g. lab/dashboards/:dashboardId)
+const segmentsWithSubRoutes = new Set([
+  'warehouse/schemas',
+  'warehouse/concept-mapping',
+  'warehouse/data-quality',
+  'warehouse/etl',
+  'warehouse/sql-scripts',
+  'warehouse/catalog',
+  'warehouse/cohorts',
+  'lab/dashboards',
+])
+
 export function AppSidebar() {
   const { t } = useTranslation()
   const location = useLocation()
@@ -194,6 +207,25 @@ export function AppSidebar() {
   const wsBase = `/workspaces/${activeWorkspaceId}`
   const projBase = `${wsBase}/projects/${activeProjectUid}`
 
+  // Track last visited sub-route per segment
+  const lastRoutes = useRef<Map<string, string>>(new Map())
+
+  useEffect(() => {
+    const pathname = location.pathname
+    const bases = [projBase, wsBase]
+    for (const base of bases) {
+      if (!pathname.startsWith(base + '/')) continue
+      const rest = pathname.slice(base.length + 1)
+      for (const segment of segmentsWithSubRoutes) {
+        if (rest.startsWith(segment + '/') && rest !== segment) {
+          const key = `${base}/${segment}`
+          lastRoutes.current.set(key, pathname)
+        }
+      }
+      break
+    }
+  }, [location.pathname, projBase, wsBase])
+
   const handleBackToProjects = () => {
     closeProject()
     navigate(`${wsBase}/projects`)
@@ -211,15 +243,29 @@ export function AppSidebar() {
 
   // ── Render helpers for segment-based nav ───────────────────────
 
-  const buildPath = (segment: string) =>
-    level === 'project' ? `${projBase}/${segment}` : `${wsBase}/${segment}`
+  const buildPath = (segment: string) => {
+    const base = level === 'project' ? projBase : wsBase
+    const staticPath = `${base}/${segment}`
+    if (segmentsWithSubRoutes.has(segment)) {
+      return lastRoutes.current.get(staticPath) ?? staticPath
+    }
+    return staticPath
+  }
 
   const isPathActive = (path: string) =>
     location.pathname === path || location.pathname.startsWith(path + '/')
 
+  const isSegmentActive = (segment: string) => {
+    const base = level === 'project' ? projBase : wsBase
+    const staticPath = `${base}/${segment}`
+    return isPathActive(staticPath)
+  }
+
   const renderSegmentSubItem = (item: SegmentNavItem) => {
     const path = buildPath(item.segment)
-    const isActive = isPathActive(path)
+    const isActive = segmentsWithSubRoutes.has(item.segment)
+      ? isSegmentActive(item.segment)
+      : isPathActive(path)
     return (
       <SidebarMenuSubItem key={item.segment}>
         <SidebarMenuSubButton asChild isActive={isActive}>
@@ -234,7 +280,9 @@ export function AppSidebar() {
 
   const renderSegmentTopItem = (item: SegmentNavItem) => {
     const path = buildPath(item.segment)
-    const isActive = isPathActive(path)
+    const isActive = segmentsWithSubRoutes.has(item.segment)
+      ? isSegmentActive(item.segment)
+      : isPathActive(path)
     return (
       <SidebarMenuItem key={item.segment}>
         <SidebarMenuButton asChild isActive={isActive} tooltip={t(item.labelKey)}>
@@ -249,7 +297,9 @@ export function AppSidebar() {
 
   const renderSegmentGroup = (entry: SegmentNavGroup) => {
     const isChildActive = entry.children.some(
-      (child) => isPathActive(buildPath(child.segment)),
+      (child) => segmentsWithSubRoutes.has(child.segment)
+        ? isSegmentActive(child.segment)
+        : isPathActive(buildPath(child.segment)),
     )
 
     if (isCollapsed) {
@@ -265,7 +315,9 @@ export function AppSidebar() {
             <DropdownMenuContent side="right" align="start" className="min-w-[180px]">
               {entry.children.map((child) => {
                 const path = buildPath(child.segment)
-                const isActive = isPathActive(path)
+                const isActive = segmentsWithSubRoutes.has(child.segment)
+                  ? isSegmentActive(child.segment)
+                  : isPathActive(path)
                 return (
                   <DropdownMenuItem
                     key={child.segment}
