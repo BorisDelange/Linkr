@@ -1,0 +1,74 @@
+{
+  "id": "linkr-analysis-kaplan-meier",
+  "name": {
+    "en": "Kaplan-Meier",
+    "fr": "Kaplan-Meier"
+  },
+  "description": {
+    "en": "Survival analysis: Kaplan-Meier curves, log-rank test, median survival, and at-risk table.",
+    "fr": "Analyse de survie : courbes de Kaplan-Meier, test du log-rank, médiane de survie et tableau at-risk."
+  },
+  "version": "1.0.0",
+  "category": "statistics",
+  "tags": ["survival", "kaplan-meier", "log-rank", "time-to-event", "statistics"],
+  "runtime": ["component"],
+  "languages": [],
+  "icon": "Activity",
+  "iconColor": "rose",
+  "configSchema": {
+    "timeColumn": {
+      "type": "column-select",
+      "label": { "en": "Time variable", "fr": "Variable de temps" },
+      "filter": "numeric",
+      "hint": { "en": "required", "fr": "requis" }
+    },
+    "eventColumn": {
+      "type": "column-select",
+      "label": { "en": "Event variable (1 = event)", "fr": "Variable d'événement (1 = événement)" },
+      "hint": { "en": "required", "fr": "requis" }
+    },
+    "groupColumn": {
+      "type": "column-select",
+      "label": { "en": "Group variable", "fr": "Variable de groupe" },
+      "filter": "categorical",
+      "optional": true
+    },
+    "confidenceLevel": {
+      "type": "number",
+      "label": { "en": "Confidence level (%)", "fr": "Niveau de confiance (%)" },
+      "default": 95,
+      "min": 80,
+      "max": 99,
+      "row": "options"
+    },
+    "showCI": {
+      "type": "boolean",
+      "label": { "en": "Confidence bands", "fr": "Bandes de confiance" },
+      "default": true,
+      "row": "options"
+    },
+    "showAtRisk": {
+      "type": "boolean",
+      "label": { "en": "At-risk table", "fr": "Tableau at-risk" },
+      "default": true,
+      "row": "options"
+    },
+    "showMedian": {
+      "type": "boolean",
+      "label": { "en": "Median survival", "fr": "Médiane de survie" },
+      "default": true,
+      "row": "options"
+    },
+    "showCensor": {
+      "type": "boolean",
+      "label": { "en": "Censor marks", "fr": "Marques de censure" },
+      "default": true,
+      "row": "options"
+    },
+    "timeLabel": {
+      "type": "string",
+      "label": { "en": "Time axis label", "fr": "Légende axe temps" },
+      "default": ""
+    }
+  }
+}

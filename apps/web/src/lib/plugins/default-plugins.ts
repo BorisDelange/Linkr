@@ -8,12 +8,14 @@ import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/
 import { Table1Component } from '@/features/projects/lab/datasets/analyses/Table1Component'
 import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/analyses/StatisticalTestsComponent'
 import { RegressionComponent } from '@/features/projects/lab/datasets/analyses/RegressionComponent'
+import { KaplanMeierComponent } from '@/features/projects/lab/datasets/analyses/KaplanMeierComponent'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.json'
 import statisticalTestsManifest from '@default-plugins/analyses/statistical-tests/plugin.json'
 import regressionManifest from '@default-plugins/analyses/regression/plugin.json'
+import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -142,6 +144,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(regressionManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'regression',
+  })
+
+  registerComponent('kaplan-meier', KaplanMeierComponent)
+  registerPlugin({
+    manifest: normaliseManifest(kaplanMeierManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'kaplan-meier',
   })
 
   // Warehouse system plugins (built-in patient data widgets)
