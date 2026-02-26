@@ -1218,7 +1218,6 @@ function SchemaDetailView({
   )
 }
 
-
 // ---------------------------------------------------------------------------
 // Main component — router for list vs detail
 // ---------------------------------------------------------------------------
@@ -1268,7 +1267,6 @@ export function SchemaPresetsPage() {
     }
     return result
   }, [customPresets])
-
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`

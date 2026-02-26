@@ -2,11 +2,7 @@ import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import {
   getEventTablesForDictionary,
 } from '@/lib/schema-helpers'
-
-/** Escape a string value for use in SQL (prevent injection). */
-function esc(value: string): string {
-  return value.replace(/'/g, "''")
-}
+import { escSql as esc } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // Source concept filters

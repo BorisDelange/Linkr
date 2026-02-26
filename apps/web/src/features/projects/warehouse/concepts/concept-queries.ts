@@ -3,15 +3,7 @@ import {
   getEventTablesForDictionary,
   buildConceptMatchCondition,
 } from '@/lib/schema-helpers'
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Escape a string value for use in SQL (prevent injection). */
-function esc(value: string): string {
-  return value.replace(/'/g, "''")
-}
+import { escSql as esc } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // Column descriptors

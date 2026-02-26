@@ -3,11 +3,7 @@
  * Extracted so it can be used both by EtlVocabularyTab (UI) and demo-seed (startup).
  */
 import type { ConceptMapping } from '@/types'
-
-/** Escape a string value for use in SQL (prevent injection). */
-function esc(value: string): string {
-  return value.replace(/'/g, "''")
-}
+import { escSql as esc } from '@/lib/format-helpers'
 
 /** Vocabularies from ATHENA that ETL scripts need (for concept lookups). */
 export const ETL_ATHENA_VOCABULARIES = [

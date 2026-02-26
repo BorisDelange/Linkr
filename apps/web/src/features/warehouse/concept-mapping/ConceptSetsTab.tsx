@@ -37,6 +37,7 @@ import {
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { escSql } from '@/lib/format-helpers'
 import { ImportConceptSetDialog, extractMetadata } from './ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
@@ -385,14 +386,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
       const conditions: string[] = []
       if (browseSearch.trim()) {
-        const escaped = browseSearch.trim().replace(/'/g, "''")
+        const escaped = escSql(browseSearch.trim())
         conditions.push(`(concept_name ILIKE '%${escaped}%' OR concept_code ILIKE '%${escaped}%' OR CAST(concept_id AS VARCHAR) = '${escaped}')`)
       }
       if (browseVocab !== '__all__') {
-        conditions.push(`vocabulary_id = '${browseVocab.replace(/'/g, "''")}'`)
+        conditions.push(`vocabulary_id = '${escSql(browseVocab)}'`)
       }
       if (browseDomain !== '__all__') {
-        conditions.push(`domain_id = '${browseDomain.replace(/'/g, "''")}'`)
+        conditions.push(`domain_id = '${escSql(browseDomain)}'`)
       }
       if (browseStandardOnly) {
         conditions.push(`standard_concept = 'S'`)

@@ -897,7 +897,6 @@ function PresetCard({
         </DropdownMenu>
         </div>
       </div>
-    </div>
   )
 }
 
@@ -961,7 +960,6 @@ export function SchemaPresetsTab() {
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
   }
-
 
   const deletePreset = async (presetId: string) => {
     await getStorage().schemaPresets.delete(presetId)
