@@ -89,6 +89,8 @@ interface PluginEditorState {
   activeFile: string | null
   isDirty: boolean
   originalFiles: Record<string, string>
+  /** Set when save is rejected (e.g. invalid plugin.json). Cleared on next successful save. */
+  saveError: string | null
 
   // Plugin actions
   openPlugin: (id: string) => Promise<void>
@@ -196,6 +198,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   activeFile: null,
   isDirty: false,
   originalFiles: {},
+  saveError: null,
 
   async openPlugin(id: string) {
     const isSystem = SYSTEM_PLUGIN_IDS.has(id)
@@ -253,6 +256,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       openFiles: [],
       activeFile: null,
       isDirty: false,
+      saveError: null,
     })
   },
 
@@ -391,10 +395,20 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     // System plugins are read-only — nothing to save
     if (isSystemPlugin) return
 
-    // Compute content hash + auto-stamp workspace organization into plugin.json
+    // Validate plugin.json before saving — reject if unparseable
+    try {
+      JSON.parse(files['plugin.json'] ?? '{}')
+    } catch {
+      set({ saveError: 'invalid_json' })
+      return
+    }
+    set({ saveError: null })
+
+    // Compute content hash + protect immutable fields + auto-stamp organization
     try {
       const hash = await computePluginContentHash(files)
       const manifest = JSON.parse(files['plugin.json'] ?? '{}')
+      manifest.id = editingPluginId
       manifest.contentHash = hash
 
       // Stamp workspace organization (read-only, inherited)
@@ -478,10 +492,12 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   updateFileContent(filename: string, content: string) {
-    const { files, originalFiles } = get()
+    const { files, originalFiles, saveError } = get()
     const newFiles = { ...files, [filename]: content }
     const dirty = JSON.stringify(newFiles) !== JSON.stringify(originalFiles)
-    set({ files: newFiles, isDirty: dirty })
+    // Clear save error when the user edits plugin.json
+    const clearError = saveError && filename === 'plugin.json' ? { saveError: null as string | null } : {}
+    set({ files: newFiles, isDirty: dirty, ...clearError })
   },
 
   createFile(filename: string) {

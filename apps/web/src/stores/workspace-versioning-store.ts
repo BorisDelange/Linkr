@@ -58,6 +58,16 @@ function pageToMeta(page: WikiPage): WikiPageMeta {
 
 const COMMITS_PAGE_SIZE = 50
 
+export type VersionedEntityType = 'plugin' | 'schema' | 'database'
+
+function getEntityGitPath(entityType: VersionedEntityType, entityId: string): string {
+  switch (entityType) {
+    case 'plugin':   return `plugins/${entityId}`
+    case 'schema':   return `schemas/${entityId}.json`
+    case 'database': return `databases/${entityId}.json`
+  }
+}
+
 interface WorkspaceVersioningState {
   workspaceId: string | null
   commits: GitCommit[]
@@ -81,6 +91,8 @@ interface WorkspaceVersioningState {
   restoreWikiPage: (workspaceId: string, pageId: string, oid: string) => Promise<void>
   getCommitFiles: (workspaceId: string, oid: string) => Promise<CommitFileChange[]>
   getFileDiff: (workspaceId: string, oid: string, filepath: string) => Promise<{ filepath: string; changeType: FileChangeType; oldContent: string; newContent: string; changes: import('diff').Change[] } | null>
+  getEntityCommits: (workspaceId: string, entityType: VersionedEntityType, entityId: string) => Promise<GitCommit[]>
+  restoreEntity: (workspaceId: string, entityType: VersionedEntityType, entityId: string, oid: string) => Promise<RestoreResult>
   restoreToCommit: (workspaceId: string, oid: string) => Promise<RestoreResult>
 
   setRemoteConfig: (config: GitRemoteConfig) => void
@@ -625,6 +637,143 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
     if (content === null) return
     const { useWikiStore } = await import('@/stores/wiki-store')
     await useWikiStore.getState().savePage(pageId, content)
+  },
+
+  getEntityCommits: async (workspaceId, entityType, entityId) => {
+    const fs = getFs(workspaceId)
+    const dir = getDir(workspaceId)
+    const filepath = getEntityGitPath(entityType, entityId)
+    try {
+      const log = await git.log({ fs, dir, depth: 100, filepath })
+      return log.map((entry) => ({
+        oid: entry.oid,
+        message: entry.commit.message,
+        author: {
+          name: entry.commit.author.name,
+          email: entry.commit.author.email,
+          timestamp: entry.commit.author.timestamp,
+        },
+        parents: entry.commit.parent,
+      }))
+    } catch {
+      return []
+    }
+  },
+
+  restoreEntity: async (workspaceId, entityType, entityId, oid) => {
+    return enqueue(async () => {
+      const { getStorage } = await import('@/lib/storage')
+      const fs = getFs(workspaceId)
+      const dir = getDir(workspaceId)
+      const storage = getStorage()
+      const restoredFiles: string[] = []
+      const pathPrefix = getEntityGitPath(entityType, entityId)
+
+      await get().ensureRepo(workspaceId)
+
+      // Read entity files from the target commit tree
+      const { commit: targetCommit } = await git.readCommit({ fs, dir, oid })
+      const fileContents: Record<string, string> = {}
+
+      async function readTreeRecursive(treeOid: string, prefix: string) {
+        const { tree } = await git.readTree({ fs, dir, oid: treeOid })
+        for (const entry of tree) {
+          const fullPath = prefix ? `${prefix}/${entry.path}` : entry.path
+          if (entry.type === 'tree') {
+            // For plugins (directory), recurse into the matching subtree
+            if (fullPath.startsWith(pathPrefix) || pathPrefix.startsWith(fullPath)) {
+              await readTreeRecursive(entry.oid, fullPath)
+            }
+          } else if (entry.type === 'blob') {
+            if (fullPath === pathPrefix || fullPath.startsWith(pathPrefix + '/')) {
+              const { blob } = await git.readBlob({ fs, dir, oid: entry.oid })
+              fileContents[fullPath] = new TextDecoder().decode(blob)
+            }
+          }
+        }
+      }
+      await readTreeRecursive(targetCommit.tree, '')
+
+      // Apply restore to IndexedDB
+      let entityName = entityId
+      switch (entityType) {
+        case 'plugin': {
+          const pluginFiles: Record<string, string> = {}
+          for (const [filepath, content] of Object.entries(fileContents)) {
+            const relativePath = filepath.substring(`plugins/${entityId}/`.length)
+            pluginFiles[relativePath] = content
+          }
+          // Try to extract plugin name from manifest
+          try {
+            const manifest = JSON.parse(pluginFiles['plugin.json'] ?? '{}')
+            entityName = manifest.name?.en ?? entityId
+          } catch { /* use entityId */ }
+          const existing = await storage.userPlugins.getById(entityId)
+          if (existing) {
+            await storage.userPlugins.update(entityId, { files: pluginFiles, updatedAt: new Date().toISOString() })
+          } else {
+            await storage.userPlugins.create({
+              id: entityId,
+              workspaceId,
+              files: pluginFiles,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            })
+          }
+          break
+        }
+        case 'schema': {
+          const content = fileContents[pathPrefix]
+          if (content) {
+            const data = JSON.parse(content)
+            entityName = data.mapping?.presetLabel ?? entityId
+            await storage.schemaPresets.save({ ...data, workspaceId })
+          }
+          break
+        }
+        case 'database': {
+          const content = fileContents[pathPrefix]
+          if (content) {
+            const data = JSON.parse(content)
+            entityName = data.name ?? entityId
+            const existing = await storage.dataSources.getById(entityId)
+            if (existing) {
+              await storage.dataSources.update(entityId, {
+                alias: data.alias,
+                name: data.name,
+                description: data.description,
+                schemaMapping: data.schemaMapping,
+                status: data.status,
+              })
+            } else {
+              await storage.dataSources.create({ ...data, workspaceId })
+            }
+          }
+          break
+        }
+      }
+
+      // Write restored files to LightningFS and create restore commit
+      for (const [filepath, content] of Object.entries(fileContents)) {
+        const parts = filepath.split('/')
+        for (let i = 1; i < parts.length; i++) {
+          const parentPath = `${dir}/${parts.slice(0, i).join('/')}`
+          await ensureDirExists(fs, parentPath)
+        }
+        await fs.promises.writeFile(`${dir}/${filepath}`, content)
+        await git.add({ fs, dir, filepath })
+        restoredFiles.push(filepath)
+      }
+
+      const commitOid = await git.commit({
+        fs, dir,
+        message: `Restore ${entityType}: ${entityName} to ${oid.slice(0, 7)}`,
+        author: GIT_AUTHOR,
+      })
+
+      await get().loadCommits(workspaceId)
+      return { success: true, restoredFiles, commitOid } as RestoreResult
+    }) as Promise<RestoreResult>
   },
 
   restoreToCommit: async (workspaceId, oid) => {

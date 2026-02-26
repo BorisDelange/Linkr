@@ -1,13 +1,21 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, MoreHorizontal, Download, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Tooltip,
   TooltipContent,
@@ -18,6 +26,8 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { EntityHistoryPanel } from '@/features/versioning/EntityHistoryPanel'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
@@ -83,6 +93,7 @@ export function PluginEditor() {
     testVisitId,
     testVisitDetailId,
     testConfig,
+    saveError,
   } = usePluginEditorStore()
 
   const [explorerVisible, setExplorerVisible] = useState(true)
@@ -165,6 +176,24 @@ export function PluginEditor() {
   const pluginCatalogVisibility: CatalogVisibility | undefined = manifest.catalogVisibility
   const pluginPythonDeps: string = (manifest.dependencies?.python ?? []).join('\n')
   const pluginRDeps: string = (manifest.dependencies?.r ?? []).join('\n')
+
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const handleExport = useCallback(async () => {
+    if (!editingPluginId) return
+    const JSZip = (await import('jszip')).default
+    const zip = new JSZip()
+    for (const [filename, content] of Object.entries(files)) {
+      zip.file(filename, content)
+    }
+    const blob = await zip.generateAsync({ type: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${manifest.id ?? editingPluginId}.zip`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [editingPluginId, files, manifest])
   const pluginLanguages: ('python' | 'r')[] = manifest.languages ?? []
 
   // Helper to update a field in plugin.json
@@ -352,12 +381,6 @@ export function PluginEditor() {
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1">
-          {!isSystemPlugin && (
-            <Button size="sm" onClick={handleSave} disabled={!isDirty} className="gap-1 text-xs">
-              <Save size={12} />
-              {t('plugins.save')}
-            </Button>
-          )}
           {/* Settings popover (appearance, version, badges, publishing) */}
           {!isSystemPlugin && (
           <Popover>
@@ -716,16 +739,44 @@ export function PluginEditor() {
               </PopoverContent>
             </Popover>
           )}
+          {/* "..." dropdown: Export, History, Duplicate, Delete */}
           {!isSystemPlugin && (
-            <>
-              <Button variant="ghost" size="sm" onClick={handleDuplicate} className="gap-1 text-xs">
-                <Copy size={12} />
-                {t('plugins.duplicate')}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={handleDelete} className="gap-1 text-xs text-destructive hover:text-destructive">
-                <Trash2 size={12} />
-              </Button>
-            </>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreHorizontal size={14} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleExport}>
+                  <Download size={14} />
+                  {t('plugins.export')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setHistoryOpen(true)}>
+                  <History size={14} />
+                  {t('plugins.history')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDuplicate}>
+                  <Copy size={14} />
+                  {t('plugins.duplicate')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={handleDelete}>
+                  <Trash2 size={14} />
+                  {t('common.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          {/* Save — rightmost */}
+          {!isSystemPlugin && saveError && (
+            <span className="text-[10px] text-destructive">{t(`plugins.${saveError}`)}</span>
+          )}
+          {!isSystemPlugin && (
+            <Button size="sm" onClick={handleSave} disabled={!isDirty} className="gap-1 text-xs">
+              <Save size={12} />
+              {t('plugins.save')}
+            </Button>
           )}
         </div>
       </div>
@@ -972,6 +1023,29 @@ export function PluginEditor() {
           </Allotment.Pane>
         </Allotment>
       </div>
+
+      {/* Entity history dialog */}
+      {editingPluginId && (
+        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+          <DialogContent className="sm:max-w-4xl h-[80vh] flex flex-col p-0 gap-0" showCloseButton>
+            <DialogHeader className="px-4 py-3 border-b shrink-0">
+              <DialogTitle>{t('plugins.history')} — {pluginName}</DialogTitle>
+            </DialogHeader>
+            <div className="flex-1 min-h-0 overflow-auto">
+              <EntityHistoryPanel
+                workspaceId={useWorkspaceStore.getState().activeWorkspaceId!}
+                entityType="plugin"
+                entityId={editingPluginId}
+                entityName={pluginName}
+                onRestored={() => {
+                  usePluginEditorStore.getState().openPlugin(editingPluginId)
+                  setHistoryOpen(false)
+                }}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
