@@ -1,0 +1,71 @@
+{
+  "id": "linkr-analysis-statistical-tests",
+  "name": {
+    "en": "Statistical Tests",
+    "fr": "Tests statistiques"
+  },
+  "description": {
+    "en": "Automated statistical testing: t-test, Mann-Whitney, Chi-squared, Fisher, ANOVA, Kruskal-Wallis. Automatically selects the right test per variable based on data type and group count.",
+    "fr": "Tests statistiques automatisés : t-test, Mann-Whitney, Chi², Fisher, ANOVA, Kruskal-Wallis. Sélectionne automatiquement le test adapté par variable selon le type de données et le nombre de groupes."
+  },
+  "version": "1.0.0",
+  "category": "statistics",
+  "tags": ["statistics", "hypothesis-testing", "t-test", "chi-square", "anova", "mann-whitney", "fisher", "kruskal-wallis"],
+  "runtime": ["component"],
+  "languages": [],
+  "icon": "FlaskConical",
+  "iconColor": "indigo",
+  "configSchema": {
+    "groupColumn": {
+      "type": "column-select",
+      "label": { "en": "Group column", "fr": "Colonne de groupe" },
+      "filter": "categorical",
+      "hint": { "en": "required", "fr": "requis" }
+    },
+    "valueColumns": {
+      "type": "column-select",
+      "multi": true,
+      "label": { "en": "Value columns", "fr": "Colonnes de valeurs" },
+      "defaultAll": true
+    },
+    "testPreference": {
+      "type": "select",
+      "label": { "en": "Test preference", "fr": "Préférence de test" },
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": { "en": "Auto (parametric)", "fr": "Auto (paramétrique)" } },
+        { "value": "nonparametric", "label": { "en": "Force non-parametric", "fr": "Forcer non-paramétrique" } },
+        { "value": "parametric", "label": { "en": "Force parametric", "fr": "Forcer paramétrique" } }
+      ],
+      "row": "options"
+    },
+    "alpha": {
+      "type": "number",
+      "label": { "en": "Significance level (α)", "fr": "Seuil de significativité (α)" },
+      "default": 0.05,
+      "min": 0.001,
+      "max": 0.2,
+      "row": "options"
+    },
+    "visibleColumns": {
+      "type": "select",
+      "multi": true,
+      "label": { "en": "Table columns", "fr": "Colonnes du tableau" },
+      "defaultAll": true,
+      "options": [
+        { "value": "test", "label": { "en": "Test name", "fr": "Nom du test" } },
+        { "value": "statistic", "label": { "en": "Statistic", "fr": "Statistique" } },
+        { "value": "df", "label": { "en": "Degrees of freedom", "fr": "Degrés de liberté" } },
+        { "value": "p", "label": { "en": "p-value", "fr": "p-value" } },
+        { "value": "ci", "label": { "en": "95% CI", "fr": "IC 95%" } },
+        { "value": "effectSize", "label": { "en": "Effect size", "fr": "Taille d'effet" } },
+        { "value": "descriptive", "label": { "en": "Group descriptives", "fr": "Stats par groupe" } }
+      ]
+    },
+    "highlightSignificant": {
+      "type": "boolean",
+      "label": { "en": "Highlight significant", "fr": "Surligner significatifs" },
+      "default": true
+    }
+  }
+}

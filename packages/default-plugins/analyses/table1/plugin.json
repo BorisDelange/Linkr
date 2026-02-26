@@ -8,11 +8,11 @@
     "en": "Descriptive statistics table with counts, percentages, means, medians, and IQR for each variable. Supports optional group-by.",
     "fr": "Tableau de statistiques descriptives avec effectifs, pourcentages, moyennes, médianes et IQR pour chaque variable. Supporte un regroupement optionnel."
   },
-  "version": "2.0.0",
+  "version": "3.0.0",
   "category": "analysis",
   "tags": ["descriptive", "table"],
-  "runtime": ["script"],
-  "languages": ["python", "r"],
+  "runtime": ["component"],
+  "languages": [],
   "icon": "TableIcon",
   "configSchema": {
     "selectedColumns": {
@@ -43,13 +43,5 @@
         { "value": "categories", "label": { "en": "Categories", "fr": "Catégories" } }
       ]
     }
-  },
-  "dependencies": {
-    "python": [],
-    "r": ["gtsummary"]
-  },
-  "templates": {
-    "python": "table1.py.template",
-    "r": "table1.R.template"
   }
 }

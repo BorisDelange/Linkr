@@ -335,7 +335,7 @@ function MultiColumnSelect({
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
           <div className="relative mb-2">
             <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -354,37 +354,38 @@ function MultiColumnSelect({
               {t('common.select_none')}
             </button>
           </div>
-          <ScrollArea className="max-h-[200px]">
-            <div className="space-y-0.5">
-              {searchFiltered.map(col => {
-                const isSelected = selected.includes(col.id)
-                return (
-                  <button
-                    key={col.id}
-                    onClick={() => toggle(col.id)}
+          <div
+            className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+            onWheel={e => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+          >
+            {searchFiltered.map(col => {
+              const isSelected = selected.includes(col.id)
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => toggle(col.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors',
+                    isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                  )}
+                >
+                  <div
                     className={cn(
-                      'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
-                      isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+                      'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                      isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
                     )}
                   >
-                    <div
-                      className={cn(
-                        'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                        isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                      )}
-                    >
-                      {isSelected && <Check size={10} />}
-                    </div>
-                    <span className="truncate">{col.name}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{col.type}</span>
-                  </button>
-                )
-              })}
-              {searchFiltered.length === 0 && (
-                <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-              )}
-            </div>
-          </ScrollArea>
+                    {isSelected && <Check size={10} />}
+                  </div>
+                  <span className="truncate">{col.name}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
+                </button>
+              )
+            })}
+            {searchFiltered.length === 0 && (
+              <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+            )}
+          </div>
         </PopoverContent>
       </Popover>
     </div>
@@ -524,7 +525,7 @@ function MultiSelectField({
             <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
         </PopoverTrigger>
-        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
           <div className="mb-2 flex items-center gap-1">
             <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
               {t('common.select_all')}
@@ -534,33 +535,34 @@ function MultiSelectField({
               {t('common.select_none')}
             </button>
           </div>
-          <ScrollArea className="max-h-[200px]">
-            <div className="space-y-0.5">
-              {options.map(opt => {
-                const isSelected = selected.includes(opt.value)
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => toggle(opt.value)}
+          <div
+            className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+            onWheel={e => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+          >
+            {options.map(opt => {
+              const isSelected = selected.includes(opt.value)
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => toggle(opt.value)}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors',
+                    isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                  )}
+                >
+                  <div
                     className={cn(
-                      'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
-                      isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+                      'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                      isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
                     )}
                   >
-                    <div
-                      className={cn(
-                        'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                        isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                      )}
-                    >
-                      {isSelected && <Check size={10} />}
-                    </div>
-                    <span className="truncate">{opt.label[lang] ?? opt.label.en}</span>
-                  </button>
-                )
-              })}
-            </div>
-          </ScrollArea>
+                    {isSelected && <Check size={10} />}
+                  </div>
+                  <span className="truncate">{opt.label[lang] ?? opt.label.en}</span>
+                </button>
+              )
+            })}
+          </div>
         </PopoverContent>
       </Popover>
     </div>

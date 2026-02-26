@@ -5,13 +5,13 @@ import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 import { KeyIndicatorComponent } from '@/features/projects/lab/datasets/analyses/KeyIndicatorComponent'
 import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/PlotBuilderComponent'
+import { Table1Component } from '@/features/projects/lab/datasets/analyses/Table1Component'
+import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/analyses/StatisticalTestsComponent'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.json'
-// --- Code templates (raw strings) ---
-import table1Py from '@default-plugins/analyses/table1/table1.py.template?raw'
-import table1R from '@default-plugins/analyses/table1/table1.R.template?raw'
+import statisticalTestsManifest from '@default-plugins/analyses/statistical-tests/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -32,13 +32,15 @@ export function buildPlugin(
 }
 
 export function registerDefaultPlugins() {
-  // Lab plugins
-  registerPlugin(
-    buildPlugin(table1Manifest as unknown as Record<string, unknown>, { python: table1Py, r: table1R }),
-  )
   // Component-based lab plugins
+  registerComponent('table1', Table1Component)
   registerComponent('key-indicator', KeyIndicatorComponent)
   registerComponent('plot-builder', PlotBuilderComponent)
+  registerPlugin({
+    manifest: normaliseManifest(table1Manifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'table1',
+  })
   registerPlugin({
     manifest: {
       id: 'linkr-analysis-key-indicator',
@@ -124,6 +126,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(plotBuilderManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'plot-builder',
+  })
+
+  registerComponent('statistical-tests', StatisticalTestsComponent)
+  registerPlugin({
+    manifest: normaliseManifest(statisticalTestsManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'statistical-tests',
   })
 
   // Warehouse system plugins (built-in patient data widgets)

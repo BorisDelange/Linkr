@@ -59,26 +59,6 @@ function isNullish(val: string | undefined): boolean {
   return lower === 'null' || lower === 'na' || lower === 'none' || lower === 'nan'
 }
 
-/**
- * Render basic inline markdown: **bold** and ~~strikethrough~~.
- * gtsummary uses **bold** for variable labels.
- * Returns a React fragment with <strong> / <del> elements.
- */
-function renderInlineMarkdown(text: string): React.ReactNode {
-  // Match **bold** or ~~strikethrough~~
-  const parts = text.split(/(\*\*[^*]+\*\*|~~[^~]+~~)/g)
-  if (parts.length === 1) return text
-  return parts.map((part, i) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={i}>{part.slice(2, -2)}</strong>
-    }
-    if (part.startsWith('~~') && part.endsWith('~~')) {
-      return <del key={i}>{part.slice(2, -2)}</del>
-    }
-    return part
-  })
-}
-
 // Subtle column background colors for visual separation (alternating)
 const COLUMN_COLORS = [
   'bg-blue-500/[0.04]',
@@ -172,7 +152,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                 >
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={columnTypes[idx]} size="sm" />
-                    <span className="truncate">{renderInlineMarkdown(headers[idx])}</span>
+                    <span className="truncate">{headers[idx]}</span>
                   </div>
                 </th>
               ))}
@@ -226,7 +206,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                       >
                         {nullish
                           ? <span className="italic text-muted-foreground/50">null</span>
-                          : renderInlineMarkdown(val)}
+                          : val}
                       </td>
                     )
                   })}
