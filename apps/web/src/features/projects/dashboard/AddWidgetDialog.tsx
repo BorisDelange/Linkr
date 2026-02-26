@@ -333,22 +333,17 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
           </TabsContent>
 
           <TabsContent value="inline" className="mt-3">
-            <div className="grid gap-2">
+            <div className="grid grid-cols-3 gap-3">
               {(['python', 'r', 'sql'] as const).map((lang) => (
                 <button
                   key={lang}
                   onClick={() => handleAddInline(lang)}
-                  className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
+                  className="flex flex-col items-center gap-2 rounded-lg border p-4 text-center transition-colors hover:bg-accent/50"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
                     <Code2 size={20} className="text-amber-500" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium">{lang.toUpperCase()}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t('dashboard.custom_code_description', { language: lang.toUpperCase() })}
-                    </p>
-                  </div>
+                  <p className="text-sm font-medium">{lang.toUpperCase()}</p>
                 </button>
               ))}
             </div>

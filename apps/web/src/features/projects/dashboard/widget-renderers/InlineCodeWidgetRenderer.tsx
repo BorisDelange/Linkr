@@ -68,6 +68,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
         result={result}
         isExecuting={loading}
         onRerun={() => setRunCount(c => c + 1)}
+        compact
       />
     </div>
   )

@@ -44,6 +44,14 @@ const R_WARNING_PATTERNS = [
   /^Warning message/,
   /^In .+ :\s*$/,
   /^── /,
+  // ggplot2 / tidyverse informational messages
+  /^`stat_/,
+  /^`geom_/,
+  /Pick better value/,
+  /^Scale for /,
+  /^Coordinate system already present/,
+  /removed \d+ rows? containing/,
+  /^Don't know how to automatically pick/,
 ]
 
 /** Split stderr into real errors and informational warnings. */
@@ -127,22 +135,29 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
     return <OutputTable headers={result.table.headers} rows={result.table.rows} compact />
   }
 
+  // In compact mode with figures, use flex layout so plot fills available space
+  // Allow warnings (non-blocking) — only real errors prevent full-size mode
+  const compactFigureOnly = compact && hasFigures && !hasTable
+
   return (
-    <div className="h-full overflow-auto">
-      <div className={compact ? 'p-1.5 space-y-1.5' : 'p-3 space-y-3'}>
-        {/* Errors (real) */}
+    <div className={compactFigureOnly ? 'h-full flex flex-col' : 'h-full overflow-auto'}>
+      <div className={compact ? (compactFigureOnly ? 'flex-1 min-h-0 flex flex-col p-1.5 gap-1.5' : 'p-1.5 space-y-1.5') : 'p-3 space-y-3'}>
+        {/* Errors (real) — collapsible */}
         {hasError && (
-          <div className="rounded-md border border-destructive/50 bg-destructive/5 p-3 space-y-2">
-            <div className="flex items-start gap-2">
-              <AlertCircle size={14} className="shrink-0 text-destructive mt-0.5" />
-              <pre className="text-xs text-destructive whitespace-pre-wrap break-words font-mono flex-1">
+          <details className="rounded-md border border-destructive/50 bg-destructive/5 overflow-hidden" open>
+            <summary className="flex items-center gap-2 px-3 py-2 cursor-pointer text-xs text-destructive font-medium select-none hover:bg-destructive/10 transition-colors">
+              <AlertCircle size={14} className="shrink-0" />
+              {t('datasets.analysis_error', 'Error')}
+            </summary>
+            <div className="px-3 pb-3 space-y-2">
+              <pre className="text-xs text-destructive whitespace-pre-wrap break-words font-mono">
                 {errors}
               </pre>
+              {missingPackages.length > 0 && (
+                <MissingPackageInstaller packages={missingPackages} onInstalled={onRerun} />
+              )}
             </div>
-            {missingPackages.length > 0 && (
-              <MissingPackageInstaller packages={missingPackages} onInstalled={onRerun} />
-            )}
-          </div>
+          </details>
         )}
 
         {/* Info & Warnings pills row */}
@@ -185,19 +200,29 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
           </div>
         )}
 
-        {/* Figures (SVG) */}
+        {/* Figures (SVG/PNG) — fill widget when compact */}
         {hasFigures && result.figures.map((fig) => (
           <div
             key={fig.id}
-            className="rounded-md border bg-background overflow-hidden"
+            className={compact
+              ? 'flex-1 min-h-0 overflow-hidden flex items-center justify-center'
+              : 'rounded-md border bg-background overflow-hidden'
+            }
           >
             {fig.type === 'svg' ? (
               <div
-                className="w-full [&>svg]:w-full [&>svg]:h-auto"
+                className={compact
+                  ? 'w-full h-full [&>svg]:w-full [&>svg]:h-full [&>svg]:object-contain'
+                  : 'w-full [&>svg]:w-full [&>svg]:h-auto'
+                }
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
               />
             ) : (
-              <img src={fig.data} alt={fig.label} className="w-full" />
+              <img
+                src={fig.data}
+                alt={fig.label}
+                className={compact ? 'max-w-full max-h-full object-contain' : 'w-full'}
+              />
             )}
           </div>
         ))}
