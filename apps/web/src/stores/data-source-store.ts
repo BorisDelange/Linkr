@@ -263,17 +263,6 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().dataSources.create(newSource)
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
 
-    // Auto-commit to workspace versioning
-    if (newSource.workspaceId) {
-      const wsId = newSource.workspaceId
-      import('@/stores/workspace-versioning-store').then(({ useWorkspaceVersioningStore }) => {
-        const store = useWorkspaceVersioningStore.getState()
-        store.ensureRepo(wsId).then(() =>
-          store.commitDataSourceChange(wsId, id, source.name, 'create'),
-        ).catch(err => console.warn('[data-source] Git commit failed:', err))
-      }).catch(() => {})
-    }
-
     // Mount in DuckDB and compute stats
     try {
       if (useFileHandles) {
@@ -307,7 +296,6 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   updateDataSource: (id, changes) => {
-    const ds = get().dataSources.find((d) => d.id === id)
     getStorage().dataSources.update(id, changes)
     set((s) => ({
       dataSources: s.dataSources.map((d) =>
@@ -317,22 +305,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ),
     }))
 
-    if (ds?.workspaceId) {
-      const wsId = ds.workspaceId
-      import('@/stores/workspace-versioning-store').then(({ useWorkspaceVersioningStore }) => {
-        const store = useWorkspaceVersioningStore.getState()
-        store.ensureRepo(wsId).then(() =>
-          store.commitDataSourceChange(wsId, id, ds.name, 'update'),
-        ).catch(err => console.warn('[data-source] Git commit failed:', err))
-      }).catch(() => {})
-    }
   },
 
   removeDataSource: async (id) => {
-    const ds = get().dataSources.find((d) => d.id === id)
-    const dsName = ds?.name ?? id
-    const wsId = ds?.workspaceId
-
     // Unmount from DuckDB
     if (mountedSources.has(id)) {
       try {
@@ -370,17 +345,6 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       }
     })
 
-    // Auto-commit deletion to workspace versioning
-    if (wsId) {
-      try {
-        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
-        const store = useWorkspaceVersioningStore.getState()
-        await store.ensureRepo(wsId)
-        await store.commitDataSourceChange(wsId, id, dsName, 'delete')
-      } catch (err) {
-        console.warn('[data-source] Git commit failed:', err)
-      }
-    }
   },
 
   createEmptyDatabase: async (source) => {
@@ -413,17 +377,6 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     await getStorage().dataSources.create(newSource)
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
-
-    // Auto-commit to workspace versioning
-    if (newSource.workspaceId) {
-      const wsId = newSource.workspaceId
-      import('@/stores/workspace-versioning-store').then(({ useWorkspaceVersioningStore }) => {
-        const store = useWorkspaceVersioningStore.getState()
-        store.ensureRepo(wsId).then(() =>
-          store.commitDataSourceChange(wsId, id, source.name, 'create'),
-        ).catch(err => console.warn('[data-source] Git commit failed:', err))
-      }).catch(() => {})
-    }
 
     try {
       await withTimeout(engine.mountEmptyFromDDL(id, source.ddl, alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')

@@ -1,24 +1,11 @@
-import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { WsLocalHistoryTab } from './WsLocalHistoryTab'
 import { WsRemoteGitTab } from './WsRemoteGitTab'
 import { WsExportTab } from './WsExportTab'
 
 export function AppVersioningPage() {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
-  const { ensureRepo, loadCommits } = useWorkspaceVersioningStore()
-
-  useEffect(() => {
-    if (wsUid) {
-      ensureRepo(wsUid).then(() => {
-        loadCommits(wsUid)
-      })
-    }
-  }, [wsUid, ensureRepo, loadCommits])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -27,7 +14,7 @@ export function AppVersioningPage() {
         <p className="mt-1 text-sm text-muted-foreground">{t('app_versioning.description')}</p>
       </div>
 
-      <Tabs defaultValue="history" className="flex min-h-0 flex-1 flex-col px-6">
+      <Tabs defaultValue="export" className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="mx-auto w-fit shrink-0">
           <TabsTrigger value="history">{t('versioning.tab_history')}</TabsTrigger>
           <TabsTrigger value="remote">{t('versioning.tab_remote')}</TabsTrigger>

@@ -291,18 +291,6 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     })
     await get().refreshPluginList()
 
-    // Git commit
-    if (wsId) {
-      try {
-        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
-        const store = useWorkspaceVersioningStore.getState()
-        await store.ensureRepo(wsId)
-        await store.commitPluginChange(wsId, id, pluginName, 'create')
-      } catch (err) {
-        console.warn('[plugin-editor] Git commit for plugin creation failed:', err)
-      }
-    }
-
     return id
   },
 
@@ -363,28 +351,12 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async deletePlugin(id: string) {
-    // Get plugin name before deletion for commit message
-    const plugin = get().pluginList.find((p) => p.id === id)
-    const pluginName = plugin?.manifest.name?.en ?? id
-
     const storage = getStorage()
     await storage.userPlugins.delete(id)
     unregisterPlugin(id)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
 
-    // Git commit
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    if (wsId) {
-      try {
-        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
-        const store = useWorkspaceVersioningStore.getState()
-        await store.ensureRepo(wsId)
-        await store.commitPluginChange(wsId, id, pluginName, 'delete')
-      } catch (err) {
-        console.warn('[plugin-editor] Git commit for plugin deletion failed:', err)
-      }
-    }
   },
 
   async savePlugin() {
@@ -456,20 +428,6 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     set({ isDirty: false, originalFiles: { ...files } })
     await get().refreshPluginList()
 
-    // Git commit
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    if (wsId) {
-      try {
-        const manifest = JSON.parse(files['plugin.json'] ?? '{}')
-        const pluginName = manifest.name?.en ?? editingPluginId
-        const { useWorkspaceVersioningStore } = await import('@/stores/workspace-versioning-store')
-        const store = useWorkspaceVersioningStore.getState()
-        await store.ensureRepo(wsId)
-        await store.commitPluginChange(wsId, editingPluginId, pluginName, 'update')
-      } catch (err) {
-        console.warn('[plugin-editor] Git commit for plugin save failed:', err)
-      }
-    }
   },
 
   // File actions

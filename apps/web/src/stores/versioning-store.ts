@@ -1,25 +1,9 @@
-import { Buffer } from 'buffer'
-if (typeof globalThis.Buffer === 'undefined') {
-  ;(globalThis as unknown as { Buffer: typeof Buffer }).Buffer = Buffer
-}
-
 import { create } from 'zustand'
-import git from 'isomorphic-git'
-import LightningFS from '@isomorphic-git/lightning-fs'
 import JSZip from 'jszip'
 import type { GitCommit, GitRemoteConfig } from '@/types'
 import { useFileStore, type FileNode } from '@/stores/file-store'
 
-const FS_PREFIX = 'linkr-git'
-const GIT_AUTHOR = { name: 'Linkr User', email: 'user@linkr.local' }
-
-function getFs(projectUid: string) {
-  return new LightningFS(`${FS_PREFIX}-${projectUid}`)
-}
-
-function getDir(projectUid: string) {
-  return `/${projectUid}`
-}
+const BACKEND_MSG = '[versioning] Requires backend — no-op in local mode'
 
 /** Build a relative file path from a FileNode by walking up parents. */
 function buildFilePath(node: FileNode, files: FileNode[]): string {
@@ -52,155 +36,18 @@ interface VersioningState {
   importZip: (file: File) => Promise<void>
 }
 
-export const useVersioningStore = create<VersioningState>((set, get) => ({
+export const useVersioningStore = create<VersioningState>((set) => ({
   commits: [],
   loading: false,
   fileChanges: { modified: 0, added: 0, deleted: 0 },
   remoteConfig: null,
 
-  initRepo: async (projectUid) => {
-    const fs = getFs(projectUid)
-    const dir = getDir(projectUid)
-    try {
-      await fs.promises.stat(dir)
-    } catch {
-      await fs.promises.mkdir(dir)
-    }
-    try {
-      await git.init({ fs, dir })
-    } catch {
-      // already initialized
-    }
-  },
-
-  syncFilesToGit: async (projectUid) => {
-    const fs = getFs(projectUid)
-    const dir = getDir(projectUid)
-    const files = useFileStore.getState().files
-
-    // Write all project files into the git working directory
-    for (const file of files) {
-      if (file.type === 'folder') {
-        const folderPath = `${dir}/${buildFilePath(file, files)}`
-        try {
-          await fs.promises.stat(folderPath)
-        } catch {
-          await fs.promises.mkdir(folderPath, { recursive: true } as never)
-        }
-      }
-    }
-    for (const file of files) {
-      if (file.type === 'file') {
-        const filePath = `${dir}/${buildFilePath(file, files)}`
-        // Ensure parent directories exist
-        const parts = filePath.split('/')
-        for (let i = 2; i < parts.length; i++) {
-          const parentPath = parts.slice(0, i).join('/')
-          try {
-            await fs.promises.stat(parentPath)
-          } catch {
-            await fs.promises.mkdir(parentPath)
-          }
-        }
-        await fs.promises.writeFile(filePath, file.content ?? '')
-      }
-    }
-  },
-
-  loadCommits: async (projectUid) => {
-    const fs = getFs(projectUid)
-    const dir = getDir(projectUid)
-    try {
-      const log = await git.log({ fs, dir, depth: 100 })
-      const commits: GitCommit[] = log.map((entry) => ({
-        oid: entry.oid,
-        message: entry.commit.message,
-        author: {
-          name: entry.commit.author.name,
-          email: entry.commit.author.email,
-          timestamp: entry.commit.author.timestamp,
-        },
-        parents: entry.commit.parent,
-      }))
-      set({ commits })
-    } catch {
-      // No commits yet
-      set({ commits: [] })
-    }
-  },
-
-  refreshStatus: async (projectUid) => {
-    const fs = getFs(projectUid)
-    const dir = getDir(projectUid)
-    try {
-      await get().syncFilesToGit(projectUid)
-      const matrix = await git.statusMatrix({ fs, dir })
-      let modified = 0
-      let added = 0
-      let deleted = 0
-      for (const row of matrix) {
-        const [, head, workdir, stage] = row as [string, number, number, number]
-        if (head === 0 && workdir === 2) added++
-        else if (head === 1 && workdir === 0) deleted++
-        else if (head === 1 && workdir === 2 && stage !== 1) modified++
-        else if (head === 1 && workdir === 2 && stage === 1) modified++
-      }
-      set({ fileChanges: { modified, added, deleted } })
-    } catch {
-      set({ fileChanges: { modified: 0, added: 0, deleted: 0 } })
-    }
-  },
-
-  createCommit: async (projectUid, message) => {
-    set({ loading: true })
-    try {
-      const fs = getFs(projectUid)
-      const dir = getDir(projectUid)
-
-      await get().syncFilesToGit(projectUid)
-
-      // Stage all files
-      const matrix = await git.statusMatrix({ fs, dir })
-      for (const row of matrix) {
-        const [filepath, , workdir] = row as [string, number, number, number]
-        if (workdir === 0) {
-          await git.remove({ fs, dir, filepath })
-        } else {
-          await git.add({ fs, dir, filepath })
-        }
-      }
-
-      await git.commit({
-        fs,
-        dir,
-        message,
-        author: GIT_AUTHOR,
-      })
-
-      await get().loadCommits(projectUid)
-      set({ fileChanges: { modified: 0, added: 0, deleted: 0 } })
-    } finally {
-      set({ loading: false })
-    }
-  },
-
-  restoreCommit: async (projectUid, oid) => {
-    set({ loading: true })
-    try {
-      const fs = getFs(projectUid)
-      const dir = getDir(projectUid)
-
-      await git.checkout({ fs, dir, ref: oid, force: true })
-
-      // Read files back from git into the file store
-      // For now, this is a placeholder — full implementation
-      // would walk the tree and update useFileStore
-      await get().loadCommits(projectUid)
-      await get().refreshStatus(projectUid)
-    } finally {
-      set({ loading: false })
-    }
-  },
+  initRepo: async () => { console.info(BACKEND_MSG) },
+  syncFilesToGit: async () => { console.info(BACKEND_MSG) },
+  loadCommits: async () => { console.info(BACKEND_MSG); set({ commits: [] }) },
+  refreshStatus: async () => { console.info(BACKEND_MSG); set({ fileChanges: { modified: 0, added: 0, deleted: 0 } }) },
+  createCommit: async () => { console.info(BACKEND_MSG) },
+  restoreCommit: async () => { console.info(BACKEND_MSG) },
 
   setRemoteConfig: (config) => set({ remoteConfig: config }),
   clearRemoteConfig: () => set({ remoteConfig: null }),
@@ -232,7 +79,7 @@ export const useVersioningStore = create<VersioningState>((set, get) => ({
       const zip = await JSZip.loadAsync(file)
       const { createFile, createFolder, updateFileContent } = useFileStore.getState()
 
-      // Clear existing files (simple approach — replace all)
+      // Clear existing files
       const store = useFileStore.getState()
       for (const f of [...store.files]) {
         useFileStore.getState().deleteNode(f.id)

@@ -8,6 +8,7 @@ import { WikiPageEditor } from './WikiPageEditor'
 import { WikiSearchDialog } from './WikiSearchDialog'
 import { CreateWikiPageDialog } from './CreateWikiPageDialog'
 import { WikiIconDialog } from './WikiIconDialog'
+import { WikiHistoryDialog } from './WikiHistoryDialog'
 
 export function WikiPage() {
   const { t } = useTranslation()
@@ -25,6 +26,7 @@ export function WikiPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [createParentId, setCreateParentId] = useState<string | null>(null)
   const [iconDialogPageId, setIconDialogPageId] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Load wiki pages when workspace changes
   useEffect(() => {
@@ -68,6 +70,7 @@ export function WikiPage() {
           workspaceId={wsUid}
           onCreatePage={handleCreatePage}
           onSearch={() => setSearchOpen(true)}
+          onHistory={() => setHistoryOpen(true)}
           onChangeIcon={(pageId) => setIconDialogPageId(pageId)}
         />
       </div>
@@ -106,6 +109,11 @@ export function WikiPage() {
           if (iconDialogPageId) updatePage(iconDialogPageId, { icon })
           setIconDialogPageId(null)
         }}
+      />
+      <WikiHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        workspaceId={wsUid}
       />
     </div>
   )

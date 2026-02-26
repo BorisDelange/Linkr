@@ -13,6 +13,11 @@ import {
   Puzzle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip'
 import { MarkdownToolbar, applyMarkdownFormat } from '@/components/editor/MarkdownToolbar'
 import type { MarkdownFormat } from '@/components/editor/MarkdownToolbar'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
@@ -151,44 +156,75 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
         </div>
         <div className="flex items-center gap-1">
           {/* Verified badge */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`h-5 px-2 text-xs ${page.verified ? 'text-emerald-500' : 'text-muted-foreground'}`}
-            onClick={handleToggleVerified}
-            title={page.verified ? t('wiki.verified') : t('wiki.mark_verified')}
-          >
-            {page.verified ? <ShieldCheck size={12} /> : <Shield size={12} />}
-            {page.verified ? t('wiki.verified') : t('wiki.verify')}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-5 px-2 text-xs ${page.verified ? 'text-emerald-500' : 'text-muted-foreground'}`}
+                onClick={handleToggleVerified}
+              >
+                {page.verified ? <ShieldCheck size={12} /> : <Shield size={12} />}
+                {page.verified ? t('wiki.verified') : t('wiki.verify')}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={4}>
+              {page.verified ? t('wiki.verified') : t('wiki.mark_verified')}
+            </TooltipContent>
+          </Tooltip>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-5 px-2 text-xs text-muted-foreground"
-            onClick={() => setAttachmentsOpen(true)}
-          >
-            <Paperclip size={12} />
-            {t('summary.attachments')}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-5 px-2 text-xs text-muted-foreground"
+                onClick={() => setAttachmentsOpen(true)}
+              >
+                <Paperclip size={12} />
+                {t('summary.attachments')}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={4}>{t('summary.attachments')}</TooltipContent>
+          </Tooltip>
 
           {viewMode === 'edit' ? (
             <>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={handleCancel}>
-                <X size={12} /> {t('common.cancel')}
-              </Button>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave}>
-                <Check size={12} /> {t('common.save')}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={handleCancel}>
+                    <X size={12} /> {t('common.cancel')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={4}>{t('common.cancel')}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave}>
+                    <Check size={12} /> {t('common.save')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={4}>{t('common.save')}</TooltipContent>
+              </Tooltip>
             </>
           ) : (
             <>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('history')}>
-                <History size={12} /> {t('summary.history')}
-              </Button>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('edit')}>
-                <Pencil size={12} /> {t('summary.edit')}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('history')}>
+                    <History size={12} /> {t('summary.history')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={4}>{t('summary.history')}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('edit')}>
+                    <Pencil size={12} /> {t('summary.edit')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent sideOffset={4}>{t('summary.edit')}</TooltipContent>
+              </Tooltip>
             </>
           )}
         </div>

@@ -7,6 +7,7 @@ import {
   FileText,
   FolderOpen,
   Search,
+  History,
   Pencil,
   Trash2,
   FilePlus,
@@ -21,6 +22,11 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from '@/components/ui/tooltip'
 import {
   Collapsible,
   CollapsibleContent,
@@ -44,10 +50,11 @@ interface WikiTreeSidebarProps {
   workspaceId: string
   onCreatePage: (parentId: string | null) => void
   onSearch: () => void
+  onHistory: () => void
   onChangeIcon: (pageId: string) => void
 }
 
-export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch, onChangeIcon }: WikiTreeSidebarProps) {
+export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch, onHistory, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
   const tree = getTree()
@@ -60,24 +67,45 @@ export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch, onChangeI
           {t('wiki.pages')}
         </span>
         <div className="flex items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-            onClick={onSearch}
-            title={t('wiki.search')}
-          >
-            <Search size={14} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-            onClick={() => onCreatePage(null)}
-            title={t('wiki.new_page')}
-          >
-            <Plus size={14} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                onClick={onSearch}
+              >
+                <Search size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={4}>{t('wiki.search')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                onClick={onHistory}
+              >
+                <History size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={4}>{t('wiki.wiki_history')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                onClick={() => onCreatePage(null)}
+              >
+                <Plus size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent sideOffset={4}>{t('wiki.new_page')}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
