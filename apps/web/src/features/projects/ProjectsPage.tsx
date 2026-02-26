@@ -1,17 +1,15 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
+import JSZip from 'jszip'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { getStorage } from '@/lib/storage'
+import { buildProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,22 +27,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
+import type { Project, IdeFile, Pipeline, Cohort, IdeConnection, Dashboard, DashboardTab, DashboardWidget, DatasetFile, DatasetAnalysis, ReadmeAttachment } from '@/types'
 
 export function ProjectsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const { wsUid } = useParams()
-  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject } = useAppStore()
+  const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+
+  // Import conflict state
+  const [importConflict, setImportConflict] = useState<{ name: string; pending: Record<string, unknown> } | null>(null)
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -81,6 +85,231 @@ export function ProjectsPage() {
     setDeleteConfirm('')
   }
 
+  // --- Export a single project ---
+  const handleExportProject = useCallback(async (projectUid: string) => {
+    const result = await buildProjectZip(projectUid, getStorage())
+    if (!result) return
+    downloadBlob(result.blob, `${slugify(result.projectName)}-${timestamp()}.zip`)
+  }, [])
+
+  // --- Duplicate a project (export then re-import as copy) ---
+  const handleDuplicateProject = useCallback(async (projectUid: string) => {
+    const result = await buildProjectZip(projectUid, getStorage())
+    if (!result) return
+    // Parse the ZIP we just built, then import as duplicate
+    const zip = await JSZip.loadAsync(result.blob)
+    const parsed: Record<string, unknown> = {}
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue
+      if (path.startsWith('attachments/')) {
+        parsed[path] = await entry.async('arraybuffer')
+      } else {
+        const content = await entry.async('string')
+        try { parsed[path] = JSON.parse(content) } catch { parsed[path] = content }
+      }
+    }
+    await doImport(parsed, true)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Import ---
+  const doImport = useCallback(async (parsed: Record<string, unknown>, duplicate: boolean) => {
+    const project = parsed['project.json'] as Project | undefined
+    if (!project?.uid) return
+
+    const now = new Date().toISOString()
+    const uid = duplicate ? crypto.randomUUID() : project.uid
+    const storage = getStorage()
+
+    // Build the project entity
+    const projectName = typeof project.name === 'string'
+      ? project.name
+      : (project.name?.en || Object.values(project.name ?? {})[0] || 'Imported project')
+    const entity: Project = {
+      ...project,
+      uid,
+      workspaceId: wsUid ?? activeWorkspaceId ?? project.workspaceId,
+      name: duplicate
+        ? (typeof project.name === 'string'
+          ? `${project.name} (copy)` as unknown as Project['name']
+          : Object.fromEntries(Object.entries(project.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as Project['name'])
+        : project.name,
+      updatedAt: now,
+      ...(duplicate ? { createdAt: now } : {}),
+    }
+
+    if (!duplicate) {
+      // Overwrite: delete old project and children
+      await storage.ideFiles.deleteByProject(project.uid).catch(() => {})
+      await storage.connections.deleteByProject(project.uid).catch(() => {})
+      await storage.readmeAttachments.deleteByProject(project.uid).catch(() => {})
+      await storage.datasetFiles.deleteByProject(project.uid).catch(() => {})
+      // Delete dashboards + children
+      const oldDashboards = await storage.dashboards.getByProject(project.uid)
+      for (const d of oldDashboards) {
+        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
+        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
+        await storage.dashboardTabs.deleteByDashboard(d.id)
+        await storage.dashboards.delete(d.id)
+      }
+      // Delete pipelines
+      const oldPipelines = await storage.pipelines.getByProject(project.uid)
+      for (const p of oldPipelines) await storage.pipelines.delete(p.id)
+      // Delete cohorts
+      const oldCohorts = await storage.cohorts.getByProject(project.uid)
+      for (const c of oldCohorts) await storage.cohorts.delete(c.id)
+      // Delete dataset analyses
+      const oldDatasetFiles = await storage.datasetFiles.getByProject(project.uid)
+      for (const df of oldDatasetFiles) {
+        if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
+      }
+      await storage.projects.delete(project.uid).catch(() => {})
+    }
+
+    // Create project
+    await storage.projects.create(entity)
+
+    // Helper to remap IDs when duplicating
+    const idMap = new Map<string, string>()
+    const mapId = (oldId: string): string => {
+      if (!duplicate) return oldId
+      if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
+      return idMap.get(oldId)!
+    }
+
+    // IDE files
+    const ideFiles = (parsed['ide-files.json'] ?? []) as IdeFile[]
+    for (const f of ideFiles) {
+      await storage.ideFiles.create({
+        ...f,
+        id: mapId(f.id),
+        projectUid: uid,
+        parentId: f.parentId ? mapId(f.parentId) : null,
+      })
+    }
+
+    // Pipelines
+    const pipelines = (parsed['pipelines.json'] ?? []) as Pipeline[]
+    for (const p of pipelines) {
+      await storage.pipelines.create({
+        ...p,
+        id: mapId(p.id),
+        projectUid: uid,
+      })
+    }
+
+    // Cohorts
+    const cohorts = (parsed['cohorts.json'] ?? []) as Cohort[]
+    for (const c of cohorts) {
+      await storage.cohorts.create({
+        ...c,
+        id: mapId(c.id),
+        projectUid: uid,
+      })
+    }
+
+    // Connections
+    const connections = (parsed['connections.json'] ?? []) as IdeConnection[]
+    for (const c of connections) {
+      await storage.connections.create({
+        ...c,
+        id: mapId(c.id),
+        projectUid: uid,
+      })
+    }
+
+    // Dashboards + tabs + widgets
+    const dashboards = (parsed['dashboards.json'] ?? []) as Dashboard[]
+    const dashboardTabs = (parsed['dashboard-tabs.json'] ?? []) as DashboardTab[]
+    const dashboardWidgets = (parsed['dashboard-widgets.json'] ?? []) as DashboardWidget[]
+    for (const d of dashboards) {
+      await storage.dashboards.create({
+        ...d,
+        id: mapId(d.id),
+        projectUid: uid,
+      })
+    }
+    for (const tab of dashboardTabs) {
+      await storage.dashboardTabs.create({
+        ...tab,
+        id: mapId(tab.id),
+        dashboardId: mapId(tab.dashboardId),
+      })
+    }
+    for (const w of dashboardWidgets) {
+      await storage.dashboardWidgets.create({
+        ...w,
+        id: mapId(w.id),
+        tabId: mapId(w.tabId),
+      })
+    }
+
+    // Dataset files + analyses
+    const datasetFiles = (parsed['dataset-files.json'] ?? []) as DatasetFile[]
+    const datasetAnalyses = (parsed['dataset-analyses.json'] ?? []) as DatasetAnalysis[]
+    for (const df of datasetFiles) {
+      await storage.datasetFiles.create({
+        ...df,
+        id: mapId(df.id),
+        projectUid: uid,
+        parentId: df.parentId ? mapId(df.parentId) : null,
+      })
+    }
+    for (const a of datasetAnalyses) {
+      await storage.datasetAnalyses.create({
+        ...a,
+        id: mapId(a.id),
+        datasetFileId: mapId(a.datasetFileId),
+      })
+    }
+
+    // Readme attachments (metadata + binary blobs)
+    const attachmentsMeta = (parsed['readme-attachments.json'] ?? []) as Omit<ReadmeAttachment, 'data'>[]
+    for (const meta of attachmentsMeta) {
+      const blobKey = `attachments/${meta.id}-${meta.fileName}`
+      const blobData = parsed[blobKey]
+      if (blobData instanceof ArrayBuffer) {
+        await storage.readmeAttachments.create({
+          ...meta,
+          id: mapId(meta.id),
+          projectUid: uid,
+          data: blobData,
+        } as ReadmeAttachment)
+      }
+    }
+
+    await loadProjects()
+  }, [wsUid, activeWorkspaceId, loadProjects])
+
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+
+    const zip = await JSZip.loadAsync(file)
+    const parsed: Record<string, unknown> = {}
+    for (const [path, entry] of Object.entries(zip.files)) {
+      if (entry.dir) continue
+      // Binary files (attachments/)
+      if (path.startsWith('attachments/')) {
+        parsed[path] = await entry.async('arraybuffer')
+      } else {
+        const content = await entry.async('string')
+        try { parsed[path] = JSON.parse(content) } catch { parsed[path] = content }
+      }
+    }
+
+    const project = parsed['project.json'] as Project | undefined
+    if (!project?.uid) return
+
+    const existing = await getStorage().projects.getById(project.uid)
+    if (existing) {
+      const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
+      setImportConflict({ name: existingName, pending: parsed })
+    } else {
+      await doImport(parsed, false)
+    }
+  }, [doImport])
+
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-4xl px-6 py-10">
@@ -89,17 +318,22 @@ export function ProjectsPage() {
             {t('projects.title')}
           </h1>
           <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
-                    <Upload size={14} />
-                    {t('common.import')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.coming_soon')}</TooltipContent>
-            </Tooltip>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 text-xs"
+              onClick={() => importInputRef.current?.click()}
+            >
+              <Upload size={14} />
+              {t('common.import')}
+            </Button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".zip"
+              className="hidden"
+              onChange={handleImportFile}
+            />
             <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
               <Plus size={14} />
               {t('projects.create')}
@@ -172,15 +406,13 @@ export function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem disabled>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleExportProject(project.uid) }}>
                               <Download size={14} />
                               {t('common.export')}
-                              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
                             </DropdownMenuItem>
-                            <DropdownMenuItem disabled>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />
                               {t('common.duplicate')}
-                              <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
                             </DropdownMenuItem>
                             <DropdownMenuItem disabled>
                               <History size={14} />
@@ -226,6 +458,15 @@ export function ProjectsPage() {
       </div>
 
       <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
+
+      {/* Import conflict dialog */}
+      <ImportConflictDialog
+        open={!!importConflict}
+        onOpenChange={(open) => { if (!open) setImportConflict(null) }}
+        existingName={importConflict?.name ?? ''}
+        onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true); setImportConflict(null) }}
+        onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false); setImportConflict(null) }}
+      />
 
       {/* Delete project confirmation */}
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>

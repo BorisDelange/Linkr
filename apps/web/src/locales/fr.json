@@ -1100,6 +1100,7 @@
   "pipeline": {
     "title": "Pipeline",
     "description": "Orchestrer les transformations de données et automatiser les workflows.",
+    "wip_banner": "Cette vue pipeline est actuellement à titre indicatif uniquement. L'orchestration et l'exécution sont en cours de développement.",
     "palette_title": "Composants",
     "node_database": "Base de données",
     "node_database_desc": "Source OMOP / FHIR",

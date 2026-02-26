@@ -1100,6 +1100,7 @@
   "pipeline": {
     "title": "Pipeline",
     "description": "Orchestrate data transformations and automate workflows.",
+    "wip_banner": "This pipeline view is currently for visualization purposes only. Orchestration and execution features are under development.",
     "palette_title": "Components",
     "node_database": "Database",
     "node_database_desc": "OMOP / FHIR data source",

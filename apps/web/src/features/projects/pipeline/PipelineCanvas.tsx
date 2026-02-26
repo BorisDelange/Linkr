@@ -1,4 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Construction } from 'lucide-react'
 import {
   ReactFlow,
   Background,
@@ -27,6 +29,7 @@ const nodeTypes = {
 }
 
 export function PipelineCanvas() {
+  const { t } = useTranslation()
   const {
     pipeline,
     nodes,
@@ -185,6 +188,12 @@ export function PipelineCanvas() {
 
   return (
     <div className="flex h-full flex-col bg-muted/30" onKeyDown={onKeyDown} tabIndex={0}>
+      <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 dark:border-amber-800 dark:bg-amber-950">
+        <Construction size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          {t('pipeline.wip_banner')}
+        </p>
+      </div>
       <PipelineToolbar
         pipeline={pipeline}
         selectedNodeId={selectedNodeId}
