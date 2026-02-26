@@ -8,7 +8,7 @@
     "en": "Descriptive statistics table with counts, percentages, means, medians, and IQR for each variable. Supports optional group-by.",
     "fr": "Tableau de statistiques descriptives avec effectifs, pourcentages, moyennes, médianes et IQR pour chaque variable. Supporte un regroupement optionnel."
   },
-  "version": "1.0.0",
+  "version": "2.0.0",
   "category": "analysis",
   "tags": ["descriptive", "table"],
   "runtime": ["script"],
@@ -27,11 +27,26 @@
       "optional": true,
       "filter": "categorical",
       "label": { "en": "Group by", "fr": "Grouper par" }
+    },
+    "metrics": {
+      "type": "select",
+      "multi": true,
+      "label": { "en": "Metrics", "fr": "Métriques" },
+      "defaultAll": true,
+      "options": [
+        { "value": "n", "label": { "en": "n", "fr": "n" } },
+        { "value": "missing", "label": { "en": "Missing", "fr": "Manquants" } },
+        { "value": "mean_sd", "label": { "en": "Mean ± SD", "fr": "Moyenne ± ET" } },
+        { "value": "median_iqr", "label": { "en": "Median [IQR]", "fr": "Médiane [IQR]" } },
+        { "value": "min_max", "label": { "en": "Min / Max", "fr": "Min / Max" } },
+        { "value": "range", "label": { "en": "Range", "fr": "Étendue" } },
+        { "value": "categories", "label": { "en": "Categories", "fr": "Catégories" } }
+      ]
     }
   },
   "dependencies": {
     "python": [],
-    "r": ["dplyr", "tidyr"]
+    "r": ["gtsummary"]
   },
   "templates": {
     "python": "table1.py.template",

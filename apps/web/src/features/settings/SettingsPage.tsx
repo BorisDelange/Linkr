@@ -1,13 +1,14 @@
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { GeneralTab } from './GeneralTab'
 import { UsersTab } from './UsersTab'
 import { OrganizationsTab } from './OrganizationsTab'
 
 export function SettingsPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
-  const defaultTab = searchParams.get('tab') ?? 'organizations'
+  const defaultTab = searchParams.get('tab') ?? 'general'
 
   return (
     <div className="h-full overflow-auto">
@@ -21,9 +22,13 @@ export function SettingsPage() {
 
         <Tabs defaultValue={defaultTab} className="mt-6">
           <TabsList>
+            <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
           </TabsList>
+          <TabsContent value="general">
+            <GeneralTab />
+          </TabsContent>
           <TabsContent value="organizations">
             <OrganizationsTab />
           </TabsContent>

@@ -35,6 +35,12 @@ function serialiseField(
     case 'number':
       return serialiseNumber(value, field)
     case 'select':
+      if (field.multi) {
+        const arr = Array.isArray(value) ? (value as string[]) : []
+        const items = arr.map(v => JSON.stringify(v)).join(', ')
+        return language === 'r' ? `c(${items})` : `[${items}]`
+      }
+      return serialiseString(value, language)
     case 'string':
       return serialiseString(value, language)
     default:

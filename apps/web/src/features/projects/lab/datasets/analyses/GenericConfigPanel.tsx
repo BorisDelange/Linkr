@@ -1,6 +1,6 @@
 import { useCallback, useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search, Puzzle } from 'lucide-react'
+import { Check, Search, Puzzle, ChevronsUpDown } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import {
   Select,
@@ -195,7 +195,16 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
         />
       )
     case 'select':
-      return (
+      return field.multi ? (
+        <MultiSelectField
+          fieldKey={fieldKey}
+          field={field}
+          value={value}
+          lang={lang}
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      ) : (
         <SelectField
           fieldKey={fieldKey}
           field={field}
@@ -279,6 +288,8 @@ function MultiColumnSelect({
   onConfigChange,
 }: FieldRendererProps) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const filtered = filterColumns(columns, field.filter)
   const selected = (value as string[] | undefined) ?? (field.defaultAll ? filtered.map(c => c.id) : [])
 
@@ -300,51 +311,82 @@ function MultiColumnSelect({
     onConfigChange({ [fieldKey]: [] })
   }, [fieldKey, onConfigChange])
 
+  const searchFiltered = useMemo(() => {
+    if (!search.trim()) return filtered
+    const q = search.toLowerCase()
+    return filtered.filter(c => c.name.toLowerCase().includes(q))
+  }, [filtered, search])
+
+  const triggerLabel = selected.length === filtered.length
+    ? t('common.select_all')
+    : selected.length === 0
+      ? t('common.select_none')
+      : `${selected.length} / ${filtered.length}`
+
   return (
     <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <FieldLabel field={field} config={config} lang={lang} />
-        <div className="flex items-center gap-1">
-          <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
-            {t('common.select_all')}
+      <FieldLabel field={field} config={config} lang={lang} />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+          >
+            <span className="truncate text-muted-foreground">{triggerLabel}</span>
+            <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
           </button>
-          <span className="text-[10px] text-muted-foreground">/</span>
-          <button onClick={selectNone} className="text-[10px] text-muted-foreground hover:text-foreground">
-            {t('common.select_none')}
-          </button>
-        </div>
-      </div>
-      <ScrollArea className="max-h-[200px]">
-        <div className="space-y-0.5">
-          {filtered.map(col => {
-            const isSelected = selected.includes(col.id)
-            return (
-              <button
-                key={col.id}
-                onClick={() => toggle(col.id)}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
-                  isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
-                )}
-              >
-                <div
-                  className={cn(
-                    'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                  )}
-                >
-                  {isSelected && <Check size={10} />}
-                </div>
-                <span className="truncate">{col.name}</span>
-                <span className="ml-auto text-[10px] text-muted-foreground">{col.type}</span>
-              </button>
-            )
-          })}
-        </div>
-      </ScrollArea>
-      <p className="text-[10px] text-muted-foreground">
-        {selected.length} / {filtered.length} {t('datasets.analysis_selected')}
-      </p>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+          <div className="relative mb-2">
+            <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder={t('common.search')}
+              className="h-7 pl-7 text-xs"
+            />
+          </div>
+          <div className="mb-2 flex items-center gap-1">
+            <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
+              {t('common.select_all')}
+            </button>
+            <span className="text-[10px] text-muted-foreground">/</span>
+            <button onClick={selectNone} className="text-[10px] text-muted-foreground hover:text-foreground">
+              {t('common.select_none')}
+            </button>
+          </div>
+          <ScrollArea className="max-h-[200px]">
+            <div className="space-y-0.5">
+              {searchFiltered.map(col => {
+                const isSelected = selected.includes(col.id)
+                return (
+                  <button
+                    key={col.id}
+                    onClick={() => toggle(col.id)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
+                      isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                        isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
+                      )}
+                    >
+                      {isSelected && <Check size={10} />}
+                    </div>
+                    <span className="truncate">{col.name}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">{col.type}</span>
+                  </button>
+                )
+              })}
+              {searchFiltered.length === 0 && (
+                <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+              )}
+            </div>
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -420,6 +462,107 @@ function SelectField({
           ))}
         </SelectContent>
       </Select>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Multi-select (checkbox list in popover)
+// ---------------------------------------------------------------------------
+
+function MultiSelectField({
+  fieldKey,
+  field,
+  value,
+  lang,
+  config,
+  onConfigChange,
+}: Omit<FieldRendererProps, 'columns'>) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const options = field.options ?? []
+  const defaultValues = field.defaultAll
+    ? options.map(o => o.value)
+    : Array.isArray(field.default)
+      ? (field.default as string[])
+      : []
+  const selected = (value as string[] | undefined) ?? defaultValues
+
+  const toggle = useCallback(
+    (optValue: string) => {
+      const next = selected.includes(optValue)
+        ? selected.filter(v => v !== optValue)
+        : [...selected, optValue]
+      onConfigChange({ [fieldKey]: next })
+    },
+    [fieldKey, selected, onConfigChange],
+  )
+
+  const selectAll = useCallback(() => {
+    onConfigChange({ [fieldKey]: options.map(o => o.value) })
+  }, [fieldKey, options, onConfigChange])
+
+  const selectNone = useCallback(() => {
+    onConfigChange({ [fieldKey]: [] })
+  }, [fieldKey, onConfigChange])
+
+  const triggerLabel = selected.length === options.length
+    ? t('common.select_all')
+    : selected.length === 0
+      ? t('common.select_none')
+      : `${selected.length} / ${options.length}`
+
+  return (
+    <div className="space-y-1.5">
+      <FieldLabel field={field} config={config} lang={lang} />
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+          >
+            <span className="truncate text-muted-foreground">{triggerLabel}</span>
+            <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+          <div className="mb-2 flex items-center gap-1">
+            <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
+              {t('common.select_all')}
+            </button>
+            <span className="text-[10px] text-muted-foreground">/</span>
+            <button onClick={selectNone} className="text-[10px] text-muted-foreground hover:text-foreground">
+              {t('common.select_none')}
+            </button>
+          </div>
+          <ScrollArea className="max-h-[200px]">
+            <div className="space-y-0.5">
+              {options.map(opt => {
+                const isSelected = selected.includes(opt.value)
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => toggle(opt.value)}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors',
+                      isSelected ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                        isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
+                      )}
+                    >
+                      {isSelected && <Check size={10} />}
+                    </div>
+                    <span className="truncate">{opt.label[lang] ?? opt.label.en}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </ScrollArea>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }

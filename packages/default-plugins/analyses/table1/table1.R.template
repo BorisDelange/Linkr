@@ -1,66 +1,61 @@
-library(dplyr)
-library(tidyr)
+library(gtsummary)
 
-# --- Table 1: Descriptive statistics ---
+# --- Table 1: Descriptive statistics (gtsummary) ---
 # 'dataset' is a data.frame injected automatically.
 
 columns <- {{selectedColumns}}
 group_by_col <- {{groupByColumn}}
+metrics <- {{metrics}}
 
-describe_column <- function(x, col_name, total_n) {
-  n <- sum(!is.na(x))
-  missing <- sum(is.na(x))
-  em_dash <- "—"
-  missing_pct <- if (missing > 0) {
-    sprintf("%d (%.1f%%)", missing, missing / total_n * 100)
-  } else {
-    em_dash
-  }
+# Subset to selected columns (+ group-by if set)
+cols_to_keep <- columns
+if (!is.null(group_by_col) && nchar(group_by_col) > 0) {
+  cols_to_keep <- unique(c(cols_to_keep, group_by_col))
+}
+df <- dataset[, cols_to_keep[cols_to_keep %in% colnames(dataset)], drop = FALSE]
 
-  if (is.logical(x)) {
-    counts <- table(x[!is.na(x)])
-    cats <- paste(
-      sapply(names(counts), function(v) sprintf("%s: %d (%.1f%%)", v, counts[v], counts[v] / total_n * 100)),
-      collapse = "; "
-    )
-    data.frame(
-      Variable = col_name, n = n, Missing = missing_pct,
-      Mean.SD = em_dash, Median.IQR = em_dash,
-      Categories = if (nchar(cats) > 0) cats else em_dash,
-      stringsAsFactors = FALSE
-    )
-  } else if (is.numeric(x)) {
-    s <- x[!is.na(x)]
-    mean_sd <- if (length(s) > 0) sprintf("%.2f +/- %.2f", mean(s), sd(s)) else em_dash
-    q <- if (length(s) > 0) quantile(s, probs = c(0.25, 0.5, 0.75)) else c(0, 0, 0)
-    median_iqr <- if (length(s) > 0) sprintf("%.2f [%.2f - %.2f]", q[2], q[1], q[3]) else em_dash
-    data.frame(
-      Variable = col_name, n = n, Missing = missing_pct,
-      Mean.SD = mean_sd, Median.IQR = median_iqr,
-      Categories = em_dash,
-      stringsAsFactors = FALSE
-    )
-  } else {
-    counts <- sort(table(x[!is.na(x)]), decreasing = TRUE)
-    counts <- head(counts, 10)
-    cats <- paste(
-      sapply(names(counts), function(v) sprintf("%s: %d (%.1f%%)", v, counts[v], counts[v] / total_n * 100)),
-      collapse = "; "
-    )
-    data.frame(
-      Variable = col_name, n = n, Missing = missing_pct,
-      Mean.SD = em_dash, Median.IQR = em_dash,
-      Categories = if (nchar(cats) > 0) cats else em_dash,
-      stringsAsFactors = FALSE
-    )
-  }
+# Build statistic format strings based on selected metrics
+continuous_stats <- c()
+categorical_stats <- c()
+
+if ("n" %in% metrics) continuous_stats <- c(continuous_stats, "{n}")
+if ("missing" %in% metrics) continuous_stats <- c(continuous_stats, "{N_miss} ({p_miss}%)")
+if ("mean_sd" %in% metrics) continuous_stats <- c(continuous_stats, "{mean} (\u00b1 {sd})")
+if ("median_iqr" %in% metrics) continuous_stats <- c(continuous_stats, "{median} [{p25}\u2013{p75}]")
+if ("min_max" %in% metrics) continuous_stats <- c(continuous_stats, "{min} / {max}")
+if ("range" %in% metrics) continuous_stats <- c(continuous_stats, "{max} - {min}")
+
+if ("n" %in% metrics) categorical_stats <- c(categorical_stats, "{n}")
+if ("categories" %in% metrics) categorical_stats <- c(categorical_stats, "{n} ({p}%)")
+if ("missing" %in% metrics) categorical_stats <- c(categorical_stats, "{N_miss} ({p_miss}%)")
+
+# Fallback if nothing selected
+if (length(continuous_stats) == 0) continuous_stats <- c("{median} [{p25}\u2013{p75}]")
+if (length(categorical_stats) == 0) categorical_stats <- c("{n} ({p}%)")
+
+# Build the table
+if (!is.null(group_by_col) && nchar(group_by_col) > 0) {
+  tbl <- tbl_summary(
+    df,
+    by = all_of(group_by_col),
+    include = all_of(columns[columns %in% colnames(df)]),
+    statistic = list(
+      all_continuous() ~ paste(continuous_stats, collapse = ", "),
+      all_categorical() ~ paste(categorical_stats, collapse = ", ")
+    ),
+    missing = if ("missing" %in% metrics) "ifany" else "no"
+  ) |> add_overall() |> bold_labels()
+} else {
+  tbl <- tbl_summary(
+    df,
+    include = all_of(columns[columns %in% colnames(df)]),
+    statistic = list(
+      all_continuous() ~ paste(continuous_stats, collapse = ", "),
+      all_categorical() ~ paste(categorical_stats, collapse = ", ")
+    ),
+    missing = if ("missing" %in% metrics) "ifany" else "no"
+  ) |> bold_labels()
 }
 
-total_n <- nrow(dataset)
-valid_cols <- columns[columns %in% colnames(dataset)]
-
-result <- do.call(rbind, lapply(valid_cols, function(col) {
-  describe_column(dataset[[col]], col, total_n)
-}))
-
+result <- as.data.frame(tbl)
 result

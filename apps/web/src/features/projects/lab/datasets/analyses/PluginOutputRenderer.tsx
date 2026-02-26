@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertCircle, AlertTriangle, Info, Play, Download, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { OutputTable } from '@/features/projects/files/OutputTable'
-import { ScrollArea } from '@/components/ui/scroll-area'
+
 import { installPythonPackage } from '@/lib/runtimes/pyodide-engine'
 import { installRPackage } from '@/lib/runtimes/webr-engine'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -128,7 +128,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
   }
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-auto">
       <div className={compact ? 'p-1.5 space-y-1.5' : 'p-3 space-y-3'}>
         {/* Errors (real) */}
         {hasError && (
@@ -228,7 +228,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
           </details>
         )}
       </div>
-    </ScrollArea>
+    </div>
   )
 }
 
