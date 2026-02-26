@@ -1798,7 +1798,8 @@
     "close": "Close",
     "clear": "Clear",
     "page": "Page",
-    "settings": "Settings"
+    "settings": "Settings",
+    "name_already_exists": "This name is already taken."
   },
   "user_menu": {
     "profile": "Profile",
@@ -2130,6 +2131,11 @@
     "no_file_changes": "No file changes detected.",
     "loading_files": "Loading file changes...",
     "loading_diff": "Loading diff...",
+    "category_plugins": "Plugins",
+    "category_wiki": "Wiki",
+    "category_schemas": "Schemas",
+    "category_databases": "Databases",
+    "category_other": "Other",
     "loading_more": "Loading more commits...",
     "restore_tooltip": "Restore to this version",
     "restore_title": "Restore to previous version?",

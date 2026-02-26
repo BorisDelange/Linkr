@@ -1144,15 +1144,24 @@ export function SchemaPresetsTab() {
             <DialogTitle>{t('settings.schema_preset_new')}</DialogTitle>
             <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
           </DialogHeader>
-          <Input
-            value={newPresetName}
-            onChange={(e) => setNewPresetName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') confirmCreatePreset() }}
-            autoFocus
-          />
+          <div className="space-y-1.5">
+            <Input
+              value={newPresetName}
+              onChange={(e) => setNewPresetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())) {
+                  confirmCreatePreset()
+                }
+              }}
+              autoFocus
+            />
+            {newPresetName.trim() && customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase()) && (
+              <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+            )}
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
-            <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim()}>{t('common.create')}</Button>
+            <Button onClick={confirmCreatePreset} disabled={!newPresetName.trim() || customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())}>{t('common.create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

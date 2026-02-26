@@ -396,13 +396,16 @@ export function PluginsTab() {
                 onChange={(e) => setNewPluginName(e.target.value)}
                 placeholder={t('plugins.create_name_placeholder')}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newPluginName.trim()) {
+                  if (e.key === 'Enter' && newPluginName.trim() && !pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase())) {
                     createPlugin(newPluginName, createScope)
                     setShowCreateDialog(false)
                   }
                 }}
                 autoFocus
               />
+              {newPluginName.trim() && pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase()) && (
+                <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -411,7 +414,7 @@ export function PluginsTab() {
             </Button>
             <Button
               onClick={() => { createPlugin(newPluginName, createScope); setShowCreateDialog(false) }}
-              disabled={!newPluginName.trim()}
+              disabled={!newPluginName.trim() || pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase())}
             >
               {t('common.create')}
             </Button>

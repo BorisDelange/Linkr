@@ -452,6 +452,22 @@ my-project/
 └── logs/
 ```
 
+## TODO — Disabled Plugins (Feb 2026)
+
+The following plugins are **commented out** (not deleted) and should be re-enabled later when they are reworked:
+
+**Lab plugins** (in `apps/web/src/lib/plugins/default-plugins.ts`):
+- `linkr-analysis-distribution` — Distribution (histograms + bar charts)
+- `linkr-analysis-correlation` — Correlation Matrix (heatmap)
+- `linkr-analysis-crosstab` — Cross Tabulation
+
+**Warehouse widgets** (in `apps/web/src/lib/plugins/builtin-widget-plugins.ts`):
+- `linkr-widget-clinical-table` — Clinical table
+- `linkr-widget-medications` — Medications
+- `linkr-widget-diagnoses` — Diagnoses
+
+The plugin files in `packages/default-plugins/analyses/` are still present — only the registration is commented out. Search for `TODO: re-enable` in those files to find all the commented-out lines.
+
 ## Long-term Vision
 
 The current focus is **Research** (warehouse, pipeline, lab). Future capabilities are documented in `docs/vision-roadmap.md`. The key principle: **design current code so it doesn't block future evolution**.

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import {
   GitBranch,
-  GitCommitHorizontal,
   ChevronRight,
   Search,
   FilePlus,
@@ -11,10 +10,10 @@ import {
   FileEdit,
   Loader2,
   RotateCcw,
+  X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -36,9 +35,44 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
+import { useAppStore } from '@/stores/app-store'
+import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import type { CommitFileChange, GitCommit } from '@/types'
-import type { Change } from 'diff'
+
+// ---------------------------------------------------------------------------
+// Commit category detection
+// ---------------------------------------------------------------------------
+
+type CommitCategory = 'plugin' | 'wiki' | 'schema' | 'database' | 'other'
+
+const CATEGORY_LABELS: Record<CommitCategory, string> = {
+  plugin:   'plugins',
+  wiki:     'wiki',
+  schema:   'schemas',
+  database: 'databases',
+  other:    'other',
+}
+
+function detectCategory(message: string): CommitCategory {
+  const lower = message.toLowerCase()
+  if (lower.includes('plugin'))  return 'plugin'
+  if (lower.includes('wiki'))    return 'wiki'
+  if (lower.includes('schema'))  return 'schema'
+  if (lower.includes('database') || lower.includes('data source')) return 'database'
+  return 'other'
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function formatRelativeTime(timestamp: number): string {
   const now = Date.now() / 1000
@@ -69,49 +103,115 @@ function fileChangeIcon(type: string) {
   }
 }
 
-function InlineDiffView({ changes }: { changes: Change[] }) {
-  return (
-    <div className="mt-2 rounded-md border bg-muted/20 overflow-x-auto text-xs font-mono">
-      {changes.map((change, i) => {
-        const lines = change.value.split('\n')
-        if (lines[lines.length - 1] === '') lines.pop()
+/** Guess language for syntax-like class names from filepath extension. */
+function getLanguageFromPath(filepath: string): string {
+  if (filepath.endsWith('.json')) return 'json'
+  if (filepath.endsWith('.md'))   return 'markdown'
+  if (filepath.endsWith('.tsx') || filepath.endsWith('.ts')) return 'typescript'
+  if (filepath.endsWith('.jsx') || filepath.endsWith('.js')) return 'javascript'
+  if (filepath.endsWith('.py'))   return 'python'
+  if (filepath.endsWith('.r') || filepath.endsWith('.R')) return 'r'
+  if (filepath.endsWith('.css'))  return 'css'
+  if (filepath.endsWith('.html')) return 'html'
+  return 'text'
+}
 
-        return lines.map((line, j) => (
-          <div
-            key={`${i}-${j}`}
-            className={cn(
-              'px-3 py-0.5 whitespace-pre',
-              change.added && 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300',
-              change.removed && 'bg-red-50 text-red-800 dark:bg-red-950/40 dark:text-red-300',
-            )}
-          >
-            <span className="inline-block w-4 shrink-0 text-muted-foreground select-none">
-              {change.added ? '+' : change.removed ? '-' : ' '}
-            </span>
-            {line}
+// ---------------------------------------------------------------------------
+// Diff Modal (Monaco DiffEditor, read-only, full-screen)
+// ---------------------------------------------------------------------------
+
+interface DiffModalProps {
+  open: boolean
+  onClose: () => void
+  filepath: string
+  oldContent: string
+  newContent: string
+  changeType: string
+  loading: boolean
+}
+
+function DiffModal({ open, onClose, filepath, oldContent, newContent, changeType, loading }: DiffModalProps) {
+  const { t } = useTranslation()
+  const lang = getLanguageFromPath(filepath)
+  const { editorSettings, darkMode } = useAppStore()
+
+  const resolvedTheme =
+    editorSettings.theme === 'auto'
+      ? darkMode ? 'linkr-dark' : 'linkr-light'
+      : editorSettings.theme
+
+  const handleBeforeMount: BeforeMount = useCallback((monaco) => {
+    monaco.editor.defineTheme('linkr-dark', linkrDark)
+    monaco.editor.defineTheme('linkr-light', linkrLight)
+  }, [])
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <DialogContent className="sm:max-w-[95vw] h-[95vh] flex flex-col p-0 gap-0" showCloseButton={false}>
+        <DialogHeader className="px-4 py-3 border-b shrink-0">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-sm font-mono flex items-center gap-2">
+              {fileChangeIcon(changeType)}
+              {filepath}
+            </DialogTitle>
+            <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-muted">
+              <X size={16} />
+            </button>
           </div>
-        ))
-      })}
-    </div>
+        </DialogHeader>
+
+        <div className="flex-1 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center h-full gap-2 text-sm text-muted-foreground">
+              <Loader2 size={16} className="animate-spin" />
+              {t('app_versioning.loading_diff')}
+            </div>
+          ) : (
+            <DiffEditor
+              original={oldContent}
+              modified={newContent}
+              language={lang}
+              theme={resolvedTheme}
+              beforeMount={handleBeforeMount}
+              options={{
+                readOnly: true,
+                domReadOnly: true,
+                renderSideBySide: true,
+                minimap: { enabled: false },
+                fontSize: editorSettings.fontSize,
+                fontFamily: "'Menlo', 'Monaco', 'Courier New', monospace",
+                lineNumbers: 'on',
+                scrollBeyondLastLine: false,
+                automaticLayout: true,
+                padding: { top: 8 },
+              }}
+            />
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
+
+// ---------------------------------------------------------------------------
+// CommitRow
+// ---------------------------------------------------------------------------
 
 interface CommitRowProps {
   commit: GitCommit
   isFirst: boolean
   wsUid: string
+  category: CommitCategory
   onRestore: (commit: GitCommit) => void
+  onOpenDiff: (commit: GitCommit, file: CommitFileChange) => void
 }
 
-function CommitRow({ commit, isFirst, wsUid, onRestore }: CommitRowProps) {
+function CommitRow({ commit, isFirst, wsUid, category: _category, onRestore, onOpenDiff }: CommitRowProps) {
   const { t } = useTranslation()
-  const { getCommitFiles, getFileDiff } = useWorkspaceVersioningStore()
+  const { getCommitFiles } = useWorkspaceVersioningStore()
   const [expanded, setExpanded] = useState(false)
   const [files, setFiles] = useState<CommitFileChange[] | null>(null)
   const [loadingFiles, setLoadingFiles] = useState(false)
-  const [expandedFile, setExpandedFile] = useState<string | null>(null)
-  const [fileDiffs, setFileDiffs] = useState<Record<string, Change[]>>({})
-  const [loadingDiff, setLoadingDiff] = useState<string | null>(null)
   const filesLoaded = useRef(false)
 
   const toggleExpand = useCallback(async () => {
@@ -125,22 +225,6 @@ function CommitRow({ commit, isFirst, wsUid, onRestore }: CommitRowProps) {
       setLoadingFiles(false)
     }
   }, [expanded, wsUid, commit.oid, getCommitFiles])
-
-  const toggleFileDiff = useCallback(async (filepath: string) => {
-    if (expandedFile === filepath) {
-      setExpandedFile(null)
-      return
-    }
-    setExpandedFile(filepath)
-    if (!fileDiffs[filepath]) {
-      setLoadingDiff(filepath)
-      const result = await getFileDiff(wsUid, commit.oid, filepath)
-      if (result) {
-        setFileDiffs(prev => ({ ...prev, [filepath]: result.changes }))
-      }
-      setLoadingDiff(null)
-    }
-  }, [expandedFile, fileDiffs, wsUid, commit.oid, getFileDiff])
 
   return (
     <div className="group relative pb-6 last:pb-0">
@@ -218,34 +302,23 @@ function CommitRow({ commit, isFirst, wsUid, onRestore }: CommitRowProps) {
                 {t('app_versioning.files_changed', { count: files.length })}
               </p>
               {files.map((f) => (
-                <div key={f.filepath}>
-                  <button
-                    type="button"
-                    onClick={() => toggleFileDiff(f.filepath)}
-                    className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/50 w-full text-left"
-                  >
-                    {fileChangeIcon(f.changeType)}
-                    <span className="font-mono truncate">{f.filepath}</span>
-                    <span className={cn(
-                      'ml-auto shrink-0 text-[10px]',
-                      f.changeType === 'added' && 'text-emerald-600 dark:text-emerald-400',
-                      f.changeType === 'deleted' && 'text-red-600 dark:text-red-400',
-                      f.changeType === 'modified' && 'text-amber-600 dark:text-amber-400',
-                    )}>
-                      {t(`app_versioning.file_${f.changeType}`)}
-                    </span>
-                  </button>
-                  {expandedFile === f.filepath && (
-                    loadingDiff === f.filepath ? (
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2 ml-2">
-                        <Loader2 size={12} className="animate-spin" />
-                        {t('app_versioning.loading_diff')}
-                      </div>
-                    ) : fileDiffs[f.filepath] ? (
-                      <InlineDiffView changes={fileDiffs[f.filepath]} />
-                    ) : null
-                  )}
-                </div>
+                <button
+                  key={f.filepath}
+                  type="button"
+                  onClick={() => onOpenDiff(commit, f)}
+                  className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted/50 w-full text-left"
+                >
+                  {fileChangeIcon(f.changeType)}
+                  <span className="font-mono truncate">{f.filepath}</span>
+                  <span className={cn(
+                    'ml-auto shrink-0 text-[10px]',
+                    f.changeType === 'added' && 'text-emerald-600 dark:text-emerald-400',
+                    f.changeType === 'deleted' && 'text-red-600 dark:text-red-400',
+                    f.changeType === 'modified' && 'text-amber-600 dark:text-amber-400',
+                  )}>
+                    {t(`app_versioning.file_${f.changeType}`)}
+                  </span>
+                </button>
               ))}
             </div>
           ) : files && files.length === 0 ? (
@@ -259,17 +332,72 @@ function CommitRow({ commit, isFirst, wsUid, onRestore }: CommitRowProps) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Category filter toggle buttons
+// ---------------------------------------------------------------------------
+
+const ALL_CATEGORIES: CommitCategory[] = ['plugin', 'wiki', 'schema', 'database', 'other']
+
+function CategoryFilter({ active, onChange }: {
+  active: Set<CommitCategory>
+  onChange: (next: Set<CommitCategory>) => void
+}) {
+  const { t } = useTranslation()
+
+  const toggle = (cat: CommitCategory) => {
+    const next = new Set(active)
+    if (next.has(cat)) {
+      next.delete(cat)
+    } else {
+      next.add(cat)
+    }
+    onChange(next)
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {ALL_CATEGORIES.map((cat) => {
+        const isActive = active.has(cat)
+        return (
+          <button
+            key={cat}
+            type="button"
+            onClick={() => toggle(cat)}
+            className={cn(
+              'rounded-full px-2.5 py-1 text-xs font-medium transition-colors border',
+              isActive
+                ? 'bg-foreground text-background border-foreground'
+                : 'bg-muted/40 text-muted-foreground border-transparent hover:bg-muted',
+            )}
+          >
+            {t(`app_versioning.category_${CATEGORY_LABELS[cat]}`)}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export function WsLocalHistoryTab() {
   const { t } = useTranslation()
   const { wsUid } = useParams<{ wsUid: string }>()
-  const { commits, hasMoreCommits, loadMoreCommits, restoreToCommit, loadCommits } = useWorkspaceVersioningStore()
+  const { commits, hasMoreCommits, loadMoreCommits, restoreToCommit, loadCommits, getFileDiff } = useWorkspaceVersioningStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10))
+  const [activeCategories, setActiveCategories] = useState<Set<CommitCategory>>(() => new Set(ALL_CATEGORIES))
   const [loadingMore, setLoadingMore] = useState(false)
   const [restoreTarget, setRestoreTarget] = useState<GitCommit | null>(null)
   const [restoring, setRestoring] = useState(false)
   const sentinelRef = useRef<HTMLDivElement>(null)
+
+  // Diff modal state
+  const [diffModal, setDiffModal] = useState<{ filepath: string; changeType: string; oldContent: string; newContent: string } | null>(null)
+  const [diffLoading, setDiffLoading] = useState(false)
 
   // Set dateFrom to oldest commit date when commits first load
   useEffect(() => {
@@ -310,6 +438,26 @@ export function WsLocalHistoryTab() {
     }
   }, [restoreTarget, wsUid, restoreToCommit])
 
+  const handleOpenDiff = useCallback(async (commit: GitCommit, file: CommitFileChange) => {
+    if (!wsUid) return
+    setDiffModal({ filepath: file.filepath, changeType: file.changeType, oldContent: '', newContent: '' })
+    setDiffLoading(true)
+    const result = await getFileDiff(wsUid, commit.oid, file.filepath)
+    if (result) {
+      setDiffModal({ filepath: file.filepath, changeType: result.changeType, oldContent: result.oldContent, newContent: result.newContent })
+    }
+    setDiffLoading(false)
+  }, [wsUid, getFileDiff])
+
+  // Memoize categories per commit
+  const commitCategories = useMemo(() => {
+    const map = new Map<string, CommitCategory>()
+    for (const c of commits) {
+      map.set(c.oid, detectCategory(c.message))
+    }
+    return map
+  }, [commits])
+
   const filteredCommits = useMemo(() => {
     let filtered = commits
     if (searchQuery) {
@@ -324,15 +472,19 @@ export function WsLocalHistoryTab() {
       const toTs = new Date(dateTo + 'T23:59:59').getTime() / 1000
       filtered = filtered.filter((c) => c.author.timestamp <= toTs)
     }
+    // Category filter
+    if (activeCategories.size < ALL_CATEGORIES.length) {
+      filtered = filtered.filter((c) => activeCategories.has(commitCategories.get(c.oid) ?? 'other'))
+    }
     return filtered
-  }, [commits, searchQuery, dateFrom, dateTo])
+  }, [commits, searchQuery, dateFrom, dateTo, activeCategories, commitCategories])
 
   if (!wsUid) return null
 
   return (
     <>
-      {/* Filters */}
-      <Card>
+      {/* Filters — fixed height */}
+      <Card className="shrink-0">
         <CardContent className="pt-4 space-y-3">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -363,15 +515,13 @@ export function WsLocalHistoryTab() {
               />
             </div>
           </div>
+          <CategoryFilter active={activeCategories} onChange={setActiveCategories} />
         </CardContent>
       </Card>
 
-      {/* Commit timeline */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">{t('app_versioning.history_title')}</CardTitle>
-        </CardHeader>
-        <CardContent>
+      {/* Commit timeline — fills remaining height, internal scroll */}
+      <Card className="min-h-0 flex-1 flex flex-col">
+        <CardContent className="min-h-0 flex-1 overflow-auto pt-4">
           {filteredCommits.length === 0 ? (
             <div className="flex flex-col items-center py-8">
               <GitBranch size={36} className="text-muted-foreground/50" />
@@ -394,7 +544,9 @@ export function WsLocalHistoryTab() {
                   commit={commit}
                   isFirst={index === 0 && !searchQuery && !dateFrom}
                   wsUid={wsUid}
+                  category={commitCategories.get(commit.oid) ?? 'other'}
                   onRestore={setRestoreTarget}
+                  onOpenDiff={handleOpenDiff}
                 />
               ))}
 
@@ -439,6 +591,17 @@ export function WsLocalHistoryTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Diff modal */}
+      <DiffModal
+        open={!!diffModal}
+        onClose={() => setDiffModal(null)}
+        filepath={diffModal?.filepath ?? ''}
+        oldContent={diffModal?.oldContent ?? ''}
+        newContent={diffModal?.newContent ?? ''}
+        changeType={diffModal?.changeType ?? 'modified'}
+        loading={diffLoading}
+      />
     </>
   )
 }

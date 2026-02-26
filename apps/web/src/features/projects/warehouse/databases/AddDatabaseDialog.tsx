@@ -99,7 +99,7 @@ export function AddDatabaseDialog({
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
   const { wsUid } = useParams<{ wsUid: string }>()
-  const { addDataSource, updateDataSource, removeDataSource } = useDataSourceStore()
+  const { addDataSource, updateDataSource, removeDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -350,7 +350,10 @@ export function AddDatabaseDialog({
     return !!(config.fileId || (config.fileIds && config.fileIds.length > 0))
   })()
 
+  const nameIsDuplicate = name.trim() && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
+
   const canSubmit = name.trim() &&
+    !nameIsDuplicate &&
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles) &&
     (selectedType !== 'fhir' || fhirBaseUrl.trim()) &&
     !isSizeBlocked
@@ -430,6 +433,9 @@ export function AddDatabaseDialog({
                 placeholder={t('databases.field_name_placeholder')}
                 autoFocus
               />
+              {name.trim() && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id) && (
+                <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+              )}
             </div>
             <div className="space-y-2">
               <Label>{t('databases.field_alias')}</Label>

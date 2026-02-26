@@ -22,7 +22,7 @@ export function AppVersioningPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 px-6 pt-6 pb-2">
+      <div className="shrink-0 px-6 pt-5 pb-2 text-center">
         <h1 className="text-2xl font-bold text-foreground">{t('app_versioning.title')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{t('app_versioning.description')}</p>
       </div>
@@ -34,8 +34,8 @@ export function AppVersioningPage() {
           <TabsTrigger value="export">{t('versioning.tab_export')}</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="history" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-3xl space-y-6 pt-2">
+        <TabsContent value="history" className="min-h-0 flex-1 flex flex-col pb-6">
+          <div className="mx-auto max-w-3xl w-full flex flex-col min-h-0 flex-1 space-y-3 pt-2">
             <WsLocalHistoryTab />
           </div>
         </TabsContent>

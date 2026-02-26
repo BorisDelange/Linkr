@@ -16,10 +16,11 @@ import { registerPlugin } from './registry'
 
 export const SYSTEM_WIDGET_TYPE_MAP: Record<string, PatientWidgetType> = {
   'linkr-widget-patient-summary': 'patient_summary',
-  'linkr-widget-clinical-table': 'clinical_table',
+  // TODO: re-enable these widgets later (disabled Feb 2026)
+  // 'linkr-widget-clinical-table': 'clinical_table',
   'linkr-widget-timeline': 'timeline',
-  'linkr-widget-medications': 'medications',
-  'linkr-widget-diagnoses': 'diagnoses',
+  // 'linkr-widget-medications': 'medications',
+  // 'linkr-widget-diagnoses': 'diagnoses',
   'linkr-widget-notes': 'notes',
 }
 
@@ -50,22 +51,23 @@ const defaultManifests: PluginManifest[] = [
     iconColor: 'violet',
     configSchema: {},
   },
-  {
-    id: 'linkr-widget-clinical-table',
-    name: { en: 'Clinical table', fr: 'Tableau clinique' },
-    description: {
-      en: 'Table of clinical data with concepts and timestamps.',
-      fr: 'Tableau de données cliniques avec concepts et horodatages.',
-    },
-    version: '1.0.0',
-    scope: 'warehouse',
-    tags: ['table', 'measurement'],
-    runtime: [],
-    languages: [],
-    icon: 'TableIcon',
-    iconColor: 'green',
-    configSchema: {},
-  },
+  // TODO: re-enable clinical-table widget later (disabled Feb 2026)
+  // {
+  //   id: 'linkr-widget-clinical-table',
+  //   name: { en: 'Clinical table', fr: 'Tableau clinique' },
+  //   description: {
+  //     en: 'Table of clinical data with concepts and timestamps.',
+  //     fr: 'Tableau de données cliniques avec concepts et horodatages.',
+  //   },
+  //   version: '1.0.0',
+  //   scope: 'warehouse',
+  //   tags: ['table', 'measurement'],
+  //   runtime: [],
+  //   languages: [],
+  //   icon: 'TableIcon',
+  //   iconColor: 'green',
+  //   configSchema: {},
+  // },
   {
     id: 'linkr-widget-timeline',
     name: { en: 'Timeline', fr: 'Chronologie' },
@@ -82,38 +84,40 @@ const defaultManifests: PluginManifest[] = [
     iconColor: 'blue',
     configSchema: {},
   },
-  {
-    id: 'linkr-widget-medications',
-    name: { en: 'Medications', fr: 'Médicaments' },
-    description: {
-      en: 'List of medications (drug exposures) for the patient.',
-      fr: 'Liste des médicaments (expositions) du patient.',
-    },
-    version: '1.0.0',
-    scope: 'warehouse',
-    tags: ['drugs', 'medications'],
-    runtime: [],
-    languages: [],
-    icon: 'Pill',
-    iconColor: 'amber',
-    configSchema: {},
-  },
-  {
-    id: 'linkr-widget-diagnoses',
-    name: { en: 'Diagnoses', fr: 'Diagnostics' },
-    description: {
-      en: 'List of diagnoses (conditions) for the patient.',
-      fr: 'Liste des diagnostics (conditions) du patient.',
-    },
-    version: '1.0.0',
-    scope: 'warehouse',
-    tags: ['conditions', 'diagnoses'],
-    runtime: [],
-    languages: [],
-    icon: 'Stethoscope',
-    iconColor: 'red',
-    configSchema: {},
-  },
+  // TODO: re-enable medications widget later (disabled Feb 2026)
+  // {
+  //   id: 'linkr-widget-medications',
+  //   name: { en: 'Medications', fr: 'Médicaments' },
+  //   description: {
+  //     en: 'List of medications (drug exposures) for the patient.',
+  //     fr: 'Liste des médicaments (expositions) du patient.',
+  //   },
+  //   version: '1.0.0',
+  //   scope: 'warehouse',
+  //   tags: ['drugs', 'medications'],
+  //   runtime: [],
+  //   languages: [],
+  //   icon: 'Pill',
+  //   iconColor: 'amber',
+  //   configSchema: {},
+  // },
+  // TODO: re-enable diagnoses widget later (disabled Feb 2026)
+  // {
+  //   id: 'linkr-widget-diagnoses',
+  //   name: { en: 'Diagnoses', fr: 'Diagnostics' },
+  //   description: {
+  //     en: 'List of diagnoses (conditions) for the patient.',
+  //     fr: 'Liste des diagnostics (conditions) du patient.',
+  //   },
+  //   version: '1.0.0',
+  //   scope: 'warehouse',
+  //   tags: ['conditions', 'diagnoses'],
+  //   runtime: [],
+  //   languages: [],
+  //   icon: 'Stethoscope',
+  //   iconColor: 'red',
+  //   configSchema: {},
+  // },
   {
     id: 'linkr-widget-notes',
     name: { en: 'Clinical notes', fr: 'Notes cliniques' },

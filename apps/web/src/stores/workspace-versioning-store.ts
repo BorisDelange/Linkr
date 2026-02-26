@@ -726,8 +726,17 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
         const existing = existingPlugins.find(p => p.id === pluginId)
         if (existing) {
           await storage.userPlugins.update(pluginId, { files })
+        } else {
+          // Recreate deleted plugin from git snapshot
+          const now = new Date().toISOString()
+          await storage.userPlugins.create({
+            id: pluginId,
+            workspaceId,
+            files,
+            createdAt: now,
+            updatedAt: now,
+          })
         }
-        // We only restore files for existing plugins — creating from scratch would require full manifest
         restoredFiles.push(`plugins/${pluginId}`)
       }
 
@@ -735,22 +744,31 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
       const presetFiles = Object.entries(fileContents).filter(([p]) => p.startsWith('schemas/') && p.endsWith('.json'))
       const restoredPresetIds = new Set<string>()
 
+      // Delete presets not in target commit
+      const existingPresets = await storage.schemaPresets.getByWorkspace(workspaceId)
       for (const [filepath, content] of presetFiles) {
         const data = JSON.parse(content)
         restoredPresetIds.add(data.presetId)
-        const existing = await storage.schemaPresets.getById(data.presetId)
-        if (existing) {
-          await storage.schemaPresets.update(data.presetId, { mapping: data.mapping })
-        }
+        // schemaPresets.save does upsert (create or update)
+        await storage.schemaPresets.save({ ...data, workspaceId })
         restoredFiles.push(filepath)
+      }
+      for (const preset of existingPresets) {
+        if (!restoredPresetIds.has(preset.presetId)) {
+          await storage.schemaPresets.delete(preset.presetId)
+          restoredFiles.push(`schemas/${preset.presetId}.json (deleted)`)
+        }
       }
 
       // Restore database configs
       const dbFiles = Object.entries(fileContents).filter(([p]) => p.startsWith('databases/') && p.endsWith('.json'))
+      const restoredDbIds = new Set<string>()
 
+      const existingSources = await storage.dataSources.getByWorkspace(workspaceId)
       for (const [filepath, content] of dbFiles) {
         const data = JSON.parse(content)
-        const existing = await storage.dataSources.getById(data.id)
+        restoredDbIds.add(data.id)
+        const existing = existingSources.find(s => s.id === data.id)
         if (existing) {
           await storage.dataSources.update(data.id, {
             alias: data.alias,
@@ -759,8 +777,16 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
             schemaMapping: data.schemaMapping,
             status: data.status,
           })
+        } else {
+          await storage.dataSources.create({ ...data, workspaceId })
         }
         restoredFiles.push(filepath)
+      }
+      for (const source of existingSources) {
+        if (!restoredDbIds.has(source.id)) {
+          await storage.dataSources.delete(source.id)
+          restoredFiles.push(`databases/${source.id}.json (deleted)`)
+        }
       }
 
       // Write all restored files to LightningFS and create a restore commit
