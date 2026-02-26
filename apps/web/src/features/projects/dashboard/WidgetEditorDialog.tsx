@@ -23,6 +23,7 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
+import { getComponent } from '@/lib/plugins/component-registry'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
@@ -75,9 +76,10 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
   // Resolve plugin info
   const plugin = isPlugin ? getPlugin(source.pluginId) : null
   const hasConfigSchema = plugin?.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
+  const isComponentPlugin = !!(plugin?.componentId && plugin.manifest.runtime.includes('component'))
 
   // Detect language — use persisted value if available, otherwise default
-  const hasBothLanguages = isPlugin && plugin?.templates?.python && plugin?.templates?.r
+  const hasBothLanguages = isPlugin && !isComponentPlugin && plugin?.templates?.python && plugin?.templates?.r
   const language: 'python' | 'r' = isInline
     ? ((source.language === 'r' ? 'r' : 'python') as 'python' | 'r')
     : (isPlugin && source.language) ? source.language
@@ -259,35 +261,39 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
             {t('datasets.analysis_config_tab')}
           </button>
         )}
-        <button
-          onClick={() => setActiveTab(activeTab === 'code' ? null : 'code')}
-          className={cn(
-            'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
-            activeTab === 'code'
-              ? 'bg-accent text-accent-foreground font-medium'
-              : 'text-muted-foreground hover:bg-accent/50',
-          )}
-        >
-          <Code2 size={12} />
-          {t('datasets.analysis_code_tab')}
-          {isCodeCustomized && (
-            <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">
-              {t('datasets.analysis_code_modified_badge')}
-            </Badge>
-          )}
-        </button>
+        {!isComponentPlugin && (
+          <button
+            onClick={() => setActiveTab(activeTab === 'code' ? null : 'code')}
+            className={cn(
+              'flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors',
+              activeTab === 'code'
+                ? 'bg-accent text-accent-foreground font-medium'
+                : 'text-muted-foreground hover:bg-accent/50',
+            )}
+          >
+            <Code2 size={12} />
+            {t('datasets.analysis_code_tab')}
+            {isCodeCustomized && (
+              <Badge variant="outline" className="ml-1 h-4 px-1 text-[9px]">
+                {t('datasets.analysis_code_modified_badge')}
+              </Badge>
+            )}
+          </button>
+        )}
 
         <div className="ml-auto flex items-center gap-1">
-          <Button
-            size="sm"
-            onClick={handleRun}
-            disabled={isExecuting}
-            className="h-6 gap-1 text-xs"
-          >
-            <Play size={12} />
-            {isExecuting ? t('datasets.analysis_running') : t('datasets.analysis_run')}
-          </Button>
-          {isCodeCustomized && !isInline && (
+          {!isComponentPlugin && (
+            <Button
+              size="sm"
+              onClick={handleRun}
+              disabled={isExecuting}
+              className="h-6 gap-1 text-xs"
+            >
+              <Play size={12} />
+              {isExecuting ? t('datasets.analysis_running') : t('datasets.analysis_run')}
+            </Button>
+          )}
+          {isCodeCustomized && !isInline && !isComponentPlugin && (
             <Button
               size="sm"
               variant="ghost"
@@ -328,13 +334,17 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
           </Allotment.Pane>
 
           <Allotment.Pane minSize={200}>
-            <PluginOutputRenderer
-              result={result}
-              isExecuting={isExecuting}
-              statusMessage={statusMessage}
-              installedDeps={installedDeps}
-              onRerun={handleRun}
-            />
+            {isComponentPlugin && plugin?.componentId ? (
+              <ComponentPluginOutput componentId={plugin.componentId} config={config} columns={columns} rows={filteredRows} />
+            ) : (
+              <PluginOutputRenderer
+                result={result}
+                isExecuting={isExecuting}
+                statusMessage={statusMessage}
+                installedDeps={installedDeps}
+                onRerun={handleRun}
+              />
+            )}
           </Allotment.Pane>
         </Allotment>
       </div>
@@ -377,4 +387,36 @@ function useGeneratedCode(
   }, [plugin, config, columns, language])
 
   return code
+}
+
+// ---------------------------------------------------------------------------
+// Component plugin output — renders the React component live
+// ---------------------------------------------------------------------------
+
+function ComponentPluginOutput({
+  componentId,
+  config,
+  columns,
+  rows,
+}: {
+  componentId: string
+  config: Record<string, unknown>
+  columns: { id: string; name: string; type: string }[]
+  rows: Record<string, unknown>[]
+}) {
+  const Component = getComponent(componentId)
+
+  if (!Component) {
+    return (
+      <div className="flex items-center justify-center h-full p-8 text-xs text-muted-foreground">
+        Component not found: {componentId}
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-auto">
+      <Component config={config} columns={columns} rows={rows} />
+    </div>
+  )
 }

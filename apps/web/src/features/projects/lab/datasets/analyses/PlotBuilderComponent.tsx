@@ -32,17 +32,56 @@ const PALETTES: Record<string, string[]> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Try to parse a value as a number. Handles dates (→ timestamp ms) and plain numbers. */
+function toNumeric(val: unknown): number {
+  if (val == null) return NaN
+  if (typeof val === 'number') return val
+  const s = String(val).trim()
+  const n = Number(s)
+  if (!isNaN(n)) return n
+  // Try parsing as date
+  const ts = Date.parse(s)
+  if (!isNaN(ts)) return ts
+  return NaN
+}
+
+/** Detect whether a set of numeric values came from date strings. */
+function isDateRange(values: number[]): boolean {
+  if (values.length === 0) return false
+  // Timestamps are typically > 1970 in ms, i.e. > ~1e11
+  const mid = values[Math.floor(values.length / 2)]
+  return mid > 1e11 && mid < 1e14
+}
+
+/** Format a numeric bin label. If the values represent dates, format as date string. */
+function formatBinLabel(val: number, dateMode: boolean): string {
+  if (dateMode) {
+    const d = new Date(val)
+    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  }
+  return val.toPrecision(3)
+}
+
+/** Tick formatter for Recharts axes when values are timestamps. */
+function formatDateTick(val: number | string): string {
+  const n = typeof val === 'string' ? Number(val) : val
+  if (isNaN(n)) return String(val)
+  const d = new Date(n)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' })
+}
+
 function buildHistogramData(values: number[], bins: number) {
   if (values.length === 0) return []
   const min = Math.min(...values)
   const max = Math.max(...values)
-  if (min === max) return [{ bin: String(min), count: values.length }]
+  if (min === max) return [{ bin: formatBinLabel(min, isDateRange(values)), count: values.length }]
+  const dateMode = isDateRange(values)
   const binWidth = (max - min) / bins
   const buckets: { bin: string; count: number }[] = []
   for (let i = 0; i < bins; i++) {
     const lo = min + i * binWidth
     const hi = lo + binWidth
-    buckets.push({ bin: `${lo.toPrecision(3)}`, count: 0 })
+    buckets.push({ bin: formatBinLabel(lo, dateMode), count: 0 })
     for (const v of values) {
       if (i < bins - 1 ? v >= lo && v < hi : v >= lo && v <= hi) {
         buckets[i].count++
@@ -59,23 +98,24 @@ function buildHistogramGrouped(
   bins: number,
   groupNames: string[],
 ) {
-  const allVals = rows.map(r => Number(r[xCol])).filter(v => !isNaN(v))
+  const allVals = rows.map(r => toNumeric(r[xCol])).filter(v => !isNaN(v))
   if (allVals.length === 0) return []
   const min = Math.min(...allVals)
   const max = Math.max(...allVals)
-  if (min === max) return [{ bin: String(min), ...Object.fromEntries(groupNames.map(g => [g, 0])) }]
+  const dateMode = isDateRange(allVals)
+  if (min === max) return [{ bin: formatBinLabel(min, dateMode), ...Object.fromEntries(groupNames.map(g => [g, 0])) }]
   const binWidth = (max - min) / bins
 
   const buckets: Record<string, unknown>[] = []
   for (let i = 0; i < bins; i++) {
     const lo = min + i * binWidth
-    const entry: Record<string, unknown> = { bin: `${lo.toPrecision(3)}` }
+    const entry: Record<string, unknown> = { bin: formatBinLabel(lo, dateMode) }
     for (const g of groupNames) entry[g] = 0
     buckets.push(entry)
   }
 
   for (const row of rows) {
-    const v = Number(row[xCol])
+    const v = toNumeric(row[xCol])
     if (isNaN(v)) continue
     let idx = Math.floor((v - min) / binWidth)
     if (idx >= bins) idx = bins - 1
@@ -349,6 +389,9 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
     )
   }
 
+  const xIsDate = xColumn?.type === 'date'
+  const yIsDate = yColumn?.type === 'date'
+
   return (
     <div className="flex h-full flex-col p-4 gap-2">
       {/* Title */}
@@ -372,6 +415,8 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
             yLabel={resolvedYLabel}
             showGrid={showGrid}
             showLegend={showLegend}
+            xIsDate={xIsDate}
+            yIsDate={yIsDate}
           />
         )}
         {plotType === 'line' && (
@@ -388,6 +433,7 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
             yLabel={resolvedYLabel}
             showGrid={showGrid}
             showLegend={showLegend}
+            xIsDate={xIsDate}
           />
         )}
         {plotType === 'bar' && (
@@ -453,17 +499,18 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
 // ---------------------------------------------------------------------------
 
 function ScatterPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, xIsDate, yIsDate,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
+  xIsDate?: boolean; yIsDate?: boolean
 }) {
   const data = useMemo(() => {
     if (!groupNames || !groupCol) {
       return [{
         name: 'all',
         data: rows
-          .map(r => ({ x: Number(r[xCol]), y: Number(r[yCol]) }))
+          .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
           .filter(d => !isNaN(d.x) && !isNaN(d.y)),
       }]
     }
@@ -471,7 +518,7 @@ function ScatterPlot({
       name: g,
       data: rows
         .filter(r => String(r[groupCol]) === g)
-        .map(r => ({ x: Number(r[xCol]), y: Number(r[yCol]) }))
+        .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
         .filter(d => !isNaN(d.x) && !isNaN(d.y)),
     }))
   }, [rows, xCol, yCol, groupCol, groupNames])
@@ -480,9 +527,9 @@ function ScatterPlot({
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" name={xLabel} label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <YAxis dataKey="y" type="number" name={yLabel} label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <XAxis dataKey="x" type="number" name={xLabel} label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
+        <YAxis dataKey="y" type="number" name={yLabel} label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : undefined} />
+        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} formatter={(_v: unknown, name: string, props: { payload?: { x?: number; y?: number } }) => { if (name === 'x' && xIsDate && props.payload?.x) return formatDateTick(props.payload.x); if (name === 'y' && yIsDate && props.payload?.y) return formatDateTick(props.payload.y); return String(_v) }} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {data.map((series, i) => (
           <Scatter
@@ -504,16 +551,17 @@ function ScatterPlot({
 // ---------------------------------------------------------------------------
 
 function LinePlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, xIsDate,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
+  xIsDate?: boolean
 }) {
   const { merged, series } = useMemo(() => {
     // Build a merged dataset keyed on x values
     if (!groupNames || !groupCol) {
       const sorted = rows
-        .map(r => ({ x: Number(r[xCol]), y: Number(r[yCol]) }))
+        .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
         .filter(d => !isNaN(d.x) && !isNaN(d.y))
         .sort((a, b) => a.x - b.x)
       return { merged: sorted.map(d => ({ x: d.x, all: d.y })), series: ['all'] }
@@ -522,8 +570,8 @@ function LinePlot({
     // Grouped: merge into a single array sorted by x, with one key per group
     const map = new Map<number, Record<string, unknown>>()
     for (const row of rows) {
-      const xVal = Number(row[xCol])
-      const yVal = Number(row[yCol])
+      const xVal = toNumeric(row[xCol])
+      const yVal = toNumeric(row[yCol])
       if (isNaN(xVal) || isNaN(yVal)) continue
       if (!map.has(xVal)) map.set(xVal, { x: xVal })
       const g = String(row[groupCol])
@@ -537,9 +585,9 @@ function LinePlot({
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="x" type="number" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
         <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <Tooltip contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} labelFormatter={xIsDate ? formatDateTick : undefined} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
           <Line
@@ -577,7 +625,7 @@ function BarPlot({
         const map = new Map<string, { sum: number; count: number }>()
         for (const row of rows) {
           const key = String(row[xCol] ?? '')
-          const val = Number(row[yCol])
+          const val = toNumeric(row[yCol])
           if (isNaN(val)) continue
           const entry = map.get(key) ?? { sum: 0, count: 0 }
           entry.sum += val
@@ -594,7 +642,7 @@ function BarPlot({
       for (const row of rows) {
         const key = String(row[xCol] ?? '')
         const g = String(row[groupCol] ?? '')
-        const val = Number(row[yCol])
+        const val = toNumeric(row[yCol])
         if (isNaN(val)) continue
         if (!map.has(key)) map.set(key, {})
         const inner = map.get(key)!
@@ -652,10 +700,10 @@ function BarPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
         <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <Tooltip cursor={{ fill: 'currentColor', fillOpacity: 0.06 }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
-          <Bar key={s} dataKey={s} name={s === 'value' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} />
+          <Bar key={s} dataKey={s} name={s === 'value' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -674,7 +722,7 @@ function HistogramPlot({
 }) {
   const { data, series } = useMemo(() => {
     if (!groupNames || !groupCol) {
-      const values = rows.map(r => Number(r[xCol])).filter(v => !isNaN(v))
+      const values = rows.map(r => toNumeric(r[xCol])).filter(v => !isNaN(v))
       return { data: buildHistogramData(values, bins), series: ['count'] }
     }
     const data = buildHistogramGrouped(rows, xCol, groupCol, bins, groupNames)
@@ -687,10 +735,10 @@ function HistogramPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="bin" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={Math.max(0, Math.floor(bins / 10) - 1)} />
         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <Tooltip cursor={{ fill: 'currentColor', fillOpacity: 0.06 }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
-          <Bar key={s} dataKey={s} name={s === 'count' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} />
+          <Bar key={s} dataKey={s} name={s === 'count' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -712,7 +760,7 @@ function BoxViolinPlot({
     const catCol = yCol ? xCol : null
 
     if (!catCol) {
-      const values = rows.map(r => Number(r[valCol])).filter(v => !isNaN(v))
+      const values = rows.map(r => toNumeric(r[valCol])).filter(v => !isNaN(v))
       const stats = computeBoxplotStats(values)
       if (!stats) return []
       return [{ name: valCol, stats, values }]
@@ -721,7 +769,7 @@ function BoxViolinPlot({
     const groups = new Map<string, number[]>()
     for (const row of rows) {
       const cat = String(row[catCol] ?? '')
-      const val = Number(row[valCol])
+      const val = toNumeric(row[valCol])
       if (isNaN(val)) continue
       if (!groups.has(cat)) groups.set(cat, [])
       groups.get(cat)!.push(val)

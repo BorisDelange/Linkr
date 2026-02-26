@@ -37,10 +37,21 @@ export function GenericConfigPanel({
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
 
+  // Build effective config with defaults filled in for unset fields
+  const configWithDefaults = useMemo(() => {
+    const result = { ...config }
+    for (const [key, field] of Object.entries(schema)) {
+      if (result[key] === undefined && field.default !== undefined) {
+        result[key] = field.default
+      }
+    }
+    return result
+  }, [config, schema])
+
   // Filter out fields whose visibleWhen condition is not met
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
     if (!field.visibleWhen) return true
-    const depValue = config[field.visibleWhen.field]
+    const depValue = configWithDefaults[field.visibleWhen.field]
     return depValue === field.visibleWhen.value
   })
 
@@ -75,10 +86,10 @@ export function GenericConfigPanel({
             key={group.keys[0]}
             fieldKey={group.keys[0]}
             field={group.fields[0]}
-            value={config[group.keys[0]]}
+            value={configWithDefaults[group.keys[0]]}
             columns={columns}
             lang={lang}
-            config={config}
+            config={configWithDefaults}
             onConfigChange={onConfigChange}
           />
         ) : (
@@ -88,10 +99,10 @@ export function GenericConfigPanel({
                 key={key}
                 fieldKey={key}
                 field={group.fields[idx]}
-                value={config[key]}
+                value={configWithDefaults[key]}
                 columns={columns}
                 lang={lang}
-                config={config}
+                config={configWithDefaults}
                 onConfigChange={onConfigChange}
               />
             ))}
