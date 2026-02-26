@@ -21,6 +21,22 @@ export interface SqlExecutionResult {
   code?: string
 }
 
+interface CollectionOutputState {
+  outputTabs: SqlOutputTab[]
+  outputTabOrder: string[]
+  activeOutputTab: string | null
+  executionResults: SqlExecutionResult[]
+  outputVisible: boolean
+}
+
+const emptyOutput: CollectionOutputState = {
+  outputTabs: [],
+  outputTabOrder: [],
+  activeOutputTab: null,
+  executionResults: [],
+  outputVisible: false,
+}
+
 // --- Store interface ---
 
 interface SqlScriptsState {
@@ -57,7 +73,8 @@ interface SqlScriptsState {
   saveFile: (id: string) => Promise<void>
   revertFile: (id: string) => void
 
-  // Output tabs
+  // Output tabs (scoped per collection via _outputByCollection)
+  _outputByCollection: Map<string, CollectionOutputState>
   outputTabs: SqlOutputTab[]
   outputTabOrder: string[]
   activeOutputTab: string | null
@@ -69,6 +86,34 @@ interface SqlScriptsState {
   addExecutionResult: (result: SqlExecutionResult) => void
   clearExecutionResults: () => void
   setOutputVisible: (visible: boolean) => void
+}
+
+/** Get the output state for the active collection. */
+function getOutput(s: SqlScriptsState): CollectionOutputState {
+  if (!s.activeCollectionId) return emptyOutput
+  return s._outputByCollection.get(s.activeCollectionId) ?? emptyOutput
+}
+
+/** Build a partial state update that writes to the active collection's output bucket
+ *  and also refreshes the top-level derived fields. */
+function setOutput(
+  s: SqlScriptsState,
+  patch: Partial<CollectionOutputState>,
+): Partial<SqlScriptsState> {
+  const colId = s.activeCollectionId
+  if (!colId) return {}
+  const prev = s._outputByCollection.get(colId) ?? { ...emptyOutput }
+  const next = { ...prev, ...patch }
+  const map = new Map(s._outputByCollection)
+  map.set(colId, next)
+  return {
+    _outputByCollection: map,
+    outputTabs: next.outputTabs,
+    outputTabOrder: next.outputTabOrder,
+    activeOutputTab: next.activeOutputTab,
+    executionResults: next.executionResults,
+    outputVisible: next.outputVisible,
+  }
 }
 
 export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
@@ -101,11 +146,16 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   deleteCollection: async (id) => {
     await getStorage().sqlScriptFiles.deleteByCollection(id)
     await getStorage().sqlScriptCollections.delete(id)
-    set((s) => ({
-      collections: s.collections.filter((c) => c.id !== id),
-      files: s.activeCollectionId === id ? [] : s.files,
-      activeCollectionId: s.activeCollectionId === id ? null : s.activeCollectionId,
-    }))
+    set((s) => {
+      const map = new Map(s._outputByCollection)
+      map.delete(id)
+      return {
+        collections: s.collections.filter((c) => c.id !== id),
+        files: s.activeCollectionId === id ? [] : s.files,
+        activeCollectionId: s.activeCollectionId === id ? null : s.activeCollectionId,
+        _outputByCollection: map,
+      }
+    })
   },
 
   // --- File management ---
@@ -115,10 +165,19 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
 
   loadCollectionFiles: async (collectionId) => {
     const files = await getStorage().sqlScriptFiles.getByCollection(collectionId)
+    // Restore output state for this collection
+    const s = get()
+    const out = s._outputByCollection.get(collectionId) ?? emptyOutput
     set({
       files: files.sort((a, b) => a.order - b.order),
       filesLoaded: true,
       activeCollectionId: collectionId,
+      // Refresh derived output fields from the collection's bucket
+      outputTabs: out.outputTabs,
+      outputTabOrder: out.outputTabOrder,
+      activeOutputTab: out.activeOutputTab,
+      executionResults: out.executionResults,
+      outputVisible: out.outputVisible,
     })
   },
 
@@ -234,7 +293,8 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
     })
   },
 
-  // --- Output tabs ---
+  // --- Output tabs (per-collection) ---
+  _outputByCollection: new Map(),
   outputTabs: [],
   outputTabOrder: [],
   activeOutputTab: null,
@@ -243,63 +303,74 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
 
   addOutputTab: (tab) => {
     set((s) => {
-      const exists = s.outputTabs.find((t) => t.id === tab.id)
+      const cur = getOutput(s)
+      const exists = cur.outputTabs.find((t) => t.id === tab.id)
       if (exists) {
-        return {
-          outputTabs: s.outputTabs.map((t) => (t.id === tab.id ? tab : t)),
+        return setOutput(s, {
+          outputTabs: cur.outputTabs.map((t) => (t.id === tab.id ? tab : t)),
           activeOutputTab: tab.id,
           outputVisible: true,
-        }
+        })
       }
-      return {
-        outputTabs: [...s.outputTabs, tab],
-        outputTabOrder: [...s.outputTabOrder, tab.id],
+      return setOutput(s, {
+        outputTabs: [...cur.outputTabs, tab],
+        outputTabOrder: [...cur.outputTabOrder, tab.id],
         activeOutputTab: tab.id,
         outputVisible: true,
-      }
+      })
     })
   },
 
   closeOutputTab: (id) => {
     set((s) => {
-      const newTabs = s.outputTabs.filter((t) => t.id !== id)
-      const newOrder = s.outputTabOrder.filter((tid) => tid !== id)
-      return {
+      const cur = getOutput(s)
+      const newTabs = cur.outputTabs.filter((t) => t.id !== id)
+      const newOrder = cur.outputTabOrder.filter((tid) => tid !== id)
+      return setOutput(s, {
         outputTabs: newTabs,
         outputTabOrder: newOrder,
         activeOutputTab:
-          s.activeOutputTab === id
+          cur.activeOutputTab === id
             ? newOrder[0] ?? null
-            : s.activeOutputTab,
-      }
+            : cur.activeOutputTab,
+      })
     })
   },
 
-  setActiveOutputTab: (id) => set({ activeOutputTab: id }),
+  setActiveOutputTab: (id) => {
+    set((s) => setOutput(s, { activeOutputTab: id }))
+  },
 
   addExecutionResult: (result) => {
     set((s) => {
+      const cur = getOutput(s)
       const consoleId = '__exec_console__'
-      const hasConsole = s.outputTabOrder.includes(consoleId)
-      return {
-        executionResults: [...s.executionResults, result],
-        outputTabOrder: hasConsole ? s.outputTabOrder : [consoleId, ...s.outputTabOrder],
+      const hasConsole = cur.outputTabOrder.includes(consoleId)
+      return setOutput(s, {
+        executionResults: [...cur.executionResults, result],
+        outputTabOrder: hasConsole ? cur.outputTabOrder : [consoleId, ...cur.outputTabOrder],
         activeOutputTab: consoleId,
         outputVisible: true,
-      }
+      })
     })
   },
 
   clearExecutionResults: () => {
-    set((s) => ({
-      executionResults: [],
-      outputTabOrder: s.outputTabOrder.filter((id) => id !== '__exec_console__'),
-      activeOutputTab:
-        s.activeOutputTab === '__exec_console__'
-          ? s.outputTabOrder.filter((id) => id !== '__exec_console__')[0] ?? null
-          : s.activeOutputTab,
-    }))
+    set((s) => {
+      const cur = getOutput(s)
+      const newOrder = cur.outputTabOrder.filter((id) => id !== '__exec_console__')
+      return setOutput(s, {
+        executionResults: [],
+        outputTabOrder: newOrder,
+        activeOutputTab:
+          cur.activeOutputTab === '__exec_console__'
+            ? newOrder[0] ?? null
+            : cur.activeOutputTab,
+      })
+    })
   },
 
-  setOutputVisible: (visible) => set({ outputVisible: visible }),
+  setOutputVisible: (visible) => {
+    set((s) => setOutput(s, { outputVisible: visible }))
+  },
 }))

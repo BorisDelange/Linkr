@@ -101,7 +101,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     outputVisible,
     setOutputVisible,
     _dirtyVersion,
-    updateFile,
+    updateCollection,
   } = useSqlScriptsStore()
 
   const [explorerVisible, setExplorerVisible] = useState(true)
@@ -140,24 +140,14 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
-  // Resolve which data source a file should run against
-  const resolveFileDataSourceId = useCallback(
-    (file: SqlScriptFile | undefined): string | undefined => {
-      if (file?.dataSourceId) return file.dataSourceId
-      return collection?.defaultDataSourceId
-    },
-    [collection?.defaultDataSourceId],
-  )
+  const activeDbId = collection?.defaultDataSourceId ?? null
 
-  const selectedFileDataSourceId = resolveFileDataSourceId(selectedFile)
-  const selectedFileDs = dataSources.find((ds) => ds.id === selectedFileDataSourceId)
-
-  // Ensure default database is mounted on load
+  // Mount the active database
   useEffect(() => {
-    if (!collection?.defaultDataSourceId) return
+    if (!activeDbId) return
     const { testConnection } = useDataSourceStore.getState()
-    testConnection(collection.defaultDataSourceId)
-  }, [collection?.defaultDataSourceId])
+    testConnection(activeDbId)
+  }, [activeDbId])
 
   // Create new file
   const handleCreateFile = async () => {
@@ -199,9 +189,8 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
   // Execute SQL
   const executeSql = useCallback(
-    async (sql: string, label: string, dataSourceId?: string) => {
-      const dsId = dataSourceId ?? collection?.defaultDataSourceId
-      if (!dsId) {
+    async (sql: string, label: string) => {
+      if (!activeDbId) {
         addExecutionResult({
           id: `exec-${Date.now()}`,
           fileName: label,
@@ -213,10 +202,10 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         return
       }
       const { testConnection } = useDataSourceStore.getState()
-      await testConnection(dsId)
+      await testConnection(activeDbId)
       const start = Date.now()
       try {
-        const rows = await duckdbEngine.queryDataSource(dsId, sql)
+        const rows = await duckdbEngine.queryDataSource(activeDbId, sql)
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,
@@ -252,34 +241,34 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         })
       }
     },
-    [collection?.defaultDataSourceId, addExecutionResult, addOutputTab],
+    [activeDbId, t, addExecutionResult, addOutputTab],
   )
 
   const handleRunFile = useCallback(async () => {
     if (!selectedFile?.content) return
     setIsRunning(true)
     try {
-      await executeSql(selectedFile.content, selectedFile.name, resolveFileDataSourceId(selectedFile))
+      await executeSql(selectedFile.content, selectedFile.name)
     } finally {
       setIsRunning(false)
     }
-  }, [selectedFile, executeSql, resolveFileDataSourceId])
+  }, [selectedFile, executeSql])
 
   const handleRunAll = useCallback(async () => {
     const sqlFiles = files
-      .filter((f) => f.type === 'file')
+      .filter((f) => f.type === 'file' && f.name.endsWith('.sql'))
       .sort((a, b) => a.order - b.order)
     if (sqlFiles.length === 0) return
     setIsRunning(true)
     try {
       for (const file of sqlFiles) {
         if (!file.content) continue
-        await executeSql(file.content, file.name, resolveFileDataSourceId(file))
+        await executeSql(file.content, file.name)
       }
     } finally {
       setIsRunning(false)
     }
-  }, [files, executeSql, resolveFileDataSourceId])
+  }, [files, executeSql])
 
   const handleSaveFile = useCallback(() => {
     if (selectedFileId) saveFile(selectedFileId)
@@ -452,65 +441,58 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                           <TooltipContent>{t('sql_scripts.stop')}</TooltipContent>
                         </Tooltip>
                       )}
-
-                      {/* Per-file database selector */}
-                      <div className="mx-1 h-4 w-px bg-border" />
-                      <Select
-                        value={selectedFile.dataSourceId ?? '__default__'}
-                        onValueChange={(value) => {
-                          updateFile(selectedFile.id, { dataSourceId: value === '__default__' ? undefined : value })
-                        }}
-                      >
-                        <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-1.5 text-[11px] shadow-none hover:bg-accent/50">
-                          <Database size={11} className={selectedFile.dataSourceId ? 'text-amber-500' : 'text-muted-foreground'} />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__default__">
-                            <span className="flex items-center gap-1.5">
-                              {collection.defaultDataSourceId
-                                ? dataSources.find((ds) => ds.id === collection.defaultDataSourceId)?.name ?? t('sql_scripts.select_database')
-                                : t('sql_scripts.select_database')}
-                              {collection.defaultDataSourceId && (
-                                <span className="text-[10px] text-muted-foreground">({t('sql_scripts.script_db_default')})</span>
-                              )}
-                            </span>
-                          </SelectItem>
-                          {dbSources
-                            .filter((ds) => ds.id !== collection.defaultDataSourceId)
-                            .map((ds) => (
-                            <SelectItem key={ds.id} value={ds.id}>
-                              {ds.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      {/* Copy schema reference */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            onClick={() => {
-                              const dsId = resolveFileDataSourceId(selectedFile)
-                              if (!dsId) return
-                              const ds = dataSources.find((d) => d.id === dsId)
-                              const ref = `"ds_${ds?.alias ?? dsId.replace(/[^a-zA-Z0-9]/g, '_')}"`
-                              navigator.clipboard.writeText(ref)
-                              setCopiedRef(ref)
-                              setTimeout(() => setCopiedRef(null), 2000)
-                            }}
-                          >
-                            {copiedRef ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {copiedRef ? `${t('sql_scripts.copied')}: ${copiedRef}` : t('sql_scripts.copy_schema_ref')}
-                        </TooltipContent>
-                      </Tooltip>
                     </>
                   )}
+
+                  {/* Database selector (collection-level, session-only) */}
+                  <div className="mx-1 h-4 w-px bg-border" />
+                  <Select
+                    value={activeDbId ?? '__none__'}
+                    onValueChange={(value) => {
+                      updateCollection(collectionId, {
+                        defaultDataSourceId: value === '__none__' ? undefined : value,
+                      })
+                    }}
+                  >
+                    <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-1.5 text-[11px] shadow-none hover:bg-accent/50">
+                      <Database size={11} className={activeDbId ? 'text-amber-500' : 'text-muted-foreground'} />
+                      <SelectValue placeholder={t('sql_scripts.select_database')} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">
+                        <span className="text-muted-foreground">— {t('sql_scripts.select_database')}</span>
+                      </SelectItem>
+                      {dbSources.map((ds) => (
+                        <SelectItem key={ds.id} value={ds.id}>
+                          {ds.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  {/* Copy schema reference */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={!activeDbId}
+                        onClick={() => {
+                          if (!activeDbId) return
+                          const ds = dataSources.find((d) => d.id === activeDbId)
+                          const ref = `"ds_${ds?.alias ?? activeDbId.replace(/[^a-zA-Z0-9]/g, '_')}"`
+                          navigator.clipboard.writeText(ref)
+                          setCopiedRef(ref)
+                          setTimeout(() => setCopiedRef(null), 2000)
+                        }}
+                      >
+                        {copiedRef ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {copiedRef ? `${t('sql_scripts.copied')}: ${copiedRef}` : t('sql_scripts.copy_schema_ref')}
+                    </TooltipContent>
+                  </Tooltip>
 
                   <div className="ml-auto flex items-center gap-1">
                     <Tooltip>
@@ -519,7 +501,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => setSchemaDialogOpen(true)}
-                          disabled={!selectedFileDataSourceId}
+                          disabled={!activeDbId}
                         >
                           <Table2 size={14} />
                         </Button>
@@ -832,11 +814,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       </Dialog>
 
       {/* Database schema browser */}
-      {selectedFileDataSourceId && (
+      {activeDbId && (
         <SchemaInspectorDialog
           open={schemaDialogOpen}
           onOpenChange={setSchemaDialogOpen}
-          dataSourceId={selectedFileDataSourceId}
+          dataSourceId={activeDbId}
         />
       )}
 
