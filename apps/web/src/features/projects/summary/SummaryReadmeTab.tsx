@@ -49,7 +49,6 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { useAppStore } from '@/stores/app-store'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
-import { ReadmeHistoryPanel } from './ReadmeHistoryPanel'
 import { ReadmeAttachmentsDialog } from './ReadmeAttachmentsDialog'
 
 export const remarkPlugins = [remarkGfm, remarkMath]
@@ -104,14 +103,13 @@ interface SummaryReadmeTabProps {
   uid: string
 }
 
-type ViewMode = 'view' | 'edit' | 'history'
+type ViewMode = 'view' | 'edit'
 
 export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
   const { t } = useTranslation()
-  const { _projectsRaw, updateProjectReadme, restoreReadmeVersion } = useAppStore()
+  const { _projectsRaw, updateProjectReadme } = useAppStore()
   const project = _projectsRaw.find((p) => p.uid === uid)
   const readme = project?.readme ?? ''
-  const readmeHistory = project?.readmeHistory ?? []
 
   const [mode, setMode] = useState<ViewMode>('view')
   const [localReadme, setLocalReadme] = useState(readme)
@@ -154,11 +152,6 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [mode, handleSave])
-
-  const handleRestore = (snapshotId: string) => {
-    restoreReadmeVersion(uid, snapshotId)
-    setMode('view')
-  }
 
   const applyFormat = useCallback((format: MarkdownFormat) => {
     const ta = textareaRef.current
@@ -255,19 +248,6 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
     })
   }, [])
 
-  // History mode
-  if (mode === 'history') {
-    return (
-      <ReadmeHistoryPanel
-        history={readmeHistory}
-        currentReadme={readme}
-        resolveAttachmentUrls={resolveAttachmentUrls}
-        onRestore={handleRestore}
-        onClose={() => setMode('view')}
-      />
-    )
-  }
-
   return (
     <div className="flex h-full flex-col pt-2">
       {/* Header bar */}
@@ -308,15 +288,22 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
             </>
           ) : (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-5 px-2 text-xs text-muted-foreground"
-                onClick={() => setMode('history')}
-              >
-                <History size={12} />
-                {t('summary.history')}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled
+                      className="h-5 px-2 text-xs text-muted-foreground"
+                    >
+                      <History size={12} />
+                      {t('summary.history')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.server_only')}</TooltipContent>
+              </Tooltip>
               <Button
                 variant="ghost"
                 size="sm"

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BookOpen, Database } from 'lucide-react'
@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { getStorage } from '@/lib/storage'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import type { DataCatalog, CatalogStatus } from '@/types'
@@ -34,7 +37,55 @@ export function CatalogListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
 
+  // --- Export / Import ---
+  const [conflict, setConflict] = useState<{ name: string; pending: DataCatalog } | null>(null)
+
+  const handleExport = useCallback(async (catalog: DataCatalog) => {
+    await exportEntityZip(
+      [{ filename: 'catalog.json', data: catalog }],
+      `${slugify(catalog.name)}.zip`,
+    )
+  }, [])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const catalog = parsed['catalog.json'] as DataCatalog | undefined
+    if (!catalog?.id) return
+    const existing = await getStorage().dataCatalogs.getById(catalog.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: catalog })
+    } else {
+      await doImport(catalog, false)
+    }
+  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doImport = useCallback(async (catalog: DataCatalog, duplicate: boolean) => {
+    const now = new Date().toISOString()
+    const id = duplicate ? crypto.randomUUID() : catalog.id
+    const entity: DataCatalog = {
+      ...catalog,
+      id,
+      workspaceId: activeWorkspaceId ?? catalog.workspaceId,
+      name: duplicate ? `${catalog.name} (copy)` : catalog.name,
+      updatedAt: now,
+      ...(duplicate ? { createdAt: now } : {}),
+    }
+    if (!duplicate) {
+      await getStorage().dataCatalogs.delete(catalog.id).catch(() => {})
+    }
+    await getStorage().dataCatalogs.create(entity)
+    await loadCatalogs()
+  }, [activeWorkspaceId, loadCatalogs])
+
   return (
+    <>
+    <ImportConflictDialog
+      open={!!conflict}
+      onOpenChange={(open) => { if (!open) setConflict(null) }}
+      existingName={conflict?.name ?? ''}
+      onDuplicate={() => { if (conflict) doImport(conflict.pending, true); setConflict(null) }}
+      onOverwrite={() => { if (conflict) doImport(conflict.pending, false); setConflict(null) }}
+    />
     <ListPageTemplate<DataCatalog>
       titleKey="data_catalog.title"
       descriptionKey="data_catalog.description"
@@ -47,6 +98,8 @@ export function CatalogListPage() {
       items={catalogs}
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deleteCatalog(id)}
+      onExport={handleExport}
+      onImport={handleImport}
       renderCardBody={(catalog) => {
         const statusInfo = STATUS_BADGE[catalog.status]
         return (
@@ -82,5 +135,6 @@ export function CatalogListPage() {
         <CreateCatalogDialog open onOpenChange={onOpenChange} editingCatalog={item} />
       )}
     />
+    </>
   )
 }

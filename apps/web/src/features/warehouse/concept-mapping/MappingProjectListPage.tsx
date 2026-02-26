@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ArrowRightLeft, Database } from 'lucide-react'
@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { getStorage } from '@/lib/storage'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import type { MappingProject } from '@/types'
@@ -20,6 +23,7 @@ export function MappingProjectListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
+  const loadConceptSets = useConceptMappingStore((s) => s.loadConceptSets)
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
   useEffect(() => {
@@ -31,7 +35,103 @@ export function MappingProjectListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('concept_mapping.unknown_source')
 
+  // --- Export / Import ---
+  type ImportChildren = { conceptSets: import('@/types').ConceptSet[]; mappings: import('@/types').ConceptMapping[] }
+  const [conflict, setConflict] = useState<{ name: string; pending: MappingProject; children: ImportChildren } | null>(null)
+
+  const handleExport = useCallback(async (project: MappingProject) => {
+    // Export concept sets referenced by the project
+    const allSets = await getStorage().conceptSets.getAll()
+    const conceptSets = allSets.filter((cs) => project.conceptSetIds.includes(cs.id))
+    const mappings = await getStorage().conceptMappings.getByProject(project.id)
+    await exportEntityZip(
+      [
+        { filename: 'project.json', data: project },
+        { filename: 'concept-sets.json', data: conceptSets },
+        { filename: 'mappings.json', data: mappings },
+      ],
+      `${slugify(project.name)}.zip`,
+    )
+  }, [])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const project = parsed['project.json'] as MappingProject | undefined
+    if (!project?.id) return
+    const conceptSets = (parsed['concept-sets.json'] ?? []) as import('@/types').ConceptSet[]
+    const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+    const existing = await getStorage().mappingProjects.getById(project.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: project, children: { conceptSets, mappings } })
+    } else {
+      await doImport(project, { conceptSets, mappings }, false)
+    }
+  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean) => {
+    const now = new Date().toISOString()
+    const projectId = duplicate ? crypto.randomUUID() : project.id
+
+    // Build concept set ID mapping (old → new)
+    const csIdMap = new Map<string, string>()
+    for (const cs of children.conceptSets) {
+      const newId = duplicate ? crypto.randomUUID() : cs.id
+      csIdMap.set(cs.id, newId)
+    }
+
+    const entity: MappingProject = {
+      ...project,
+      id: projectId,
+      workspaceId: activeWorkspaceId ?? project.workspaceId,
+      name: duplicate ? `${project.name} (copy)` : project.name,
+      conceptSetIds: project.conceptSetIds.map((oldId) => csIdMap.get(oldId) ?? oldId),
+      updatedAt: now,
+      ...(duplicate ? { createdAt: now } : {}),
+    }
+
+    if (!duplicate) {
+      await getStorage().conceptMappings.deleteByProject(project.id)
+      await getStorage().mappingProjects.delete(project.id).catch(() => {})
+      // Delete old concept sets that were part of the project
+      for (const csId of project.conceptSetIds) {
+        await getStorage().conceptSets.delete(csId).catch(() => {})
+      }
+    }
+
+    // Create concept sets
+    for (const cs of children.conceptSets) {
+      const newId = csIdMap.get(cs.id) ?? cs.id
+      await getStorage().conceptSets.create({
+        ...cs,
+        id: newId,
+        workspaceId: activeWorkspaceId ?? cs.workspaceId,
+      })
+    }
+
+    await getStorage().mappingProjects.create(entity)
+
+    // Create mappings
+    for (const m of children.mappings) {
+      await getStorage().conceptMappings.create({
+        ...m,
+        id: duplicate ? crypto.randomUUID() : m.id,
+        projectId,
+      })
+    }
+
+    await loadMappingProjects()
+    await loadConceptSets()
+  }, [activeWorkspaceId, loadMappingProjects, loadConceptSets])
+
   return (
+    <>
+    <ImportConflictDialog
+      open={!!conflict}
+      onOpenChange={(open) => { if (!open) setConflict(null) }}
+      existingName={conflict?.name ?? ''}
+      onDuplicate={() => { if (conflict) doImport(conflict.pending, conflict.children, true); setConflict(null) }}
+      onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.children, false); setConflict(null) }}
+    />
     <ListPageTemplate<MappingProject>
       titleKey="concept_mapping.title"
       descriptionKey="concept_mapping.description"
@@ -44,6 +144,8 @@ export function MappingProjectListPage() {
       items={projects}
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deleteMappingProject(id)}
+      onExport={handleExport}
+      onImport={handleImport}
       renderCardBody={(project) => {
         const progress = getProgress(project)
         return (
@@ -89,5 +191,6 @@ export function MappingProjectListPage() {
         <CreateMappingProjectDialog open onOpenChange={onOpenChange} editingProject={item} />
       )}
     />
+    </>
   )
 }

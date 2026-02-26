@@ -1,11 +1,7 @@
 import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { DimensionConfig, ServiceMappingRule, PeriodConfig } from '@/types/catalog'
 import { getEventTablesForDictionary } from '@/lib/schema-helpers'
-
-/** Escape a string value for SQL. */
-function esc(value: string): string {
-  return value.replace(/'/g, "''")
-}
+import { escSql as esc } from '@/lib/format-helpers'
 
 /**
  * Resolve a column alias (e.g. 'domain_id') to the actual SQL column name for a concept dictionary.

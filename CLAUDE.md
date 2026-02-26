@@ -305,9 +305,9 @@ const { t } = useTranslation()
 - **features/projects/warehouse/**: Project-level warehouse pages (Databases, Concepts, Cohorts, Patient Data)
   - **warehouse/subsets/**: Cohort builder (criteria forms: age, sex, concept, period, duration)
   - **warehouse/cohorts/**: Legacy cohort builder (being replaced by subsets/)
-  - **warehouse/patient-data/**: Patient timeline, built-in widgets (summary, clinical table, timeline, diagnosis, medication, notes), plugin executor
+  - **warehouse/patient-data/**: Patient timeline, built-in widgets (summary, timeline, notes), plugin executor
 - **features/projects/lab/**: Lab pages (Datasets, Dashboards, Reports)
-  - **lab/datasets/**: Dataset management with built-in analyses (Table1, Distribution, Correlation, CrossTab), code generators
+  - **lab/datasets/**: Dataset management with built-in analyses (Table1, Key Indicator, Plot Builder), code generators
 - **features/projects/files/**: IDE (file tree, code editor, RmdNotebook, IpynbNotebook, terminal, connections, environments)
 - **features/projects/dashboard/**: Dashboard system (react-grid-layout, widget renderers: inline code, plugin)
 - **features/projects/pipeline/**: Pipeline DAG editor (React Flow canvas, node palette, config panel)
@@ -451,22 +451,6 @@ my-project/
 ├── temp/
 └── logs/
 ```
-
-## TODO — Disabled Plugins (Feb 2026)
-
-The following plugins are **commented out** (not deleted) and should be re-enabled later when they are reworked:
-
-**Lab plugins** (in `apps/web/src/lib/plugins/default-plugins.ts`):
-- `linkr-analysis-distribution` — Distribution (histograms + bar charts)
-- `linkr-analysis-correlation` — Correlation Matrix (heatmap)
-- `linkr-analysis-crosstab` — Cross Tabulation
-
-**Warehouse widgets** (in `apps/web/src/lib/plugins/builtin-widget-plugins.ts`):
-- `linkr-widget-clinical-table` — Clinical table
-- `linkr-widget-medications` — Medications
-- `linkr-widget-diagnoses` — Diagnoses
-
-The plugin files in `packages/default-plugins/analyses/` are still present — only the registration is commented out. Search for `TODO: re-enable` in those files to find all the commented-out lines.
 
 ## Long-term Vision
 

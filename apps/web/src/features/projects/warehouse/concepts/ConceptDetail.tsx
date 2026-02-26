@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
+import { columnLabel } from '@/lib/format-helpers'
 import { ConceptStatsPanel } from './ConceptStatsPanel'
 import type { ConceptStats } from './use-concepts'
 import type { ColumnDescriptor } from './concept-queries'
@@ -22,14 +23,6 @@ function MetaRow({ label, value }: { label: string; value: string | null | undef
       <span className="min-w-0 break-words text-right text-xs font-medium">{value || '—'}</span>
     </div>
   )
-}
-
-/** Capitalize a snake_case key into a display label. */
-function columnLabel(id: string): string {
-  return id
-    .replace(/^_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
 export function ConceptDetail({ concept, availableColumns, stats, statsLoading, hasValueColumn }: ConceptDetailProps) {

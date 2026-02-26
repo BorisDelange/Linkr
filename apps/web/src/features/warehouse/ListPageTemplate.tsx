@@ -1,4 +1,4 @@
-import { useState, type ReactNode, type LucideIcon } from 'react'
+import { useState, useRef, type ReactNode, type LucideIcon } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Pencil, Download, History, MoreHorizontal, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,13 @@ interface ListPageTemplateProps<T extends { id: string; name: string }> {
   /** Delete an item */
   onDelete: (id: string) => Promise<void>
 
+  /** Export a single item as ZIP. When provided, the Export menu item is enabled. */
+  onExport?: (item: T) => void
+  /** Import from a file. When provided, the Import header button is enabled. */
+  onImport?: (file: File) => void
+  /** File accept filter for import (default: ".zip") */
+  importAccept?: string
+
   /** Render the card body for each item (icon + middle content). Dropdown is handled by the template. */
   renderCardBody: (item: T) => ReactNode
 
@@ -81,6 +88,9 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   items,
   onNavigate,
   onDelete,
+  onExport,
+  onImport,
+  importAccept = '.zip',
   renderCardBody,
   renderCreateDialog,
   renderEditDialog,
@@ -90,12 +100,20 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [toEdit, setToEdit] = useState<T | null>(null)
+  const importInputRef = useRef<HTMLInputElement>(null)
 
   const handleDelete = async () => {
     if (toDelete) {
       await onDelete(toDelete.id)
       setToDelete(null)
     }
+  }
+
+  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file && onImport) onImport(file)
+    // Reset input so the same file can be re-imported
+    e.target.value = ''
   }
 
   return (
@@ -108,17 +126,38 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
             <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
           </div>
           <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
-                    <Upload size={14} />
-                    {t('common.import')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.coming_soon')}</TooltipContent>
-            </Tooltip>
+            {onImport ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1 text-xs"
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  <Upload size={14} />
+                  {t('common.import')}
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept={importAccept}
+                  className="hidden"
+                  onChange={handleImportFile}
+                />
+              </>
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0}>
+                    <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
+                      <Upload size={14} />
+                      {t('common.import')}
+                    </Button>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t('common.coming_soon')}</TooltipContent>
+              </Tooltip>
+            )}
             <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
               <Plus size={14} />
               {t(newButtonKey)}
@@ -162,11 +201,18 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
                         <Pencil size={14} />
                         {t('common.edit')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem disabled>
-                        <Download size={14} />
-                        {t('common.export')}
-                        <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
-                      </DropdownMenuItem>
+                      {onExport ? (
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport(item) }}>
+                          <Download size={14} />
+                          {t('common.export')}
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem disabled>
+                          <Download size={14} />
+                          {t('common.export')}
+                          <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                        </DropdownMenuItem>
+                      )}
                       <DropdownMenuItem disabled>
                         <History size={14} />
                         {t('common.history')}

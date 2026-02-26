@@ -14,6 +14,7 @@ import type {
   ConceptCriteriaConfig,
 } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types'
+import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -67,9 +68,6 @@ export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): str
   }
   return lines.join('\n')
 }
-
-/** @deprecated Use buildCohortCountSql instead */
-export const buildCohortQuery = buildCohortCountSql
 
 /**
  * Build a paginated SELECT query returning result rows.
@@ -320,7 +318,7 @@ function buildSexCriteria(
   const pt = mapping.patientTable
   if (!pt?.genderColumn) return '1=1'
   const personRef = level === 'patient' ? `"${pt.table}"` : 'p'
-  const vals = config.values.map((v) => `'${v}'`).join(', ')
+  const vals = config.values.map((v) => `'${escSql(v)}'`).join(', ')
   return `${personRef}."${pt.genderColumn}" IN (${vals})`
 }
 
@@ -370,8 +368,8 @@ function buildPeriodCriteria(
     const pt = mapping.patientTable
     if (!pt) return '1=1'
     const conditions: string[] = []
-    if (config.startDate) conditions.push(`"${vt.startDateColumn}" >= '${config.startDate}'`)
-    if (config.endDate) conditions.push(`"${vt.startDateColumn}" <= '${config.endDate}'`)
+    if (config.startDate) conditions.push(`"${vt.startDateColumn}" >= '${escSql(config.startDate)}'`)
+    if (config.endDate) conditions.push(`"${vt.startDateColumn}" <= '${escSql(config.endDate)}'`)
     return [
       `EXISTS (`,
       `    SELECT 1 FROM "${vt.table}"`,
@@ -385,8 +383,8 @@ function buildPeriodCriteria(
   if (!startDateCol) return '1=1'
   const dateRef = `"${baseTable}"."${startDateCol}"`
   const parts: string[] = []
-  if (config.startDate) parts.push(`${dateRef} >= '${config.startDate}'`)
-  if (config.endDate) parts.push(`${dateRef} <= '${config.endDate}'`)
+  if (config.startDate) parts.push(`${dateRef} >= '${escSql(config.startDate)}'`)
+  if (config.endDate) parts.push(`${dateRef} <= '${escSql(config.endDate)}'`)
   return parts.join(' AND ') || '1=1'
 }
 
@@ -449,7 +447,7 @@ function buildCareSiteCriteria(
   if (config.values.length === 0) return '1=1'
 
   const targetLevel = config.careSiteLevel ?? 'visit_detail'
-  const vals = config.values.map((v) => `'${v}'`).join(', ')
+  const vals = config.values.map((v) => `'${escSql(v)}'`).join(', ')
 
   // Get the care site column info for the target level
   let careSiteCol: string | undefined
@@ -513,6 +511,7 @@ function buildConceptCriteria(
   baseTable: string,
 ): string {
   if (config.conceptIds.length === 0) return '1=1'
+  if (!validateIntegerIds(config.conceptIds)) return '1=1'
   const eventTables = mapping.eventTables
   if (!eventTables) return '1=1'
   const et: EventTable | undefined = eventTables[config.eventTableLabel]
@@ -730,9 +729,9 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
     const ref = level === 'patient' ? `"${baseTable}"` : 'p'
     if (gv) {
       const cases: string[] = []
-      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${gv.male}' THEN 'Male'`)
-      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${gv.female}' THEN 'Female'`)
-      if (gv.unknown) cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${gv.unknown}' THEN 'Unknown'`)
+      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.male)}' THEN 'Male'`)
+      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.female)}' THEN 'Female'`)
+      if (gv.unknown) cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.unknown)}' THEN 'Unknown'`)
       cols.push(`CASE ${cases.join(' ')} ELSE CAST(${ref}."${pt.genderColumn}" AS TEXT) END AS gender`)
     } else {
       cols.push(`${ref}."${pt.genderColumn}" AS gender`)

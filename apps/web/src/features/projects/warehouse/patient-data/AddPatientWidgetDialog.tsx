@@ -25,11 +25,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
-  TableIcon,
   User,
   TrendingUp,
-  Pill,
-  Stethoscope,
   FileText,
   Puzzle,
   ArrowLeft,
@@ -62,28 +59,10 @@ const widgetTypes: WidgetTypeOption[] = [
     icon: <User size={20} className="text-violet-500" />,
   },
   {
-    type: 'clinical_table',
-    nameKey: 'patient_data.widget_clinical_table',
-    descriptionKey: 'patient_data.widget_clinical_table_desc',
-    icon: <TableIcon size={20} className="text-emerald-500" />,
-  },
-  {
     type: 'timeline',
     nameKey: 'patient_data.widget_timeline',
     descriptionKey: 'patient_data.widget_timeline_desc',
     icon: <TrendingUp size={20} className="text-blue-500" />,
-  },
-  {
-    type: 'medications',
-    nameKey: 'patient_data.widget_medications',
-    descriptionKey: 'patient_data.widget_medications_desc',
-    icon: <Pill size={20} className="text-orange-500" />,
-  },
-  {
-    type: 'diagnoses',
-    nameKey: 'patient_data.widget_diagnoses',
-    descriptionKey: 'patient_data.widget_diagnoses_desc',
-    icon: <Stethoscope size={20} className="text-red-500" />,
   },
   {
     type: 'notes',

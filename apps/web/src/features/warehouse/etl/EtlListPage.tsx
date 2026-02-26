@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { Workflow, Database, ArrowRight } from 'lucide-react'
@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { getStorage } from '@/lib/storage'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateEtlDialog } from './CreateEtlDialog'
 import type { EtlPipeline, EtlPipelineStatus } from '@/types'
@@ -34,7 +37,69 @@ export function EtlListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
 
+  // --- Export / Import ---
+  const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: import('@/types').EtlFile[] } | null>(null)
+
+  const handleExport = useCallback(async (pipeline: EtlPipeline) => {
+    const files = await getStorage().etlFiles.getByPipeline(pipeline.id)
+    await exportEntityZip(
+      [
+        { filename: 'pipeline.json', data: pipeline },
+        { filename: 'files.json', data: files },
+      ],
+      `${slugify(pipeline.name)}.zip`,
+    )
+  }, [])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const pipeline = parsed['pipeline.json'] as EtlPipeline | undefined
+    if (!pipeline?.id) return
+    const files = (parsed['files.json'] ?? []) as import('@/types').EtlFile[]
+    const existing = await getStorage().etlPipelines.getById(pipeline.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: pipeline, pendingFiles: files })
+    } else {
+      await doImport(pipeline, files, false)
+    }
+  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
+    const now = new Date().toISOString()
+    const id = duplicate ? crypto.randomUUID() : pipeline.id
+    const entity: EtlPipeline = {
+      ...pipeline,
+      id,
+      workspaceId: activeWorkspaceId ?? pipeline.workspaceId,
+      name: duplicate ? `${pipeline.name} (copy)` : pipeline.name,
+      updatedAt: now,
+      ...(duplicate ? { createdAt: now } : {}),
+    }
+    if (!duplicate) {
+      // Overwrite: delete old children first
+      await getStorage().etlFiles.deleteByPipeline(pipeline.id)
+      await getStorage().etlPipelines.delete(pipeline.id).catch(() => {})
+    }
+    await getStorage().etlPipelines.create(entity)
+    for (const f of files) {
+      await getStorage().etlFiles.create({
+        ...f,
+        id: duplicate ? crypto.randomUUID() : f.id,
+        pipelineId: id,
+      })
+    }
+    await loadEtlPipelines()
+  }, [activeWorkspaceId, loadEtlPipelines])
+
   return (
+    <>
+    <ImportConflictDialog
+      open={!!conflict}
+      onOpenChange={(open) => { if (!open) setConflict(null) }}
+      existingName={conflict?.name ?? ''}
+      onDuplicate={() => { if (conflict) doImport(conflict.pending, conflict.pendingFiles, true); setConflict(null) }}
+      onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.pendingFiles, false); setConflict(null) }}
+    />
     <ListPageTemplate<EtlPipeline>
       titleKey="etl.title"
       descriptionKey="etl.description"
@@ -47,6 +112,8 @@ export function EtlListPage() {
       items={pipelines}
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deletePipeline(id)}
+      onExport={handleExport}
+      onImport={handleImport}
       renderCardBody={(pipeline) => {
         const statusInfo = STATUS_BADGE[pipeline.status]
         return (
@@ -88,5 +155,6 @@ export function EtlListPage() {
         <CreateEtlDialog open onOpenChange={onOpenChange} editingPipeline={item} />
       )}
     />
+    </>
   )
 }

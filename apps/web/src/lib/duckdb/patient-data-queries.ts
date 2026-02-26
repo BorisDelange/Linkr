@@ -2,6 +2,7 @@ import type { Cohort } from '@/types'
 import type { SchemaMapping, EventTable } from '@/types/schema-mapping'
 import { buildCohortQueryParts } from './cohort-query'
 import { getDictionaryForEvent, buildConceptJoinCondition } from '@/lib/schema-helpers'
+import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // Patient filters
@@ -81,7 +82,7 @@ export function buildVisitListQuery(
   return `SELECT "${vt.idColumn}" AS visit_id,
   "${vt.startDateColumn}" AS start_date${endCol}${typeCol}
 FROM "${vt.table}"
-WHERE "${vt.patientIdColumn}" = '${patientId}'
+WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'
 ORDER BY "${vt.startDateColumn}"`
 }
 
@@ -119,7 +120,7 @@ export function buildVisitDetailListQuery(
   return `SELECT vd."${vdt.idColumn}" AS visit_detail_id,
   vd."${vdt.startDateColumn}" AS start_date${endCol}${unitCol}
 FROM "${vdt.table}" vd${unitJoin}
-WHERE vd."${vdt.visitIdColumn}" = '${visitId}'
+WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
 ORDER BY vd."${vdt.startDateColumn}"`
 }
 
@@ -139,13 +140,13 @@ export function buildVisitUnitsQuery(
     return `SELECT DISTINCT un."${vdt.unitNameColumn}" AS unit
 FROM "${vdt.table}" vd
 LEFT JOIN "${vdt.unitNameTable}" un ON vd."${vdt.unitColumn}" = un."${vdt.unitNameIdColumn}"
-WHERE vd."${vdt.visitIdColumn}" = '${visitId}'
+WHERE vd."${vdt.visitIdColumn}" = '${escSql(visitId)}'
 ORDER BY unit`
   }
 
   return `SELECT DISTINCT "${vdt.unitColumn}" AS unit
 FROM "${vdt.table}"
-WHERE "${vdt.visitIdColumn}" = '${visitId}'
+WHERE "${vdt.visitIdColumn}" = '${escSql(visitId)}'
 ORDER BY "${vdt.unitColumn}"`
 }
 
@@ -170,7 +171,7 @@ export function buildPatientDemographicsQuery(
     const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
     // Age relative to selected visit start date, or first visit if none selected
     const refDate = visitId
-      ? `(SELECT "${vt.startDateColumn}" FROM "${vt.table}" WHERE "${vt.idColumn}" = '${visitId}')`
+      ? `(SELECT "${vt.startDateColumn}" FROM "${vt.table}" WHERE "${vt.idColumn}" = '${escSql(visitId)}')`
       : `MIN(v."${vt.startDateColumn}")`
     const ageExpr = buildAgeExprAlias('p', pt, refDate)
     const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
@@ -179,7 +180,7 @@ export function buildPatientDemographicsQuery(
   COUNT(v."${vt.idColumn}") AS visit_count
 FROM "${pt.table}" p
 LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
-WHERE p."${pt.idColumn}" = '${patientId}'
+WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${buildBirthGroupBy('p', pt)}`
   }
 
@@ -189,7 +190,7 @@ GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}$
 
   return `SELECT "${pt.idColumn}" AS patient_id${genderCol}${ageCol}
 FROM "${pt.table}"
-WHERE "${pt.idColumn}" = '${patientId}'`
+WHERE "${pt.idColumn}" = '${escSql(patientId)}'`
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +233,7 @@ export function buildPatientSummaryQuery(
     const vdt = mapping.visitDetailTable
     let vdCountCol = ''
     if (vdt) {
-      vdCountCol = `, (SELECT COUNT(*) FROM "${vdt.table}" WHERE "${vdt.patientIdColumn}" = '${patientId}') AS visit_detail_count`
+      vdCountCol = `, (SELECT COUNT(*) FROM "${vdt.table}" WHERE "${vdt.patientIdColumn}" = '${escSql(patientId)}') AS visit_detail_count`
     }
 
     let deathGroupBy = ''
@@ -248,7 +249,7 @@ export function buildPatientSummaryQuery(
   COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${vdCountCol}
 FROM "${pt.table}" p
 LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
-WHERE p."${pt.idColumn}" = '${patientId}'
+WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
   }
 
@@ -258,7 +259,7 @@ GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}$
 
   return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${deathCol}${ageCol}
 FROM "${pt.table}" p${deathJoin}
-WHERE p."${pt.idColumn}" = '${patientId}'`
+WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
 }
 
 /**
@@ -291,7 +292,7 @@ export function buildPatientVisitSummaryQuery(
   "${vt.startDateColumn}" AS start_date${endCol}${typeCol},
   NULL AS unit${losExpr}
 FROM "${vt.table}"
-WHERE "${vt.patientIdColumn}" = '${patientId}'`)
+WHERE "${vt.patientIdColumn}" = '${escSql(patientId)}'`)
 
   const vdt = mapping.visitDetailTable
   if (vdt) {
@@ -319,7 +320,7 @@ WHERE "${vt.patientIdColumn}" = '${patientId}'`)
   vd."${vdt.startDateColumn}" AS start_date${vdEndCol},
   NULL AS visit_type${unitCol}${vdLosExpr}
 FROM "${vdt.table}" vd${unitJoin}
-WHERE vd."${vdt.patientIdColumn}" = '${patientId}'`)
+WHERE vd."${vdt.patientIdColumn}" = '${escSql(patientId)}'`)
   }
 
   return `${parts.join('\nUNION ALL\n')}
@@ -342,6 +343,7 @@ export function buildTimelineQuery(
   visitId: string | null,
 ): string | null {
   if (!mapping.eventTables || conceptIds.length === 0) return null
+  if (!validateIntegerIds(conceptIds)) return null
   const idList = conceptIds.join(', ')
   const parts: string[] = []
 
@@ -352,7 +354,7 @@ export function buildTimelineQuery(
 
     const dict = getDictionaryForEvent(mapping, et)
     const conceptMatch = buildConceptInCondition('e', et, idList)
-    const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
+    const visitFilter = buildVisitFilter(mapping, visitId, 'e')
 
     if (dict) {
       const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
@@ -362,7 +364,7 @@ export function buildTimelineQuery(
   e."${et.dateColumn}" AS event_date
 FROM "${et.table}" e
 INNER JOIN "${dict.table}" c ON ${joinCond}
-WHERE e."${patientIdCol}" = '${patientId}'
+WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND (${conceptMatch})
   AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
     } else {
@@ -371,7 +373,7 @@ WHERE e."${patientIdCol}" = '${patientId}'
   e."${et.valueColumn}" AS value,
   e."${et.dateColumn}" AS event_date
 FROM "${et.table}" e
-WHERE e."${patientIdCol}" = '${patientId}'
+WHERE e."${patientIdCol}" = '${escSql(patientId)}'
   AND (${conceptMatch})
   AND e."${et.valueColumn}" IS NOT NULL${visitFilter}`)
     }
@@ -380,118 +382,6 @@ WHERE e."${patientIdCol}" = '${patientId}'
   if (parts.length === 0) return null
   if (parts.length === 1) return `${parts[0]}\nORDER BY event_date`
   return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date`
-}
-
-// ---------------------------------------------------------------------------
-// Clinical table data
-// ---------------------------------------------------------------------------
-
-/**
- * Build query for clinical table — all values for selected concepts.
- * Queries ALL event tables that have a date column.
- * Returns: concept_id, concept_name, value_numeric, value_string, event_date.
- * Pivot (concepts-as-rows vs concepts-as-columns) is done client-side.
- */
-export function buildClinicalTableQuery(
-  mapping: SchemaMapping,
-  conceptIds: number[],
-  patientId: string,
-  visitId: string | null,
-): string | null {
-  if (!mapping.eventTables || conceptIds.length === 0) return null
-  const idList = conceptIds.join(', ')
-  const parts: string[] = []
-
-  for (const [, et] of Object.entries(mapping.eventTables)) {
-    if (!et.dateColumn) continue
-    const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-    if (!patientIdCol) continue
-
-    const dict = getDictionaryForEvent(mapping, et)
-    const conceptMatch = buildConceptInCondition('e', et, idList)
-    const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
-
-    const valueCols = [
-      et.valueColumn ? `e."${et.valueColumn}" AS value_numeric` : 'NULL AS value_numeric',
-      et.valueStringColumn ? `e."${et.valueStringColumn}" AS value_string` : 'NULL AS value_string',
-    ].join(',\n  ')
-
-    if (dict) {
-      const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
-      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
-  c."${dict.nameColumn}" AS concept_name,
-  ${valueCols},
-  e."${et.dateColumn}" AS event_date
-FROM "${et.table}" e
-INNER JOIN "${dict.table}" c ON ${joinCond}
-WHERE e."${patientIdCol}" = '${patientId}'
-  AND (${conceptMatch})${visitFilter}`)
-    } else {
-      parts.push(`SELECT e."${et.conceptIdColumn}" AS concept_id,
-  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
-  ${valueCols},
-  e."${et.dateColumn}" AS event_date
-FROM "${et.table}" e
-WHERE e."${patientIdCol}" = '${patientId}'
-  AND (${conceptMatch})${visitFilter}`)
-    }
-  }
-
-  if (parts.length === 0) return null
-  if (parts.length === 1) return `${parts[0]}\nORDER BY event_date DESC`
-  return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date DESC`
-}
-
-// ---------------------------------------------------------------------------
-// Medications
-// ---------------------------------------------------------------------------
-
-/**
- * Build query for medications — finds the Drug event table automatically.
- * Returns: concept_id, concept_name, start_date.
- */
-export function buildMedicationsQuery(
-  mapping: SchemaMapping,
-  patientId: string,
-  visitId: string | null,
-): string | null {
-  const et = findEventTableByHint(mapping, ['Drug', 'Prescriptions', 'prescriptions', 'drug'])
-  if (!et) return null
-
-  return buildDomainListQuery(mapping, et, patientId, visitId)
-}
-
-/**
- * Get the label of the Drug event table (for display).
- */
-export function getMedicationEventLabel(mapping: SchemaMapping): string | null {
-  return findEventTableLabelByHint(mapping, ['Drug', 'Prescriptions', 'prescriptions', 'drug'])
-}
-
-// ---------------------------------------------------------------------------
-// Diagnoses
-// ---------------------------------------------------------------------------
-
-/**
- * Build query for diagnoses — finds the Condition event table automatically.
- * Returns: concept_id, concept_name, start_date.
- */
-export function buildDiagnosesQuery(
-  mapping: SchemaMapping,
-  patientId: string,
-  visitId: string | null,
-): string | null {
-  const et = findEventTableByHint(mapping, ['Condition', 'Diagnosis', 'diagnoses', 'condition'])
-  if (!et) return null
-
-  return buildDomainListQuery(mapping, et, patientId, visitId)
-}
-
-/**
- * Get the label of the Condition event table (for display).
- */
-export function getDiagnosisEventLabel(mapping: SchemaMapping): string | null {
-  return findEventTableLabelByHint(mapping, ['Condition', 'Diagnosis', 'diagnoses', 'condition'])
 }
 
 // ---------------------------------------------------------------------------
@@ -520,14 +410,14 @@ export function buildNotesQuery(
     ? `, "${nt.visitIdColumn}" AS visit_id`
     : ', NULL AS visit_id'
   const visitFilter = visitId && nt.visitIdColumn
-    ? `\n  AND "${nt.visitIdColumn}" = '${visitId}'`
+    ? `\n  AND "${nt.visitIdColumn}" = '${escSql(visitId)}'`
     : ''
 
   return `SELECT "${nt.idColumn}" AS note_id,
   "${nt.dateColumn}" AS note_date${titleCol},
   "${nt.textColumn}" AS note_text${typeCol}${visitCol}
 FROM "${nt.table}"
-WHERE "${nt.patientIdColumn}" = '${patientId}'${visitFilter}
+WHERE "${nt.patientIdColumn}" = '${escSql(patientId)}'${visitFilter}
 ORDER BY "${nt.dateColumn}" DESC`
 }
 
@@ -614,19 +504,19 @@ function buildPatientFilterWhere(filters?: PatientFilters): string {
   const clauses: string[] = []
 
   if (filters.gender) {
-    clauses.push(`gender = '${filters.gender.replace(/'/g, "''")}'`)
+    clauses.push(`gender = '${escSql(filters.gender)}'`)
   }
   if (filters.ageMin != null) {
-    clauses.push(`age >= ${filters.ageMin}`)
+    clauses.push(`age >= ${Number(filters.ageMin)}`)
   }
   if (filters.ageMax != null) {
-    clauses.push(`age <= ${filters.ageMax}`)
+    clauses.push(`age <= ${Number(filters.ageMax)}`)
   }
   if (filters.admissionAfter) {
-    clauses.push(`first_admission >= '${filters.admissionAfter}'`)
+    clauses.push(`first_admission >= '${escSql(filters.admissionAfter)}'`)
   }
   if (filters.admissionBefore) {
-    clauses.push(`first_admission <= '${filters.admissionBefore}'`)
+    clauses.push(`first_admission <= '${escSql(filters.admissionBefore)}'`)
   }
 
   return clauses.length > 0
@@ -692,67 +582,11 @@ function buildVisitFilter(
   mapping: SchemaMapping,
   visitId: string | null,
   alias: string,
-  et: EventTable,
 ): string {
   if (!visitId || !mapping.visitTable) return ''
   // Try to find a visit FK column in the event table
   // Convention: same name as visit table's idColumn (e.g., visit_occurrence_id, hadm_id)
   const visitIdCol = mapping.visitTable.idColumn
-  return `\n  AND ${alias}."${visitIdCol}" = '${visitId}'`
+  return `\n  AND ${alias}."${visitIdCol}" = '${escSql(visitId)}'`
 }
 
-/** Find an event table by hint keywords (case-insensitive label match). */
-function findEventTableByHint(mapping: SchemaMapping, hints: string[]): EventTable | null {
-  if (!mapping.eventTables) return null
-  for (const hint of hints) {
-    const lower = hint.toLowerCase()
-    for (const [label, et] of Object.entries(mapping.eventTables)) {
-      if (label.toLowerCase().includes(lower)) return et
-    }
-  }
-  return null
-}
-
-function findEventTableLabelByHint(mapping: SchemaMapping, hints: string[]): string | null {
-  if (!mapping.eventTables) return null
-  for (const hint of hints) {
-    const lower = hint.toLowerCase()
-    for (const label of Object.keys(mapping.eventTables)) {
-      if (label.toLowerCase().includes(lower)) return label
-    }
-  }
-  return null
-}
-
-/** Build a generic domain list query (used for medications, diagnoses, procedures). */
-function buildDomainListQuery(
-  mapping: SchemaMapping,
-  et: EventTable,
-  patientId: string,
-  visitId: string | null,
-): string | null {
-  if (!et.dateColumn) return null
-  const patientIdCol = et.patientIdColumn ?? mapping.patientTable?.idColumn
-  if (!patientIdCol) return null
-
-  const dict = getDictionaryForEvent(mapping, et)
-  const visitFilter = buildVisitFilter(mapping, visitId, 'e', et)
-
-  if (dict) {
-    const joinCond = buildConceptJoinCondition('e', 'c', et, dict)
-    return `SELECT e."${et.conceptIdColumn}" AS concept_id,
-  c."${dict.nameColumn}" AS concept_name,
-  e."${et.dateColumn}" AS start_date
-FROM "${et.table}" e
-INNER JOIN "${dict.table}" c ON ${joinCond}
-WHERE e."${patientIdCol}" = '${patientId}'${visitFilter}
-ORDER BY e."${et.dateColumn}" DESC`
-  }
-
-  return `SELECT e."${et.conceptIdColumn}" AS concept_id,
-  CAST(e."${et.conceptIdColumn}" AS VARCHAR) AS concept_name,
-  e."${et.dateColumn}" AS start_date
-FROM "${et.table}" e
-WHERE e."${patientIdCol}" = '${patientId}'${visitFilter}
-ORDER BY e."${et.dateColumn}" DESC`
-}

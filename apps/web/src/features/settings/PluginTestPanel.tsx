@@ -8,9 +8,6 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientSummaryWidget } from '@/features/projects/warehouse/patient-data/widgets/PatientSummaryWidget'
-import { ClinicalTableWidget } from '@/features/projects/warehouse/patient-data/widgets/ClinicalTableWidget'
-import { MedicationWidget } from '@/features/projects/warehouse/patient-data/widgets/MedicationWidget'
-import { DiagnosisWidget } from '@/features/projects/warehouse/patient-data/widgets/DiagnosisWidget'
 import { NotesWidget } from '@/features/projects/warehouse/patient-data/widgets/NotesWidget'
 import { PluginConfigPreview } from './PluginConfigPreview'
 import type { PluginConfigField } from '@/types/plugin'
@@ -38,12 +35,6 @@ function renderPreviewWidget(type: PatientWidgetType) {
   switch (type) {
     case 'patient_summary':
       return <PatientSummaryWidget />
-    case 'clinical_table':
-      return <ClinicalTableWidget widgetId="__preview__" />
-    case 'medications':
-      return <MedicationWidget />
-    case 'diagnoses':
-      return <DiagnosisWidget />
     case 'notes':
       return <NotesWidget widgetId="__preview__" />
     default:

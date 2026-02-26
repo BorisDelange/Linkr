@@ -412,40 +412,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateProjectReadme: (uid, readme) => {
-    const snapshot = {
-      id: `rs-${Date.now()}`,
-      content: readme,
-      savedAt: new Date().toISOString(),
-    }
-    let readmeHistory: Project['readmeHistory']
     set((s) => ({
-      _projectsRaw: s._projectsRaw.map((p) => {
-        if (p.uid !== uid) return p
-        readmeHistory = [...(p.readmeHistory ?? []), snapshot]
-        return { ...p, readme, readmeHistory }
-      }),
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, readme } : p
+      ),
     }))
-    getStorage().projects.update(uid, { readme, readmeHistory: readmeHistory! })
+    getStorage().projects.update(uid, { readme })
   },
 
-  restoreReadmeVersion: (uid, snapshotId) => {
-    const project = get()._projectsRaw.find((p) => p.uid === uid)
-    const snapshot = project?.readmeHistory?.find((h) => h.id === snapshotId)
-    if (!snapshot) return
-    const newSnapshot = {
-      id: `rs-${Date.now()}`,
-      content: snapshot.content,
-      savedAt: new Date().toISOString(),
-    }
-    let readmeHistory: Project['readmeHistory']
-    set((s) => ({
-      _projectsRaw: s._projectsRaw.map((p) => {
-        if (p.uid !== uid) return p
-        readmeHistory = [...(p.readmeHistory ?? []), newSnapshot]
-        return { ...p, readme: snapshot.content, readmeHistory }
-      }),
-    }))
-    getStorage().projects.update(uid, { readme: snapshot.content, readmeHistory: readmeHistory! })
+  restoreReadmeVersion: () => {
+    // No-op in local mode — readme history requires backend
   },
 
   updateProjectStatus: (uid, status) => {

@@ -15,6 +15,7 @@ import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-s
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { buildNotesQuery } from '@/lib/duckdb/patient-data-queries'
+import { formatDate as fmtDate } from '@/lib/format-helpers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -434,20 +435,7 @@ export function NotesWidget({ widgetId }: { widgetId: string }) {
     [widgetId, config, updateWidgetConfig],
   )
 
-  const formatDate = (d: string) => {
-    try {
-      const dt = new Date(d)
-      if (i18n.language === 'fr') {
-        return dt.toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-      }
-      const y = dt.getFullYear()
-      const m = String(dt.getMonth() + 1).padStart(2, '0')
-      const dd = String(dt.getDate()).padStart(2, '0')
-      return `${y}-${m}-${dd}`
-    } catch {
-      return d
-    }
-  }
+  const formatDate = (d: string) => fmtDate(d, i18n.language)
 
   // Scroll content to top when selecting a new note
   useEffect(() => {

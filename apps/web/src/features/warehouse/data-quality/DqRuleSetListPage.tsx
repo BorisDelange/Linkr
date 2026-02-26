@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils'
 import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { getStorage } from '@/lib/storage'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import type { DqRuleSet, DqRuleSetStatus } from '@/types'
@@ -42,7 +45,68 @@ export function DqRuleSetListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
 
+  // --- Export / Import ---
+  const [conflict, setConflict] = useState<{ name: string; pending: DqRuleSet; pendingChecks: import('@/types').DqCustomCheck[] } | null>(null)
+
+  const handleExport = useCallback(async (rs: DqRuleSet) => {
+    const checks = await getStorage().dqCustomChecks.getByRuleSet(rs.id)
+    await exportEntityZip(
+      [
+        { filename: 'ruleset.json', data: rs },
+        { filename: 'checks.json', data: checks },
+      ],
+      `${slugify(rs.name)}.zip`,
+    )
+  }, [])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const rs = parsed['ruleset.json'] as DqRuleSet | undefined
+    if (!rs?.id) return
+    const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
+    const existing = await getStorage().dqRuleSets.getById(rs.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: rs, pendingChecks: checks })
+    } else {
+      await doImport(rs, checks, false)
+    }
+  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const doImport = useCallback(async (rs: DqRuleSet, checks: import('@/types').DqCustomCheck[], duplicate: boolean) => {
+    const now = new Date().toISOString()
+    const id = duplicate ? crypto.randomUUID() : rs.id
+    const entity: DqRuleSet = {
+      ...rs,
+      id,
+      workspaceId: activeWorkspaceId ?? rs.workspaceId,
+      name: duplicate ? `${rs.name} (copy)` : rs.name,
+      updatedAt: now,
+      ...(duplicate ? { createdAt: now } : {}),
+    }
+    if (!duplicate) {
+      await getStorage().dqCustomChecks.deleteByRuleSet(rs.id)
+      await getStorage().dqRuleSets.delete(rs.id).catch(() => {})
+    }
+    await getStorage().dqRuleSets.create(entity)
+    for (const c of checks) {
+      await getStorage().dqCustomChecks.create({
+        ...c,
+        id: duplicate ? crypto.randomUUID() : c.id,
+        ruleSetId: id,
+      })
+    }
+    await loadDqRuleSets()
+  }, [activeWorkspaceId, loadDqRuleSets])
+
   return (
+    <>
+    <ImportConflictDialog
+      open={!!conflict}
+      onOpenChange={(open) => { if (!open) setConflict(null) }}
+      existingName={conflict?.name ?? ''}
+      onDuplicate={() => { if (conflict) doImport(conflict.pending, conflict.pendingChecks, true); setConflict(null) }}
+      onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.pendingChecks, false); setConflict(null) }}
+    />
     <ListPageTemplate<DqRuleSet>
       titleKey="data_quality.rs_title"
       descriptionKey="data_quality.rs_description"
@@ -55,6 +119,8 @@ export function DqRuleSetListPage() {
       items={ruleSets}
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deleteRuleSet(id)}
+      onExport={handleExport}
+      onImport={handleImport}
       renderCardBody={(rs) => {
         const statusInfo = STATUS_BADGE[rs.status]
         return (
@@ -95,5 +161,6 @@ export function DqRuleSetListPage() {
         <CreateDqRuleSetDialog open onOpenChange={onOpenChange} editingRuleSet={item} />
       )}
     />
+    </>
   )
 }

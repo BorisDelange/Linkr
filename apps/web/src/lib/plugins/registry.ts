@@ -14,10 +14,7 @@ const plugins = new Map<string, Plugin>()
 /** Legacy type-name → plugin-id mapping. */
 const LEGACY_IDS: Record<string, string> = {
   table1: 'linkr-analysis-table1',
-  distribution: 'linkr-analysis-distribution',
   summary: 'linkr-analysis-summary',
-  correlation: 'linkr-analysis-correlation',
-  crosstab: 'linkr-analysis-crosstab',
 }
 
 /** Tracks which plugin+language combos have had their deps verified this session. */

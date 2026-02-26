@@ -17,6 +17,12 @@ import {
   buildPatientSummaryQuery,
   buildPatientVisitSummaryQuery,
 } from '@/lib/duckdb/patient-data-queries'
+import {
+  daysBetween,
+  formatDate as fmtDate,
+  formatDateShort as fmtDateShort,
+  formatGender as fmtGender,
+} from '@/lib/format-helpers'
 
 interface SummaryRow {
   patient_id: string
@@ -39,16 +45,6 @@ interface VisitRow {
   visit_type?: string
   unit?: string
   los_days?: number
-}
-
-function daysBetween(start?: string, end?: string): number | null {
-  if (!start || !end) return null
-  try {
-    const ms = new Date(end).getTime() - new Date(start).getTime()
-    return Math.round(ms / (1000 * 60 * 60 * 24))
-  } catch {
-    return null
-  }
 }
 
 /** Format an interval in days as a compact human-readable string. */
@@ -732,43 +728,9 @@ export function PatientSummaryWidget() {
   }, [dataSourceId, schemaMapping, patientId])
 
   const gv = schemaMapping?.genderValues
-  const formatGender = (g: string | undefined) => {
-    if (!g || !gv) return g ?? '—'
-    if (g === gv.male) return t('patient_data.male')
-    if (g === gv.female) return t('patient_data.female')
-    return g
-  }
-
-  const formatDate = useCallback((d: string | undefined) => {
-    if (!d) return '—'
-    try {
-      const dt = new Date(d)
-      if (i18n.language === 'fr') {
-        return dt.toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-      }
-      const y = dt.getFullYear()
-      const m = String(dt.getMonth() + 1).padStart(2, '0')
-      const dd = String(dt.getDate()).padStart(2, '0')
-      return `${y}-${m}-${dd}`
-    } catch {
-      return d
-    }
-  }, [i18n.language])
-
-  const formatDateShort = useCallback((d: string | undefined) => {
-    if (!d) return '—'
-    try {
-      const dt = new Date(d)
-      if (i18n.language === 'fr') {
-        return dt.toLocaleDateString('fr-FR', { month: '2-digit', day: '2-digit' })
-      }
-      const m = String(dt.getMonth() + 1).padStart(2, '0')
-      const dd = String(dt.getDate()).padStart(2, '0')
-      return `${m}-${dd}`
-    } catch {
-      return d
-    }
-  }, [i18n.language])
+  const formatGender = (g: string | undefined) => fmtGender(g, gv, t)
+  const formatDate = useCallback((d: string | undefined) => fmtDate(d, i18n.language), [i18n.language])
+  const formatDateShort = useCallback((d: string | undefined) => fmtDateShort(d, i18n.language), [i18n.language])
 
   const handleNavigateToStay = useCallback((visitId: string, visitDetailId?: string) => {
     setSelectedVisit(projectUid, visitId)

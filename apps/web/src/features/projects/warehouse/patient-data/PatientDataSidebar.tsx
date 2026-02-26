@@ -31,17 +31,7 @@ import {
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { usePatientData } from './use-patient-data'
-
-/** Compute days between two date strings. Returns null if either is missing. */
-function daysBetween(start?: string, end?: string): number | null {
-  if (!start || !end) return null
-  try {
-    const ms = new Date(end).getTime() - new Date(start).getTime()
-    return Math.round(ms / (1000 * 60 * 60 * 24))
-  } catch {
-    return null
-  }
-}
+import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort } from '@/lib/format-helpers'
 
 export function PatientDataSidebar() {
   const { t, i18n } = useTranslation()
@@ -83,36 +73,9 @@ export function PatientDataSidebar() {
     patientFilters.admissionBefore
   )
 
-  const formatGender = (gender: string | undefined) => {
-    if (!gender || !genderValues) return gender ?? '—'
-    if (gender === genderValues.male) return t('patient_data.male')
-    if (gender === genderValues.female) return t('patient_data.female')
-    return gender
-  }
-
-  const formatGenderShort = (gender: string | undefined) => {
-    if (!gender || !genderValues) return gender ?? '—'
-    if (gender === genderValues.male) return t('patient_data.male_short')
-    if (gender === genderValues.female) return t('patient_data.female_short')
-    return gender
-  }
-
-  const formatDate = (d: string | undefined) => {
-    if (!d) return '—'
-    try {
-      const dt = new Date(d)
-      if (i18n.language === 'fr') {
-        return dt.toLocaleDateString('fr-FR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-      }
-      // EN: YYYY-MM-DD
-      const y = dt.getFullYear()
-      const m = String(dt.getMonth() + 1).padStart(2, '0')
-      const dd = String(dt.getDate()).padStart(2, '0')
-      return `${y}-${m}-${dd}`
-    } catch {
-      return d
-    }
-  }
+  const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
+  const formatGenderShort = (gender: string | undefined) => fmtGenderShort(gender, genderValues, t)
+  const formatDate = (d: string | undefined) => fmtDate(d, i18n.language)
 
   // Compute LOS
   const selectedVisit = visits.find((v) => String(v.visit_id) === visitId)

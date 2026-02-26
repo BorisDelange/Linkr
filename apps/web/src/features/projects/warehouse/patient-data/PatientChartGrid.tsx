@@ -9,9 +9,6 @@ import {
 } from '@/stores/patient-chart-store'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
-import { ClinicalTableWidget } from './widgets/ClinicalTableWidget'
-import { MedicationWidget } from './widgets/MedicationWidget'
-import { DiagnosisWidget } from './widgets/DiagnosisWidget'
 import { NotesWidget } from './widgets/NotesWidget'
 import { TimelineWidget } from './widgets/TimelineWidget'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
@@ -38,7 +35,7 @@ interface PatientChartGridProps {
 }
 
 /** Widget types that support concept editing. */
-const CONCEPT_WIDGET_TYPES = new Set(['clinical_table', 'timeline'])
+const CONCEPT_WIDGET_TYPES = new Set(['timeline'])
 
 /** Widget types that support plugin config editing. */
 const PLUGIN_WIDGET_TYPES = new Set(['plugin'])
@@ -53,12 +50,6 @@ function renderWidgetContent(
   switch (widget.type) {
     case 'patient_summary':
       return <PatientSummaryWidget />
-    case 'clinical_table':
-      return <ClinicalTableWidget widgetId={widget.id} onConfigureConcepts={onConfigureConcepts} />
-    case 'medications':
-      return <MedicationWidget />
-    case 'diagnoses':
-      return <DiagnosisWidget />
     case 'notes':
       return <NotesWidget widgetId={widget.id} />
     case 'timeline':

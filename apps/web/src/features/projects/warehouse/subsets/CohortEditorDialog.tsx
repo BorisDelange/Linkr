@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useCohortStore } from '@/stores/cohort-store'
-import { buildCohortQuery } from '@/lib/duckdb/cohort-query'
+import { buildCohortCountSql } from '@/lib/duckdb/cohort-query'
 import * as engine from '@/lib/duckdb/engine'
 import { Plus, X, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -152,7 +152,7 @@ export function CohortEditorDialog({
         updatedAt: '',
       }
       if (!schemaMapping) return
-      const sql = buildCohortQuery(tempCohort, schemaMapping)
+      const sql = buildCohortCountSql(tempCohort, schemaMapping)
       if (!sql) return
       const results = await engine.queryDataSource(dataSourceId, sql)
       setPreviewCount(Number(results[0]?.cnt ?? 0))

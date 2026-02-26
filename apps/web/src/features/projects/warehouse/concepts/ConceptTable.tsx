@@ -59,6 +59,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { columnLabel } from '@/lib/format-helpers'
 import type { ConceptRow } from './use-concepts'
 import type { ConceptFilters, ConceptSorting, ColumnDescriptor } from './concept-queries'
 
@@ -90,14 +91,6 @@ interface ConceptTableProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/** Capitalize a snake_case key into a display label. */
-function columnLabel(id: string): string {
-  return id
-    .replace(/^_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
 
 // ---------------------------------------------------------------------------
 // Sub-components

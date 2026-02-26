@@ -12,18 +12,10 @@ export interface PatientChartTab {
 }
 
 export type PatientWidgetType =
-  | 'clinical_table'
   | 'patient_summary'
-  | 'medications'
-  | 'diagnoses'
   | 'notes'
   | 'timeline'
   | 'plugin'
-
-export interface ClinicalTableConfig {
-  conceptIds: number[]
-  orientation: 'concepts-as-rows' | 'concepts-as-columns'
-}
 
 export interface NotesConfig {
   /** Saved search word sets: { label: string, words: string[] }[] */
@@ -41,7 +33,6 @@ export interface PluginWidgetConfig {
 }
 
 export type PatientWidgetConfig =
-  | ClinicalTableConfig
   | TimelineConfig
   | NotesConfig
   | PluginWidgetConfig
@@ -112,10 +103,7 @@ interface PatientChartState {
 // ---------------------------------------------------------------------------
 
 const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
-  clinical_table: { w: 48, h: 16 },
   patient_summary: { w: 48, h: 24 },
-  medications: { w: 24, h: 12 },
-  diagnoses: { w: 24, h: 12 },
   timeline: { w: 48, h: 14 },
   notes: { w: 48, h: 20 },
   plugin: { w: 24, h: 14 },
@@ -127,11 +115,6 @@ const defaultWidgetLayouts: Record<string, { w: number; h: number }> = {
 
 function defaultConfigForType(type: PatientWidgetType): PatientWidgetConfig {
   switch (type) {
-    case 'clinical_table':
-      return {
-        conceptIds: [],
-        orientation: 'concepts-as-rows',
-      } as ClinicalTableConfig
     case 'timeline':
       return { conceptIds: [] } as TimelineConfig
     default:

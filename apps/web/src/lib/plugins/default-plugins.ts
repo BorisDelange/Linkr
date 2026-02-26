@@ -8,21 +8,10 @@ import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
-// TODO: re-enable these plugins later (disabled Feb 2026)
-// import distributionManifest from '@default-plugins/analyses/distribution/plugin.json'
-// import correlationManifest from '@default-plugins/analyses/correlation/plugin.json'
-// import crosstabManifest from '@default-plugins/analyses/crosstab/plugin.json'
 import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.json'
 // --- Code templates (raw strings) ---
 import table1Py from '@default-plugins/analyses/table1/table1.py.template?raw'
 import table1R from '@default-plugins/analyses/table1/table1.R.template?raw'
-// TODO: re-enable these templates later (disabled Feb 2026)
-// import distributionPy from '@default-plugins/analyses/distribution/distribution.py.template?raw'
-// import distributionR from '@default-plugins/analyses/distribution/distribution.R.template?raw'
-// import correlationPy from '@default-plugins/analyses/correlation/correlation.py.template?raw'
-// import correlationR from '@default-plugins/analyses/correlation/correlation.R.template?raw'
-// import crosstabPy from '@default-plugins/analyses/crosstab/crosstab.py.template?raw'
-// import crosstabR from '@default-plugins/analyses/crosstab/crosstab.R.template?raw'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -47,10 +36,6 @@ export function registerDefaultPlugins() {
   registerPlugin(
     buildPlugin(table1Manifest as unknown as Record<string, unknown>, { python: table1Py, r: table1R }),
   )
-  // TODO: re-enable these plugins later (disabled Feb 2026)
-  // registerPlugin(buildPlugin(distributionManifest as unknown as Record<string, unknown>, { python: distributionPy, r: distributionR }))
-  // registerPlugin(buildPlugin(correlationManifest as unknown as Record<string, unknown>, { python: correlationPy, r: correlationR }))
-  // registerPlugin(buildPlugin(crosstabManifest as unknown as Record<string, unknown>, { python: crosstabPy, r: crosstabR }))
   // Component-based lab plugins
   registerComponent('key-indicator', KeyIndicatorComponent)
   registerComponent('plot-builder', PlotBuilderComponent)
