@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { OutputTable } from './OutputTable'
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -309,7 +310,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
             activeTab.content.startsWith('<svg') ? (
               <div
                 className="max-w-full max-h-full"
-                dangerouslySetInnerHTML={{ __html: activeTab.content }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTab.content) }}
               />
             ) : typeof activeTab.content === 'string' &&
               activeTab.content.startsWith('data:image') ? (

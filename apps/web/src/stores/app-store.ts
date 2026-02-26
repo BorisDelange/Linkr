@@ -16,7 +16,7 @@ interface AuthUser {
   role: string
 }
 
-export interface ProjectItem {
+interface ProjectItem {
   uid: string
   name: string
   description: string
@@ -24,7 +24,7 @@ export interface ProjectItem {
   updatedAt: string
 }
 
-export interface ManagedUser {
+interface ManagedUser {
   id: number
   username: string
   email: string

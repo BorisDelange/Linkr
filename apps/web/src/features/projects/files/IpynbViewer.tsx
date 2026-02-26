@@ -33,6 +33,7 @@ import {
   type IpynbOutput,
 } from '@/lib/ipynb-parser'
 import { linkrDark, linkrLight } from '@/components/editor/monaco-themes'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 // ---------------------------------------------------------------------------
 // Monaco language map
@@ -861,7 +862,7 @@ function ImageOutput({ src, svgHtml, alt }: { src?: string; svgHtml?: string; al
         {svgHtml ? (
           <div
             className="max-w-full cursor-pointer [&>svg]:max-w-full [&>svg]:max-h-96"
-            dangerouslySetInnerHTML={{ __html: svgHtml }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(svgHtml) }}
             onClick={() => { resetView(); setOpen(true) }}
           />
         ) : (
@@ -942,7 +943,7 @@ function ImageOutput({ src, svgHtml, alt }: { src?: string; svgHtml?: string; al
               {svgHtml ? (
                 <div
                   className="[&>svg]:max-w-full [&>svg]:max-h-[calc(98vh-3rem)] [&>svg]:object-contain pointer-events-none"
-                  dangerouslySetInnerHTML={{ __html: svgHtml }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(svgHtml) }}
                 />
               ) : (
                 <img

@@ -385,8 +385,6 @@ export type LocalizedString = Record<string, string>
 
 export type Language = 'en' | 'fr'
 
-export type AppMode = 'full' | 'dashboard' | 'viewer' | 'static'
-
 // --- Cohort Types (re-exported from cohort.ts) ---
 
 export type {
@@ -408,7 +406,6 @@ export type {
   Cohort,
   AttritionStep,
   CohortExecutionResult,
-  LegacyCohortCriteria,
 } from './cohort'
 
 // --- IDE Connection Types ---

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig } from '@/types'
 import {
@@ -75,7 +76,7 @@ const statusColors: Record<string, string> = {
   configuring: 'bg-amber-500',
 }
 
-export function DatabaseCard({
+export const DatabaseCard = memo(function DatabaseCard({
   source,
   isActive,
   onClick,
@@ -236,4 +237,4 @@ export function DatabaseCard({
       </CardContent>
     </Card>
   )
-}
+})

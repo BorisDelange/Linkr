@@ -1,12 +1,12 @@
 import type { ConceptDictionary, EventTable, SchemaMapping } from '@/types/schema-mapping'
 
 /** Get the default (first) concept dictionary. */
-export function getDefaultConceptDictionary(mapping: SchemaMapping): ConceptDictionary | undefined {
+function getDefaultConceptDictionary(mapping: SchemaMapping): ConceptDictionary | undefined {
   return mapping.conceptTables?.[0]
 }
 
 /** Get a concept dictionary by key. */
-export function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDictionary | undefined {
+function getConceptDictionary(mapping: SchemaMapping, key: string): ConceptDictionary | undefined {
   return mapping.conceptTables?.find((d) => d.key === key)
 }
 
@@ -19,12 +19,12 @@ export function getDictionaryForEvent(mapping: SchemaMapping, eventTable: EventT
 }
 
 /** Get all event table labels. */
-export function getEventTableLabels(mapping: SchemaMapping): string[] {
+function getEventTableLabels(mapping: SchemaMapping): string[] {
   return mapping.eventTables ? Object.keys(mapping.eventTables) : []
 }
 
 /** Get an event table by label. */
-export function getEventTable(mapping: SchemaMapping, label: string): EventTable | undefined {
+function getEventTable(mapping: SchemaMapping, label: string): EventTable | undefined {
   return mapping.eventTables?.[label]
 }
 

@@ -122,24 +122,35 @@ const mountingPromises = new Map<string, Promise<void>>()
 /** Track data sources currently being processed (mounting, testing, reconnecting). */
 const busySources = new Set<string>()
 
+/** Guard against concurrent loadDataSources calls. */
+let loadingPromise: Promise<void> | null = null
+
 export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   dataSources: [],
   dataSourcesLoaded: false,
 
   loadDataSources: async () => {
-    const all = await getStorage().dataSources.getAll()
-    // Migrate: assign alias to data sources that don't have one yet
-    const existingAliases = all.filter((ds) => ds.alias).map((ds) => ds.alias)
-    for (const ds of all) {
-      if (!ds.alias) {
-        const base = generateAlias(ds.name)
-        ds.alias = ensureUniqueAlias(base, existingAliases)
-        existingAliases.push(ds.alias)
-        getStorage().dataSources.update(ds.id, { alias: ds.alias })
+    if (loadingPromise) return loadingPromise
+    loadingPromise = (async () => {
+      try {
+        const all = await getStorage().dataSources.getAll()
+        // Migrate: assign alias to data sources that don't have one yet
+        const existingAliases = all.filter((ds) => ds.alias).map((ds) => ds.alias)
+        for (const ds of all) {
+          if (!ds.alias) {
+            const base = generateAlias(ds.name)
+            ds.alias = ensureUniqueAlias(base, existingAliases)
+            existingAliases.push(ds.alias)
+            getStorage().dataSources.update(ds.id, { alias: ds.alias })
+          }
+          engine.registerAlias(ds.id, ds.alias)
+        }
+        set({ dataSources: all, dataSourcesLoaded: true })
+      } finally {
+        loadingPromise = null
       }
-      engine.registerAlias(ds.id, ds.alias)
-    }
-    set({ dataSources: all, dataSourcesLoaded: true })
+    })()
+    return loadingPromise
   },
 
   getProjectSources: (projectUid: string) => {

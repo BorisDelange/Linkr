@@ -46,14 +46,22 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value)
+    clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => setDebouncedQuery(value), 150)
+  }, [])
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return ALL_ICON_NAMES
-    return ALL_ICON_NAMES.filter((n) => fuzzyMatch(n, query))
-  }, [query])
+    if (!debouncedQuery.trim()) return ALL_ICON_NAMES
+    return ALL_ICON_NAMES.filter((n) => fuzzyMatch(n, debouncedQuery))
+  }, [debouncedQuery])
 
   const visible = useMemo(() => filtered.slice(0, visibleCount), [filtered, visibleCount])
 
@@ -61,17 +69,19 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
   useEffect(() => {
     if (open) {
       setQuery('')
+      setDebouncedQuery('')
       setVisibleCount(PAGE_SIZE)
       // Focus search input after popover renders
       requestAnimationFrame(() => inputRef.current?.focus())
     }
+    return () => clearTimeout(debounceRef.current)
   }, [open])
 
-  // Reset visible count on query change
+  // Reset visible count on debounced query change
   useEffect(() => {
     setVisibleCount(PAGE_SIZE)
     scrollRef.current?.scrollTo(0, 0)
-  }, [query])
+  }, [debouncedQuery])
 
   // Infinite scroll
   const handleScroll = useCallback(() => {
@@ -107,7 +117,7 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
           <Input
             ref={inputRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => handleQueryChange(e.target.value)}
             placeholder={t('plugins.icon_search_placeholder')}
             className="h-7 border-0 p-0 text-xs shadow-none focus-visible:ring-0"
           />

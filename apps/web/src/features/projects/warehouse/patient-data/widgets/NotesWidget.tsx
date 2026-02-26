@@ -13,6 +13,7 @@ import {
 import { usePatientChartContext } from '../PatientChartContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { buildNotesQuery } from '@/lib/duckdb/patient-data-queries'
 
 // ---------------------------------------------------------------------------
@@ -654,12 +655,12 @@ function NoteTextRenderer({
   const isHtml = /<[a-z][\s\S]*>/i.test(text)
 
   if (isHtml && coloredWords.length === 0) {
-    return <div dangerouslySetInnerHTML={{ __html: text }} />
+    return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(text) }} />
   }
 
   if (isHtml && coloredWords.length > 0) {
     const highlighted = highlightInHtml(text, coloredWords)
-    return <div dangerouslySetInnerHTML={{ __html: highlighted }} />
+    return <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(highlighted) }} />
   }
 
   // Plain text

@@ -178,6 +178,8 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
       activeOutputTab: out.activeOutputTab,
       executionResults: out.executionResults,
       outputVisible: out.outputVisible,
+      _dirtyMap: new Map(),
+      _dirtyVersion: 0,
     })
   },
 
@@ -197,13 +199,18 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
 
   deleteFile: async (id) => {
     await getStorage().sqlScriptFiles.delete(id)
-    set((s) => ({
-      files: s.files.filter((f) => f.id !== id),
-      openFileIds: s.openFileIds.filter((fid) => fid !== id),
-      selectedFileId: s.selectedFileId === id
-        ? s.openFileIds.filter((fid) => fid !== id)[0] ?? null
-        : s.selectedFileId,
-    }))
+    set((s) => {
+      const newDirtyMap = new Map(s._dirtyMap)
+      newDirtyMap.delete(id)
+      return {
+        files: s.files.filter((f) => f.id !== id),
+        openFileIds: s.openFileIds.filter((fid) => fid !== id),
+        selectedFileId: s.selectedFileId === id
+          ? s.openFileIds.filter((fid) => fid !== id)[0] ?? null
+          : s.selectedFileId,
+        _dirtyMap: newDirtyMap,
+      }
+    })
   },
 
   // --- Editor state ---

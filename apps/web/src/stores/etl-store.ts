@@ -132,6 +132,8 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       files: files.sort((a, b) => a.order - b.order),
       filesLoaded: true,
       activePipelineId: pipelineId,
+      _dirtyMap: new Map(),
+      _dirtyVersion: 0,
     })
   },
 
@@ -151,13 +153,18 @@ export const useEtlStore = create<EtlState>((set, get) => ({
 
   deleteFile: async (id) => {
     await getStorage().etlFiles.delete(id)
-    set((s) => ({
-      files: s.files.filter((f) => f.id !== id),
-      openFileIds: s.openFileIds.filter((fid) => fid !== id),
-      selectedFileId: s.selectedFileId === id
-        ? s.openFileIds.filter((fid) => fid !== id)[0] ?? null
-        : s.selectedFileId,
-    }))
+    set((s) => {
+      const newDirtyMap = new Map(s._dirtyMap)
+      newDirtyMap.delete(id)
+      return {
+        files: s.files.filter((f) => f.id !== id),
+        openFileIds: s.openFileIds.filter((fid) => fid !== id),
+        selectedFileId: s.selectedFileId === id
+          ? s.openFileIds.filter((fid) => fid !== id)[0] ?? null
+          : s.selectedFileId,
+        _dirtyMap: newDirtyMap,
+      }
+    })
   },
 
   // --- Editor state ---

@@ -156,8 +156,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       tabs: [...s.tabs, tab],
     }))
 
-    getStorage().dashboards.create(dashboard).catch(() => {})
-    getStorage().dashboardTabs.create(tab).catch(() => {})
+    getStorage().dashboards.create(dashboard).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    getStorage().dashboardTabs.create(tab).catch((e) => console.warn('[dashboard-store] persist error:', e))
 
     return id
   },
@@ -168,7 +168,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         d.id === id ? { ...d, ...changes, updatedAt: new Date().toISOString() } : d
       ),
     }))
-    getStorage().dashboards.update(id, changes).catch(() => {})
+    getStorage().dashboards.update(id, changes).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   deleteDashboard: (id) => {
@@ -186,10 +186,10 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     // Cascade delete in storage
     const storage = getStorage()
     for (const tab of dashTabs) {
-      storage.dashboardWidgets.deleteByTab(tab.id).catch(() => {})
+      storage.dashboardWidgets.deleteByTab(tab.id).catch((e) => console.warn('[dashboard-store] persist error:', e))
     }
-    storage.dashboardTabs.deleteByDashboard(id).catch(() => {})
-    storage.dashboards.delete(id).catch(() => {})
+    storage.dashboardTabs.deleteByDashboard(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    storage.dashboards.delete(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   setActiveDashboard: (id) => {
@@ -214,7 +214,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       tabs: [...s.tabs, tab],
       activeTabId: { ...s.activeTabId, [dashboardId]: id },
     }))
-    getStorage().dashboardTabs.create(tab).catch(() => {})
+    getStorage().dashboardTabs.create(tab).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   removeTab: (tabId) =>
@@ -231,8 +231,8 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           : s.activeTabId[tab.dashboardId]
 
       // Fire-and-forget storage deletes
-      getStorage().dashboardWidgets.deleteByTab(tabId).catch(() => {})
-      getStorage().dashboardTabs.delete(tabId).catch(() => {})
+      getStorage().dashboardWidgets.deleteByTab(tabId).catch((e) => console.warn('[dashboard-store] persist error:', e))
+      getStorage().dashboardTabs.delete(tabId).catch((e) => console.warn('[dashboard-store] persist error:', e))
 
       return {
         tabs: s.tabs.filter((t) => t.id !== tabId),
@@ -245,7 +245,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === tabId ? { ...t, name } : t)),
     }))
-    getStorage().dashboardTabs.update(tabId, { name }).catch(() => {})
+    getStorage().dashboardTabs.update(tabId, { name }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   reorderTabs: (dashboardId, orderedIds) => {
@@ -260,7 +260,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }))
     // Persist each tab's new order
     for (let i = 0; i < orderedIds.length; i++) {
-      getStorage().dashboardTabs.update(orderedIds[i], { displayOrder: i }).catch(() => {})
+      getStorage().dashboardTabs.update(orderedIds[i], { displayOrder: i }).catch((e) => console.warn('[dashboard-store] persist error:', e))
     }
   },
 
@@ -277,40 +277,40 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source }
 
     set((s) => ({ widgets: [...s.widgets, widget] }))
-    getStorage().dashboardWidgets.create(widget).catch(() => {})
+    getStorage().dashboardWidgets.create(widget).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   removeWidget: (widgetId) => {
     set((s) => ({ widgets: s.widgets.filter((w) => w.id !== widgetId) }))
-    getStorage().dashboardWidgets.delete(widgetId).catch(() => {})
+    getStorage().dashboardWidgets.delete(widgetId).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetLayout: (widgetId, layout) => {
     set((s) => ({
       widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, layout } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { layout }).catch(() => {})
+    getStorage().dashboardWidgets.update(widgetId, { layout }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetSource: (widgetId, source) => {
     set((s) => ({
       widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, source } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { source }).catch(() => {})
+    getStorage().dashboardWidgets.update(widgetId, { source }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetName: (widgetId, name) => {
     set((s) => ({
       widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, name } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { name }).catch(() => {})
+    getStorage().dashboardWidgets.update(widgetId, { name }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetDataset: (widgetId, datasetFileId) => {
     set((s) => ({
       widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, datasetFileId } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { datasetFileId }).catch(() => {})
+    getStorage().dashboardWidgets.update(widgetId, { datasetFileId }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   // --- Filter runtime state ---

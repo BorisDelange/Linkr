@@ -222,7 +222,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: [...s.files, node],
       selectedFileId: id,
     }))
-    getStorage().datasetFiles.create(node).catch(() => {})
+    getStorage().datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -236,8 +236,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         }))
         _loadedData.delete(id)
         _savedDataSnapshot.delete(id)
-        getStorage().datasetFiles.delete(id).catch(() => {})
-        getStorage().datasetData.delete(id).catch(() => {})
+        getStorage().datasetFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
+        getStorage().datasetData.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -258,7 +258,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: [...s.files, node],
       expandedFolders: [...s.expandedFolders, id],
     }))
-    getStorage().datasetFiles.create(node).catch(() => {})
+    getStorage().datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -270,7 +270,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
           files: s.files.filter((f) => f.id !== id),
           expandedFolders: s.expandedFolders.filter((fid) => fid !== id),
         }))
-        getStorage().datasetFiles.delete(id).catch(() => {})
+        getStorage().datasetFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -329,12 +329,12 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }
     const storage = getStorage()
     for (const rid of idsToRemove) {
-      storage.datasetFiles.delete(rid).catch(() => {})
-      storage.datasetData.delete(rid).catch(() => {})
-      storage.datasetRawFiles.delete(rid).catch(() => {})
+      storage.datasetFiles.delete(rid).catch((e) => console.warn('[dataset-store] persist error:', e))
+      storage.datasetData.delete(rid).catch((e) => console.warn('[dataset-store] persist error:', e))
+      storage.datasetRawFiles.delete(rid).catch((e) => console.warn('[dataset-store] persist error:', e))
     }
     for (const analysis of removedAnalyses) {
-      storage.datasetAnalyses.delete(analysis.id).catch(() => {})
+      storage.datasetAnalyses.delete(analysis.id).catch((e) => console.warn('[dataset-store] persist error:', e))
     }
 
     get().pushUndo({
@@ -349,14 +349,14 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
           analyses: [...s.analyses, ...removedAnalyses],
         }))
         for (const f of removedFiles) {
-          storage.datasetFiles.create(f).catch(() => {})
+          storage.datasetFiles.create(f).catch((e) => console.warn('[dataset-store] persist error:', e))
         }
         for (const [rid, rows] of removedData) {
           _loadedData.set(rid, rows)
-          storage.datasetData.save({ datasetFileId: rid, rows }).catch(() => {})
+          storage.datasetData.save({ datasetFileId: rid, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
         }
         for (const analysis of removedAnalyses) {
-          storage.datasetAnalyses.create(analysis).catch(() => {})
+          storage.datasetAnalyses.create(analysis).catch((e) => console.warn('[dataset-store] persist error:', e))
         }
       },
     })
@@ -370,7 +370,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName, updatedAt: new Date().toISOString() } : f)),
     }))
-    getStorage().datasetFiles.update(id, { name: newName, updatedAt: new Date().toISOString() }).catch(() => {})
+    getStorage().datasetFiles.update(id, { name: newName, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -383,7 +383,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
             f.id === id ? { ...f, name: oldName, updatedAt: new Date().toISOString() } : f
           ),
         }))
-        getStorage().datasetFiles.update(id, { name: oldName, updatedAt: new Date().toISOString() }).catch(() => {})
+        getStorage().datasetFiles.update(id, { name: oldName, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -399,7 +399,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         f.id === id ? { ...f, parentId: newParentId, updatedAt: new Date().toISOString() } : f
       ),
     }))
-    getStorage().datasetFiles.update(id, { parentId: newParentId, updatedAt: new Date().toISOString() }).catch(() => {})
+    getStorage().datasetFiles.update(id, { parentId: newParentId, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -412,7 +412,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
             f.id === id ? { ...f, parentId: oldParentId, updatedAt: new Date().toISOString() } : f
           ),
         }))
-        getStorage().datasetFiles.update(id, { parentId: oldParentId, updatedAt: new Date().toISOString() }).catch(() => {})
+        getStorage().datasetFiles.update(id, { parentId: oldParentId, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -449,10 +449,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }
     set((s) => ({ files: [...s.files, node] }))
     const storage = getStorage()
-    storage.datasetFiles.create(node).catch(() => {})
+    storage.datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
     // Also copy the data rows in IndexedDB
     if (originalRows) {
-      storage.datasetData.save(newId, originalRows).catch(() => {})
+      storage.datasetData.save(newId, originalRows).catch((e) => console.warn('[dataset-store] persist error:', e))
     }
 
     get().pushUndo({
@@ -466,8 +466,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         }))
         _loadedData.delete(newId)
         _savedDataSnapshot.delete(newId)
-        storage.datasetFiles.delete(newId).catch(() => {})
-        storage.datasetData.delete(newId).catch(() => {})
+        storage.datasetFiles.delete(newId).catch((e) => console.warn('[dataset-store] persist error:', e))
+        storage.datasetData.delete(newId).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -550,7 +550,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
         _savedDataSnapshot.set(fileId, JSON.stringify(rows))
         useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch(() => {})
+      }).catch((e) => console.warn('[dataset-store] persist error:', e))
     }, 500))
   },
 
@@ -574,8 +574,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
         _savedDataSnapshot.set(fileId, JSON.stringify(rows))
         useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch(() => {})
-      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch(() => {})
+      }).catch((e) => console.warn('[dataset-store] persist error:', e))
+      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
     }, 500))
   },
 
@@ -594,8 +594,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       getStorage().datasetData.save({ datasetFileId: fileId, rows }).then(() => {
         _savedDataSnapshot.set(fileId, JSON.stringify(rows))
         useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-      }).catch(() => {})
-      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch(() => {})
+      }).catch((e) => console.warn('[dataset-store] persist error:', e))
+      getStorage().datasetFiles.update(fileId, { rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
     }, 500))
   },
 
@@ -614,8 +614,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
       _dirtyVersion: s._dirtyVersion + 1,
     }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch(() => {})
-    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch(() => {})
+    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
   removeColumn: (fileId, columnId) => {
@@ -631,8 +631,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
       _dirtyVersion: s._dirtyVersion + 1,
     }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch(() => {})
-    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch(() => {})
+    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    getStorage().datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
   renameColumn: (fileId, columnId, newName) => {
@@ -643,7 +643,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
     }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch(() => {})
+    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
   reorderColumns: (fileId, fromIndex, toIndex) => {
@@ -656,7 +656,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns: updatedColumns, updatedAt: new Date().toISOString() } : f),
     }))
-    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch(() => {})
+    getStorage().datasetFiles.update(fileId, { columns: updatedColumns, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
   importData: (fileId, columns, rows) => {
@@ -668,8 +668,8 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: s.files.map((f) => f.id === fileId ? { ...f, columns, rowCount: rows.length, updatedAt: new Date().toISOString() } : f),
       _dirtyVersion: s._dirtyVersion + 1,
     }))
-    storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, updatedAt: new Date().toISOString() }).catch(() => {})
-    storage.datasetData.save({ datasetFileId: fileId, rows }).catch(() => {})
+    storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    storage.datasetData.save({ datasetFileId: fileId, rows }).catch((e) => console.warn('[dataset-store] persist error:', e))
   },
 
   createFileWithData: async (name, parentId, columns, rows, parseOptions, rawFile) => {
@@ -720,9 +720,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         }))
         _loadedData.delete(id)
         _savedDataSnapshot.delete(id)
-        storage.datasetFiles.delete(id).catch(() => {})
-        storage.datasetData.delete(id).catch(() => {})
-        storage.datasetRawFiles.delete(id).catch(() => {})
+        storage.datasetFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
+        storage.datasetData.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
+        storage.datasetRawFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
 
@@ -802,7 +802,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       selectedAnalysisId: id,
       openAnalysisIds: s.openAnalysisIds.includes(id) ? s.openAnalysisIds : [...s.openAnalysisIds, id],
     }))
-    getStorage().datasetAnalyses.create(analysis).catch(() => {})
+    getStorage().datasetAnalyses.create(analysis).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -816,7 +816,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
           openAnalysisIds: s.openAnalysisIds.filter((aid) => aid !== id),
         }))
         _savedAnalysisSnapshot.delete(id)
-        getStorage().datasetAnalyses.delete(id).catch(() => {})
+        getStorage().datasetAnalyses.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -835,7 +835,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         getStorage().datasetAnalyses.update(id, { ...changes, updatedAt: new Date().toISOString() }).then(() => {
           _savedAnalysisSnapshot.set(id, JSON.stringify(analysis.config))
           useDatasetStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-        }).catch(() => {})
+        }).catch((e) => console.warn('[dataset-store] persist error:', e))
       }
     }, 500))
   },
@@ -852,7 +852,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     _savedAnalysisSnapshot.delete(id)
     const timer = _analysisSaveTimers.get(id)
     if (timer) { clearTimeout(timer); _analysisSaveTimers.delete(id) }
-    getStorage().datasetAnalyses.delete(id).catch(() => {})
+    getStorage().datasetAnalyses.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -863,7 +863,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         set((s) => ({
           analyses: [...s.analyses, analysis],
         }))
-        getStorage().datasetAnalyses.create(analysis).catch(() => {})
+        getStorage().datasetAnalyses.create(analysis).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },
@@ -876,7 +876,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     set((s) => ({
       analyses: s.analyses.map((a) => a.id === id ? { ...a, name: newName, updatedAt: new Date().toISOString() } : a),
     }))
-    getStorage().datasetAnalyses.update(id, { name: newName, updatedAt: new Date().toISOString() }).catch(() => {})
+    getStorage().datasetAnalyses.update(id, { name: newName, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -889,7 +889,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
             a.id === id ? { ...a, name: oldName, updatedAt: new Date().toISOString() } : a
           ),
         }))
-        getStorage().datasetAnalyses.update(id, { name: oldName, updatedAt: new Date().toISOString() }).catch(() => {})
+        getStorage().datasetAnalyses.update(id, { name: oldName, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
   },

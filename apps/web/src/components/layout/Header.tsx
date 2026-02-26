@@ -82,26 +82,40 @@ export function Header() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
-  const {
-    activeProjectName,
-    activeProjectUid,
-    closeProject,
-    darkMode,
-    toggleDarkMode,
-    language,
-    setLanguage,
-    user,
-    logout,
-  } = useAppStore()
-  const { activeWorkspaceName } = useWorkspaceStore()
-  const dashboards = useDashboardStore((s) => s.dashboards)
-  const etlPipelines = useEtlStore((s) => s.etlPipelines)
-  const catalogs = useCatalogStore((s) => s.catalogs)
-  const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
-  const cohorts = useCohortStore((s) => s.cohorts)
-  const dqRuleSets = useDqStore((s) => s.dqRuleSets)
-  const sqlCollections = useSqlScriptsStore((s) => s.collections)
+  const activeProjectName = useAppStore((s) => s.activeProjectName)
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const closeProject = useAppStore((s) => s.closeProject)
+  const darkMode = useAppStore((s) => s.darkMode)
+  const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
+  const language = useAppStore((s) => s.language)
+  const setLanguage = useAppStore((s) => s.setLanguage)
+  const user = useAppStore((s) => s.user)
+  const logout = useAppStore((s) => s.logout)
+  const activeWorkspaceName = useWorkspaceStore((s) => s.activeWorkspaceName)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
+
+  // --- Entity name resolution (only read the store that matches the current route) ---
+  const pathname = location.pathname
+
+  // Project-level detail routes
+  const dashboardId = pathname.match(/\/projects\/[^/]+\/lab\/dashboards\/([^/]+)/)?.[1]
+  const cohortId = pathname.match(/\/projects\/[^/]+\/warehouse\/cohorts\/([^/]+)/)?.[1]
+
+  // Workspace-level detail routes
+  const etlId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/etl\/([^/]+)$/)?.[1]
+  const sqlId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/sql-scripts\/([^/]+)$/)?.[1]
+  const catalogId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/catalog\/([^/]+)$/)?.[1]
+  const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/([^/]+)$/)?.[1]
+  const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/([^/]+)$/)?.[1]
+
+  // Only subscribe to the store whose entity is currently displayed
+  const dashboardName = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId)?.name : undefined)
+  const cohortName = useCohortStore((s) => cohortId ? s.cohorts.find((c) => c.id === cohortId)?.name : undefined)
+  const etlName = useEtlStore((s) => etlId ? s.etlPipelines.find((p) => p.id === etlId)?.name : undefined)
+  const sqlName = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId)?.name : undefined)
+  const catalogName = useCatalogStore((s) => catalogId ? s.catalogs.find((c) => c.id === catalogId)?.name : undefined)
+  const cmName = useConceptMappingStore((s) => cmId ? s.mappingProjects.find((p) => p.id === cmId)?.name : undefined)
+  const dqName = useDqStore((s) => dqId ? s.dqRuleSets.find((r) => r.id === dqId)?.name : undefined)
 
   const handleLanguageToggle = () => {
     const newLang = language === 'en' ? 'fr' : 'en'
@@ -123,67 +137,27 @@ export function Header() {
 
   const getPageLabel = () => {
     // Check project-level routes: /workspaces/:wsUid/projects/:uid/segment
-    const projectMatch = location.pathname.match(/^\/workspaces\/[^/]+\/projects\/[^/]+\/(.+)$/)
+    const projectMatch = pathname.match(/^\/workspaces\/[^/]+\/projects\/[^/]+\/(.+)$/)
     if (projectMatch) {
       const segment = projectMatch[1]
 
-      // Dashboard editor: show dashboard name
-      const dashMatch = segment.match(/^lab\/dashboards\/(.+)$/)
-      if (dashMatch) {
-        const dash = dashboards.find((d) => d.id === dashMatch[1])
-        return dash?.name ?? t('project_nav.dashboards')
-      }
-
-      // Cohort builder: show cohort name
-      const cohortMatch = segment.match(/^warehouse\/cohorts\/(.+)$/)
-      if (cohortMatch) {
-        const cohort = cohorts.find((c) => c.id === cohortMatch[1])
-        return cohort?.name ?? t('project_nav.cohorts')
-      }
+      if (dashboardId) return dashboardName ?? t('project_nav.dashboards')
+      if (cohortId) return cohortName ?? t('project_nav.cohorts')
 
       const key = projectSegmentTitleKeys[segment]
       return key ? t(key) : segment
     }
 
     // Check workspace-level routes: /workspaces/:wsUid/segment
-    const wsMatch = location.pathname.match(/^\/workspaces\/[^/]+\/(.+)$/)
+    const wsMatch = pathname.match(/^\/workspaces\/[^/]+\/(.+)$/)
     if (wsMatch) {
       const segment = wsMatch[1]
 
-      // ETL pipeline editor: show pipeline name
-      const etlMatch = segment.match(/^warehouse\/etl\/(.+)$/)
-      if (etlMatch) {
-        const pipeline = etlPipelines.find((p) => p.id === etlMatch[1])
-        return pipeline?.name ?? t('app_warehouse.nav_etl')
-      }
-
-      // SQL script collection: show collection name
-      const sqlMatch = segment.match(/^warehouse\/sql-scripts\/(.+)$/)
-      if (sqlMatch) {
-        const col = sqlCollections.find((c) => c.id === sqlMatch[1])
-        return col?.name ?? t('app_warehouse.nav_sql_scripts')
-      }
-
-      // Catalog detail: show catalog name
-      const catalogMatch = segment.match(/^warehouse\/catalog\/(.+)$/)
-      if (catalogMatch) {
-        const catalog = catalogs.find((c) => c.id === catalogMatch[1])
-        return catalog?.name ?? t('app_warehouse.nav_catalog')
-      }
-
-      // Concept mapping project: show project name
-      const cmMatch = segment.match(/^warehouse\/concept-mapping\/(.+)$/)
-      if (cmMatch) {
-        const mp = mappingProjects.find((p) => p.id === cmMatch[1])
-        return mp?.name ?? t('app_warehouse.nav_concept_mapping')
-      }
-
-      // Data quality rule set detail: show rule set name
-      const dqMatch = segment.match(/^warehouse\/data-quality\/(.+)$/)
-      if (dqMatch) {
-        const rs = dqRuleSets.find((r) => r.id === dqMatch[1])
-        return rs?.name ?? t('app_warehouse.nav_data_quality')
-      }
+      if (etlId) return etlName ?? t('app_warehouse.nav_etl')
+      if (sqlId) return sqlName ?? t('app_warehouse.nav_sql_scripts')
+      if (catalogId) return catalogName ?? t('app_warehouse.nav_catalog')
+      if (cmId) return cmName ?? t('app_warehouse.nav_concept_mapping')
+      if (dqId) return dqName ?? t('app_warehouse.nav_data_quality')
 
       // Schema detail: show preset label
       const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
@@ -197,8 +171,8 @@ export function Header() {
     }
 
     // Check app-level routes (exact match, then prefix match for sub-routes)
-    const key = routeTitleKeys[location.pathname]
-      ?? Object.entries(routeTitleKeys).find(([path]) => path !== '/' && location.pathname.startsWith(path + '/'))?.[1]
+    const key = routeTitleKeys[pathname]
+      ?? Object.entries(routeTitleKeys).find(([path]) => path !== '/' && pathname.startsWith(path + '/'))?.[1]
     return key ? t(key) : t('nav.home')
   }
 

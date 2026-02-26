@@ -3,7 +3,7 @@
 export type BumpType = 'patch' | 'minor' | 'major'
 
 /** Parse a semver string into [major, minor, patch]. Returns [1, 0, 0] for invalid input. */
-export function parseSemver(version: string): [number, number, number] {
+function parseSemver(version: string): [number, number, number] {
   const match = version.match(/^(\d+)\.(\d+)\.(\d+)/)
   if (!match) return [1, 0, 0]
   return [parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3], 10)]

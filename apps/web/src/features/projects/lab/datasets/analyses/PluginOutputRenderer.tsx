@@ -7,6 +7,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { installPythonPackage } from '@/lib/runtimes/pyodide-engine'
 import { installRPackage } from '@/lib/runtimes/webr-engine'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 /** Extract missing package names from error messages. */
 function detectMissingPackages(stderr: string): { name: string; lang: 'python' | 'r' }[] {
@@ -193,7 +194,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
             {fig.type === 'svg' ? (
               <div
                 className="w-full [&>svg]:w-full [&>svg]:h-auto"
-                dangerouslySetInnerHTML={{ __html: fig.data }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
               />
             ) : (
               <img src={fig.data} alt={fig.label} className="w-full" />

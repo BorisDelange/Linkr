@@ -529,7 +529,7 @@ export const useFileStore = create<FileState>((set, get) => ({
             const existing = stored.find((f) => f.type === 'file' && f.name === oldName)
             if (existing && !storedByName.has(newName)) {
               existing.name = newName
-              storage.ideFiles.update(existing.id, { name: newName }).catch(() => {})
+              storage.ideFiles.update(existing.id, { name: newName }).catch((e) => console.warn('[file-store] persist error:', e))
               storedByName.delete(oldName)
               storedByName.set(newName, existing)
             }
@@ -540,7 +540,7 @@ export const useFileStore = create<FileState>((set, get) => ({
             const demoFile = demoByName.get(f.name)
             if (demoFile && f.type === 'file' && demoFile.content !== f.content) {
               f.content = demoFile.content
-              storage.ideFiles.update(f.id, { content: f.content }).catch(() => {})
+              storage.ideFiles.update(f.id, { content: f.content }).catch((e) => console.warn('[file-store] persist error:', e))
             }
           }
 
@@ -557,7 +557,7 @@ export const useFileStore = create<FileState>((set, get) => ({
               parentId: scriptsFolderId,
             }
             stored.push(newFile)
-            storage.ideFiles.create(newFile).catch(() => {})
+            storage.ideFiles.create(newFile).catch((e) => console.warn('[file-store] persist error:', e))
           }
 
           localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
@@ -660,7 +660,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           files: s.files.filter((f) => f.id !== id),
           selectedFileId: s.selectedFileId === id ? null : s.selectedFileId,
         }))
-        getStorage().ideFiles.delete(id).catch(() => {})
+        getStorage().ideFiles.delete(id).catch((e) => console.warn('[file-store] persist error:', e))
       },
     })
   },
@@ -692,7 +692,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           files: s.files.filter((f) => f.id !== id),
           expandedFolders: s.expandedFolders.filter((fid) => fid !== id),
         }))
-        getStorage().ideFiles.delete(id).catch(() => {})
+        getStorage().ideFiles.delete(id).catch((e) => console.warn('[file-store] persist error:', e))
       },
     })
   },
@@ -733,7 +733,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     // Persist deletions
     const storage = getStorage()
     for (const rid of idsToRemove) {
-      storage.ideFiles.delete(rid).catch(() => {})
+      storage.ideFiles.delete(rid).catch((e) => console.warn('[file-store] persist error:', e))
     }
 
     get().pushUndo({
@@ -747,7 +747,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           selectedFileId: prevSelectedFileId,
         }))
         for (const f of removedFiles) {
-          storage.ideFiles.create(f).catch(() => {})
+          storage.ideFiles.create(f).catch((e) => console.warn('[file-store] persist error:', e))
         }
       },
     })
@@ -761,7 +761,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName } : f)),
     }))
-    getStorage().ideFiles.update(id, { name: newName }).catch(() => {})
+    getStorage().ideFiles.update(id, { name: newName }).catch((e) => console.warn('[file-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -774,7 +774,7 @@ export const useFileStore = create<FileState>((set, get) => ({
             f.id === id ? { ...f, name: oldName } : f
           ),
         }))
-        getStorage().ideFiles.update(id, { name: oldName }).catch(() => {})
+        getStorage().ideFiles.update(id, { name: oldName }).catch((e) => console.warn('[file-store] persist error:', e))
       },
     })
   },
@@ -790,7 +790,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         f.id === id ? { ...f, parentId: newParentId } : f
       ),
     }))
-    getStorage().ideFiles.update(id, { parentId: newParentId }).catch(() => {})
+    getStorage().ideFiles.update(id, { parentId: newParentId }).catch((e) => console.warn('[file-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -803,7 +803,7 @@ export const useFileStore = create<FileState>((set, get) => ({
             f.id === id ? { ...f, parentId: oldParentId } : f
           ),
         }))
-        getStorage().ideFiles.update(id, { parentId: oldParentId }).catch(() => {})
+        getStorage().ideFiles.update(id, { parentId: oldParentId }).catch((e) => console.warn('[file-store] persist error:', e))
       },
     })
   },
@@ -831,7 +831,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       createdAt: new Date().toISOString().split('T')[0],
     }
     set((s) => ({ files: [...s.files, node] }))
-    getStorage().ideFiles.create(node).catch(() => {})
+    getStorage().ideFiles.create(node).catch((e) => console.warn('[file-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -842,7 +842,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         set((s) => ({
           files: s.files.filter((f) => f.id !== newId),
         }))
-        getStorage().ideFiles.delete(newId).catch(() => {})
+        getStorage().ideFiles.delete(newId).catch((e) => console.warn('[file-store] persist error:', e))
       },
     })
   },
@@ -863,7 +863,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         getStorage().ideFiles.update(id, { content }).then(() => {
           _savedContent.set(id, content)
           useFileStore.setState((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
-        }).catch(() => {})
+        }).catch((e) => console.warn('[file-store] persist error:', e))
       }, editorSettings.autoSaveDelay))
     }
   },

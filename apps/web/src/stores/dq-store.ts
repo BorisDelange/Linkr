@@ -118,6 +118,8 @@ export const useDqStore = create<DqState>((set, get) => ({
       customChecks: checks.sort((a, b) => a.order - b.order),
       customChecksLoaded: true,
       activeRuleSetId: ruleSetId,
+      _dirtyMap: new Map(),
+      _dirtyVersion: 0,
     })
   },
 
@@ -137,10 +139,15 @@ export const useDqStore = create<DqState>((set, get) => ({
 
   deleteCustomCheck: async (id) => {
     await getStorage().dqCustomChecks.delete(id)
-    set((s) => ({
-      customChecks: s.customChecks.filter((c) => c.id !== id),
-      selectedCheckId: s.selectedCheckId === id ? null : s.selectedCheckId,
-    }))
+    set((s) => {
+      const newDirtyMap = new Map(s._dirtyMap)
+      newDirtyMap.delete(id)
+      return {
+        customChecks: s.customChecks.filter((c) => c.id !== id),
+        selectedCheckId: s.selectedCheckId === id ? null : s.selectedCheckId,
+        _dirtyMap: newDirtyMap,
+      }
+    })
   },
 
   // --- Editor state ---

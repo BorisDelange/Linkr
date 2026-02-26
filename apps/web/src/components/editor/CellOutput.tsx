@@ -4,7 +4,7 @@
  * Used by both IpynbViewer and RmdNotebook.
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, memo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { ChevronsUpDown, Maximize2, ZoomIn, ZoomOut, X } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
   DialogContent,
 } from '@/components/ui/dialog'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 const COLLAPSE_LINE_THRESHOLD = 30
 const COLLAPSED_LINES = 15
@@ -79,7 +80,7 @@ const ZOOM_MAX = 5
 const ZOOM_STEP = 0.25
 const ZOOM_WHEEL_STEP = 0.15
 
-function FigureOutput({ fig }: { fig: { type: string; data: string; label: string } }) {
+const FigureOutput = memo(function FigureOutput({ fig }: { fig: { type: string; data: string; label: string } }) {
   const [open, setOpen] = useState(false)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -120,7 +121,7 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
         {fig.type === 'svg' ? (
           <div
             className="cursor-pointer [&>svg]:max-w-full"
-            dangerouslySetInnerHTML={{ __html: fig.data }}
+            dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
             onClick={() => { resetView(); setOpen(true) }}
           />
         ) : (
@@ -200,7 +201,7 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
               {fig.type === 'svg' ? (
                 <div
                   className="[&>svg]:max-w-full [&>svg]:max-h-[calc(98vh-3rem)] [&>svg]:object-contain pointer-events-none dark:invert dark:hue-rotate-180"
-                  dangerouslySetInnerHTML={{ __html: fig.data }}
+                  dangerouslySetInnerHTML={{ __html: sanitizeHtml(fig.data) }}
                 />
               ) : (
                 <img
@@ -216,13 +217,13 @@ function FigureOutput({ fig }: { fig: { type: string; data: string; label: strin
       </Dialog>
     </>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Collapsible <pre> for long text outputs
 // ---------------------------------------------------------------------------
 
-function CollapsiblePre({ children, className }: { children?: string; className?: string }) {
+const CollapsiblePre = memo(function CollapsiblePre({ children, className }: { children?: string; className?: string }) {
   const text = children ?? ''
   const lineCount = text.split('\n').length
   const isLong = lineCount > COLLAPSE_LINE_THRESHOLD
@@ -257,7 +258,7 @@ function CollapsiblePre({ children, className }: { children?: string; className?
       )}
     </div>
   )
-}
+})
 
 // ---------------------------------------------------------------------------
 // Collapsible table for DataFrame outputs
@@ -265,7 +266,7 @@ function CollapsiblePre({ children, className }: { children?: string; className?
 
 const TABLE_COLLAPSED_ROWS = 10
 
-function CollapsibleTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+const CollapsibleTable = memo(function CollapsibleTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   const isLong = rows.length > TABLE_COLLAPSED_ROWS
   const [collapsed, setCollapsed] = useState(isLong)
   const displayRows = collapsed ? rows.slice(0, TABLE_COLLAPSED_ROWS) : rows.slice(0, 100)
@@ -328,4 +329,4 @@ function CollapsibleTable({ headers, rows }: { headers: string[]; rows: string[]
       )}
     </div>
   )
-}
+})
