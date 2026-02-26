@@ -1,0 +1,74 @@
+{
+  "id": "linkr-analysis-regression",
+  "name": {
+    "en": "Regression",
+    "fr": "Régression"
+  },
+  "description": {
+    "en": "Linear and logistic regression with coefficients table, odds ratios, confidence intervals, and forest plot.",
+    "fr": "Régression linéaire et logistique avec tableau de coefficients, odds ratios, intervalles de confiance et forest plot."
+  },
+  "version": "1.0.0",
+  "category": "statistics",
+  "tags": ["regression", "linear", "logistic", "odds-ratio", "forest-plot", "statistics"],
+  "runtime": ["component"],
+  "languages": [],
+  "icon": "TrendingUp",
+  "iconColor": "emerald",
+  "configSchema": {
+    "regressionType": {
+      "type": "select",
+      "label": { "en": "Regression type", "fr": "Type de régression" },
+      "default": "auto",
+      "options": [
+        { "value": "auto", "label": { "en": "Auto-detect", "fr": "Auto-détection" } },
+        { "value": "linear", "label": { "en": "Linear", "fr": "Linéaire" } },
+        { "value": "logistic", "label": { "en": "Logistic", "fr": "Logistique" } }
+      ]
+    },
+    "outcomeColumn": {
+      "type": "column-select",
+      "label": { "en": "Outcome (Y)", "fr": "Variable dépendante (Y)" },
+      "hint": { "en": "required", "fr": "requis" }
+    },
+    "predictorColumns": {
+      "type": "column-select",
+      "multi": true,
+      "label": { "en": "Predictors (X)", "fr": "Prédicteurs (X)" },
+      "hint": { "en": "required", "fr": "requis" }
+    },
+    "confidenceLevel": {
+      "type": "number",
+      "label": { "en": "Confidence level (%)", "fr": "Niveau de confiance (%)" },
+      "default": 95,
+      "min": 80,
+      "max": 99,
+      "row": "options"
+    },
+    "showForestPlot": {
+      "type": "boolean",
+      "label": { "en": "Forest plot", "fr": "Forest plot" },
+      "default": true,
+      "row": "options"
+    },
+    "visibleColumns": {
+      "type": "select",
+      "multi": true,
+      "label": { "en": "Table columns", "fr": "Colonnes du tableau" },
+      "defaultAll": true,
+      "options": [
+        { "value": "estimate", "label": { "en": "Estimate / OR", "fr": "Estimation / OR" } },
+        { "value": "se", "label": { "en": "Std. Error", "fr": "Erreur std." } },
+        { "value": "ci", "label": { "en": "Confidence interval", "fr": "Intervalle de confiance" } },
+        { "value": "statistic", "label": { "en": "Statistic", "fr": "Statistique" } },
+        { "value": "p", "label": { "en": "p-value", "fr": "p-value" } }
+      ]
+    },
+    "highlightSignificant": {
+      "type": "boolean",
+      "label": { "en": "Highlight significant", "fr": "Surligner significatifs" },
+      "default": true,
+      "row": "options"
+    }
+  }
+}
