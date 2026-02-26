@@ -216,7 +216,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     const hasConfigSchema = configPlugin.manifest.configSchema && Object.keys(configPlugin.manifest.configSchema).length > 0
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-        <DialogContent className="sm:max-w-4xl">
+        <DialogContent className="sm:max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Button
@@ -233,7 +233,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto">
             {configHasBothLangs && (
               <div className="space-y-1">
                 <Label className="text-xs">{t('common.language')}</Label>
@@ -250,7 +250,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
             )}
 
             {hasConfigSchema && (
-              <div className="max-h-80 overflow-y-auto">
+              <div>
                 <GenericConfigPanel
                   schema={configPlugin.manifest.configSchema!}
                   config={pluginConfig}
@@ -277,7 +277,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
   return (
     <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-      <DialogContent className="sm:max-w-4xl">
+      <DialogContent className="sm:max-w-5xl h-[80vh] max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle>{t('dashboard.add_widget_title')}</DialogTitle>
           <DialogDescription>
@@ -287,8 +287,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
 
         {datasetSelector}
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2">
-          <TabsList>
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2 flex-1 min-h-0 flex flex-col">
+          <TabsList className="shrink-0">
             <TabsTrigger value="plugin" className="text-xs">
               {t('dashboard.source_plugin')}
             </TabsTrigger>
@@ -297,12 +297,13 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="plugin" className="mt-3">
+          <TabsContent value="plugin" className="mt-3 flex-1 min-h-0 flex flex-col">
             <PluginPicker
               plugins={plugins}
               selectedPluginId={selectedPluginId}
               onSelectPlugin={handleSelectPlugin}
               lang={lang}
+              fillHeight
             />
           </TabsContent>
 

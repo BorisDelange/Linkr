@@ -1,0 +1,138 @@
+{
+  "id": "linkr-analysis-plot-builder",
+  "name": {
+    "en": "Plot Builder",
+    "fr": "Constructeur de graphiques"
+  },
+  "description": {
+    "en": "Interactive plot builder: scatter, line, bar, histogram, boxplot, and violin plots with grouping, colors, and labels.",
+    "fr": "Constructeur interactif de graphiques : nuages de points, lignes, barres, histogrammes, boîtes à moustaches et violons avec regroupement, couleurs et légendes."
+  },
+  "version": "1.0.0",
+  "category": "visualization",
+  "tags": ["chart", "plot", "scatter", "histogram", "boxplot", "visualization"],
+  "runtime": ["component"],
+  "languages": [],
+  "icon": "ChartScatter",
+  "iconColor": "violet",
+  "configSchema": {
+    "plotType": {
+      "type": "select",
+      "label": { "en": "Plot type", "fr": "Type de graphique" },
+      "default": "scatter",
+      "options": [
+        { "value": "scatter", "label": { "en": "Scatter plot", "fr": "Nuage de points" } },
+        { "value": "line", "label": { "en": "Line plot", "fr": "Lignes" } },
+        { "value": "bar", "label": { "en": "Bar chart", "fr": "Barres" } },
+        { "value": "histogram", "label": { "en": "Histogram", "fr": "Histogramme" } },
+        { "value": "boxplot", "label": { "en": "Boxplot", "fr": "Boîte à moustaches" } },
+        { "value": "violin", "label": { "en": "Violin", "fr": "Violon" } }
+      ]
+    },
+    "xColumn": {
+      "type": "column-select",
+      "label": { "en": "X variable", "fr": "Variable X" },
+      "row": "columns",
+      "hintWhen": {
+        "field": "plotType",
+        "values": {
+          "scatter": { "en": "required", "fr": "requis" },
+          "line": { "en": "required", "fr": "requis" },
+          "bar": { "en": "required", "fr": "requis" },
+          "histogram": { "en": "required", "fr": "requis" },
+          "boxplot": { "en": "categories", "fr": "catégories" },
+          "violin": { "en": "categories", "fr": "catégories" }
+        }
+      }
+    },
+    "yColumn": {
+      "type": "column-select",
+      "label": { "en": "Y variable", "fr": "Variable Y" },
+      "optional": true,
+      "row": "columns",
+      "hintWhen": {
+        "field": "plotType",
+        "values": {
+          "scatter": { "en": "required", "fr": "requis" },
+          "line": { "en": "required", "fr": "requis" },
+          "bar": { "en": "optional", "fr": "optionnel" },
+          "histogram": { "en": "not used", "fr": "non utilisé" },
+          "boxplot": { "en": "numeric", "fr": "numérique" },
+          "violin": { "en": "numeric", "fr": "numérique" }
+        }
+      }
+    },
+    "groupColumn": {
+      "type": "column-select",
+      "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
+      "optional": true,
+      "row": "group"
+    },
+    "colorPalette": {
+      "type": "select",
+      "label": { "en": "Color palette", "fr": "Palette" },
+      "default": "default",
+      "row": "group",
+      "options": [
+        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
+        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
+        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
+        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } }
+      ]
+    },
+    "bins": {
+      "type": "number",
+      "label": { "en": "Number of bins", "fr": "Nombre de barres" },
+      "default": 20,
+      "min": 5,
+      "max": 200,
+      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "row": "style"
+    },
+    "pointSize": {
+      "type": "number",
+      "label": { "en": "Point / line size", "fr": "Taille points / lignes" },
+      "default": 4,
+      "min": 1,
+      "max": 15,
+      "row": "style"
+    },
+    "opacity": {
+      "type": "number",
+      "label": { "en": "Opacity (0-100)", "fr": "Opacité (0-100)" },
+      "default": 70,
+      "min": 0,
+      "max": 100,
+      "row": "style"
+    },
+    "title": {
+      "type": "string",
+      "label": { "en": "Title", "fr": "Titre" },
+      "default": ""
+    },
+    "xLabel": {
+      "type": "string",
+      "label": { "en": "X axis label", "fr": "Légende axe X" },
+      "default": "",
+      "row": "labels"
+    },
+    "yLabel": {
+      "type": "string",
+      "label": { "en": "Y axis label", "fr": "Légende axe Y" },
+      "default": "",
+      "row": "labels"
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": { "en": "Show grid", "fr": "Grille" },
+      "default": true,
+      "row": "toggles"
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": { "en": "Show legend", "fr": "Légende" },
+      "default": true,
+      "row": "toggles"
+    }
+  }
+}

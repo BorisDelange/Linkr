@@ -23,6 +23,10 @@ export interface PluginConfigField {
   row?: string
   /** Only show this field when another field has a specific value. */
   visibleWhen?: { field: string; value: unknown }
+  /** Static hint badge shown next to the label (e.g. "required", "optional"). */
+  hint?: { en: string; fr: string }
+  /** Conditional hint: shown only when another field has a specific value. Overrides `hint`. */
+  hintWhen?: { field: string; values: Record<string, { en: string; fr: string }> }
 }
 
 /** Runtime mode(s) the plugin supports. */

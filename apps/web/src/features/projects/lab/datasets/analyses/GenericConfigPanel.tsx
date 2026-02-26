@@ -78,6 +78,7 @@ export function GenericConfigPanel({
             value={config[group.keys[0]]}
             columns={columns}
             lang={lang}
+            config={config}
             onConfigChange={onConfigChange}
           />
         ) : (
@@ -90,6 +91,7 @@ export function GenericConfigPanel({
                 value={config[key]}
                 columns={columns}
                 lang={lang}
+                config={config}
                 onConfigChange={onConfigChange}
               />
             ))}
@@ -101,6 +103,51 @@ export function GenericConfigPanel({
 }
 
 // ---------------------------------------------------------------------------
+// Hint resolver — shows contextual badges (e.g. "required", "optional") next to labels
+// ---------------------------------------------------------------------------
+
+function resolveHint(
+  field: PluginConfigField,
+  config: Record<string, unknown>,
+  lang: 'en' | 'fr',
+): string | null {
+  if (field.hintWhen) {
+    const depValue = String(config[field.hintWhen.field] ?? '')
+    const label = field.hintWhen.values[depValue]
+    if (label) return label[lang] ?? label.en
+    return null
+  }
+  if (field.hint) return field.hint[lang] ?? field.hint.en
+  return null
+}
+
+function HintBadge({ text }: { text: string }) {
+  const isRequired = /required|requis/i.test(text)
+  return (
+    <span
+      className={cn(
+        'ml-1 shrink-0 rounded px-1 py-px text-[9px] font-medium leading-tight',
+        isRequired
+          ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+          : 'bg-muted text-muted-foreground',
+      )}
+    >
+      {text}
+    </span>
+  )
+}
+
+function FieldLabel({ field, config, lang }: { field: PluginConfigField; config: Record<string, unknown>; lang: 'en' | 'fr' }) {
+  const hint = resolveHint(field, config, lang)
+  return (
+    <Label className="text-xs flex items-center">
+      {field.label[lang] ?? field.label.en}
+      {hint && <HintBadge text={hint} />}
+    </Label>
+  )
+}
+
+// ---------------------------------------------------------------------------
 
 interface FieldRendererProps {
   fieldKey: string
@@ -108,10 +155,11 @@ interface FieldRendererProps {
   value: unknown
   columns: DatasetColumn[]
   lang: 'en' | 'fr'
+  config: Record<string, unknown>
   onConfigChange: (changes: Record<string, unknown>) => void
 }
 
-function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }: FieldRendererProps) {
+function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange }: FieldRendererProps) {
   switch (field.type) {
     case 'column-select':
       return field.multi ? (
@@ -121,6 +169,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           value={value}
           columns={columns}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       ) : (
@@ -130,6 +179,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           value={value}
           columns={columns}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -140,6 +190,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -150,6 +201,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -160,6 +212,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -170,6 +223,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -180,6 +234,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -190,6 +245,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, onConfigChange }
           field={field}
           value={value}
           lang={lang}
+          config={config}
           onConfigChange={onConfigChange}
         />
       )
@@ -208,6 +264,7 @@ function MultiColumnSelect({
   value,
   columns,
   lang,
+  config,
   onConfigChange,
 }: FieldRendererProps) {
   const { t } = useTranslation()
@@ -235,7 +292,7 @@ function MultiColumnSelect({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+        <FieldLabel field={field} config={config} lang={lang} />
         <div className="flex items-center gap-1">
           <button onClick={selectAll} className="text-[10px] text-muted-foreground hover:text-foreground">
             {t('common.select_all')}
@@ -291,6 +348,7 @@ function SingleColumnSelect({
   value,
   columns,
   lang,
+  config,
   onConfigChange,
 }: FieldRendererProps) {
   const { t } = useTranslation()
@@ -299,7 +357,7 @@ function SingleColumnSelect({
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <Select
         value={current || '__none__'}
         onValueChange={v => onConfigChange({ [fieldKey]: v === '__none__' ? undefined : v })}
@@ -331,13 +389,14 @@ function SelectField({
   field,
   value,
   lang,
+  config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <Select value={current} onValueChange={v => onConfigChange({ [fieldKey]: v })}>
         <SelectTrigger className="h-8 text-xs">
           <SelectValue />
@@ -363,13 +422,14 @@ function NumberField({
   field,
   value,
   lang,
+  config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as number | undefined) ?? (field.default as number | undefined) ?? 0
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <Input
         type="number"
         className="h-8 text-xs"
@@ -391,6 +451,7 @@ function BooleanField({
   field,
   value,
   lang,
+  config: _config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const checked = (value as boolean | undefined) ?? (field.default as boolean | undefined) ?? false
@@ -424,13 +485,14 @@ function StringField({
   field,
   value,
   lang,
+  config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <Input
         className="h-8 text-xs"
         value={current}
@@ -465,6 +527,7 @@ function IconSelectField({
   field,
   value,
   lang,
+  config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const [open, setOpen] = useState(false)
@@ -480,7 +543,7 @@ function IconSelectField({
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
@@ -557,13 +620,14 @@ function ColorSelectField({
   field,
   value,
   lang,
+  config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'
 
   return (
     <div className="space-y-1.5">
-      <Label className="text-xs">{field.label[lang] ?? field.label.en}</Label>
+      <FieldLabel field={field} config={config} lang={lang} />
       <div className="flex flex-wrap gap-1.5">
         {COLOR_PALETTE.map(c => {
           const isSelected = c.name === current
