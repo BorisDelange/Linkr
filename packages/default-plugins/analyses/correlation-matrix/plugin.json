@@ -1,0 +1,57 @@
+{
+  "id": "linkr-analysis-correlation-matrix",
+  "name": {
+    "en": "Correlation Matrix",
+    "fr": "Matrice de corrélation"
+  },
+  "description": {
+    "en": "Correlation heatmap with Pearson or Spearman coefficients, p-values, and significance highlighting.",
+    "fr": "Heatmap de corrélation avec coefficients de Pearson ou Spearman, p-values et surlignage de significativité."
+  },
+  "version": "1.0.0",
+  "category": "statistics",
+  "tags": ["correlation", "heatmap", "pearson", "spearman", "statistics"],
+  "runtime": ["component"],
+  "languages": [],
+  "icon": "Grid3X3",
+  "iconColor": "amber",
+  "configSchema": {
+    "selectedColumns": {
+      "type": "column-select",
+      "multi": true,
+      "label": { "en": "Variables", "fr": "Variables" },
+      "filter": "numeric",
+      "defaultAll": true
+    },
+    "method": {
+      "type": "select",
+      "label": { "en": "Method", "fr": "Méthode" },
+      "default": "pearson",
+      "options": [
+        { "value": "pearson", "label": { "en": "Pearson", "fr": "Pearson" } },
+        { "value": "spearman", "label": { "en": "Spearman", "fr": "Spearman" } }
+      ],
+      "row": "options"
+    },
+    "showValues": {
+      "type": "boolean",
+      "label": { "en": "Show values", "fr": "Afficher valeurs" },
+      "default": true,
+      "row": "options"
+    },
+    "showSignificance": {
+      "type": "boolean",
+      "label": { "en": "Show significance", "fr": "Afficher significativité" },
+      "default": true,
+      "row": "options"
+    },
+    "alpha": {
+      "type": "number",
+      "label": { "en": "Significance level (α)", "fr": "Seuil de significativité (α)" },
+      "default": 0.05,
+      "min": 0.001,
+      "max": 0.2,
+      "row": "options"
+    }
+  }
+}

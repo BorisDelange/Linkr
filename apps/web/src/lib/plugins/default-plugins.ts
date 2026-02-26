@@ -9,6 +9,7 @@ import { Table1Component } from '@/features/projects/lab/datasets/analyses/Table
 import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/analyses/StatisticalTestsComponent'
 import { RegressionComponent } from '@/features/projects/lab/datasets/analyses/RegressionComponent'
 import { KaplanMeierComponent } from '@/features/projects/lab/datasets/analyses/KaplanMeierComponent'
+import { CorrelationMatrixComponent } from '@/features/projects/lab/datasets/analyses/CorrelationMatrixComponent'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
@@ -16,6 +17,7 @@ import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.j
 import statisticalTestsManifest from '@default-plugins/analyses/statistical-tests/plugin.json'
 import regressionManifest from '@default-plugins/analyses/regression/plugin.json'
 import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.json'
+import correlationMatrixManifest from '@default-plugins/analyses/correlation-matrix/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -151,6 +153,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(kaplanMeierManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'kaplan-meier',
+  })
+
+  registerComponent('correlation-matrix', CorrelationMatrixComponent)
+  registerPlugin({
+    manifest: normaliseManifest(correlationMatrixManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'correlation-matrix',
   })
 
   // Warehouse system plugins (built-in patient data widgets)
