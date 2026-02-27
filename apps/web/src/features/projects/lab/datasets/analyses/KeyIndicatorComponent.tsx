@@ -1,7 +1,5 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Puzzle } from 'lucide-react'
-import * as LucideIcons from 'lucide-react'
 import {
   ResponsiveContainer,
   BarChart,
@@ -14,34 +12,8 @@ import {
   Tooltip,
 } from 'recharts'
 import { cn } from '@/lib/utils'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-
-// ---------------------------------------------------------------------------
-// Color mapping
-// ---------------------------------------------------------------------------
-
-const COLOR_MAP: Record<string, { text: string; bg: string; accent: string; hex: string }> = {
-  red: { text: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30', accent: 'border-red-200 dark:border-red-800', hex: '#dc2626' },
-  rose: { text: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950/30', accent: 'border-rose-200 dark:border-rose-800', hex: '#e11d48' },
-  amber: { text: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', accent: 'border-amber-200 dark:border-amber-800', hex: '#d97706' },
-  green: { text: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950/30', accent: 'border-green-200 dark:border-green-800', hex: '#16a34a' },
-  emerald: { text: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', accent: 'border-emerald-200 dark:border-emerald-800', hex: '#059669' },
-  cyan: { text: 'text-cyan-600', bg: 'bg-cyan-50 dark:bg-cyan-950/30', accent: 'border-cyan-200 dark:border-cyan-800', hex: '#0891b2' },
-  blue: { text: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/30', accent: 'border-blue-200 dark:border-blue-800', hex: '#2563eb' },
-  indigo: { text: 'text-indigo-600', bg: 'bg-indigo-50 dark:bg-indigo-950/30', accent: 'border-indigo-200 dark:border-indigo-800', hex: '#4f46e5' },
-  violet: { text: 'text-violet-600', bg: 'bg-violet-50 dark:bg-violet-950/30', accent: 'border-violet-200 dark:border-violet-800', hex: '#7c3aed' },
-  slate: { text: 'text-slate-600', bg: 'bg-slate-50 dark:bg-slate-950/30', accent: 'border-slate-200 dark:border-slate-800', hex: '#475569' },
-}
-
-const DEFAULT_COLOR = COLOR_MAP.blue
-
-/** Resolve a color name or hex string to a color config. Hex colors use inline styles. */
-function resolveColor(name: string): { text: string; bg: string; accent: string; hex: string; isCustom?: boolean } {
-  if (name.startsWith('#')) {
-    return { text: '', bg: '', accent: '', hex: name, isCustom: true }
-  }
-  return COLOR_MAP[name] ?? DEFAULT_COLOR
-}
 
 // ---------------------------------------------------------------------------
 // Aggregate functions
@@ -113,16 +85,6 @@ const AGG_LABELS: Record<string, { en: string; fr: string }> = {
   q3: { en: 'Q3 (75th)', fr: 'Q3 (75e)' },
   iqr: { en: 'IQR', fr: 'IQR' },
   proportion: { en: 'Proportion', fr: 'Proportion' },
-}
-
-// ---------------------------------------------------------------------------
-// Icon helper
-// ---------------------------------------------------------------------------
-
-function getLucideIcon(name: string): LucideIcons.LucideIcon {
-  const icon = (LucideIcons as Record<string, unknown>)[name]
-  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
-  return Puzzle
 }
 
 // ---------------------------------------------------------------------------
@@ -397,13 +359,6 @@ interface MiniChartProps {
 }
 
 const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
-
-const TOOLTIP_STYLE = {
-  contentStyle: { fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' },
-  labelStyle: { fontSize: 10, color: '#fff' },
-  itemStyle: { fontSize: 10, color: '#fff', padding: 0 },
-  cursor: { fill: 'rgba(255,255,255,.15)' },
-} as const
 
 function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
   const data = useMemo(() => {

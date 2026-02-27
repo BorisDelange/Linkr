@@ -88,9 +88,10 @@ export function GenericConfigPanel({
   }
 
   return (
-    <div className="space-y-4 p-3">
-      {groups.map((group) =>
-        group.keys.length === 1 ? (
+    <div className="space-y-3 p-3">
+      {groups.map((group) => {
+        const allBoolean = group.fields.every(f => f.type === 'boolean')
+        return group.keys.length === 1 ? (
           <FieldRenderer
             key={group.keys[0]}
             fieldKey={group.keys[0]}
@@ -103,7 +104,7 @@ export function GenericConfigPanel({
             rows={rows}
           />
         ) : (
-          <div key={group.keys.join('-')} className="grid gap-4" style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
+          <div key={group.keys.join('-')} className={cn('grid gap-4', allBoolean && '-mt-1')} style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
             {group.keys.map((key, idx) => (
               <FieldRenderer
                 key={key}
@@ -118,8 +119,8 @@ export function GenericConfigPanel({
               />
             ))}
           </div>
-        ),
-      )}
+        )
+      })}
     </div>
   )
 }
@@ -741,9 +742,7 @@ function BooleanField({
   const checked = (value as boolean | undefined) ?? (field.default as boolean | undefined) ?? false
 
   return (
-    <div className="space-y-1.5">
-      {/* Invisible label spacer so the checkbox aligns with inputs in row groups */}
-      {field.row && <span className="text-xs invisible" aria-hidden>&nbsp;</span>}
+    <div className={cn('flex flex-col', field.row && 'justify-end')}>
       <button
         onClick={() => onConfigChange({ [fieldKey]: !checked })}
         className="flex h-8 items-center gap-2 text-xs"
@@ -889,6 +888,7 @@ function IconSelectField({
 // ---------------------------------------------------------------------------
 
 const COLOR_PALETTE = [
+  { name: 'none', bg: 'bg-foreground/10 border border-border', ring: 'ring-foreground/30' },
   { name: 'red', bg: 'bg-red-500', ring: 'ring-red-500' },
   { name: 'rose', bg: 'bg-rose-500', ring: 'ring-rose-500' },
   { name: 'amber', bg: 'bg-amber-500', ring: 'ring-amber-500' },
@@ -915,7 +915,7 @@ function ColorSelectField({
   return (
     <div className="space-y-1.5">
       <FieldLabel field={field} config={config} lang={lang} />
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1">
         {COLOR_PALETTE.map(c => {
           const isSelected = c.name === current
           return (
@@ -924,9 +924,9 @@ function ColorSelectField({
               onClick={() => onConfigChange({ [fieldKey]: c.name })}
               title={c.name}
               className={cn(
-                'size-6 rounded-full transition-all',
+                'size-5 rounded-full transition-all',
                 c.bg,
-                isSelected && `ring-2 ${c.ring} ring-offset-2 ring-offset-background`,
+                isSelected && `ring-2 ${c.ring} ring-offset-1 ring-offset-background`,
               )}
             />
           )
@@ -935,9 +935,9 @@ function ColorSelectField({
         <label
           title="Custom"
           className={cn(
-            'relative size-6 rounded-full cursor-pointer transition-all overflow-hidden',
+            'relative size-5 rounded-full cursor-pointer transition-all overflow-hidden',
             'bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]',
-            isCustom && 'ring-2 ring-foreground/50 ring-offset-2 ring-offset-background',
+            isCustom && 'ring-2 ring-foreground/50 ring-offset-1 ring-offset-background',
           )}
         >
           <input

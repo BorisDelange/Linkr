@@ -16,6 +16,35 @@
   "icon": "ChartScatter",
   "iconColor": "violet",
   "configSchema": {
+    "title": {
+      "type": "string",
+      "label": { "en": "Title", "fr": "Titre" },
+      "default": ""
+    },
+    "displayStyle": {
+      "type": "select",
+      "label": { "en": "Display style", "fr": "Style d'affichage" },
+      "default": "chart",
+      "row": "display",
+      "options": [
+        { "value": "chart", "label": { "en": "Chart", "fr": "Graphique" } },
+        { "value": "card", "label": { "en": "Card", "fr": "Carte" } }
+      ]
+    },
+    "cardIcon": {
+      "type": "icon-select",
+      "label": { "en": "Icon", "fr": "Icône" },
+      "default": "ChartScatter",
+      "row": "display",
+      "visibleWhen": { "field": "displayStyle", "value": "card" }
+    },
+    "cardColor": {
+      "type": "color-select",
+      "label": { "en": "Color", "fr": "Couleur" },
+      "default": "blue",
+      "row": "display",
+      "visibleWhen": { "field": "displayStyle", "value": "card" }
+    },
     "plotType": {
       "type": "select",
       "label": { "en": "Plot type", "fr": "Type de graphique" },
@@ -62,6 +91,15 @@
         }
       }
     },
+    "uniquePer": {
+      "type": "column-select",
+      "label": { "en": "Unique per", "fr": "Unique par" },
+      "optional": true,
+      "description": {
+        "en": "Deduplicate rows by this column before plotting. Useful when the dataset has multiple rows per entity (e.g. one row per visit) but the plotted values are at a higher level (e.g. per patient).",
+        "fr": "Déduplique les lignes selon cette colonne avant de tracer. Utile quand le dataset a plusieurs lignes par entité (ex : une ligne par séjour) mais que les valeurs tracées sont à un niveau supérieur (ex : par patient)."
+      }
+    },
     "groupColumn": {
       "type": "column-select",
       "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
@@ -80,14 +118,26 @@
         { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } }
       ]
     },
+    "barMode": {
+      "type": "select",
+      "label": { "en": "Bar mode", "fr": "Mode des barres" },
+      "default": "grouped",
+      "row": "histoOptions",
+      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "options": [
+        { "value": "grouped", "label": { "en": "Grouped", "fr": "Groupées" } },
+        { "value": "stacked", "label": { "en": "Stacked", "fr": "Empilées" } },
+        { "value": "overlay", "label": { "en": "Overlay", "fr": "Superposées" } }
+      ]
+    },
     "bins": {
       "type": "number",
-      "label": { "en": "Number of bins", "fr": "Nombre de barres" },
+      "label": { "en": "Bins", "fr": "Barres" },
       "default": 20,
       "min": 5,
       "max": 200,
       "visibleWhen": { "field": "plotType", "value": "histogram" },
-      "row": "style"
+      "row": "histoOptions"
     },
     "pointSize": {
       "type": "number",
@@ -104,11 +154,6 @@
       "min": 0,
       "max": 100,
       "row": "style"
-    },
-    "title": {
-      "type": "string",
-      "label": { "en": "Title", "fr": "Titre" },
-      "default": ""
     },
     "xLabel": {
       "type": "string",

@@ -13,8 +13,9 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  Cell,
 } from 'recharts'
+import { cn } from '@/lib/utils'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 // ---------------------------------------------------------------------------
@@ -32,28 +33,23 @@ const PALETTES: Record<string, string[]> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Try to parse a value as a number. Handles dates (→ timestamp ms) and plain numbers. */
 function toNumeric(val: unknown): number {
   if (val == null) return NaN
   if (typeof val === 'number') return val
   const s = String(val).trim()
   const n = Number(s)
   if (!isNaN(n)) return n
-  // Try parsing as date
   const ts = Date.parse(s)
   if (!isNaN(ts)) return ts
   return NaN
 }
 
-/** Detect whether a set of numeric values came from date strings. */
 function isDateRange(values: number[]): boolean {
   if (values.length === 0) return false
-  // Timestamps are typically > 1970 in ms, i.e. > ~1e11
   const mid = values[Math.floor(values.length / 2)]
   return mid > 1e11 && mid < 1e14
 }
 
-/** Format a numeric bin label. If the values represent dates, format as date string. */
 function formatBinLabel(val: number, dateMode: boolean): string {
   if (dateMode) {
     const d = new Date(val)
@@ -62,7 +58,6 @@ function formatBinLabel(val: number, dateMode: boolean): string {
   return val.toPrecision(3)
 }
 
-/** Tick formatter for Recharts axes when values are timestamps. */
 function formatDateTick(val: number | string): string {
   const n = typeof val === 'string' ? Number(val) : val
   if (isNaN(n)) return String(val)
@@ -80,13 +75,12 @@ function buildHistogramData(values: number[], bins: number) {
   const buckets: { bin: string; count: number }[] = []
   for (let i = 0; i < bins; i++) {
     const lo = min + i * binWidth
-    const hi = lo + binWidth
     buckets.push({ bin: formatBinLabel(lo, dateMode), count: 0 })
-    for (const v of values) {
-      if (i < bins - 1 ? v >= lo && v < hi : v >= lo && v <= hi) {
-        buckets[i].count++
-      }
-    }
+  }
+  for (const v of values) {
+    let idx = Math.floor((v - min) / binWidth)
+    if (idx >= bins) idx = bins - 1
+    buckets[idx].count++
   }
   return buckets
 }
@@ -143,7 +137,7 @@ function computeBoxplotStats(values: number[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Boxplot / Violin sub-component (custom SVG — Recharts has no built-in)
+// Boxplot / Violin sub-component (custom SVG)
 // ---------------------------------------------------------------------------
 
 interface BoxplotData {
@@ -191,14 +185,12 @@ function BoxplotChart({
 
   const boxWidth = Math.min(60, Math.max(20, plotW / data.length - 10))
 
-  // Y-axis ticks
   const tickCount = 6
   const yTicks: number[] = []
   for (let i = 0; i <= tickCount; i++) {
     yTicks.push(plotMin + (plotRange * i) / tickCount)
   }
 
-  // Density kernel for violin
   function kernelDensity(values: number[], nPoints = 50): { val: number; density: number }[] {
     if (values.length < 2) return []
     const sorted = [...values].sort((a, b) => a - b)
@@ -218,7 +210,6 @@ function BoxplotChart({
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
-      {/* Grid lines */}
       {showGrid &&
         yTicks.map((tick, i) => (
           <line
@@ -233,7 +224,6 @@ function BoxplotChart({
           />
         ))}
 
-      {/* Y axis */}
       <line x1={marginLeft} x2={marginLeft} y1={marginTop} y2={marginTop + plotH} stroke="currentColor" strokeOpacity={0.2} />
       {yTicks.map((tick, i) => (
         <text key={i} x={marginLeft - 8} y={toY(tick) + 4} textAnchor="end" fontSize={10} fill="currentColor" opacity={0.6}>
@@ -241,7 +231,6 @@ function BoxplotChart({
         </text>
       ))}
 
-      {/* Y label */}
       {yLabel && (
         <text
           x={14}
@@ -256,7 +245,6 @@ function BoxplotChart({
         </text>
       )}
 
-      {/* Boxes */}
       {data.map((d, i) => {
         const cx = marginLeft + (plotW / data.length) * (i + 0.5)
         const color = colors[i % colors.length]
@@ -283,9 +271,7 @@ function BoxplotChart({
                 strokeWidth={1}
                 strokeOpacity={0.6}
               />
-              {/* Median line */}
               <line x1={cx - halfW * 0.4} x2={cx + halfW * 0.4} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-              {/* Category label */}
               <text x={cx} y={height - marginBottom + 20} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.7}>
                 {d.name.length > 12 ? d.name.slice(0, 11) + '…' : d.name}
               </text>
@@ -296,12 +282,9 @@ function BoxplotChart({
         const halfBox = boxWidth / 2
         return (
           <g key={i}>
-            {/* Whisker line */}
             <line x1={cx} x2={cx} y1={toY(max)} y2={toY(min)} stroke={color} strokeWidth={1.5} strokeOpacity={0.5} />
-            {/* Whisker caps */}
             <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(max)} y2={toY(max)} stroke={color} strokeWidth={1.5} />
             <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(min)} y2={toY(min)} stroke={color} strokeWidth={1.5} />
-            {/* Box */}
             <rect
               x={cx - halfBox}
               y={toY(q3)}
@@ -313,9 +296,7 @@ function BoxplotChart({
               strokeWidth={1.5}
               rx={2}
             />
-            {/* Median */}
             <line x1={cx - halfBox} x2={cx + halfBox} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-            {/* Category label */}
             <text x={cx} y={height - marginBottom + 20} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.7}>
               {d.name.length > 12 ? d.name.slice(0, 11) + '…' : d.name}
             </text>
@@ -330,14 +311,20 @@ function BoxplotChart({
 // Main component
 // ---------------------------------------------------------------------------
 
-export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginProps) {
+export function PlotBuilderComponent({ config, columns, rows, compact }: ComponentPluginProps) {
   const { t } = useTranslation()
 
+  // Config
+  const displayStyle = (config.displayStyle as string) ?? 'chart'
+  const cardIcon = (config.cardIcon as string) ?? 'ChartScatter'
+  const cardColor = (config.cardColor as string) ?? 'blue'
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
   const yCol = config.yColumn as string | undefined
+  const uniquePerId = config.uniquePer as string | undefined
   const groupCol = config.groupColumn as string | undefined
   const bins = (config.bins as number) ?? 20
+  const barMode = (config.barMode as string) ?? 'grouped'
   const pointSize = (config.pointSize as number) ?? 4
   const opacityPct = (config.opacity as number) ?? 70
   const paletteName = (config.colorPalette as string) ?? 'default'
@@ -348,18 +335,38 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
   const showLegend = (config.showLegend as boolean) ?? true
 
   const opacity = opacityPct / 100
-  const colors = PALETTES[paletteName] ?? PALETTES.default
+  const paletteColors = PALETTES[paletteName] ?? PALETTES.default
+
+  // In card mode without groups, use the card color as the primary chart color
+  const cardColorResolved = resolveColor(cardColor)
+  const colors = useMemo(() => {
+    if (displayStyle === 'card' && !groupCol) {
+      return [cardColorResolved.hex, ...paletteColors.slice(1)]
+    }
+    return paletteColors
+  }, [displayStyle, groupCol, cardColorResolved.hex, paletteColors])
+
+  // Deduplicate rows if uniquePer is set
+  const sourceRows = useMemo(() => {
+    if (!uniquePerId) return rows
+    const seen = new Map<unknown, Record<string, unknown>>()
+    for (const row of rows) {
+      const key = row[uniquePerId]
+      if (key != null && !seen.has(key)) seen.set(key, row)
+    }
+    return Array.from(seen.values())
+  }, [rows, uniquePerId])
 
   // Resolve group names
   const groupNames = useMemo(() => {
     if (!groupCol || !columns.find(c => c.id === groupCol)) return null
     const set = new Set<string>()
-    for (const row of rows) {
+    for (const row of sourceRows) {
       const v = row[groupCol]
       if (v != null) set.add(String(v))
     }
     return Array.from(set).sort()
-  }, [groupCol, columns, rows])
+  }, [groupCol, columns, sourceRows])
 
   // Validate
   const xColumn = columns.find(c => c.id === xCol)
@@ -392,103 +399,153 @@ export function PlotBuilderComponent({ config, columns, rows }: ComponentPluginP
   const xIsDate = xColumn?.type === 'date'
   const yIsDate = yColumn?.type === 'date'
 
+  // --- Build the chart body (without title) ---
+  const chartBody = (
+    <>
+      {plotType === 'scatter' && (
+        <ScatterPlot
+          rows={sourceRows}
+          xCol={xCol!}
+          yCol={yCol!}
+          groupCol={groupCol}
+          groupNames={groupNames}
+          colors={colors}
+          pointSize={pointSize}
+          opacity={opacity}
+          xLabel={resolvedXLabel}
+          yLabel={resolvedYLabel}
+          showGrid={showGrid}
+          showLegend={showLegend}
+          xIsDate={xIsDate}
+          yIsDate={yIsDate}
+        />
+      )}
+      {plotType === 'line' && (
+        <LinePlot
+          rows={sourceRows}
+          xCol={xCol!}
+          yCol={yCol!}
+          groupCol={groupCol}
+          groupNames={groupNames}
+          colors={colors}
+          pointSize={pointSize}
+          opacity={opacity}
+          xLabel={resolvedXLabel}
+          yLabel={resolvedYLabel}
+          showGrid={showGrid}
+          showLegend={showLegend}
+          xIsDate={xIsDate}
+        />
+      )}
+      {plotType === 'bar' && (
+        <BarPlot
+          rows={sourceRows}
+          xCol={xCol!}
+          yCol={yCol}
+          groupCol={groupCol}
+          groupNames={groupNames}
+          colors={colors}
+          opacity={opacity}
+          xLabel={resolvedXLabel}
+          yLabel={resolvedYLabel}
+          showGrid={showGrid}
+          showLegend={showLegend}
+        />
+      )}
+      {plotType === 'histogram' && (
+        <HistogramPlot
+          rows={sourceRows}
+          xCol={xCol!}
+          groupCol={groupCol}
+          groupNames={groupNames}
+          colors={colors}
+          bins={bins}
+          opacity={opacity}
+          xLabel={resolvedXLabel}
+          showGrid={showGrid}
+          showLegend={showLegend}
+          barMode={barMode}
+        />
+      )}
+      {plotType === 'boxplot' && (
+        <BoxViolinPlot
+          rows={sourceRows}
+          xCol={xCol!}
+          yCol={yCol}
+          colors={colors}
+          opacity={opacity}
+          yLabel={resolvedYLabel}
+          showGrid={showGrid}
+          violin={false}
+        />
+      )}
+      {plotType === 'violin' && (
+        <BoxViolinPlot
+          rows={sourceRows}
+          xCol={xCol!}
+          yCol={yCol}
+          colors={colors}
+          opacity={opacity}
+          yLabel={resolvedYLabel}
+          showGrid={showGrid}
+          violin={true}
+        />
+      )}
+    </>
+  )
+
+  // --- Card mode ---
+  if (displayStyle === 'card') {
+    const color = cardColorResolved
+    const Icon = getLucideIcon(cardIcon)
+
+    if (compact) {
+      return (
+        <div
+          className={cn('flex h-full flex-col', color.bg)}
+          style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
+        >
+          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+            <Icon size={16} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
+            {resolvedTitle && (
+              <span className="text-xs font-medium text-muted-foreground truncate">{resolvedTitle}</span>
+            )}
+          </div>
+          <div className="flex-1 min-h-0 px-2 pb-2">
+            {chartBody}
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="flex h-full flex-col items-center justify-center p-6">
+        <div
+          className={cn('w-full max-w-2xl rounded-xl border p-4', color.bg, color.accent)}
+          style={color.isCustom ? { backgroundColor: `${color.hex}10`, borderColor: `${color.hex}30` } : undefined}
+        >
+          <div className="flex items-center gap-2 mb-2">
+            <Icon size={18} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
+            {resolvedTitle && (
+              <span className="text-sm font-medium text-foreground/80">{resolvedTitle}</span>
+            )}
+          </div>
+          <div style={{ height: 320 }}>
+            {chartBody}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // --- Default chart mode ---
   return (
     <div className="flex h-full flex-col p-4 gap-2">
-      {/* Title */}
       {resolvedTitle && (
         <div className="text-sm font-medium text-center text-foreground/80 pb-1">{resolvedTitle}</div>
       )}
-
-      {/* Chart area */}
       <div className="flex-1 min-h-0">
-        {plotType === 'scatter' && (
-          <ScatterPlot
-            rows={rows}
-            xCol={xCol!}
-            yCol={yCol!}
-            groupCol={groupCol}
-            groupNames={groupNames}
-            colors={colors}
-            pointSize={pointSize}
-            opacity={opacity}
-            xLabel={resolvedXLabel}
-            yLabel={resolvedYLabel}
-            showGrid={showGrid}
-            showLegend={showLegend}
-            xIsDate={xIsDate}
-            yIsDate={yIsDate}
-          />
-        )}
-        {plotType === 'line' && (
-          <LinePlot
-            rows={rows}
-            xCol={xCol!}
-            yCol={yCol!}
-            groupCol={groupCol}
-            groupNames={groupNames}
-            colors={colors}
-            pointSize={pointSize}
-            opacity={opacity}
-            xLabel={resolvedXLabel}
-            yLabel={resolvedYLabel}
-            showGrid={showGrid}
-            showLegend={showLegend}
-            xIsDate={xIsDate}
-          />
-        )}
-        {plotType === 'bar' && (
-          <BarPlot
-            rows={rows}
-            xCol={xCol!}
-            yCol={yCol}
-            groupCol={groupCol}
-            groupNames={groupNames}
-            colors={colors}
-            opacity={opacity}
-            xLabel={resolvedXLabel}
-            yLabel={resolvedYLabel}
-            showGrid={showGrid}
-            showLegend={showLegend}
-          />
-        )}
-        {plotType === 'histogram' && (
-          <HistogramPlot
-            rows={rows}
-            xCol={xCol!}
-            groupCol={groupCol}
-            groupNames={groupNames}
-            colors={colors}
-            bins={bins}
-            opacity={opacity}
-            xLabel={resolvedXLabel}
-            showGrid={showGrid}
-            showLegend={showLegend}
-          />
-        )}
-        {plotType === 'boxplot' && (
-          <BoxViolinPlot
-            rows={rows}
-            xCol={xCol!}
-            yCol={yCol}
-            colors={colors}
-            opacity={opacity}
-            yLabel={resolvedYLabel}
-            showGrid={showGrid}
-            violin={false}
-          />
-        )}
-        {plotType === 'violin' && (
-          <BoxViolinPlot
-            rows={rows}
-            xCol={xCol!}
-            yCol={yCol}
-            colors={colors}
-            opacity={opacity}
-            yLabel={resolvedYLabel}
-            showGrid={showGrid}
-            violin={true}
-          />
-        )}
+        {chartBody}
       </div>
     </div>
   )
@@ -529,7 +586,15 @@ function ScatterPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" name={xLabel} label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
         <YAxis dataKey="y" type="number" name={yLabel} label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : undefined} />
-        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} formatter={(_v: unknown, name: string, props: { payload?: { x?: number; y?: number } }) => { if (name === 'x' && xIsDate && props.payload?.x) return formatDateTick(props.payload.x); if (name === 'y' && yIsDate && props.payload?.y) return formatDateTick(props.payload.y); return String(_v) }} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          cursor={{ strokeDasharray: '3 3' }}
+          formatter={(_v: unknown, name: string, props: { payload?: { x?: number; y?: number } }) => {
+            if (name === 'x' && xIsDate && props.payload?.x) return formatDateTick(props.payload.x)
+            if (name === 'y' && yIsDate && props.payload?.y) return formatDateTick(props.payload.y)
+            return String(_v)
+          }}
+        />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {data.map((series, i) => (
           <Scatter
@@ -558,7 +623,6 @@ function LinePlot({
   xIsDate?: boolean
 }) {
   const { merged, series } = useMemo(() => {
-    // Build a merged dataset keyed on x values
     if (!groupNames || !groupCol) {
       const sorted = rows
         .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
@@ -567,7 +631,6 @@ function LinePlot({
       return { merged: sorted.map(d => ({ x: d.x, all: d.y })), series: ['all'] }
     }
 
-    // Grouped: merge into a single array sorted by x, with one key per group
     const map = new Map<number, Record<string, unknown>>()
     for (const row of rows) {
       const xVal = toNumeric(row[xCol])
@@ -587,7 +650,7 @@ function LinePlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
         <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} labelFormatter={xIsDate ? formatDateTick : undefined} />
+        <Tooltip {...TOOLTIP_STYLE} labelFormatter={xIsDate ? formatDateTick : undefined} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
           <Line
@@ -620,7 +683,6 @@ function BarPlot({
 }) {
   const { data, series } = useMemo(() => {
     if (yCol) {
-      // Numeric Y: aggregate by X (and optional group)
       if (!groupNames || !groupCol) {
         const map = new Map<string, { sum: number; count: number }>()
         for (const row of rows) {
@@ -637,7 +699,6 @@ function BarPlot({
           .map(([name, { sum, count }]) => ({ name, value: sum / count }))
         return { data, series: ['value'] }
       }
-      // Grouped + numeric Y
       const map = new Map<string, Record<string, { sum: number; count: number }>>()
       for (const row of rows) {
         const key = String(row[xCol] ?? '')
@@ -662,7 +723,6 @@ function BarPlot({
         })
       return { data, series: groupNames }
     }
-    // No Y: count occurrences
     if (!groupNames || !groupCol) {
       const counts = new Map<string, number>()
       for (const row of rows) {
@@ -675,7 +735,6 @@ function BarPlot({
         .map(([name, count]) => ({ name, value: count }))
       return { data, series: ['value'] }
     }
-    // Grouped counts
     const map = new Map<string, Record<string, number>>()
     for (const row of rows) {
       const key = String(row[xCol] ?? '')
@@ -700,7 +759,7 @@ function BarPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
         <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip cursor={{ fill: 'currentColor', fillOpacity: 0.06 }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
           <Bar key={s} dataKey={s} name={s === 'value' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
@@ -711,14 +770,15 @@ function BarPlot({
 }
 
 // ---------------------------------------------------------------------------
-// Histogram
+// Histogram (with grouped bar modes: grouped / stacked / overlay)
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, bins, opacity, xLabel, showGrid, showLegend,
+  rows, xCol, groupCol, groupNames, colors, bins, opacity, xLabel, showGrid, showLegend, barMode,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; bins: number; opacity: number; xLabel: string; showGrid: boolean; showLegend: boolean
+  barMode: string
 }) {
   const { data, series } = useMemo(() => {
     if (!groupNames || !groupCol) {
@@ -729,16 +789,34 @@ function HistogramPlot({
     return { data, series: groupNames }
   }, [rows, xCol, groupCol, groupNames, bins])
 
+  const hasGroups = groupNames != null && groupNames.length > 1
+  const isOverlay = barMode === 'overlay' && hasGroups
+  const isStacked = barMode === 'stacked' && hasGroups
+  const effectiveOpacity = isOverlay ? Math.min(opacity, 0.5) : opacity
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
+      <BarChart
+        data={data}
+        margin={{ top: 5, right: 20, bottom: 25, left: 10 }}
+        {...(isOverlay ? { barGap: '-100%' } : {})}
+      >
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="bin" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={Math.max(0, Math.floor(bins / 10) - 1)} />
         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip cursor={{ fill: 'currentColor', fillOpacity: 0.06 }} contentStyle={{ fontSize: 11, background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' }} />
+        <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
-          <Bar key={s} dataKey={s} name={s === 'count' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
+          <Bar
+            key={s}
+            dataKey={s}
+            name={s === 'count' ? undefined : s}
+            fill={colors[i % colors.length]}
+            fillOpacity={effectiveOpacity}
+            radius={[2, 2, 0, 0]}
+            stackId={isStacked ? 'stack' : undefined}
+            activeBar={{ fillOpacity: Math.min(1, effectiveOpacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }}
+          />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -746,7 +824,7 @@ function HistogramPlot({
 }
 
 // ---------------------------------------------------------------------------
-// Boxplot / Violin (custom SVG)
+// Boxplot / Violin
 // ---------------------------------------------------------------------------
 
 function BoxViolinPlot({
