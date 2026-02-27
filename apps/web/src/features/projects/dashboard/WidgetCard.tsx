@@ -23,7 +23,7 @@ interface WidgetCardProps {
 
 export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTitleBar, children }: WidgetCardProps) {
   const { t } = useTranslation()
-  const showTitleBar = editMode || !hideTitleBar
+  const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(title)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -53,7 +53,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
   }
 
   return (
-    <div className="flex h-full flex-col rounded-lg border bg-card shadow-sm overflow-hidden">
+    <div className="relative flex h-full flex-col rounded-lg border bg-card shadow-sm overflow-hidden">
       {showTitleBar && (
         <div className="flex items-center justify-between border-b px-3 py-2">
           {renaming ? (
@@ -114,6 +114,45 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+        </div>
+      )}
+      {/* Floating menu button when title bar is hidden but in edit mode */}
+      {!showTitleBar && editMode && (
+        <div className="absolute top-1 right-1 z-10">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs" className="shrink-0 bg-card/80 backdrop-blur-sm">
+                <MoreHorizontal size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              onCloseAutoFocus={(e) => {
+                if (renamePendingRef.current) {
+                  e.preventDefault()
+                  renamePendingRef.current = false
+                }
+              }}
+            >
+              {onRename && (
+                <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
+                  <Type size={14} />
+                  {t('dashboard.rename_widget')}
+                </DropdownMenuItem>
+              )}
+              {onEdit && (
+                <DropdownMenuItem onClick={onEdit}>
+                  <Pencil size={14} />
+                  {t('dashboard.edit_widget')}
+                </DropdownMenuItem>
+              )}
+              {(onRename || onEdit) && <DropdownMenuSeparator />}
+              <DropdownMenuItem variant="destructive" onClick={onRemove}>
+                <Trash2 size={14} />
+                {t('common.delete')}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
       <div className="flex-1 overflow-hidden min-h-0 min-w-0">{children}</div>

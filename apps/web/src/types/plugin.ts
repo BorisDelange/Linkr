@@ -9,24 +9,39 @@ export interface PluginBadge {
 
 /** Schema definition for a single config field in a plugin's configSchema. */
 export interface PluginConfigField {
-  type: 'column-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select'
+  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select'
   label: { en: string; fr: string }
   multi?: boolean
   optional?: boolean
   filter?: 'numeric' | 'categorical'
+  /** For `column-value-select`: the config key of the column-select field to read values from. */
+  columnField?: string
   default?: unknown
   defaultAll?: boolean
   min?: number
   max?: number
-  options?: { value: string; label: { en: string; fr: string } }[]
+  options?: { value: string; label: { en: string; fr: string }; onlyForColumnType?: 'numeric' | 'categorical' }[]
+  /** For `select`: filter options based on the type of the column selected in this field. */
+  filterOptionsByColumn?: string
   /** Fields sharing the same row value are rendered side-by-side. */
   row?: string
   /** Only show this field when another field has a specific value. */
   visibleWhen?: { field: string; value: unknown }
+  /** Tooltip description shown as an info icon next to the label. */
+  description?: { en: string; fr: string }
   /** Static hint badge shown next to the label (e.g. "required", "optional"). */
   hint?: { en: string; fr: string }
   /** Conditional hint: shown only when another field has a specific value. Overrides `hint`. */
   hintWhen?: { field: string; values: Record<string, { en: string; fr: string }> }
+  /**
+   * Auto-set other fields when a column-select changes, based on column type.
+   * Only applies to `column-select` fields.
+   * Example: `{ numeric: { aggregate: 'mean' }, categorical: { aggregate: 'proportion' } }`
+   */
+  autoSet?: {
+    numeric?: Record<string, unknown>
+    categorical?: Record<string, unknown>
+  }
 }
 
 /** Runtime mode(s) the plugin supports. */

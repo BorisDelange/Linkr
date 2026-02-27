@@ -56,9 +56,10 @@ function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
 
 /** Wrapper for component-runtime plugins (live React rendering, no script execution). */
 function ComponentAnalysis({ analysis, plugin }: { analysis: DatasetAnalysis; plugin: Plugin }) {
-  const { files } = useDatasetStore()
+  const { files, getFileRows } = useDatasetStore()
   const file = files.find(f => f.id === analysis.datasetFileId)
   const columns = file?.columns ?? []
+  const dataRows = getFileRows(analysis.datasetFileId)
   const schema = plugin.manifest.configSchema
 
   const renderConfigPanel = (onConfigChange: (changes: Record<string, unknown>) => void) => (
@@ -67,6 +68,7 @@ function ComponentAnalysis({ analysis, plugin }: { analysis: DatasetAnalysis; pl
       config={analysis.config}
       columns={columns}
       onConfigChange={onConfigChange}
+      rows={dataRows}
     />
   )
 

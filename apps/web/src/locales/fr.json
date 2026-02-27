@@ -1481,7 +1481,8 @@
     "general_db_browse_empty": "Dossier vide",
     "general_db_browse_use_folder": "Utiliser ce dossier",
     "general_db_browse_select": "Sélectionner le fichier",
-    "general_db_info": "Cette base de données stocke les données applicatives (utilisateurs, projets, paramètres). Ce n'est pas l'entrepôt de données cliniques. En mode local (sans backend), toutes les données sont stockées dans le navigateur via IndexedDB."
+    "general_db_requires_backend": "La base de données applicative nécessite une connexion au backend",
+    "general_db_requires_backend_description": "La configuration de la base de données applicative est disponible avec le serveur API Linkr. En mode local, toutes les données sont stockées dans le navigateur via IndexedDB."
   },
   "schemas": {
     "title": "Schémas",
@@ -1835,7 +1836,8 @@
     "import_conflict_title": "L'élément existe déjà",
     "import_conflict_description": "Un élément nommé « {{name}} » existe déjà. Que souhaitez-vous faire ?",
     "import_duplicate": "Créer une copie",
-    "import_overwrite": "Écraser"
+    "import_overwrite": "Écraser",
+    "auto": "Auto"
   },
   "user_menu": {
     "profile": "Profil",

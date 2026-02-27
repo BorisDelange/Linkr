@@ -1,6 +1,6 @@
-import { useCallback, useState, useMemo } from 'react'
+import { useCallback, useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search, Puzzle, ChevronsUpDown } from 'lucide-react'
+import { Check, Search, Puzzle, ChevronsUpDown, Info } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import {
   Select,
@@ -14,6 +14,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -26,6 +32,8 @@ interface GenericConfigPanelProps {
   config: Record<string, unknown>
   columns: DatasetColumn[]
   onConfigChange: (changes: Record<string, unknown>) => void
+  /** Data rows — needed for column-value-select fields. */
+  rows?: Record<string, unknown>[]
 }
 
 export function GenericConfigPanel({
@@ -33,6 +41,7 @@ export function GenericConfigPanel({
   config,
   columns,
   onConfigChange,
+  rows,
 }: GenericConfigPanelProps) {
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -91,6 +100,7 @@ export function GenericConfigPanel({
             lang={lang}
             config={configWithDefaults}
             onConfigChange={onConfigChange}
+            rows={rows}
           />
         ) : (
           <div key={group.keys.join('-')} className="grid gap-4" style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
@@ -104,6 +114,7 @@ export function GenericConfigPanel({
                 lang={lang}
                 config={configWithDefaults}
                 onConfigChange={onConfigChange}
+                rows={rows}
               />
             ))}
           </div>
@@ -150,10 +161,23 @@ function HintBadge({ text }: { text: string }) {
 
 function FieldLabel({ field, config, lang }: { field: PluginConfigField; config: Record<string, unknown>; lang: 'en' | 'fr' }) {
   const hint = resolveHint(field, config, lang)
+  const desc = field.description ? (field.description[lang] ?? field.description.en) : null
   return (
     <Label className="text-xs flex items-center">
       {field.label[lang] ?? field.label.en}
       {hint && <HintBadge text={hint} />}
+      {desc && (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info size={12} className="ml-1 shrink-0 text-muted-foreground cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-56">
+              {desc}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
     </Label>
   )
 }
@@ -168,9 +192,10 @@ interface FieldRendererProps {
   lang: 'en' | 'fr'
   config: Record<string, unknown>
   onConfigChange: (changes: Record<string, unknown>) => void
+  rows?: Record<string, unknown>[]
 }
 
-function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange }: FieldRendererProps) {
+function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows }: FieldRendererProps) {
   switch (field.type) {
     case 'column-select':
       return field.multi ? (
@@ -194,6 +219,19 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           onConfigChange={onConfigChange}
         />
       )
+    case 'column-value-select':
+      return (
+        <ColumnValueSelect
+          fieldKey={fieldKey}
+          field={field}
+          value={value}
+          columns={columns}
+          lang={lang}
+          config={config}
+          onConfigChange={onConfigChange}
+          rows={rows}
+        />
+      )
     case 'select':
       return field.multi ? (
         <MultiSelectField
@@ -209,6 +247,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           fieldKey={fieldKey}
           field={field}
           value={value}
+          columns={columns}
           lang={lang}
           config={config}
           onConfigChange={onConfigChange}
@@ -409,12 +448,27 @@ function SingleColumnSelect({
   const filtered = filterColumns(columns, field.filter)
   const current = (value as string | undefined) ?? ''
 
+  const handleChange = useCallback((v: string) => {
+    const colId = v === '__none__' ? undefined : v
+    const changes: Record<string, unknown> = { [fieldKey]: colId }
+    // Auto-set linked fields based on column type
+    if (colId && field.autoSet) {
+      const col = columns.find(c => c.id === colId)
+      if (col) {
+        const isNumeric = col.type === 'number'
+        const autoValues = isNumeric ? field.autoSet.numeric : field.autoSet.categorical
+        if (autoValues) Object.assign(changes, autoValues)
+      }
+    }
+    onConfigChange(changes)
+  }, [fieldKey, field.autoSet, columns, onConfigChange])
+
   return (
     <div className="space-y-1.5">
       <FieldLabel field={field} config={config} lang={lang} />
       <Select
         value={current || '__none__'}
-        onValueChange={v => onConfigChange({ [fieldKey]: v === '__none__' ? undefined : v })}
+        onValueChange={handleChange}
       >
         <SelectTrigger className="h-8 text-xs">
           <SelectValue />
@@ -435,6 +489,57 @@ function SingleColumnSelect({
 }
 
 // ---------------------------------------------------------------------------
+// Column-value select (unique values from a column, as a dropdown)
+// ---------------------------------------------------------------------------
+
+function ColumnValueSelect({
+  fieldKey,
+  field,
+  value,
+  columns: _columns,
+  lang,
+  config,
+  onConfigChange,
+  rows,
+}: FieldRendererProps) {
+  const { t } = useTranslation()
+  const columnFieldId = config[field.columnField ?? ''] as string | undefined
+  const current = (value as string | undefined) ?? ''
+
+  const uniqueValues = useMemo(() => {
+    if (!columnFieldId || !rows) return []
+    const seen = new Set<string>()
+    for (const row of rows) {
+      const raw = row[columnFieldId]
+      if (raw != null) seen.add(String(raw))
+    }
+    return Array.from(seen).sort()
+  }, [columnFieldId, rows])
+
+  return (
+    <div className="space-y-1.5">
+      <FieldLabel field={field} config={config} lang={lang} />
+      <Select
+        value={current || '__none__'}
+        onValueChange={v => onConfigChange({ [fieldKey]: v === '__none__' ? '' : v })}
+      >
+        <SelectTrigger className="h-8 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__none__">{t('common.auto')}</SelectItem>
+          {uniqueValues.map(val => (
+            <SelectItem key={val} value={val}>
+              {val}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Select (enum options)
 // ---------------------------------------------------------------------------
 
@@ -442,11 +547,34 @@ function SelectField({
   fieldKey,
   field,
   value,
+  columns,
   lang,
   config,
   onConfigChange,
-}: Omit<FieldRendererProps, 'columns'>) {
+}: Omit<FieldRendererProps, 'rows'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
+
+  // Filter options by column type if configured
+  const visibleOptions = useMemo(() => {
+    const allOptions = field.options ?? []
+    if (!field.filterOptionsByColumn) return allOptions
+    const colId = config[field.filterOptionsByColumn] as string | undefined
+    if (!colId) return allOptions
+    const col = columns.find(c => c.id === colId)
+    if (!col) return allOptions
+    const isNumeric = col.type === 'number'
+    return allOptions.filter(opt => {
+      if (!opt.onlyForColumnType) return true
+      return opt.onlyForColumnType === (isNumeric ? 'numeric' : 'categorical')
+    })
+  }, [field.options, field.filterOptionsByColumn, config, columns])
+
+  // Auto-reset when current value is not in visible options
+  useEffect(() => {
+    if (visibleOptions.length > 0 && !visibleOptions.some(o => o.value === current)) {
+      onConfigChange({ [fieldKey]: visibleOptions[0].value })
+    }
+  }, [visibleOptions, current, fieldKey, onConfigChange])
 
   return (
     <div className="space-y-1.5">
@@ -456,7 +584,7 @@ function SelectField({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {(field.options ?? []).map(opt => (
+          {visibleOptions.map(opt => (
             <SelectItem key={opt.value} value={opt.value}>
               {opt.label[lang] ?? opt.label.en}
             </SelectItem>
@@ -614,9 +742,11 @@ function BooleanField({
 
   return (
     <div className="space-y-1.5">
+      {/* Invisible label spacer so the checkbox aligns with inputs in row groups */}
+      {field.row && <span className="text-xs invisible" aria-hidden>&nbsp;</span>}
       <button
         onClick={() => onConfigChange({ [fieldKey]: !checked })}
-        className="flex items-center gap-2 text-xs"
+        className="flex h-8 items-center gap-2 text-xs"
       >
         <div
           className={cn(
@@ -780,11 +910,12 @@ function ColorSelectField({
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'
+  const isCustom = current.startsWith('#')
 
   return (
     <div className="space-y-1.5">
       <FieldLabel field={field} config={config} lang={lang} />
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {COLOR_PALETTE.map(c => {
           const isSelected = c.name === current
           return (
@@ -800,6 +931,22 @@ function ColorSelectField({
             />
           )
         })}
+        {/* Custom color picker */}
+        <label
+          title="Custom"
+          className={cn(
+            'relative size-6 rounded-full cursor-pointer transition-all overflow-hidden',
+            'bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]',
+            isCustom && 'ring-2 ring-foreground/50 ring-offset-2 ring-offset-background',
+          )}
+        >
+          <input
+            type="color"
+            value={isCustom ? current : '#2563eb'}
+            onChange={e => onConfigChange({ [fieldKey]: e.target.value })}
+            className="absolute inset-0 opacity-0 cursor-pointer"
+          />
+        </label>
       </div>
     </div>
   )

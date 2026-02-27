@@ -45,7 +45,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid }: W
       <SheetContent
         side="right"
         showCloseButton={false}
-        className="w-[80vw] max-w-5xl sm:max-w-5xl p-0 gap-0"
+        className="w-[calc(100vw-16rem)] max-w-none sm:max-w-none p-0 gap-0"
       >
         <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null}>
           <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} />
@@ -319,6 +319,7 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
                     config={config}
                     columns={columns}
                     onConfigChange={handleConfigChange}
+                    rows={filteredRows}
                   />
                 )}
                 {activeTab === 'code' && (

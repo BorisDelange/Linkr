@@ -1,15 +1,18 @@
 """
 Generate realistic ICU dashboard data for a French ICU unit.
-Produces 3 CSV files:
-  - icu_admissions.csv (200 admissions, one row per admission)
-  - icu_infections.csv (nosocomial infections, one row per infection episode)
-  - icu_procedures.csv (invasive devices, one row per device)
+Produces a single CSV file in long typed format:
+  - icu_events.csv (one row per stay + one row per event)
+
+Stay-level columns are denormalized (repeated on every row).
+The first row per stay has event_type empty (pure stay row).
+Subsequent rows have event_type = mechanical_ventilation | rrt | infection | device.
 """
 
 import csv
 import random
 import math
 from datetime import datetime, timedelta
+from collections import Counter
 
 random.seed(42)
 
@@ -31,6 +34,9 @@ def weighted_choice(options: dict):
 def clamp(val, lo, hi):
     return max(lo, min(hi, val))
 
+def fmt_dt(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M")
+
 # --- Reference data ---
 
 ORIGIN_WARDS = {
@@ -51,12 +57,11 @@ DESTINATION_WARDS = {
     "Chirurgie": 0.15,
     "Pneumologie": 0.10,
     "Cardiologie": 0.10,
-    "USC": 0.15,  # Unité de soins continus
+    "USC": 0.15,
     "SSR": 0.08,
     "Neurologie": 0.05,
     "Autre hôpital": 0.05,
     "Domicile": 0.02,
-    # deceased handled separately
 }
 
 ADMISSION_TYPES = {
@@ -89,7 +94,6 @@ INFECTION_TYPES = {
     "Autre": 0.10,
 }
 
-# Pathogens by infection type (realistic distribution)
 PATHOGENS_BY_TYPE = {
     "PAVM": {
         "Pseudomonas aeruginosa": 0.25,
@@ -137,12 +141,8 @@ PATHOGENS_BY_TYPE = {
 }
 
 MDRO_PATHOGENS = {
-    "Staphylococcus aureus",  # MRSA
-    "Klebsiella pneumoniae",  # ESBL
-    "Acinetobacter baumannii",
-    "Pseudomonas aeruginosa",
-    "Enterobacter cloacae",
-    "Escherichia coli",  # ESBL
+    "Staphylococcus aureus", "Klebsiella pneumoniae", "Acinetobacter baumannii",
+    "Pseudomonas aeruginosa", "Enterobacter cloacae", "Escherichia coli",
 }
 
 CVC_SITES = {
@@ -161,53 +161,81 @@ ARTERIAL_SITES = {
     "Fémoral gauche": 0.15,
 }
 
-ECMO_TYPES = {
-    "VV": 0.65,
-    "VA": 0.35,
-}
+ECMO_TYPES = {"VV": 0.65, "VA": 0.35}
 
-# --- Generate admissions ---
+# --- CSV columns ---
 
-admissions = []
-person_ids_pool = list(range(1001, 1001 + 190))  # 190 unique patients → some readmissions
+STAY_COLUMNS = [
+    "person_id", "visit_occurrence_id", "visit_detail_id",
+    "sex", "age", "admission_type", "origin_ward", "destination_ward", "discharge_disposition",
+    "hospital_admission_datetime", "hospital_discharge_datetime", "hospital_los",
+    "unit_admission_datetime", "unit_discharge_datetime", "unit_los",
+    "saps2_score", "sofa_admission", "sofa_max",
+    "deceased_in_icu", "deceased_in_hospital", "is_readmission_48h",
+]
+
+EVENT_COLUMNS = [
+    "event_type", "event_start_datetime", "event_end_datetime",
+]
+
+VENTILATION_COLUMNS = [
+    "tidal_volume_per_pbw", "pf_ratio", "unplanned_extubation", "reintubation_48h", "tracheostomy",
+]
+
+RRT_COLUMNS = [
+    "rrt_type", "rrt_indication", "creatinine_max",
+]
+
+INFECTION_COLUMNS = [
+    "infection_type", "pathogen", "is_mdro", "adequate_empirical_abx", "antibiotic_ddd",
+]
+
+DEVICE_COLUMNS = [
+    "device_type", "device_site",
+]
+
+ALL_COLUMNS = STAY_COLUMNS + EVENT_COLUMNS + VENTILATION_COLUMNS + RRT_COLUMNS + INFECTION_COLUMNS + DEVICE_COLUMNS
+
+# --- Build patient pool ---
+
+person_ids_pool = list(range(1001, 1001 + 190))
 random.shuffle(person_ids_pool)
 
-# Assign person_ids: most patients have 1 admission, ~10 have 2 (readmissions)
 person_id_list = []
 for i in range(180):
     person_id_list.append(person_ids_pool[i])
 for i in range(20):
-    person_id_list.append(person_ids_pool[i])  # 20 readmissions from first 20 patients
+    person_id_list.append(person_ids_pool[i])  # 20 readmissions
 
 random.shuffle(person_id_list)
 
-# Track per-patient sex and age (consistent across readmissions)
 patient_demographics = {}
-# Track first admission discharge for readmission patients
 patient_first_discharge = {}
 
 start_date = datetime(2024, 1, 1)
 end_date = datetime(2025, 12, 31)
 
-# Identify which person_ids appear more than once (readmissions)
-from collections import Counter
 pid_counts = Counter(person_id_list)
 readmission_pids = {pid for pid, cnt in pid_counts.items() if cnt > 1}
-pid_visit_num = {}  # track visit number per patient
+pid_visit_num = {}
+
+# --- Generate stays and events ---
+
+all_rows = []
+stay_data_list = []  # keep raw stay data for readmission computation
 
 for idx in range(N_ADMISSIONS):
     visit_occurrence_id = 5000 + idx
     visit_detail_id = 8000 + idx
     person_id = person_id_list[idx]
 
-    # Track visit number
     pid_visit_num[person_id] = pid_visit_num.get(person_id, 0) + 1
     visit_num = pid_visit_num[person_id]
 
-    # Demographics (consistent per patient)
+    # Demographics
     if person_id not in patient_demographics:
-        sex = weighted_choice({"M": 0.62, "F": 0.38})  # ICU ~62% male
-        age = clamp(int(random.gauss(63, 16)), 18, 95)  # Mean ~63, SD ~16
+        sex = weighted_choice({"M": 0.62, "F": 0.38})
+        age = clamp(int(random.gauss(63, 16)), 18, 95)
         patient_demographics[person_id] = {"sex": sex, "age": age}
     else:
         sex = patient_demographics[person_id]["sex"]
@@ -216,44 +244,46 @@ for idx in range(N_ADMISSIONS):
     admission_type = weighted_choice(ADMISSION_TYPES)
     origin_ward = weighted_choice(ORIGIN_WARDS)
 
-    # ICU admission datetime — for readmissions, place within 6-72h of prior discharge
+    # ICU admission
     if person_id in readmission_pids and visit_num > 1 and person_id in patient_first_discharge:
         prev_discharge = patient_first_discharge[person_id]
-        # ~50% within 48h (true readmission), ~50% later
         if random.random() < 0.50:
             gap_hours = random.uniform(6, 48)
         else:
-            gap_hours = random.uniform(48, 168)  # 2-7 days
-        icu_admission = prev_discharge + timedelta(hours=gap_hours)
+            gap_hours = random.uniform(48, 168)
+        unit_admission = prev_discharge + timedelta(hours=gap_hours)
     else:
-        icu_admission = random_date(start_date, end_date)
+        unit_admission = random_date(start_date, end_date)
 
-    # LOS: lognormal, median ~4 days, some long stays
-    icu_los_days = round(max(0.5, random.lognormvariate(math.log(4), 0.7)), 1)
-    icu_discharge = icu_admission + timedelta(days=icu_los_days)
+    # Unit LOS
+    unit_los = round(max(0.5, random.lognormvariate(math.log(4), 0.7)), 1)
+    unit_discharge = unit_admission + timedelta(days=unit_los)
+    patient_first_discharge[person_id] = unit_discharge
 
-    # Store discharge for readmission tracking
-    patient_first_discharge[person_id] = icu_discharge
-
-    # Hospital admission before ICU (0-7 days)
-    hospital_to_icu_days = round(max(0, random.expovariate(1/1.5)), 1)
-    hospital_admission = icu_admission - timedelta(days=hospital_to_icu_days)
+    # Hospital dates
+    hospital_to_icu_days = round(max(0, random.expovariate(1 / 1.5)), 1)
+    hospital_admission = unit_admission - timedelta(days=hospital_to_icu_days)
+    # Hospital discharge: after ICU discharge + 0-10 days in downstream ward
+    post_icu_days = round(max(0, random.expovariate(1 / 3)), 1)
+    hospital_discharge = unit_discharge + timedelta(days=post_icu_days)
+    hospital_los = round((hospital_discharge - hospital_admission).total_seconds() / 86400, 1)
 
     # Severity scores
     saps2 = clamp(int(random.gauss(42, 18)), 8, 120)
     sofa_admission = clamp(int(random.gauss(6, 3.5)), 0, 20)
-    sofa_max = clamp(sofa_admission + int(random.expovariate(1/2)), sofa_admission, 24)
+    sofa_max = clamp(sofa_admission + int(random.expovariate(1 / 2)), sofa_admission, 24)
 
-    # Mortality: ~18% ICU, correlated with SAPS2
+    # Mortality
     mortality_prob = 1 / (1 + math.exp(-(saps2 - 65) / 15))
     deceased_in_icu = random.random() < mortality_prob
-    # Hospital mortality: ICU deceased + ~5% of ICU survivors
     deceased_in_hospital = deceased_in_icu or (random.random() < 0.05)
 
     # Destination ward
     if deceased_in_icu:
         destination_ward = "Décès"
         discharge_disposition = "Décès en réanimation"
+        hospital_discharge = unit_discharge
+        hospital_los = round((hospital_discharge - hospital_admission).total_seconds() / 86400, 1)
     elif deceased_in_hospital:
         destination_ward = weighted_choice(DESTINATION_WARDS)
         discharge_disposition = "Décès en hospitalisation"
@@ -261,58 +291,8 @@ for idx in range(N_ADMISSIONS):
         destination_ward = weighted_choice(DESTINATION_WARDS)
         discharge_disposition = "Transfert en service" if destination_ward not in ("Domicile", "Autre hôpital") else destination_ward
 
-    # Readmission flag (will be computed after sorting)
-    # For now, placeholder
-    is_readmission_48h = False
-
-    # --- Mechanical ventilation ---
-    # ~60% of ICU patients are ventilated
-    mechanical_ventilation = random.random() < 0.60
-    if mechanical_ventilation:
-        mv_duration_hours = round(max(2, random.lognormvariate(math.log(72), 0.8)), 1)
-        # Ideal body weight based tidal volume
-        # PBW male: 50 + 0.91*(height-152.4), female: 45.5 + 0.91*(height-152.4)
-        height_cm = random.gauss(172 if sex == "M" else 163, 8)
-        pbw_kg = (50 if sex == "M" else 45.5) + 0.91 * (height_cm - 152.4)
-        # Vt/PBW: target 6-8 mL/kg, some non-compliant
-        tidal_volume_per_pbw = round(random.gauss(6.8, 1.2), 1)
-        tidal_volume_per_pbw = clamp(tidal_volume_per_pbw, 4.0, 12.0)
-        # P/F ratio day 1
-        pf_ratio_day1 = clamp(int(random.gauss(220, 90)), 50, 500)
-        # Unplanned extubation: ~5% of ventilated
-        unplanned_extubation = random.random() < 0.05
-        # Reintubation 48h: ~12% of ventilated
-        reintubation_48h = random.random() < 0.12
-        # Tracheostomy: ~8% of ventilated
-        tracheostomy = random.random() < 0.08
-    else:
-        mv_duration_hours = None
-        tidal_volume_per_pbw = None
-        pf_ratio_day1 = None
-        unplanned_extubation = False
-        reintubation_48h = False
-        tracheostomy = False
-
-    # --- Renal replacement therapy ---
-    # ~10% of ICU patients
-    rrt = random.random() < 0.10
-    if rrt:
-        rrt_type = weighted_choice(RRT_TYPES)
-        rrt_duration_days = round(max(1, random.lognormvariate(math.log(4), 0.6)), 1)
-        rrt_indication = weighted_choice(RRT_INDICATIONS)
-        creatinine_max = round(random.gauss(350, 100), 0)
-        creatinine_max = clamp(creatinine_max, 150, 800)
-    else:
-        rrt_type = None
-        rrt_duration_days = None
-        rrt_indication = None
-        creatinine_max = round(random.gauss(95, 40), 0)
-        creatinine_max = clamp(creatinine_max, 40, 300)
-
-    # Antibiotic DDD (defined daily doses during stay)
-    antibiotic_ddd = round(max(0, random.gauss(icu_los_days * 1.2, icu_los_days * 0.5)), 1)
-
-    admissions.append({
+    # Stay base row
+    stay = {
         "person_id": person_id,
         "visit_occurrence_id": visit_occurrence_id,
         "visit_detail_id": visit_detail_id,
@@ -322,65 +302,83 @@ for idx in range(N_ADMISSIONS):
         "origin_ward": origin_ward,
         "destination_ward": destination_ward,
         "discharge_disposition": discharge_disposition,
-        "icu_admission_datetime": icu_admission.strftime("%Y-%m-%d %H:%M"),
-        "icu_discharge_datetime": icu_discharge.strftime("%Y-%m-%d %H:%M"),
-        "hospital_admission_datetime": hospital_admission.strftime("%Y-%m-%d %H:%M"),
-        "icu_los_days": icu_los_days,
-        "hospital_to_icu_days": hospital_to_icu_days,
+        "hospital_admission_datetime": fmt_dt(hospital_admission),
+        "hospital_discharge_datetime": fmt_dt(hospital_discharge),
+        "hospital_los": hospital_los,
+        "unit_admission_datetime": fmt_dt(unit_admission),
+        "unit_discharge_datetime": fmt_dt(unit_discharge),
+        "unit_los": unit_los,
         "saps2_score": saps2,
         "sofa_admission": sofa_admission,
         "sofa_max": sofa_max,
         "deceased_in_icu": int(deceased_in_icu),
         "deceased_in_hospital": int(deceased_in_hospital),
-        "is_readmission_48h": 0,  # will compute below
-        "mechanical_ventilation": int(mechanical_ventilation),
-        "mv_duration_hours": mv_duration_hours if mv_duration_hours else "",
-        "tidal_volume_per_pbw": tidal_volume_per_pbw if tidal_volume_per_pbw else "",
-        "pf_ratio_day1": pf_ratio_day1 if pf_ratio_day1 else "",
-        "unplanned_extubation": int(unplanned_extubation),
-        "reintubation_48h": int(reintubation_48h),
-        "tracheostomy": int(tracheostomy),
-        "renal_replacement_therapy": int(rrt),
-        "rrt_type": rrt_type if rrt_type else "",
-        "rrt_duration_days": rrt_duration_days if rrt_duration_days else "",
-        "rrt_indication": rrt_indication if rrt_indication else "",
-        "creatinine_max": int(creatinine_max),
-        "antibiotic_ddd": antibiotic_ddd,
-    })
+        "is_readmission_48h": 0,  # computed later
+    }
 
-# --- Compute readmission flags ---
-# Sort admissions by person_id and admission time
-admissions.sort(key=lambda a: (a["person_id"], a["icu_admission_datetime"]))
-for i in range(1, len(admissions)):
-    if admissions[i]["person_id"] == admissions[i-1]["person_id"]:
-        prev_discharge = datetime.strptime(admissions[i-1]["icu_discharge_datetime"], "%Y-%m-%d %H:%M")
-        curr_admission = datetime.strptime(admissions[i]["icu_admission_datetime"], "%Y-%m-%d %H:%M")
-        if (curr_admission - prev_discharge).total_seconds() < 48 * 3600:
-            admissions[i]["is_readmission_48h"] = 1
+    stay_data_list.append(stay)
 
-# Re-sort by visit_detail_id for clean output
-admissions.sort(key=lambda a: a["visit_detail_id"])
+    def make_row(**event_cols):
+        """Create a row with stay columns + event columns."""
+        row = {c: "" for c in ALL_COLUMNS}
+        row.update(stay)
+        row.update(event_cols)
+        return row
 
-# --- Generate infections ---
-infections = []
-infection_id = 1
+    # --- Stay row (event_type empty) ---
+    all_rows.append(make_row())
 
-for adm in admissions:
-    # ~15% of patients get at least one nosocomial infection
-    # Higher if longer stay and ventilated
-    base_prob = 0.12
-    if adm["mechanical_ventilation"]:
-        base_prob += 0.08
-    if adm["icu_los_days"] > 7:
-        base_prob += 0.10
+    # --- Mechanical ventilation (~60%) ---
+    if random.random() < 0.60:
+        mv_start_offset_h = random.uniform(0, 12)
+        mv_start = unit_admission + timedelta(hours=mv_start_offset_h)
+        mv_duration_hours = round(max(2, random.lognormvariate(math.log(72), 0.8)), 1)
+        mv_end = mv_start + timedelta(hours=mv_duration_hours)
+        mv_end = min(mv_end, unit_discharge)
 
-    if random.random() < base_prob:
-        # 1-2 infections per patient
+        height_cm = random.gauss(172 if sex == "M" else 163, 8)
+        pbw_kg = (50 if sex == "M" else 45.5) + 0.91 * (height_cm - 152.4)
+        vt_pbw = round(clamp(random.gauss(6.8, 1.2), 4.0, 12.0), 1)
+        pf_ratio = clamp(int(random.gauss(220, 90)), 50, 500)
+
+        all_rows.append(make_row(
+            event_type="mechanical_ventilation",
+            event_start_datetime=fmt_dt(mv_start),
+            event_end_datetime=fmt_dt(mv_end),
+            tidal_volume_per_pbw=vt_pbw,
+            pf_ratio=pf_ratio,
+            unplanned_extubation=int(random.random() < 0.05),
+            reintubation_48h=int(random.random() < 0.12),
+            tracheostomy=int(random.random() < 0.08),
+        ))
+
+    # --- Renal replacement therapy (~10%) ---
+    if random.random() < 0.10:
+        rrt_start_offset_h = random.uniform(6, 48)
+        rrt_start = unit_admission + timedelta(hours=rrt_start_offset_h)
+        rrt_duration_days = round(max(1, random.lognormvariate(math.log(4), 0.6)), 1)
+        rrt_end = rrt_start + timedelta(days=rrt_duration_days)
+        rrt_end = min(rrt_end, unit_discharge)
+
+        all_rows.append(make_row(
+            event_type="renal_replacement_therapy",
+            event_start_datetime=fmt_dt(rrt_start),
+            event_end_datetime=fmt_dt(rrt_end),
+            rrt_type=weighted_choice(RRT_TYPES),
+            rrt_indication=weighted_choice(RRT_INDICATIONS),
+            creatinine_max=int(clamp(random.gauss(350, 100), 150, 800)),
+        ))
+
+    # --- Infections (~15%) ---
+    base_infection_prob = 0.12
+    if unit_los > 7:
+        base_infection_prob += 0.10
+
+    if random.random() < base_infection_prob:
         n_infections = weighted_choice({1: 0.75, 2: 0.25})
         used_types = set()
         for _ in range(n_infections):
             inf_type = weighted_choice(INFECTION_TYPES)
-            # Avoid duplicate types for same patient
             attempts = 0
             while inf_type in used_types and attempts < 10:
                 inf_type = weighted_choice(INFECTION_TYPES)
@@ -388,190 +386,143 @@ for adm in admissions:
             used_types.add(inf_type)
 
             pathogen = weighted_choice(PATHOGENS_BY_TYPE[inf_type])
-            is_mdro = (pathogen in MDRO_PATHOGENS) and (random.random() < 0.25)
-            onset_day = clamp(int(random.gauss(5, 3)), 2, int(adm["icu_los_days"] + 1))
-            adequate_abx = random.random() < 0.72  # ~72% adequate empirical ABx
+            is_mdro = int((pathogen in MDRO_PATHOGENS) and (random.random() < 0.25))
+            onset_day = clamp(int(random.gauss(5, 3)), 2, int(unit_los + 1))
+            inf_start = unit_admission + timedelta(days=onset_day)
+            antibiotic_ddd = round(max(0, random.gauss(unit_los * 1.2, unit_los * 0.5)), 1)
 
-            infections.append({
-                "infection_id": infection_id,
-                "visit_detail_id": adm["visit_detail_id"],
-                "person_id": adm["person_id"],
-                "infection_type": inf_type,
-                "pathogen": pathogen,
-                "is_mdro": int(is_mdro),
-                "infection_onset_day": onset_day,
-                "adequate_empirical_abx": int(adequate_abx),
-            })
-            infection_id += 1
+            all_rows.append(make_row(
+                event_type="infection",
+                event_start_datetime=fmt_dt(inf_start),
+                infection_type=inf_type,
+                pathogen=pathogen,
+                is_mdro=is_mdro,
+                adequate_empirical_abx=int(random.random() < 0.72),
+                antibiotic_ddd=antibiotic_ddd,
+            ))
 
-    # Mark nosocomial_infection on admission
-    adm["nosocomial_infection"] = int(any(
-        inf["visit_detail_id"] == adm["visit_detail_id"] for inf in infections
-    ))
+    # --- Devices ---
 
-# --- Generate procedures ---
-procedures = []
-procedure_id = 1
-
-for adm in admissions:
-    # CVC: ~65% of ICU patients
+    # CVC (~65%)
     if random.random() < 0.65:
         site = weighted_choice(CVC_SITES)
-        duration_days = round(max(1, random.lognormvariate(math.log(5), 0.5)), 1)
-        duration_days = min(duration_days, adm["icu_los_days"])
-        procedures.append({
-            "procedure_id": procedure_id,
-            "visit_detail_id": adm["visit_detail_id"],
-            "person_id": adm["person_id"],
-            "device_type": "Cathéter veineux central",
-            "device_site": site,
-            "duration_days": duration_days,
-        })
-        procedure_id += 1
-        adm["has_cvc"] = 1
-        adm["cvc_site"] = site
-    else:
-        adm["has_cvc"] = 0
-        adm["cvc_site"] = ""
+        dur = min(round(max(1, random.lognormvariate(math.log(5), 0.5)), 1), unit_los)
+        dev_start = unit_admission + timedelta(hours=random.uniform(0, 4))
+        dev_end = dev_start + timedelta(days=dur)
+        dev_end = min(dev_end, unit_discharge)
+        all_rows.append(make_row(
+            event_type="device",
+            event_start_datetime=fmt_dt(dev_start),
+            event_end_datetime=fmt_dt(dev_end),
+            device_type="CVC",
+            device_site=site,
+        ))
 
-    # Arterial line: ~55% of ICU patients
+    # Arterial line (~55%)
     if random.random() < 0.55:
         site = weighted_choice(ARTERIAL_SITES)
-        duration_days = round(max(0.5, random.lognormvariate(math.log(3), 0.5)), 1)
-        duration_days = min(duration_days, adm["icu_los_days"])
-        procedures.append({
-            "procedure_id": procedure_id,
-            "visit_detail_id": adm["visit_detail_id"],
-            "person_id": adm["person_id"],
-            "device_type": "Cathéter artériel",
-            "device_site": site,
-            "duration_days": duration_days,
-        })
-        procedure_id += 1
-        adm["has_arterial_line"] = 1
-        adm["arterial_line_site"] = site
-    else:
-        adm["has_arterial_line"] = 0
-        adm["arterial_line_site"] = ""
+        dur = min(round(max(0.5, random.lognormvariate(math.log(3), 0.5)), 1), unit_los)
+        dev_start = unit_admission + timedelta(hours=random.uniform(0, 4))
+        dev_end = dev_start + timedelta(days=dur)
+        dev_end = min(dev_end, unit_discharge)
+        all_rows.append(make_row(
+            event_type="device",
+            event_start_datetime=fmt_dt(dev_start),
+            event_end_datetime=fmt_dt(dev_end),
+            device_type="Cathéter artériel",
+            device_site=site,
+        ))
 
-    # Urinary catheter: ~75% of ICU patients
+    # Urinary catheter (~75%)
     if random.random() < 0.75:
-        duration_days = round(max(0.5, random.lognormvariate(math.log(4), 0.5)), 1)
-        duration_days = min(duration_days, adm["icu_los_days"])
-        procedures.append({
-            "procedure_id": procedure_id,
-            "visit_detail_id": adm["visit_detail_id"],
-            "person_id": adm["person_id"],
-            "device_type": "Sonde urinaire",
-            "device_site": "",
-            "duration_days": duration_days,
-        })
-        procedure_id += 1
-        adm["has_urinary_catheter"] = 1
-        adm["urinary_catheter_days"] = duration_days
-    else:
-        adm["has_urinary_catheter"] = 0
-        adm["urinary_catheter_days"] = ""
+        dur = min(round(max(0.5, random.lognormvariate(math.log(4), 0.5)), 1), unit_los)
+        dev_start = unit_admission + timedelta(hours=random.uniform(0, 2))
+        dev_end = dev_start + timedelta(days=dur)
+        dev_end = min(dev_end, unit_discharge)
+        all_rows.append(make_row(
+            event_type="device",
+            event_start_datetime=fmt_dt(dev_start),
+            event_end_datetime=fmt_dt(dev_end),
+            device_type="Sonde urinaire",
+            device_site="",
+        ))
 
-    # Chest drain: ~8%
+    # Chest drain (~8%)
     if random.random() < 0.08:
-        duration_days = round(max(1, random.lognormvariate(math.log(3), 0.5)), 1)
-        procedures.append({
-            "procedure_id": procedure_id,
-            "visit_detail_id": adm["visit_detail_id"],
-            "person_id": adm["person_id"],
-            "device_type": "Drain thoracique",
-            "device_site": weighted_choice({"Droit": 0.55, "Gauche": 0.45}),
-            "duration_days": duration_days,
-        })
-        procedure_id += 1
-        adm["has_chest_drain"] = 1
-    else:
-        adm["has_chest_drain"] = 0
+        dur = round(max(1, random.lognormvariate(math.log(3), 0.5)), 1)
+        dev_start = unit_admission + timedelta(hours=random.uniform(0, 24))
+        dev_end = dev_start + timedelta(days=dur)
+        dev_end = min(dev_end, unit_discharge)
+        all_rows.append(make_row(
+            event_type="device",
+            event_start_datetime=fmt_dt(dev_start),
+            event_end_datetime=fmt_dt(dev_end),
+            device_type="Drain thoracique",
+            device_site=weighted_choice({"Droit": 0.55, "Gauche": 0.45}),
+        ))
 
-    # ECMO: ~3%
+    # ECMO (~3%)
     if random.random() < 0.03:
         ecmo_type = weighted_choice(ECMO_TYPES)
-        duration_days = round(max(2, random.lognormvariate(math.log(7), 0.5)), 1)
-        procedures.append({
-            "procedure_id": procedure_id,
-            "visit_detail_id": adm["visit_detail_id"],
-            "person_id": adm["person_id"],
-            "device_type": "ECMO",
-            "device_site": ecmo_type,
-            "duration_days": duration_days,
-        })
-        procedure_id += 1
-        adm["has_ecmo"] = 1
-        adm["ecmo_type"] = ecmo_type
-    else:
-        adm["has_ecmo"] = 0
-        adm["ecmo_type"] = ""
+        dur = round(max(2, random.lognormvariate(math.log(7), 0.5)), 1)
+        dev_start = unit_admission + timedelta(hours=random.uniform(0, 12))
+        dev_end = dev_start + timedelta(days=dur)
+        dev_end = min(dev_end, unit_discharge)
+        all_rows.append(make_row(
+            event_type="device",
+            event_start_datetime=fmt_dt(dev_start),
+            event_end_datetime=fmt_dt(dev_end),
+            device_type="ECMO",
+            device_site=ecmo_type,
+        ))
 
-# --- Write CSVs ---
+# --- Compute readmission flags ---
+
+stay_data_list.sort(key=lambda s: (s["person_id"], s["unit_admission_datetime"]))
+for i in range(1, len(stay_data_list)):
+    if stay_data_list[i]["person_id"] == stay_data_list[i - 1]["person_id"]:
+        prev_discharge = datetime.strptime(stay_data_list[i - 1]["unit_discharge_datetime"], "%Y-%m-%d %H:%M")
+        curr_admission = datetime.strptime(stay_data_list[i]["unit_admission_datetime"], "%Y-%m-%d %H:%M")
+        if (curr_admission - prev_discharge).total_seconds() < 48 * 3600:
+            stay_data_list[i]["is_readmission_48h"] = 1
+
+# Apply readmission flags back to all rows
+readmission_map = {s["visit_detail_id"]: s["is_readmission_48h"] for s in stay_data_list}
+for row in all_rows:
+    row["is_readmission_48h"] = readmission_map.get(row["visit_detail_id"], 0)
+
+# Sort by visit_detail_id then event_type (stay row first)
+event_order = {"": 0, "mechanical_ventilation": 1, "renal_replacement_therapy": 2, "infection": 3, "device": 4}
+all_rows.sort(key=lambda r: (r["visit_detail_id"], event_order.get(r.get("event_type", ""), 9)))
+
+# --- Write CSV ---
 
 output_dir = "/Users/borisdelange/Documents/Mac/Programming projects/linkr-v2/apps/web/public/data/"
 
-# 1. Admissions
-adm_fields = [
-    "person_id", "visit_occurrence_id", "visit_detail_id",
-    "sex", "age", "admission_type", "origin_ward", "destination_ward", "discharge_disposition",
-    "icu_admission_datetime", "icu_discharge_datetime", "hospital_admission_datetime",
-    "icu_los_days", "hospital_to_icu_days",
-    "saps2_score", "sofa_admission", "sofa_max",
-    "deceased_in_icu", "deceased_in_hospital", "is_readmission_48h",
-    "mechanical_ventilation", "mv_duration_hours", "tidal_volume_per_pbw", "pf_ratio_day1",
-    "unplanned_extubation", "reintubation_48h", "tracheostomy",
-    "renal_replacement_therapy", "rrt_type", "rrt_duration_days", "rrt_indication", "creatinine_max",
-    "antibiotic_ddd", "nosocomial_infection",
-    "has_cvc", "cvc_site", "has_arterial_line", "arterial_line_site",
-    "has_urinary_catheter", "urinary_catheter_days",
-    "has_chest_drain", "has_ecmo", "ecmo_type",
-]
-
-with open(output_dir + "icu_admissions.csv", "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=adm_fields, extrasaction="ignore")
+with open(output_dir + "icu_events.csv", "w", newline="", encoding="utf-8") as f:
+    writer = csv.DictWriter(f, fieldnames=ALL_COLUMNS, extrasaction="ignore")
     writer.writeheader()
-    writer.writerows(admissions)
-
-# 2. Infections
-inf_fields = [
-    "infection_id", "visit_detail_id", "person_id",
-    "infection_type", "pathogen", "is_mdro",
-    "infection_onset_day", "adequate_empirical_abx",
-]
-
-with open(output_dir + "icu_infections.csv", "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=inf_fields)
-    writer.writeheader()
-    writer.writerows(infections)
-
-# 3. Procedures
-proc_fields = [
-    "procedure_id", "visit_detail_id", "person_id",
-    "device_type", "device_site", "duration_days",
-]
-
-with open(output_dir + "icu_procedures.csv", "w", newline="", encoding="utf-8") as f:
-    writer = csv.DictWriter(f, fieldnames=proc_fields)
-    writer.writeheader()
-    writer.writerows(procedures)
+    writer.writerows(all_rows)
 
 # --- Summary stats ---
-n_ventilated = sum(1 for a in admissions if a["mechanical_ventilation"])
-n_rrt = sum(1 for a in admissions if a["renal_replacement_therapy"])
-n_deceased_icu = sum(1 for a in admissions if a["deceased_in_icu"])
-n_readmission = sum(1 for a in admissions if a["is_readmission_48h"])
-n_nosocomial = sum(1 for a in admissions if a.get("nosocomial_infection"))
+stay_rows = [r for r in all_rows if r["event_type"] == ""]
+mv_rows = [r for r in all_rows if r["event_type"] == "mechanical_ventilation"]
+rrt_rows = [r for r in all_rows if r["event_type"] == "renal_replacement_therapy"]
+inf_rows = [r for r in all_rows if r["event_type"] == "infection"]
+dev_rows = [r for r in all_rows if r["event_type"] == "device"]
+
+n = len(stay_rows)
+n_deceased = sum(1 for r in stay_rows if r["deceased_in_icu"])
+n_readmission = sum(1 for r in stay_rows if r["is_readmission_48h"])
 
 print(f"=== ICU Dashboard Data Generated ===")
-print(f"Admissions:            {len(admissions)}")
-print(f"Unique patients:       {len(set(a['person_id'] for a in admissions))}")
-print(f"Ventilated:            {n_ventilated} ({100*n_ventilated/len(admissions):.1f}%)")
-print(f"RRT:                   {n_rrt} ({100*n_rrt/len(admissions):.1f}%)")
-print(f"Deceased in ICU:       {n_deceased_icu} ({100*n_deceased_icu/len(admissions):.1f}%)")
-print(f"Readmissions 48h:      {n_readmission} ({100*n_readmission/len(admissions):.1f}%)")
-print(f"Nosocomial infections: {n_nosocomial} ({100*n_nosocomial/len(admissions):.1f}%)")
-print(f"Total infection episodes: {len(infections)}")
-print(f"Total procedure records:  {len(procedures)}")
-print(f"\nFiles written to: {output_dir}")
+print(f"Total rows:            {len(all_rows)}")
+print(f"Stay rows:             {n}")
+print(f"Unique patients:       {len(set(r['person_id'] for r in stay_rows))}")
+print(f"Ventilation events:    {len(mv_rows)} ({100 * len(mv_rows) / n:.1f}%)")
+print(f"RRT events:            {len(rrt_rows)} ({100 * len(rrt_rows) / n:.1f}%)")
+print(f"Infection episodes:    {len(inf_rows)}")
+print(f"Device events:         {len(dev_rows)}")
+print(f"Deceased in ICU:       {n_deceased} ({100 * n_deceased / n:.1f}%)")
+print(f"Readmissions 48h:      {n_readmission} ({100 * n_readmission / n:.1f}%)")
+print(f"\nFile written: {output_dir}icu_events.csv")

@@ -35,6 +35,14 @@ const COLOR_MAP: Record<string, { text: string; bg: string; accent: string; hex:
 
 const DEFAULT_COLOR = COLOR_MAP.blue
 
+/** Resolve a color name or hex string to a color config. Hex colors use inline styles. */
+function resolveColor(name: string): { text: string; bg: string; accent: string; hex: string; isCustom?: boolean } {
+  if (name.startsWith('#')) {
+    return { text: '', bg: '', accent: '', hex: name, isCustom: true }
+  }
+  return COLOR_MAP[name] ?? DEFAULT_COLOR
+}
+
 // ---------------------------------------------------------------------------
 // Aggregate functions
 // ---------------------------------------------------------------------------
@@ -83,7 +91,11 @@ function computeAggregate(values: number[], fn: string): number | null {
 // Formatting
 // ---------------------------------------------------------------------------
 
-function formatNumber(val: number): string {
+function formatNumber(val: number, decimals?: number): string {
+  if (decimals !== undefined) {
+    if (Math.abs(val) >= 1e6) return val.toExponential(decimals)
+    return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+  }
   if (Number.isInteger(val) && Math.abs(val) < 1e6) return val.toLocaleString()
   if (Math.abs(val) >= 1e6) return val.toExponential(2)
   return val.toLocaleString(undefined, { maximumFractionDigits: 2 })
@@ -100,6 +112,7 @@ const AGG_LABELS: Record<string, { en: string; fr: string }> = {
   q1: { en: 'Q1 (25th)', fr: 'Q1 (25e)' },
   q3: { en: 'Q3 (75th)', fr: 'Q3 (75e)' },
   iqr: { en: 'IQR', fr: 'IQR' },
+  proportion: { en: 'Proportion', fr: 'Proportion' },
 }
 
 // ---------------------------------------------------------------------------
@@ -143,35 +156,129 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const lang = i18n.language as 'en' | 'fr'
 
   const columnId = config.column as string | undefined
+  const uniquePerId = config.uniquePer as string | undefined
   const aggregate = (config.aggregate as string) ?? 'mean'
+  const targetValue = (config.targetValue as string | undefined) ?? ''
   const customTitle = config.title as string | undefined
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
   const chartType = (config.chartType as string) ?? 'none'
   const chartBins = (config.chartBins as number) ?? 15
+  const showXAxis = (config.showXAxis as boolean) ?? false
+  const chartPosition = (config.chartPosition as string) ?? 'below'
+  const chartColors = (config.chartColors as string) ?? 'mono'
+  const decimals = (config.decimals as number | undefined) ?? 1
+  const unit = (config.unit as string | undefined) ?? ''
+  const subtitleStats = (config.subtitleStats as string[] | undefined) ?? ['n']
+
+  const isProportion = aggregate === 'proportion'
 
   const column = columns.find(c => c.id === columnId)
-  const color = COLOR_MAP[colorName] ?? DEFAULT_COLOR
+  const color = resolveColor(colorName)
   const Icon = getLucideIcon(iconName)
 
-  const { values, result, stats } = useMemo(() => {
-    if (!column) return { values: [], result: null, stats: null }
-    const vals: number[] = []
+  // Deduplicate rows if uniquePer is set
+  const sourceRows = useMemo(() => {
+    if (!uniquePerId) return rows
+    const seen = new Map<unknown, Record<string, unknown>>()
     for (const row of rows) {
+      const key = row[uniquePerId]
+      if (key != null && !seen.has(key)) seen.set(key, row)
+    }
+    return Array.from(seen.values())
+  }, [rows, uniquePerId])
+
+  // For proportion mode: compute proportion of target value
+  const proportionResult = useMemo(() => {
+    if (!isProportion || !column) return null
+    const rawValues: unknown[] = []
+    for (const row of sourceRows) {
+      const raw = row[column.id]
+      if (raw != null) rawValues.push(raw)
+    }
+    if (rawValues.length === 0) return null
+
+    // Resolve target: use configured value, or auto-detect most frequent
+    let resolvedTarget = targetValue
+    if (!resolvedTarget) {
+      const counts = new Map<string, number>()
+      for (const v of rawValues) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1)
+      let maxCount = 0
+      for (const [k, c] of counts) {
+        if (c > maxCount) { maxCount = c; resolvedTarget = k }
+      }
+    }
+
+    const total = rawValues.length
+    const matchCount = rawValues.filter(v => String(v) === resolvedTarget).length
+    const pct = (matchCount / total) * 100
+
+    return { result: pct, n: total, matchCount, resolvedTarget }
+  }, [isProportion, column, sourceRows, targetValue])
+
+  // For numeric mode: compute numeric aggregate + all stats
+  const numericResult = useMemo(() => {
+    if (isProportion || !column) return null
+    const vals: number[] = []
+    for (const row of sourceRows) {
       const raw = row[column.id]
       if (raw == null) continue
       const num = typeof raw === 'number' ? raw : Number(raw)
       if (!isNaN(num)) vals.push(num)
     }
     const res = computeAggregate(vals, aggregate)
-    const n = vals.length
-    const sd = n > 0 ? stddev(vals) : 0
-    return { values: vals, result: res, stats: { n, sd } }
-  }, [column, rows, aggregate])
+    const stats: Record<string, number | null> = {
+      n: vals.length,
+      mean: computeAggregate(vals, 'mean'),
+      median: computeAggregate(vals, 'median'),
+      sd: vals.length > 0 ? stddev(vals) : null,
+      min: computeAggregate(vals, 'min'),
+      max: computeAggregate(vals, 'max'),
+      q1: computeAggregate(vals, 'q1'),
+      q3: computeAggregate(vals, 'q3'),
+      iqr: computeAggregate(vals, 'iqr'),
+    }
+    return { values: vals, result: res, allStats: stats }
+  }, [isProportion, column, sourceRows, aggregate])
 
-  // Title: custom or column name + aggregate label
+  // Unified result
+  const result = isProportion ? proportionResult?.result ?? null : numericResult?.result ?? null
+  const values = numericResult?.values ?? []
+
+  // Build subtitle parts
+  const subtitleParts = useMemo(() => {
+    if (isProportion) {
+      if (!proportionResult) return []
+      const parts: string[] = []
+      if (subtitleStats.includes('n')) parts.push(`n = ${proportionResult.n.toLocaleString()}`)
+      if (subtitleStats.includes('count')) parts.push(`${proportionResult.resolvedTarget} = ${proportionResult.matchCount.toLocaleString()}`)
+      return parts
+    }
+    const allStats = numericResult?.allStats
+    if (!allStats) return []
+    const STAT_LABELS: Record<string, { en: string; fr: string }> = {
+      n: { en: 'n', fr: 'n' },
+      ...AGG_LABELS,
+    }
+    return subtitleStats
+      .filter(s => s !== aggregate)
+      .map(s => {
+        const val = allStats[s]
+        if (val == null) return null
+        const label = STAT_LABELS[s]?.[lang] ?? s
+        const formatted = s === 'n' ? val.toLocaleString() : formatNumber(val, decimals)
+        return `${label} = ${formatted}`
+      })
+      .filter(Boolean) as string[]
+  }, [isProportion, proportionResult, numericResult, subtitleStats, aggregate, lang, decimals])
+
+  // Title
   const aggLabel = AGG_LABELS[aggregate]?.[lang] ?? aggregate
-  const title = customTitle?.trim() || (column ? `${aggLabel} — ${column.name}` : aggLabel)
+  const title = customTitle?.trim() || (column
+    ? isProportion && proportionResult
+      ? `${proportionResult.resolvedTarget} — ${column.name}`
+      : `${aggLabel} — ${column.name}`
+    : aggLabel)
 
   if (!column) {
     return (
@@ -189,49 +296,76 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     )
   }
 
-  const content = (
-    <>
+  const hasChart = chartType !== 'none' && (values.length > 0 || (isProportion && sourceRows.length > 0))
+  const isSideChart = hasChart && chartPosition === 'side'
+
+  const kpiContent = (
+    <div className={isSideChart ? 'flex-1 min-w-0' : undefined}>
       {/* Icon + title */}
       <div className="flex items-center gap-2 mb-1">
-        <Icon size={compact ? 16 : 18} className={color.text} />
+        <Icon size={compact ? 16 : 18} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
         <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
       </div>
 
-      {/* Big number */}
-      <div className={cn('font-bold tracking-tight mt-2', color.text, compact ? 'text-3xl' : 'text-4xl')}>
-        {formatNumber(result)}
+      {/* Big number + unit */}
+      <div className={cn('flex items-baseline gap-1.5 mt-2')}>
+        <span className={cn('font-bold tracking-tight', color.text, compact ? 'text-3xl' : 'text-4xl')} style={color.isCustom ? { color: color.hex } : undefined}>
+          {formatNumber(result, decimals)}
+        </span>
+        {unit && (
+          <span className={cn('font-medium text-muted-foreground', compact ? 'text-base' : 'text-lg')}>
+            {unit}
+          </span>
+        )}
       </div>
 
-      {/* Subtitle */}
-      {stats && (
+      {/* Subtitle stats */}
+      {subtitleParts.length > 0 && (
         <div className="mt-1.5 text-xs text-muted-foreground">
-          n = {stats.n.toLocaleString()}
-          {aggregate !== 'count' && aggregate !== 'sd' && (
-            <> &middot; SD = {formatNumber(stats.sd)}</>
-          )}
+          {subtitleParts.join(' \u00b7 ')}
         </div>
       )}
 
-      {/* Mini-chart */}
-      {chartType !== 'none' && values.length > 0 && (
+      {/* Mini-chart below */}
+      {hasChart && !isSideChart && (
         <div className="mt-3">
           <MiniChart
             values={values}
             chartType={chartType}
             bins={chartBins}
+            showXAxis={showXAxis}
             hexColor={color.hex}
+            colorMode={chartColors as 'mono' | 'multi'}
             column={column}
-            rows={rows}
+            rows={sourceRows}
           />
         </div>
       )}
-    </>
+    </div>
   )
+
+  const content = isSideChart ? (
+    <div className="flex items-center gap-4">
+      {kpiContent}
+      <div className="w-1/2 shrink-0">
+        <MiniChart
+          values={values}
+          chartType={chartType}
+          bins={chartBins}
+          showXAxis={showXAxis}
+          hexColor={color.hex}
+          colorMode={chartColors as 'mono' | 'multi'}
+          column={column}
+          rows={sourceRows}
+        />
+      </div>
+    </div>
+  ) : kpiContent
 
   // Compact mode: fill entire widget, no inner card border
   if (compact) {
     return (
-      <div className={cn('flex h-full flex-col justify-center p-4', color.bg)}>
+      <div className={cn('flex h-full flex-col justify-center p-4', color.bg)} style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}>
         {content}
       </div>
     )
@@ -240,7 +374,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Standard mode (analysis panel): centered card with border
   return (
     <div className="flex h-full flex-col items-center justify-center p-6">
-      <div className={cn('w-full max-w-sm rounded-xl border p-6', color.bg, color.accent)}>
+      <div className={cn('w-full max-w-sm rounded-xl border p-6', color.bg, color.accent)} style={color.isCustom ? { backgroundColor: `${color.hex}10`, borderColor: `${color.hex}30` } : undefined}>
         {content}
       </div>
     </div>
@@ -255,14 +389,23 @@ interface MiniChartProps {
   values: number[]
   chartType: string
   bins: number
+  showXAxis?: boolean
   hexColor: string
+  colorMode?: 'mono' | 'multi'
   column: { id: string; name: string; type: string }
   rows: Record<string, unknown>[]
 }
 
 const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChartProps) {
+const TOOLTIP_STYLE = {
+  contentStyle: { fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.85)', border: 'none', borderRadius: 4, color: '#fff' },
+  labelStyle: { fontSize: 10, color: '#fff' },
+  itemStyle: { fontSize: 10, color: '#fff', padding: 0 },
+  cursor: { fill: 'rgba(255,255,255,.15)' },
+} as const
+
+function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
   const data = useMemo(() => {
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins)
@@ -288,36 +431,44 @@ function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChar
 
   if (chartType === 'histogram') {
     return (
-      <ResponsiveContainer width="100%" height={100}>
-        <BarChart data={data} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={showXAxis ? 120 : 100}>
+        <BarChart data={data} margin={{ top: 0, right: 4, left: 4, bottom: showXAxis ? 4 : 0 }}>
+          {showXAxis && (
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 8 }}
+              interval="preserveStartEnd"
+              tickLine={false}
+              axisLine={false}
+            />
+          )}
           <Bar dataKey="count" fill={hexColor} opacity={0.7} radius={[2, 2, 0, 0]} />
-          <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
-            labelStyle={{ fontSize: 10, color: '#fff' }}
-            cursor={{ fill: 'rgba(255,255,255,.15)' }}
-          />
+          <Tooltip {...TOOLTIP_STYLE} />
         </BarChart>
       </ResponsiveContainer>
     )
   }
 
   if (chartType === 'bar') {
+    const useMulti = colorMode === 'multi'
     return (
       <ResponsiveContainer width="100%" height={Math.max(80, data.length * 22)}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
           <XAxis type="number" hide />
           <YAxis type="category" dataKey="name" width={60} tick={{ fontSize: 9 }} />
-          <Bar dataKey="value" fill={hexColor} opacity={0.7} radius={[0, 2, 2, 0]} />
-          <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
-            cursor={{ fill: 'rgba(255,255,255,.15)' }}
-          />
+          <Bar dataKey="value" fill={useMulti ? undefined : hexColor} opacity={0.7} radius={[0, 2, 2, 0]}>
+            {useMulti && data.map((_, i) => (
+              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+            ))}
+          </Bar>
+          <Tooltip {...TOOLTIP_STYLE} />
         </BarChart>
       </ResponsiveContainer>
     )
   }
 
   if (chartType === 'pie') {
+    const useMono = colorMode === 'mono'
     return (
       <ResponsiveContainer width="100%" height={120}>
         <PieChart>
@@ -333,12 +484,10 @@ function MiniChart({ values, chartType, bins, hexColor, column, rows }: MiniChar
             strokeWidth={0}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+              <Cell key={i} fill={useMono ? hexColor : PIE_COLORS[i % PIE_COLORS.length]} opacity={useMono ? 0.5 + (i / data.length) * 0.5 : 1} />
             ))}
           </Pie>
-          <Tooltip
-            contentStyle={{ fontSize: 10, padding: '4px 8px', background: 'rgba(0,0,0,.8)', border: 'none', borderRadius: 4, color: '#fff' }}
-          />
+          <Tooltip {...TOOLTIP_STYLE} />
         </PieChart>
       </ResponsiveContainer>
     )

@@ -1481,7 +1481,8 @@
     "general_db_browse_empty": "Empty folder",
     "general_db_browse_use_folder": "Use this folder",
     "general_db_browse_select": "Select file",
-    "general_db_info": "This database stores application data (users, projects, settings). It is not the clinical data warehouse. In local mode (no backend), all data is stored in the browser via IndexedDB."
+    "general_db_requires_backend": "Application database requires a backend connection",
+    "general_db_requires_backend_description": "The application database configuration is available when running Linkr with the API server. In local mode, all data is stored in the browser via IndexedDB."
   },
   "schemas": {
     "title": "Schemas",
@@ -1835,7 +1836,8 @@
     "import_conflict_title": "Item already exists",
     "import_conflict_description": "An item named \"{{name}}\" already exists. What would you like to do?",
     "import_duplicate": "Create copy",
-    "import_overwrite": "Overwrite"
+    "import_overwrite": "Overwrite",
+    "auto": "Auto"
   },
   "user_menu": {
     "profile": "Profile",
