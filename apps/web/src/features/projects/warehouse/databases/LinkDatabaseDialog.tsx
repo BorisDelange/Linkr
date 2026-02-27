@@ -21,11 +21,13 @@ interface LinkDatabaseDialogProps {
   projectUid: string
 }
 
+const EMPTY_IDS: string[] = []
+
 export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatabaseDialogProps) {
   const { t } = useTranslation()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const linkedIds = useAppStore((s) =>
-    s._projectsRaw.find((p) => p.uid === projectUid)?.linkedDataSourceIds ?? [],
+    s._projectsRaw.find((p) => p.uid === projectUid)?.linkedDataSourceIds ?? EMPTY_IDS,
   )
   const linkDataSource = useAppStore((s) => s.linkDataSource)
 

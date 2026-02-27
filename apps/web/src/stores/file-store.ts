@@ -114,6 +114,7 @@ function getLanguageForFile(name: string): string {
 // Bump this version whenever default demo file content changes.
 // On load, if the user's stored files still have a previous version,
 // the default file contents are silently updated in IndexedDB.
+const DEMO_PROJECT_UID = '00000000-0000-0000-0000-000000000001'
 const DEMO_FILES_VERSION = 6
 const DEMO_FILES_VERSION_KEY = 'linkr-demo-files-version'
 
@@ -581,11 +582,10 @@ export const useFileStore = create<FileState>((set, get) => ({
           expandedFolders: rootFolders,
           _dirtyVersion: 0,
         })
-      } else {
-        // Seed with defaults (unique IDs per project)
+      } else if (projectUid === DEMO_PROJECT_UID) {
+        // Seed demo project with example files
         const seeded = createDefaultFiles(projectUid)
         await hydrateDemoFiles(seeded)
-        // Populate saved content snapshots
         for (const f of seeded) {
           if (f.type === 'file' && f.content !== undefined) {
             _savedContent.set(f.id, f.content)
@@ -602,25 +602,30 @@ export const useFileStore = create<FileState>((set, get) => ({
           expandedFolders: rootFolders,
           _dirtyVersion: 0,
         })
-        // Persist seeds
         for (const f of seeded) {
           await storage.ideFiles.create(f)
         }
         const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
         localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
+      } else {
+        // New project — start with an empty file tree
+        set({
+          files: [],
+          activeProjectUid: projectUid,
+          selectedFileId: null,
+          openFileIds: [],
+          expandedFolders: [],
+          _dirtyVersion: 0,
+        })
       }
     } catch {
-      // Storage not ready — use defaults
-      const seeded = createDefaultFiles(projectUid)
-      const rootFolders = seeded
-        .filter((f) => f.type === 'folder' && f.parentId === null)
-        .map((f) => f.id)
+      // Storage not ready — start empty
       set({
-        files: seeded,
+        files: [],
         activeProjectUid: projectUid,
         selectedFileId: null,
         openFileIds: [],
-        expandedFolders: rootFolders,
+        expandedFolders: [],
       })
     } finally {
       _loadingProjectUid = null

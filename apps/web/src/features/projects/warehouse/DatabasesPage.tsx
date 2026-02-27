@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -22,18 +22,21 @@ import { DatabaseDetailSheet } from './databases/DatabaseDetailSheet'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
 import { ExportDatabaseDialog } from './databases/ExportDatabaseDialog'
 
+const EMPTY_IDS: string[] = []
+
 export function DatabasesPage() {
   const { t } = useTranslation()
   const { uid } = useParams()
-  const {
-    getProjectSources,
-    getActiveSource,
-    setActiveDataSource,
-    testConnection,
-    disconnectDataSource,
-    mountProjectSources,
-    reconnectDataSource,
-  } = useDataSourceStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const setActiveDataSource = useDataSourceStore((s) => s.setActiveDataSource)
+  const testConnection = useDataSourceStore((s) => s.testConnection)
+  const disconnectDataSource = useDataSourceStore((s) => s.disconnectDataSource)
+  const mountProjectSources = useDataSourceStore((s) => s.mountProjectSources)
+  const reconnectDataSource = useDataSourceStore((s) => s.reconnectDataSource)
+  const activeDataSourceIds = useDataSourceStore((s) => s.activeDataSourceIds)
+  const linkedIds = useAppStore((s) =>
+    s._projectsRaw.find((p) => p.uid === uid)?.linkedDataSourceIds ?? EMPTY_IDS,
+  )
   const unlinkDataSource = useAppStore((s) => s.unlinkDataSource)
 
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
@@ -48,8 +51,22 @@ export function DatabasesPage() {
     }
   }, [uid, mountProjectSources])
 
-  const sources = uid ? getProjectSources(uid).filter((ds) => !ds.isVocabularyReference) : []
-  const activeSource = uid ? getActiveSource(uid) : undefined
+  const sources = useMemo(() => {
+    if (!uid) return []
+    return dataSources.filter((ds) => linkedIds.includes(ds.id) && !ds.isVocabularyReference)
+  }, [uid, dataSources, linkedIds])
+
+  const activeSource = useMemo(() => {
+    if (!uid) return undefined
+    const activeId = activeDataSourceIds[uid]
+    if (activeId) {
+      const ds = dataSources.find((d) => d.id === activeId && d.status === 'connected')
+      if (ds) return ds
+    }
+    return sources.find(
+      (ds) => !!ds.schemaMapping?.patientTable && ds.status === 'connected',
+    )
+  }, [uid, activeDataSourceIds, dataSources, sources])
 
   // Auto-select first connected mapped source if none is active
   useEffect(() => {
