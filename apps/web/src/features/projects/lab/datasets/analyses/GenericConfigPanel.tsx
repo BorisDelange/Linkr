@@ -61,6 +61,7 @@ export function GenericConfigPanel({
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
     if (!field.visibleWhen) return true
     const depValue = configWithDefaults[field.visibleWhen.field]
+    if (field.visibleWhen.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
     return depValue === field.visibleWhen.value
   })
 

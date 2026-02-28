@@ -12,7 +12,7 @@ import {
   Tooltip,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 // ---------------------------------------------------------------------------
@@ -119,6 +119,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
 
   const columnId = config.column as string | undefined
   const uniquePerId = config.uniquePer as string | undefined
+  const uniqueAggregation = (config.uniqueAggregation as string) ?? 'first'
   const aggregate = (config.aggregate as string) ?? 'mean'
   const targetValue = (config.targetValue as string | undefined) ?? ''
   const customTitle = config.title as string | undefined
@@ -139,16 +140,11 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const color = resolveColor(colorName)
   const Icon = getLucideIcon(iconName)
 
-  // Deduplicate rows if uniquePer is set
+  // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
     if (!uniquePerId) return rows
-    const seen = new Map<unknown, Record<string, unknown>>()
-    for (const row of rows) {
-      const key = row[uniquePerId]
-      if (key != null && !seen.has(key)) seen.set(key, row)
-    }
-    return Array.from(seen.values())
-  }, [rows, uniquePerId])
+    return aggregateByEntity(rows, uniquePerId, uniqueAggregation)
+  }, [rows, uniquePerId, uniqueAggregation])
 
   // For proportion mode: compute proportion of target value
   const proportionResult = useMemo(() => {

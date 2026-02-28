@@ -15,7 +15,7 @@ import {
   Legend,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 // ---------------------------------------------------------------------------
@@ -322,6 +322,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const xCol = config.xColumn as string | undefined
   const yCol = config.yColumn as string | undefined
   const uniquePerId = config.uniquePer as string | undefined
+  const uniqueAggregation = (config.uniqueAggregation as string) ?? 'first'
   const groupCol = config.groupColumn as string | undefined
   const bins = (config.bins as number) ?? 20
   const barMode = (config.barMode as string) ?? 'grouped'
@@ -346,16 +347,11 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     return paletteColors
   }, [displayStyle, groupCol, cardColorResolved.hex, paletteColors])
 
-  // Deduplicate rows if uniquePer is set
+  // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
     if (!uniquePerId) return rows
-    const seen = new Map<unknown, Record<string, unknown>>()
-    for (const row of rows) {
-      const key = row[uniquePerId]
-      if (key != null && !seen.has(key)) seen.set(key, row)
-    }
-    return Array.from(seen.values())
-  }, [rows, uniquePerId])
+    return aggregateByEntity(rows, uniquePerId, uniqueAggregation)
+  }, [rows, uniquePerId, uniqueAggregation])
 
   // Resolve group names
   const groupNames = useMemo(() => {

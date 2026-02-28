@@ -96,9 +96,28 @@
       "label": { "en": "Unique per", "fr": "Unique par" },
       "optional": true,
       "description": {
-        "en": "Deduplicate rows by this column before plotting. Useful when the dataset has multiple rows per entity (e.g. one row per visit) but the plotted values are at a higher level (e.g. per patient).",
-        "fr": "Déduplique les lignes selon cette colonne avant de tracer. Utile quand le dataset a plusieurs lignes par entité (ex : une ligne par séjour) mais que les valeurs tracées sont à un niveau supérieur (ex : par patient)."
+        "en": "Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.",
+        "fr": "Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient."
       }
+    },
+    "uniqueAggregation": {
+      "type": "select",
+      "label": { "en": "Per-entity function", "fr": "Fonction par entité" },
+      "default": "first",
+      "visibleWhen": { "field": "uniquePer", "notEmpty": true },
+      "description": {
+        "en": "How to reduce multiple rows into one value per entity. Use \"First\" for values that are the same across rows (e.g. age), or \"Mean\" to average measurements.",
+        "fr": "Comment réduire plusieurs lignes en une valeur par entité. Utilisez « Premier » pour les valeurs identiques (ex : âge), ou « Moyenne » pour moyenner des mesures."
+      },
+      "options": [
+        { "value": "first", "label": { "en": "First value", "fr": "Première valeur" } },
+        { "value": "last", "label": { "en": "Last value", "fr": "Dernière valeur" } },
+        { "value": "mean", "label": { "en": "Mean", "fr": "Moyenne" } },
+        { "value": "median", "label": { "en": "Median", "fr": "Médiane" } },
+        { "value": "min", "label": { "en": "Min", "fr": "Min" } },
+        { "value": "max", "label": { "en": "Max", "fr": "Max" } },
+        { "value": "sum", "label": { "en": "Sum", "fr": "Somme" } }
+      ]
     },
     "groupColumn": {
       "type": "column-select",

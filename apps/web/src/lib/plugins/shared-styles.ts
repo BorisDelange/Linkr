@@ -49,3 +49,85 @@ export const TOOLTIP_STYLE = {
   itemStyle: { fontSize: 10, color: '#fff', padding: 0 },
   cursor: { fill: 'rgba(255,255,255,.15)' },
 } as const
+
+// ---------------------------------------------------------------------------
+// Per-entity aggregation — shared by KeyIndicator, PlotBuilder, etc.
+// ---------------------------------------------------------------------------
+
+/**
+ * Group rows by `entityCol` and reduce each group to a single row using `aggFn`.
+ *
+ * - `first` / `last`: keep the first or last row encountered
+ * - `mean`, `median`, `min`, `max`, `sum`: aggregate all **numeric** columns,
+ *   keeping the first value for non-numeric columns
+ */
+export function aggregateByEntity(
+  rows: Record<string, unknown>[],
+  entityCol: string,
+  aggFn: string,
+): Record<string, unknown>[] {
+  if (rows.length === 0) return rows
+
+  // Group rows by entity
+  const groups = new Map<unknown, Record<string, unknown>[]>()
+  for (const row of rows) {
+    const key = row[entityCol]
+    if (key == null) continue
+    let list = groups.get(key)
+    if (!list) { list = []; groups.set(key, list) }
+    list.push(row)
+  }
+
+  // For first/last, just pick the row directly
+  if (aggFn === 'first') {
+    return Array.from(groups.values()).map(g => g[0])
+  }
+  if (aggFn === 'last') {
+    return Array.from(groups.values()).map(g => g[g.length - 1])
+  }
+
+  // Numeric aggregation: collect all column keys from first row
+  const colKeys = Object.keys(rows[0])
+
+  return Array.from(groups.values()).map(group => {
+    const result: Record<string, unknown> = {}
+    for (const col of colKeys) {
+      // Try numeric aggregation
+      const nums: number[] = []
+      for (const row of group) {
+        const v = row[col]
+        if (v == null) continue
+        const n = typeof v === 'number' ? v : Number(v)
+        if (!isNaN(n)) nums.push(n)
+      }
+
+      if (nums.length > 0 && col !== entityCol) {
+        result[col] = aggregateNumbers(nums, aggFn)
+      } else {
+        // Non-numeric or entity column: keep first value
+        result[col] = group[0][col]
+      }
+    }
+    return result
+  })
+}
+
+function aggregateNumbers(nums: number[], fn: string): number {
+  switch (fn) {
+    case 'mean':
+      return nums.reduce((s, v) => s + v, 0) / nums.length
+    case 'median': {
+      const sorted = [...nums].sort((a, b) => a - b)
+      const mid = Math.floor(sorted.length / 2)
+      return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
+    }
+    case 'min':
+      return Math.min(...nums)
+    case 'max':
+      return Math.max(...nums)
+    case 'sum':
+      return nums.reduce((s, v) => s + v, 0)
+    default:
+      return nums[0]
+  }
+}
