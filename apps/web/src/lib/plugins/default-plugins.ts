@@ -63,27 +63,41 @@ export function registerDefaultPlugins() {
       icon: 'Gauge',
       iconColor: 'blue',
       configSchema: {
+        // --- Appearance ---
         title: {
           type: 'string',
           label: { en: 'Title', fr: 'Titre' },
           default: '',
+          row: 'title',
+          section: { en: 'Appearance', fr: 'Apparence' },
+        },
+        centerTitle: {
+          type: 'boolean',
+          label: { en: 'Center', fr: 'Centrer' },
+          default: false,
+          row: 'title',
+          section: { en: 'Appearance', fr: 'Apparence' },
         },
         icon: {
           type: 'icon-select',
           label: { en: 'Icon', fr: 'Icône' },
           default: 'Activity',
           row: 'appearance',
+          section: { en: 'Appearance', fr: 'Apparence' },
         },
         color: {
           type: 'color-select',
           label: { en: 'Color', fr: 'Couleur' },
           default: 'blue',
           row: 'appearance',
+          section: { en: 'Appearance', fr: 'Apparence' },
         },
+        // --- Data ---
         column: {
           type: 'column-select',
           label: { en: 'Column', fr: 'Colonne' },
           row: 'columnStat',
+          section: { en: 'Data', fr: 'Données' },
           autoSet: {
             numeric: { aggregate: 'mean', unit: '', targetValue: '' },
             categorical: { aggregate: 'proportion', unit: '%', targetValue: '' },
@@ -94,6 +108,7 @@ export function registerDefaultPlugins() {
           label: { en: 'Statistic', fr: 'Statistique' },
           default: 'mean',
           row: 'columnStat',
+          section: { en: 'Data', fr: 'Données' },
           filterOptionsByColumn: 'column',
           description: {
             en: 'The final statistic to display. When "Unique per" is set, this is computed on the per-entity values.',
@@ -120,6 +135,7 @@ export function registerDefaultPlugins() {
           columnField: 'column',
           optional: true,
           visibleWhen: { field: 'aggregate', value: 'proportion' },
+          section: { en: 'Data', fr: 'Données' },
           description: {
             en: 'The value to count for computing the proportion. Leave empty to auto-detect the most common value.',
             fr: 'La valeur à compter pour calculer la proportion. Laisser vide pour auto-détecter la valeur la plus fréquente.',
@@ -130,6 +146,7 @@ export function registerDefaultPlugins() {
           label: { en: 'Unique per', fr: 'Unique par' },
           optional: true,
           row: 'unique',
+          section: { en: 'Data', fr: 'Données' },
           description: {
             en: 'Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.',
             fr: 'Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient.',
@@ -141,6 +158,7 @@ export function registerDefaultPlugins() {
           default: 'first',
           row: 'unique',
           visibleWhen: { field: 'uniquePer', notEmpty: true },
+          section: { en: 'Data', fr: 'Données' },
           description: {
             en: 'How to reduce multiple rows into one value per entity. Use "First" for values that are the same across rows (e.g. age), or "Mean" to average measurements across rows.',
             fr: "Comment réduire plusieurs lignes en une valeur par entité. Utilisez « Premier » pour les valeurs identiques entre les lignes (ex : âge), ou « Moyenne » pour moyenner des mesures.",
@@ -156,6 +174,7 @@ export function registerDefaultPlugins() {
           ],
           filterOptionsByColumn: 'column',
         },
+        // --- Style (collapsed by default) ---
         decimals: {
           type: 'number',
           label: { en: 'Decimals', fr: 'Décimales' },
@@ -163,18 +182,21 @@ export function registerDefaultPlugins() {
           min: 0,
           max: 10,
           row: 'format',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
         unit: {
           type: 'string',
           label: { en: 'Unit', fr: 'Unité' },
           default: '',
           row: 'format',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
         subtitleStats: {
           type: 'select',
           label: { en: 'Subtitle stats', fr: 'Stats sous-titre' },
           multi: true,
           default: ['n'],
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'n', label: { en: 'n (count)', fr: 'n (effectif)' } },
             { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' } },
@@ -192,6 +214,7 @@ export function registerDefaultPlugins() {
           label: { en: 'Mini-chart', fr: 'Mini-graphique' },
           default: 'none',
           row: 'chart',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
           filterOptionsByColumn: 'column',
           options: [
             { value: 'none', label: { en: 'None', fr: 'Aucun' } },
@@ -208,6 +231,7 @@ export function registerDefaultPlugins() {
           max: 50,
           row: 'chartOptions',
           visibleWhen: { field: 'chartType', value: 'histogram' },
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
         showXAxis: {
           type: 'boolean',
@@ -215,12 +239,14 @@ export function registerDefaultPlugins() {
           default: false,
           row: 'chartOptions',
           visibleWhen: { field: 'chartType', value: 'histogram' },
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
         chartPosition: {
           type: 'select',
           label: { en: 'Position', fr: 'Position' },
           default: 'below',
           row: 'chartLayout',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'below', label: { en: 'Below', fr: 'En dessous' } },
             { value: 'side', label: { en: 'Side', fr: 'À côté' } },
@@ -231,6 +257,7 @@ export function registerDefaultPlugins() {
           label: { en: 'Colors', fr: 'Couleurs' },
           default: 'mono',
           row: 'chartLayout',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'mono', label: { en: 'Mono', fr: 'Mono' } },
             { value: 'multi', label: { en: 'Multi', fr: 'Multi' } },

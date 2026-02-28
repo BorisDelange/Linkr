@@ -19,36 +19,36 @@
     "title": {
       "type": "string",
       "label": { "en": "Title", "fr": "Titre" },
-      "default": ""
+      "default": "",
+      "row": "title",
+      "section": { "en": "Appearance", "fr": "Apparence" }
     },
-    "displayStyle": {
-      "type": "select",
-      "label": { "en": "Display style", "fr": "Style d'affichage" },
-      "default": "chart",
-      "row": "display",
-      "options": [
-        { "value": "chart", "label": { "en": "Chart", "fr": "Graphique" } },
-        { "value": "card", "label": { "en": "Card", "fr": "Carte" } }
-      ]
+    "centerTitle": {
+      "type": "boolean",
+      "label": { "en": "Center", "fr": "Centrer" },
+      "default": false,
+      "row": "title",
+      "section": { "en": "Appearance", "fr": "Apparence" }
     },
     "cardIcon": {
       "type": "icon-select",
       "label": { "en": "Icon", "fr": "Icône" },
-      "default": "ChartScatter",
-      "row": "display",
-      "visibleWhen": { "field": "displayStyle", "value": "card" }
+      "default": "__none__",
+      "row": "appearance",
+      "section": { "en": "Appearance", "fr": "Apparence" }
     },
     "cardColor": {
       "type": "color-select",
       "label": { "en": "Color", "fr": "Couleur" },
-      "default": "blue",
-      "row": "display",
-      "visibleWhen": { "field": "displayStyle", "value": "card" }
+      "default": "none",
+      "row": "appearance",
+      "section": { "en": "Appearance", "fr": "Apparence" }
     },
     "plotType": {
       "type": "select",
       "label": { "en": "Plot type", "fr": "Type de graphique" },
       "default": "scatter",
+      "section": { "en": "Data", "fr": "Données" },
       "options": [
         { "value": "scatter", "label": { "en": "Scatter plot", "fr": "Nuage de points" } },
         { "value": "line", "label": { "en": "Line plot", "fr": "Lignes" } },
@@ -62,6 +62,7 @@
       "type": "column-select",
       "label": { "en": "X variable", "fr": "Variable X" },
       "row": "columns",
+      "section": { "en": "Data", "fr": "Données" },
       "hintWhen": {
         "field": "plotType",
         "values": {
@@ -79,6 +80,7 @@
       "label": { "en": "Y variable", "fr": "Variable Y" },
       "optional": true,
       "row": "columns",
+      "section": { "en": "Data", "fr": "Données" },
       "hintWhen": {
         "field": "plotType",
         "values": {
@@ -95,6 +97,8 @@
       "type": "column-select",
       "label": { "en": "Unique per", "fr": "Unique par" },
       "optional": true,
+      "row": "unique",
+      "section": { "en": "Data", "fr": "Données" },
       "description": {
         "en": "Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.",
         "fr": "Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient."
@@ -104,6 +108,8 @@
       "type": "select",
       "label": { "en": "Per-entity function", "fr": "Fonction par entité" },
       "default": "first",
+      "row": "unique",
+      "section": { "en": "Data", "fr": "Données" },
       "visibleWhen": { "field": "uniquePer", "notEmpty": true },
       "description": {
         "en": "How to reduce multiple rows into one value per entity. Use \"First\" for values that are the same across rows (e.g. age), or \"Mean\" to average measurements.",
@@ -123,31 +129,47 @@
       "type": "column-select",
       "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
       "optional": true,
-      "row": "group"
-    },
-    "colorPalette": {
-      "type": "select",
-      "label": { "en": "Color palette", "fr": "Palette" },
-      "default": "default",
       "row": "group",
-      "options": [
-        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
-        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
-        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
-        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } }
-      ]
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Split data into groups by this column. Each group gets a different color.",
+        "fr": "Sépare les données en groupes selon cette colonne. Chaque groupe a une couleur différente."
+      }
     },
     "barMode": {
       "type": "select",
       "label": { "en": "Bar mode", "fr": "Mode des barres" },
       "default": "grouped",
-      "row": "histoOptions",
-      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "row": "group",
+      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": [
+        { "field": "plotType", "value": "histogram" },
+        { "field": "groupColumn", "notEmpty": true }
+      ],
       "options": [
         { "value": "grouped", "label": { "en": "Grouped", "fr": "Groupées" } },
         { "value": "stacked", "label": { "en": "Stacked", "fr": "Empilées" } },
         { "value": "overlay", "label": { "en": "Overlay", "fr": "Superposées" } }
       ]
+    },
+    "excludeNA": {
+      "type": "boolean",
+      "label": { "en": "Exclude NA / missing", "fr": "Exclure NA / manquants" },
+      "default": true,
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Remove rows where X or Y values are null, empty, or NA before plotting.",
+        "fr": "Supprime les lignes où les valeurs X ou Y sont nulles, vides ou NA avant de tracer."
+      }
+    },
+    "pointSize": {
+      "type": "number",
+      "label": { "en": "Point / line size", "fr": "Taille points / lignes" },
+      "default": 4,
+      "min": 1,
+      "max": 15,
+      "row": "sizeRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "bins": {
       "type": "number",
@@ -156,15 +178,8 @@
       "min": 5,
       "max": 200,
       "visibleWhen": { "field": "plotType", "value": "histogram" },
-      "row": "histoOptions"
-    },
-    "pointSize": {
-      "type": "number",
-      "label": { "en": "Point / line size", "fr": "Taille points / lignes" },
-      "default": 4,
-      "min": 1,
-      "max": 15,
-      "row": "style"
+      "row": "sizeRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "opacity": {
       "type": "number",
@@ -172,31 +187,49 @@
       "default": 70,
       "min": 0,
       "max": 100,
-      "row": "style"
+      "row": "paletteRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "colorPalette": {
+      "type": "select",
+      "label": { "en": "Color palette", "fr": "Palette" },
+      "default": "default",
+      "row": "paletteRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "options": [
+        { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
+        { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
+        { "value": "vivid", "label": { "en": "Vivid", "fr": "Vives" } },
+        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } }
+      ]
     },
     "xLabel": {
       "type": "string",
       "label": { "en": "X axis label", "fr": "Légende axe X" },
       "default": "",
-      "row": "labels"
+      "row": "labels",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "yLabel": {
       "type": "string",
       "label": { "en": "Y axis label", "fr": "Légende axe Y" },
       "default": "",
-      "row": "labels"
+      "row": "labels",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "showGrid": {
       "type": "boolean",
       "label": { "en": "Show grid", "fr": "Grille" },
       "default": true,
-      "row": "toggles"
+      "row": "toggles",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "showLegend": {
       "type": "boolean",
       "label": { "en": "Show legend", "fr": "Légende" },
       "default": true,
-      "row": "toggles"
+      "row": "toggles",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     }
   }
 }

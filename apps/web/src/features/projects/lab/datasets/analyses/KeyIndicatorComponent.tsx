@@ -123,6 +123,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const aggregate = (config.aggregate as string) ?? 'mean'
   const targetValue = (config.targetValue as string | undefined) ?? ''
   const customTitle = config.title as string | undefined
+  const centerTitle = (config.centerTitle as boolean) ?? false
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
   const chartType = (config.chartType as string) ?? 'none'
@@ -260,13 +261,13 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const kpiContent = (
     <div className={isSideChart ? 'flex-1 min-w-0' : undefined}>
       {/* Icon + title */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
         <Icon size={compact ? 16 : 18} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
         <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
       </div>
 
       {/* Big number + unit */}
-      <div className={cn('flex items-baseline gap-1.5 mt-2')}>
+      <div className={cn('flex items-baseline gap-1.5 mt-2', centerTitle && 'justify-center')}>
         <span className={cn('font-bold tracking-tight', color.text, compact ? 'text-3xl' : 'text-4xl')} style={color.isCustom ? { color: color.hex } : undefined}>
           {formatNumber(result, decimals)}
         </span>
@@ -279,7 +280,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
 
       {/* Subtitle stats */}
       {subtitleParts.length > 0 && (
-        <div className="mt-1.5 text-xs text-muted-foreground">
+        <div className={cn('mt-1.5 text-xs text-muted-foreground', centerTitle && 'text-center')}>
           {subtitleParts.join(' \u00b7 ')}
         </div>
       )}

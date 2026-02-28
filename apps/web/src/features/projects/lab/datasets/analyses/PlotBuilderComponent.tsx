@@ -315,9 +315,9 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const { t } = useTranslation()
 
   // Config
-  const displayStyle = (config.displayStyle as string) ?? 'chart'
-  const cardIcon = (config.cardIcon as string) ?? 'ChartScatter'
-  const cardColor = (config.cardColor as string) ?? 'blue'
+  const cardIcon = (config.cardIcon as string) ?? '__none__'
+  const cardColor = (config.cardColor as string) ?? 'none'
+  const centerTitle = (config.centerTitle as boolean) ?? false
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
   const yCol = config.yColumn as string | undefined
@@ -326,6 +326,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const groupCol = config.groupColumn as string | undefined
   const bins = (config.bins as number) ?? 20
   const barMode = (config.barMode as string) ?? 'grouped'
+  const excludeNA = (config.excludeNA as boolean) ?? true
   const pointSize = (config.pointSize as number) ?? 4
   const opacityPct = (config.opacity as number) ?? 70
   const paletteName = (config.colorPalette as string) ?? 'default'
@@ -338,20 +339,37 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const opacity = opacityPct / 100
   const paletteColors = PALETTES[paletteName] ?? PALETTES.default
 
-  // In card mode without groups, use the card color as the primary chart color
+  // Use card color as primary chart color when no groups and color is set
   const cardColorResolved = resolveColor(cardColor)
+  const hasCardColor = cardColor !== 'none' && cardColor !== ''
   const colors = useMemo(() => {
-    if (displayStyle === 'card' && !groupCol) {
+    if (hasCardColor && !groupCol) {
       return [cardColorResolved.hex, ...paletteColors.slice(1)]
     }
     return paletteColors
-  }, [displayStyle, groupCol, cardColorResolved.hex, paletteColors])
+  }, [hasCardColor, groupCol, cardColorResolved.hex, paletteColors])
 
   // Aggregate rows per entity if uniquePer is set
-  const sourceRows = useMemo(() => {
+  const aggregatedRows = useMemo(() => {
     if (!uniquePerId) return rows
     return aggregateByEntity(rows, uniquePerId, uniqueAggregation)
   }, [rows, uniquePerId, uniqueAggregation])
+
+  // Filter out NA / missing values if excludeNA is enabled
+  const sourceRows = useMemo(() => {
+    if (!excludeNA) return aggregatedRows
+    return aggregatedRows.filter(row => {
+      if (xCol) {
+        const xVal = row[xCol]
+        if (xVal == null || xVal === '' || String(xVal).toLowerCase() === 'na') return false
+      }
+      if (yCol) {
+        const yVal = row[yCol]
+        if (yVal == null || yVal === '' || String(yVal).toLowerCase() === 'na') return false
+      }
+      return true
+    })
+  }, [aggregatedRows, excludeNA, xCol, yCol])
 
   // Resolve group names
   const groupNames = useMemo(() => {
@@ -368,8 +386,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const xColumn = columns.find(c => c.id === xCol)
   const yColumn = columns.find(c => c.id === yCol)
 
-  const resolvedXLabel = xLabel || xColumn?.name || xCol || 'X'
-  const resolvedYLabel = yLabel || yColumn?.name || yCol || 'Y'
+  const resolvedXLabel = xLabel || ''
+  const resolvedYLabel = yLabel || ''
   const resolvedTitle =
     chartTitle ||
     (plotType === 'histogram'
@@ -384,7 +402,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     )
   }
 
-  if (plotType !== 'histogram' && !yColumn) {
+  const needsY = plotType === 'scatter' || plotType === 'line'
+  if (needsY && !yColumn) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
         {t('datasets.plot_builder_select_y', 'Select a Y variable.')}
@@ -490,56 +509,57 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     </>
   )
 
-  // --- Card mode ---
-  if (displayStyle === 'card') {
-    const color = cardColorResolved
-    const Icon = getLucideIcon(cardIcon)
+  // --- Rendering ---
+  const color = cardColorResolved
+  const hasIcon = cardIcon !== '__none__' && cardIcon !== ''
+  const Icon = hasIcon ? getLucideIcon(cardIcon) : null
 
-    if (compact) {
-      return (
-        <div
-          className={cn('flex h-full flex-col', color.bg)}
-          style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
-        >
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-            <Icon size={16} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
-            {resolvedTitle && (
-              <span className="text-xs font-medium text-muted-foreground truncate">{resolvedTitle}</span>
-            )}
-          </div>
-          <div className="flex-1 min-h-0 px-2 pb-2">
-            {chartBody}
-          </div>
-        </div>
-      )
-    }
+  const titleElement = resolvedTitle ? (
+    <span className={cn(
+      'text-xs font-medium text-muted-foreground truncate',
+      compact ? '' : 'text-sm text-foreground/80',
+    )}>
+      {resolvedTitle}
+    </span>
+  ) : null
 
+  const header = (Icon || titleElement) ? (
+    <div className={cn(
+      'flex items-center gap-2',
+      compact ? 'px-4 pt-3 pb-1' : 'mb-2',
+      centerTitle && 'justify-center',
+    )}>
+      {Icon && (
+        <Icon
+          size={compact ? 16 : 18}
+          className={hasCardColor ? color.text : 'text-muted-foreground'}
+          style={color.isCustom ? { color: color.hex } : undefined}
+        />
+      )}
+      {titleElement}
+    </div>
+  ) : null
+
+  if (compact) {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-6">
-        <div
-          className={cn('w-full max-w-2xl rounded-xl border p-4', color.bg, color.accent)}
-          style={color.isCustom ? { backgroundColor: `${color.hex}10`, borderColor: `${color.hex}30` } : undefined}
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <Icon size={18} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
-            {resolvedTitle && (
-              <span className="text-sm font-medium text-foreground/80">{resolvedTitle}</span>
-            )}
-          </div>
-          <div style={{ height: 320 }}>
-            {chartBody}
-          </div>
+      <div
+        className={cn('flex h-full flex-col', hasCardColor && color.bg)}
+        style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
+      >
+        {header}
+        <div className="flex-1 min-h-0 px-2 pb-2">
+          {chartBody}
         </div>
       </div>
     )
   }
 
-  // --- Default chart mode ---
   return (
-    <div className="flex h-full flex-col p-4 gap-2">
-      {resolvedTitle && (
-        <div className="text-sm font-medium text-center text-foreground/80 pb-1">{resolvedTitle}</div>
-      )}
+    <div
+      className={cn('flex h-full flex-col p-4 gap-2', hasCardColor && color.bg)}
+      style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
+    >
+      {header}
       <div className="flex-1 min-h-0">
         {chartBody}
       </div>
@@ -580,8 +600,8 @@ function ScatterPlot({
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" name={xLabel} label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
-        <YAxis dataKey="y" type="number" name={yLabel} label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : undefined} />
+        <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
+        <YAxis dataKey="y" type="number" name={yLabel || undefined} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : undefined} />
         <Tooltip
           {...TOOLTIP_STYLE}
           cursor={{ strokeDasharray: '3 3' }}
@@ -644,8 +664,8 @@ function LinePlot({
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
-        <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} />
+        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} />
         <Tooltip {...TOOLTIP_STYLE} labelFormatter={xIsDate ? formatDateTick : undefined} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
@@ -677,6 +697,9 @@ function BarPlot({
   rows: Record<string, unknown>[]; xCol: string; yCol?: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
 }) {
+  const isCountMode = !yCol
+  const dataKey = isCountMode ? 'count' : 'value'
+
   const { data, series } = useMemo(() => {
     if (yCol) {
       if (!groupNames || !groupCol) {
@@ -728,8 +751,8 @@ function BarPlot({
       const data = Array.from(counts.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 30)
-        .map(([name, count]) => ({ name, value: count }))
-      return { data, series: ['value'] }
+        .map(([name, count]) => ({ name, count }))
+      return { data, series: ['count'] }
     }
     const map = new Map<string, Record<string, number>>()
     for (const row of rows) {
@@ -753,12 +776,12 @@ function BarPlot({
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="name" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
-        <YAxis label={{ value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 9 }} interval={0} angle={-30} textAnchor="end" height={60} />
+        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} />
         <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}
         {series.map((s, i) => (
-          <Bar key={s} dataKey={s} name={s === 'value' ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
+          <Bar key={s} dataKey={s} name={s === dataKey ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />
         ))}
       </BarChart>
     </ResponsiveContainer>
@@ -798,7 +821,7 @@ function HistogramPlot({
         {...(isOverlay ? { barGap: '-100%' } : {})}
       >
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="bin" label={{ value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 }} tick={{ fontSize: 9 }} interval={Math.max(0, Math.floor(bins / 10) - 1)} />
+        <XAxis dataKey="bin" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 9 }} interval={Math.max(0, Math.floor(bins / 10) - 1)} />
         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
         <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} />}

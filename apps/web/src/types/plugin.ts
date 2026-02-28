@@ -25,8 +25,10 @@ export interface PluginConfigField {
   filterOptionsByColumn?: string
   /** Fields sharing the same row value are rendered side-by-side. */
   row?: string
-  /** Only show this field when another field has a specific value, or when it is not empty. */
-  visibleWhen?: { field: string; value?: unknown; notEmpty?: boolean }
+  /** Collapsible section this field belongs to. Fields with the same section are grouped under a header. */
+  section?: { en: string; fr: string; defaultOpen?: boolean }
+  /** Only show this field when another field has a specific value, or when it is not empty. Array = AND (all must match). */
+  visibleWhen?: { field: string; value?: unknown; notEmpty?: boolean } | { field: string; value?: unknown; notEmpty?: boolean }[]
   /** Tooltip description shown as an info icon next to the label. */
   description?: { en: string; fr: string }
   /** Static hint badge shown next to the label (e.g. "required", "optional"). */

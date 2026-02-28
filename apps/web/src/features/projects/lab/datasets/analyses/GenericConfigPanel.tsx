@@ -1,7 +1,8 @@
 import { useCallback, useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Search, Puzzle, ChevronsUpDown, Info } from 'lucide-react'
+import { Check, Search, Puzzle, ChevronsUpDown, Info, Ban, ChevronRight } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import {
   Select,
   SelectContent,
@@ -57,12 +58,29 @@ export function GenericConfigPanel({
     return result
   }, [config, schema])
 
+  // Auto-select first matching column for non-optional single column-select fields
+  useEffect(() => {
+    if (columns.length === 0) return
+    const changes: Record<string, unknown> = {}
+    for (const [key, field] of Object.entries(schema)) {
+      if (field.type !== 'column-select' || field.optional || field.multi) continue
+      if (config[key] != null && config[key] !== '') continue
+      const filtered = filterColumns(columns, field.filter)
+      if (filtered.length > 0) changes[key] = filtered[0].id
+    }
+    if (Object.keys(changes).length > 0) onConfigChange(changes)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns.length])
+
   // Filter out fields whose visibleWhen condition is not met
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
     if (!field.visibleWhen) return true
-    const depValue = configWithDefaults[field.visibleWhen.field]
-    if (field.visibleWhen.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
-    return depValue === field.visibleWhen.value
+    const conditions = Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]
+    return conditions.every(cond => {
+      const depValue = configWithDefaults[cond.field]
+      if (cond.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
+      return depValue === cond.value
+    })
   })
 
   // Group fields by `row` — fields with the same row value are rendered side-by-side
@@ -88,41 +106,87 @@ export function GenericConfigPanel({
     }
   }
 
+  // Build sections: group consecutive groups by their section label
+  type SectionBlock = { sectionLabel: string | null; defaultOpen: boolean; groups: typeof groups }
+  const sectionBlocks: SectionBlock[] = []
+  for (const group of groups) {
+    // Determine section from the first field that has one
+    const sectionDef = group.fields.find(f => f.section)?.section
+    const label = sectionDef ? (sectionDef[lang] ?? sectionDef.en) : null
+    const defaultOpen = sectionDef?.defaultOpen !== false // default true
+    const last = sectionBlocks[sectionBlocks.length - 1]
+    if (last && last.sectionLabel === label) {
+      last.groups.push(group)
+    } else {
+      sectionBlocks.push({ sectionLabel: label, defaultOpen, groups: [group] })
+    }
+  }
+
+  const renderGroups = (gs: typeof groups) =>
+    gs.map((group) => {
+      const allBoolean = group.fields.every(f => f.type === 'boolean')
+      return group.keys.length === 1 ? (
+        <FieldRenderer
+          key={group.keys[0]}
+          fieldKey={group.keys[0]}
+          field={group.fields[0]}
+          value={configWithDefaults[group.keys[0]]}
+          columns={columns}
+          lang={lang}
+          config={configWithDefaults}
+          onConfigChange={onConfigChange}
+          rows={rows}
+        />
+      ) : (
+        <div key={group.keys.join('-')} className={cn('grid gap-4', allBoolean && '-mt-1')} style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
+          {group.keys.map((key, idx) => (
+            <FieldRenderer
+              key={key}
+              fieldKey={key}
+              field={group.fields[idx]}
+              value={configWithDefaults[key]}
+              columns={columns}
+              lang={lang}
+              config={configWithDefaults}
+              onConfigChange={onConfigChange}
+              rows={rows}
+            />
+          ))}
+        </div>
+      )
+    })
+
   return (
     <div className="space-y-3 p-3">
-      {groups.map((group) => {
-        const allBoolean = group.fields.every(f => f.type === 'boolean')
-        return group.keys.length === 1 ? (
-          <FieldRenderer
-            key={group.keys[0]}
-            fieldKey={group.keys[0]}
-            field={group.fields[0]}
-            value={configWithDefaults[group.keys[0]]}
-            columns={columns}
-            lang={lang}
-            config={configWithDefaults}
-            onConfigChange={onConfigChange}
-            rows={rows}
-          />
+      {sectionBlocks.map((block, i) =>
+        block.sectionLabel ? (
+          <CollapsibleSection key={block.sectionLabel + i} label={block.sectionLabel} defaultOpen={block.defaultOpen}>
+            {renderGroups(block.groups)}
+          </CollapsibleSection>
         ) : (
-          <div key={group.keys.join('-')} className={cn('grid gap-4', allBoolean && '-mt-1')} style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
-            {group.keys.map((key, idx) => (
-              <FieldRenderer
-                key={key}
-                fieldKey={key}
-                field={group.fields[idx]}
-                value={configWithDefaults[key]}
-                columns={columns}
-                lang={lang}
-                config={configWithDefaults}
-                onConfigChange={onConfigChange}
-                rows={rows}
-              />
-            ))}
-          </div>
-        )
-      })}
+          renderGroups(block.groups)
+        ),
+      )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Collapsible section wrapper
+// ---------------------------------------------------------------------------
+
+function CollapsibleSection({ label, defaultOpen = true, children }: { label: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex w-full items-center gap-1.5 py-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors">
+        <ChevronRight size={12} className={cn('shrink-0 transition-transform', open && 'rotate-90')} />
+        {label}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
@@ -447,11 +511,13 @@ function SingleColumnSelect({
   onConfigChange,
 }: FieldRendererProps) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const filtered = filterColumns(columns, field.filter)
   const current = (value as string | undefined) ?? ''
+  const currentCol = filtered.find(c => c.id === current)
 
-  const handleChange = useCallback((v: string) => {
-    const colId = v === '__none__' ? undefined : v
+  const handleSelect = useCallback((colId: string | undefined) => {
     const changes: Record<string, unknown> = { [fieldKey]: colId }
     // Auto-set linked fields based on column type
     if (colId && field.autoSet) {
@@ -463,29 +529,79 @@ function SingleColumnSelect({
       }
     }
     onConfigChange(changes)
+    setOpen(false)
+    setSearch('')
   }, [fieldKey, field.autoSet, columns, onConfigChange])
+
+  const searchFiltered = useMemo(() => {
+    if (!search.trim()) return filtered
+    const q = search.toLowerCase()
+    return filtered.filter(c => c.name.toLowerCase().includes(q))
+  }, [filtered, search])
 
   return (
     <div className="space-y-1.5">
       <FieldLabel field={field} config={config} lang={lang} />
-      <Select
-        value={current || '__none__'}
-        onValueChange={handleChange}
-      >
-        <SelectTrigger className="h-8 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {field.optional && (
-            <SelectItem value="__none__">{t('common.none')}</SelectItem>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <button
+            className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+          >
+            <span className={cn('truncate', !currentCol && 'text-muted-foreground')}>
+              {currentCol ? currentCol.name : t('common.none')}
+            </span>
+            <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
+          {filtered.length > 5 && (
+            <div className="relative mb-2">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={t('common.search')}
+                className="h-7 pl-7 text-xs"
+              />
+            </div>
           )}
-          {filtered.map(col => (
-            <SelectItem key={col.id} value={col.id}>
-              {col.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <div
+            className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+            onWheel={e => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+          >
+            {field.optional && (
+              <button
+                onClick={() => handleSelect(undefined)}
+                className={cn(
+                  'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors',
+                  !current ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                )}
+              >
+                <span className="text-muted-foreground">{t('common.none')}</span>
+              </button>
+            )}
+            {searchFiltered.map(col => {
+              const isSelected = col.id === current
+              return (
+                <button
+                  key={col.id}
+                  onClick={() => handleSelect(col.id)}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors',
+                    isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                  )}
+                >
+                  <span className="truncate">{col.name}</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground/60">{col.type}</span>
+                </button>
+              )
+            })}
+            {searchFiltered.length === 0 && (
+              <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -816,10 +932,12 @@ function IconSelectField({
   config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'Activity'
-  const CurrentIcon = getLucideIcon(current)
+  const isNone = current === '__none__'
+  const CurrentIcon = isNone ? Ban : getLucideIcon(current)
 
   const filtered = useMemo(() => {
     if (!search.trim()) return CURATED_ICONS
@@ -835,8 +953,8 @@ function IconSelectField({
           <button
             className="flex h-8 items-center gap-2 rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
-            <CurrentIcon size={14} />
-            <span className="text-muted-foreground">{current}</span>
+            <CurrentIcon size={14} className={isNone ? 'text-muted-foreground/50' : undefined} />
+            <span className="text-muted-foreground">{isNone ? t('common.none') : current}</span>
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-64 p-2" align="start">
@@ -851,6 +969,22 @@ function IconSelectField({
           </div>
           <ScrollArea className="max-h-[200px]">
             <div className="grid grid-cols-6 gap-1">
+              {/* None option */}
+              <button
+                onClick={() => {
+                  onConfigChange({ [fieldKey]: '__none__' })
+                  setOpen(false)
+                }}
+                title={t('common.none')}
+                className={cn(
+                  'flex size-8 items-center justify-center rounded transition-colors',
+                  isNone
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-accent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Ban size={16} />
+              </button>
               {filtered.map(name => {
                 const Icon = getLucideIcon(name)
                 const isSelected = name === current
