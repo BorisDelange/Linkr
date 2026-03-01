@@ -11,7 +11,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
-import { Sun, Moon, Globe, Trash2 } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -209,7 +209,7 @@ export function Header() {
 
         <div className="flex items-center gap-0.5">
           <Button variant="ghost" size="sm" onClick={handleLanguageToggle} className="gap-1.5 text-xs">
-            <Globe size={14} />
+            <Languages size={14} />
             {language.toUpperCase()}
           </Button>
 
