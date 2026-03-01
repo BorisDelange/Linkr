@@ -342,7 +342,18 @@ export async function queryDataSource(
         attachedSources.add(dataSourceId)
       }
     }
-    const result = await conn.query(sql)
+    // Split multi-statement SQL by semicolons and execute each statement
+    // sequentially. DuckDB-WASM doesn't reliably handle multi-statement
+    // queries when views reference other views created in the same batch
+    // (causes Binder Error with type mismatches like INTEGER vs BIGINT).
+    const statements = sql.split(';').map((s) => s.trim()).filter(Boolean)
+
+    let result: Awaited<ReturnType<typeof conn.query>> | null = null
+    for (const stmt of statements) {
+      result = await conn.query(stmt)
+    }
+
+    if (!result) return []
 
     // Build set of DATE/TIMESTAMP columns from Arrow schema so we can
     // convert their BigInt epoch values to proper ISO date strings.

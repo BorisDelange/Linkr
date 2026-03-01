@@ -12,7 +12,7 @@ import { getSchemaPreset } from '@/lib/schema-presets'
 import { getDefaultDimensions } from '@/types/catalog'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
-import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, EtlFile, DataCatalog } from '@/types'
+import type { DataSource, StoredFile, DatabaseConnectionConfig, Dashboard, DashboardTab, DashboardWidget, SchemaMapping, SchemaPresetId, MappingProject, DqRuleSet, ConceptMapping, EtlPipeline, EtlFile, DataCatalog, DatasetFile, DatasetColumn } from '@/types'
 
 const SEED_KEY = 'linkr-demo-db-seeded'
 const DEMO_DASHBOARD_SEED_KEY = 'linkr-demo-dashboard-seeded'
@@ -949,5 +949,279 @@ export async function seedDemoCatalog(): Promise<void> {
     console.info('[demo-seed] Demo data catalog seeded successfully')
   } catch (err) {
     console.error('[demo-seed] Failed to seed demo data catalog:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo ICU Activity Dataset (pre-loaded CSV for the activity dashboard project)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_ACTIVITY_DATASET = 'linkr-demo-activity-dataset-seeded'
+const DEMO_ACTIVITY_PROJECT_UID = '00000000-0000-0000-0000-000000000005'
+const DEMO_ACTIVITY_DATASET_ID = 'demo-activity-dataset-1'
+
+/**
+ * Seed a pre-loaded ICU activity dataset for the activity dashboard project.
+ *
+ * Fetches a JSON file containing columns + rows (generated from MIMIC-IV OMOP
+ * extraction) and creates a DatasetFile + DatasetData in IndexedDB.
+ */
+export async function seedActivityDataset(): Promise<void> {
+  if (localStorage.getItem(SEED_KEY_ACTIVITY_DATASET)) return
+
+  try {
+    const storage = getStorage()
+
+    // Guard against localStorage/IDB desync
+    const existing = await storage.datasetFiles.getById(DEMO_ACTIVITY_DATASET_ID)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_ACTIVITY_DATASET, '1')
+      console.info('[demo-seed] Activity dataset already exists, skipping seed')
+      return
+    }
+
+    const res = await fetch('/data/icu-activity-dataset.json')
+    if (!res.ok) throw new Error(`Failed to fetch icu-activity-dataset.json: ${res.status}`)
+
+    const data: { columns: DatasetColumn[]; rows: Record<string, unknown>[] } = await res.json()
+    const now = new Date().toISOString()
+
+    const datasetFile: DatasetFile = {
+      id: DEMO_ACTIVITY_DATASET_ID,
+      projectUid: DEMO_ACTIVITY_PROJECT_UID,
+      name: 'icu_activity.csv',
+      type: 'file',
+      parentId: null,
+      columns: data.columns,
+      rowCount: data.rows.length,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    await storage.datasetFiles.create(datasetFile)
+    await storage.datasetData.save({ datasetFileId: DEMO_ACTIVITY_DATASET_ID, rows: data.rows })
+
+    localStorage.setItem(SEED_KEY_ACTIVITY_DATASET, '1')
+    console.info(`[demo-seed] Activity dataset seeded: ${data.rows.length} rows, ${data.columns.length} columns`)
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed activity dataset:', err)
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Demo ICU Activity Dashboard (Demographics tab with widgets)
+// ---------------------------------------------------------------------------
+
+const SEED_KEY_ACTIVITY_DASHBOARD = 'linkr-demo-activity-dashboard-seeded'
+
+/**
+ * Seed a pre-configured dashboard for the ICU Activity project.
+ *
+ * Creates a "Démographie" tab with 6 widgets:
+ *   - 4 KPI cards (unique patients, ICU stays, mean age, ICU mortality)
+ *   - 2 charts (age distribution histogram by sex, stays per unit bar chart)
+ */
+export async function seedActivityDashboard(): Promise<void> {
+  if (localStorage.getItem(SEED_KEY_ACTIVITY_DASHBOARD)) return
+
+  try {
+    const storage = getStorage()
+
+    const dashboardId = 'dashboard-activity-1'
+
+    const existing = await storage.dashboards.getById(dashboardId)
+    if (existing) {
+      localStorage.setItem(SEED_KEY_ACTIVITY_DASHBOARD, '1')
+      console.info('[demo-seed] Activity dashboard already exists, skipping seed')
+      return
+    }
+
+    const now = new Date().toISOString()
+    const tabId = 'dtab-activity-1'
+
+    const dashboard: Dashboard = {
+      id: dashboardId,
+      projectUid: DEMO_ACTIVITY_PROJECT_UID,
+      name: 'ICU Activity',
+      filterConfig: [],
+      showWidgetTitles: false,
+      createdAt: now,
+      updatedAt: now,
+    }
+
+    const tab: DashboardTab = {
+      id: tabId,
+      dashboardId,
+      name: 'Démographie',
+      displayOrder: 0,
+    }
+
+    const dsId = DEMO_ACTIVITY_DATASET_ID
+
+    const widgets: DashboardWidget[] = [
+      // --- Row 1: KPI cards (4 across) ---
+      {
+        id: 'dw-activity-1',
+        tabId,
+        name: 'Unique patients',
+        datasetFileId: dsId,
+        layout: { x: 0, y: 0, w: 6, h: 5 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-key-indicator',
+          config: {
+            column: 'col-0',
+            uniquePer: 'col-0',
+            uniqueAggregation: 'first',
+            aggregate: 'count',
+            title: 'Unique patients',
+            icon: 'Users',
+            color: 'emerald',
+            decimals: 0,
+            chartType: 'none',
+            subtitleStats: ['n'],
+          },
+        },
+      },
+      {
+        id: 'dw-activity-2',
+        tabId,
+        name: 'ICU stays',
+        datasetFileId: dsId,
+        layout: { x: 6, y: 0, w: 6, h: 5 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-key-indicator',
+          config: {
+            column: 'col-2',
+            uniquePer: 'col-2',
+            uniqueAggregation: 'first',
+            aggregate: 'count',
+            title: 'ICU stays',
+            icon: 'BedDouble',
+            color: 'blue',
+            decimals: 0,
+            chartType: 'none',
+            subtitleStats: ['n'],
+          },
+        },
+      },
+      {
+        id: 'dw-activity-3',
+        tabId,
+        name: 'Mean age',
+        datasetFileId: dsId,
+        layout: { x: 12, y: 0, w: 6, h: 5 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-key-indicator',
+          config: {
+            column: 'col-4',
+            uniquePer: 'col-2',
+            uniqueAggregation: 'first',
+            aggregate: 'mean',
+            title: 'Mean age',
+            icon: 'Calendar',
+            color: 'violet',
+            decimals: 1,
+            unit: 'years',
+            chartType: 'histogram',
+            chartBins: 15,
+            chartPosition: 'below',
+            subtitleStats: ['median', 'min', 'max'],
+          },
+        },
+      },
+      {
+        id: 'dw-activity-4',
+        tabId,
+        name: 'ICU mortality',
+        datasetFileId: dsId,
+        layout: { x: 18, y: 0, w: 6, h: 5 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-key-indicator',
+          config: {
+            column: 'col-14',
+            uniquePer: 'col-2',
+            uniqueAggregation: 'first',
+            aggregate: 'proportion',
+            targetValue: '1',
+            title: 'ICU mortality',
+            icon: 'HeartPulse',
+            color: 'red',
+            decimals: 1,
+            chartType: 'pie',
+            chartPosition: 'below',
+            subtitleStats: ['n', 'count'],
+          },
+        },
+      },
+      // --- Row 2: Charts ---
+      {
+        id: 'dw-activity-5',
+        tabId,
+        name: 'Age distribution',
+        datasetFileId: dsId,
+        layout: { x: 0, y: 5, w: 12, h: 8 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-plot-builder',
+          config: {
+            plotType: 'histogram',
+            xColumn: 'col-4',
+            uniquePer: 'col-2',
+            uniqueAggregation: 'first',
+            groupColumn: 'col-3',
+            bins: 15,
+            opacity: 70,
+            colorPalette: 'default',
+            title: 'Age distribution by sex',
+            cardColor: 'orange',
+            showGrid: true,
+            showLegend: true,
+            xLabel: 'Age',
+            yLabel: 'Count',
+            barMode: 'stacked',
+            excludeNA: true,
+          },
+        },
+      },
+      {
+        id: 'dw-activity-6',
+        tabId,
+        name: 'Stays per unit',
+        datasetFileId: dsId,
+        layout: { x: 12, y: 5, w: 12, h: 8 },
+        source: {
+          type: 'plugin',
+          pluginId: 'linkr-analysis-plot-builder',
+          config: {
+            plotType: 'bar',
+            xColumn: 'col-5',
+            uniquePer: 'col-2',
+            uniqueAggregation: 'first',
+            title: 'Stays per ICU unit',
+            cardColor: 'blue',
+            showGrid: true,
+            showLegend: false,
+            colorPalette: 'default',
+            opacity: 80,
+            excludeNA: true,
+          },
+        },
+      },
+    ]
+
+    await storage.dashboards.create(dashboard)
+    await storage.dashboardTabs.create(tab)
+    for (const w of widgets) {
+      await storage.dashboardWidgets.create(w)
+    }
+
+    localStorage.setItem(SEED_KEY_ACTIVITY_DASHBOARD, '1')
+    console.info('[demo-seed] Activity dashboard seeded: 6 widgets')
+  } catch (err) {
+    console.error('[demo-seed] Failed to seed activity dashboard:', err)
   }
 }

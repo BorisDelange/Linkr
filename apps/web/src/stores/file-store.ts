@@ -115,7 +115,8 @@ function getLanguageForFile(name: string): string {
 // On load, if the user's stored files still have a previous version,
 // the default file contents are silently updated in IndexedDB.
 const DEMO_PROJECT_UID = '00000000-0000-0000-0000-000000000001'
-const DEMO_FILES_VERSION = 6
+const DEMO_ACTIVITY_PROJECT_UID = '00000000-0000-0000-0000-000000000005'
+const DEMO_FILES_VERSION = 7
 const DEMO_FILES_VERSION_KEY = 'linkr-demo-files-version'
 
 // Mapping from old file names (version <= 4) to new names (version 5).
@@ -455,6 +456,74 @@ async function hydrateDemoFiles(files: FileNode[]): Promise<void> {
   await Promise.all(fetches)
 }
 
+// --- Activity Dashboard project demo files ---
+
+const ACTIVITY_SQL_STUB = `-- 01_extract_icu_data.sql — ICU Activity Dashboard
+-- Extracts ICU activity data from OMOP CDM tables.
+-- Run 02_build_dataset.py to build the full dataset.
+SELECT COUNT(*) AS n_icu_stays FROM visit_detail vd
+LEFT JOIN care_site cs ON cs.care_site_id = vd.care_site_id
+WHERE cs.care_site_name LIKE '%ICU%' OR cs.care_site_name LIKE '%Intensive Care%' OR cs.care_site_name LIKE '%CCU%';
+`
+
+const ACTIVITY_PY_STUB = `# 02_build_dataset.py — ICU Activity Dashboard
+# Builds a long-typed CSV from OMOP CDM for ICU activity indicators.
+# Uses sql_query() to query the active DuckDB connection.
+print("Run this script to extract ICU data from OMOP tables.")
+`
+
+function createActivityDashboardFiles(projectUid: string): FileNode[] {
+  const folderId = newFileId('folder')
+  return [
+    {
+      id: folderId,
+      projectUid,
+      name: 'scripts',
+      type: 'folder',
+      parentId: null,
+      createdAt: '2026-02-10',
+    },
+    {
+      id: newFileId('file'),
+      projectUid,
+      name: '01_extract_icu_data.sql',
+      type: 'file',
+      parentId: folderId,
+      language: 'sql',
+      content: ACTIVITY_SQL_STUB,
+      createdAt: '2026-02-10',
+    },
+    {
+      id: newFileId('file'),
+      projectUid,
+      name: '02_build_dataset.py',
+      type: 'file',
+      parentId: folderId,
+      language: 'python',
+      content: ACTIVITY_PY_STUB,
+      createdAt: '2026-02-10',
+    },
+  ]
+}
+
+async function hydrateActivityDashboardFiles(files: FileNode[]): Promise<void> {
+  const hydrateMap: Record<string, string> = {
+    '01_extract_icu_data.sql': '01_extract_icu_data.sql',
+    '02_build_dataset.py': '02_build_dataset.py',
+  }
+  const fetches = files
+    .filter((f) => f.type === 'file' && hydrateMap[f.name])
+    .map(async (f) => {
+      try {
+        const resp = await fetch(`/data/demo-scripts-activity/${hydrateMap[f.name]}`)
+        if (resp.ok) {
+          f.content = await resp.text()
+        }
+      } catch { /* use inline stub */ }
+    })
+  await Promise.all(fetches)
+}
+
 export function buildFolderTree(
   files: FileNode[],
   parentId: string | null = null,
@@ -520,8 +589,14 @@ export const useFileStore = create<FileState>((set, get) => ({
         const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
         const storedVersion = parseInt(localStorage.getItem(versionKey) ?? '0', 10)
         if (storedVersion < DEMO_FILES_VERSION) {
-          const demoRef = createDefaultFiles(projectUid)
-          await hydrateDemoFiles(demoRef)
+          const demoRef = projectUid === DEMO_ACTIVITY_PROJECT_UID
+            ? createActivityDashboardFiles(projectUid)
+            : createDefaultFiles(projectUid)
+          if (projectUid === DEMO_ACTIVITY_PROJECT_UID) {
+            await hydrateActivityDashboardFiles(demoRef)
+          } else {
+            await hydrateDemoFiles(demoRef)
+          }
           const demoByName = new Map(demoRef.filter((f) => f.type === 'file').map((f) => [f.name, f]))
           const storedByName = new Map(stored.filter((f) => f.type === 'file').map((f) => [f.name, f]))
 
@@ -582,10 +657,16 @@ export const useFileStore = create<FileState>((set, get) => ({
           expandedFolders: rootFolders,
           _dirtyVersion: 0,
         })
-      } else if (projectUid === DEMO_PROJECT_UID) {
+      } else if (projectUid === DEMO_PROJECT_UID || projectUid === DEMO_ACTIVITY_PROJECT_UID) {
         // Seed demo project with example files
-        const seeded = createDefaultFiles(projectUid)
-        await hydrateDemoFiles(seeded)
+        const seeded = projectUid === DEMO_ACTIVITY_PROJECT_UID
+          ? createActivityDashboardFiles(projectUid)
+          : createDefaultFiles(projectUid)
+        if (projectUid === DEMO_ACTIVITY_PROJECT_UID) {
+          await hydrateActivityDashboardFiles(seeded)
+        } else {
+          await hydrateDemoFiles(seeded)
+        }
         for (const f of seeded) {
           if (f.type === 'file' && f.content !== undefined) {
             _savedContent.set(f.id, f.content)

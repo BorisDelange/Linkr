@@ -82,8 +82,10 @@ function projectToItem(project: Project, lang: string): ProjectItem {
 
 const SEED_KEY = 'linkr-seeded'
 const DEMO_UID = '00000000-0000-0000-0000-000000000001'
+const DEMO_ACTIVITY_UID = '00000000-0000-0000-0000-000000000005'
 const DEMO_WORKSPACE_ID = '00000000-0000-0000-0000-000000000010'
 const DEMO_ORG_ID = '00000000-0000-0000-0000-000000000020'
+const DEMO_DATASOURCE_ID = '00000000-0000-0000-0000-000000000002'
 
 function createDemoOrganization(): Organization {
   return {
@@ -222,6 +224,75 @@ The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (
   }
 }
 
+function createDemoActivityProject(): Project {
+  return {
+    uid: DEMO_ACTIVITY_UID,
+    workspaceId: DEMO_WORKSPACE_ID,
+    name: {
+      en: 'ICU Activity Dashboard',
+      fr: 'Tableau de bord d\'activité de réanimation',
+    },
+    description: {
+      en: 'ICU activity indicators extracted from MIMIC-IV demo data: demographics, admissions, mechanical ventilation, infections, and procedures.',
+      fr: 'Indicateurs d\'activité de réanimation extraits des données MIMIC-IV demo : démographie, admissions, ventilation mécanique, infections et procédures.',
+    },
+    shortDescription: {},
+    config: {},
+    ownerId: 1,
+    status: 'active',
+    badges: [
+      { id: 'b1', label: 'ICU', color: 'red' },
+      { id: 'b2', label: 'Dashboard', color: 'blue' },
+    ],
+    todos: [],
+    notes: '',
+    linkedDataSourceIds: [DEMO_DATASOURCE_ID],
+    readme: `# ICU Activity Dashboard
+
+## Overview
+
+This project provides an **ICU activity monitoring dashboard** built from the MIMIC-IV demo database (100 patients, OMOP CDM format). It extracts key clinical indicators from routine electronic health record data and presents them as a set of interactive visualizations.
+
+## Data
+
+The dataset is extracted from the **MIMIC-IV Demo** mapped to **OMOP CDM v5.4**. The extraction pipeline:
+
+1. **Identifies ICU stays** from \`visit_detail\` + \`care_site\` (172 stays across 7 ICU units)
+2. **Joins demographics** (age, sex, race) from \`person\`
+3. **Extracts measurements** (vitals, labs, ventilation parameters) from \`measurement\`
+4. **Detects events**: mechanical ventilation, infections, procedures from OMOP clinical tables
+5. **Outputs a long-typed CSV** with stay-level and event-level rows
+
+## Indicator Domains
+
+| Domain | Key Indicators |
+|---|---|
+| **Demographics** | Age distribution, sex ratio, mortality rate (ICU / hospital) |
+| **Admissions & Flow** | Admission timeline, length of stay, ICU unit distribution, readmissions <48h |
+| **Mechanical Ventilation** | Ventilation rate, duration, tidal volume/PBW, PEEP, FiO₂ |
+| **Infections** | Infection types (sepsis, pneumonia, UTI), pathogen distribution |
+| **Procedures** | CVC, PICC, arterial lines, tracheostomy, extubation |
+
+## Scripts
+
+| Script | Description |
+|---|---|
+| \`01_extract_icu_data.sql\` | SQL queries to identify ICU stays and extract clinical data from OMOP tables |
+| \`02_build_dataset.py\` | Python pipeline to build the wide-format analytical dataset |
+
+## Key Figures (MIMIC-IV Demo)
+
+- **172 ICU stays** from **100 patients**
+- **7 ICU units**: MICU, SICU, CVICU, CCU, TSICU, MICU/SICU, Neuro SICU
+- **43% mechanically ventilated** (median 25.4h)
+- **7.6% ICU mortality**, 13.4% hospital mortality
+- **23% readmissions** within 48h
+`,
+    createdAt: '2026-02-10T00:00:00.000Z',
+    updatedAt: '2026-02-10T00:00:00.000Z',
+  }
+}
+
 // --- Store ---
 
 interface AppState {
@@ -323,7 +394,9 @@ export const useAppStore = create<AppState>((set, get) => ({
         await storage.workspaces.create(demoWs)
         const demo = createDemoProject()
         await storage.projects.create(demo)
-        projects = [demo]
+        const demoActivity = createDemoActivityProject()
+        await storage.projects.create(demoActivity)
+        projects = [demo, demoActivity]
         // Reload org + workspace stores so they pick up the seeded data
         const { useOrganizationStore } = await import('./organization-store')
         useOrganizationStore.getState().loadOrganizations()

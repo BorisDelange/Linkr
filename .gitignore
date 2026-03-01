@@ -43,6 +43,9 @@ build/
 # Exception: bundled demo dataset (tracked via Git LFS)
 !apps/web/public/data/**/*.parquet
 
+# Temp data scripts
+apps/web/public/data/temp/
+
 # ETL test directory
 tests-etl/
 
