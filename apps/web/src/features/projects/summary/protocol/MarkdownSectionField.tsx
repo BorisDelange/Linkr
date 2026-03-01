@@ -117,14 +117,14 @@ export function MarkdownSectionField({ value, onChange, placeholder, editing, la
         {label && <label className="mb-1 block text-xs font-medium text-muted-foreground">{label}</label>}
         <div className={`flex flex-col overflow-hidden rounded-lg border${fill ? ' min-h-0 flex-1' : ' min-h-[200px]'}`}>
           <SimpleToolbar onFormat={applyFormat} />
-          <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
-            <div className="overflow-auto border-r">
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-0 overflow-hidden">
+            <div className="relative border-r">
               <textarea
                 ref={textareaRef}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 placeholder={placeholder}
-                className="h-full w-full resize-none border-0 bg-transparent p-3 font-mono text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
+                className="absolute inset-0 resize-none border-0 bg-transparent p-3 font-mono text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
                 spellCheck={false}
               />
             </div>
