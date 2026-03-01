@@ -175,6 +175,22 @@ export function registerDefaultPlugins() {
           filterOptionsByColumn: 'column',
         },
         // --- Style (collapsed by default) ---
+        centerContent: {
+          type: 'boolean',
+          label: { en: 'Center content', fr: 'Centrer le contenu' },
+          default: false,
+          row: 'center',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+        },
+        size: {
+          type: 'number',
+          label: { en: 'Size (%)', fr: 'Taille (%)' },
+          default: 100,
+          min: 50,
+          max: 200,
+          row: 'center',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+        },
         decimals: {
           type: 'number',
           label: { en: 'Decimals', fr: 'Décimales' },

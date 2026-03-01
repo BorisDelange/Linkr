@@ -171,14 +171,42 @@
       "row": "sizeRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
+    "binMode": {
+      "type": "select",
+      "label": { "en": "Bin mode", "fr": "Mode bins" },
+      "default": "count",
+      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "row": "binRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "options": [
+        { "value": "count", "label": { "en": "Number of bins", "fr": "Nombre de barres" } },
+        { "value": "width", "label": { "en": "Bin width", "fr": "Largeur de barre" } }
+      ]
+    },
     "bins": {
       "type": "number",
       "label": { "en": "Bins", "fr": "Barres" },
       "default": 20,
-      "min": 5,
+      "min": 2,
       "max": 200,
-      "visibleWhen": { "field": "plotType", "value": "histogram" },
-      "row": "sizeRow",
+      "visibleWhen": [
+        { "field": "plotType", "value": "histogram" },
+        { "field": "binMode", "value": "count" }
+      ],
+      "row": "binRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "binWidth": {
+      "type": "number",
+      "label": { "en": "Bin width", "fr": "Largeur" },
+      "default": 5,
+      "min": 0.1,
+      "max": 1000,
+      "visibleWhen": [
+        { "field": "plotType", "value": "histogram" },
+        { "field": "binMode", "value": "width" }
+      ],
+      "row": "binRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "opacity": {
@@ -217,6 +245,13 @@
       "row": "labels",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": { "en": "X axis starts at 0", "fr": "Axe X commence à 0" },
+      "default": false,
+      "row": "axisOptions",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
     "showGrid": {
       "type": "boolean",
       "label": { "en": "Show grid", "fr": "Grille" },
@@ -228,8 +263,22 @@
       "type": "boolean",
       "label": { "en": "Show legend", "fr": "Légende" },
       "default": true,
-      "row": "toggles",
+      "row": "legendRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "legendPosition": {
+      "type": "select",
+      "label": { "en": "Legend position", "fr": "Position légende" },
+      "default": "bottom",
+      "row": "legendRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": { "field": "showLegend", "value": true },
+      "options": [
+        { "value": "bottom", "label": { "en": "Bottom", "fr": "En bas" } },
+        { "value": "top-right", "label": { "en": "Top right", "fr": "Haut droite" } },
+        { "value": "top-left", "label": { "en": "Top left", "fr": "Haut gauche" } },
+        { "value": "top-center", "label": { "en": "Top center", "fr": "Haut centre" } }
+      ]
     }
   }
 }

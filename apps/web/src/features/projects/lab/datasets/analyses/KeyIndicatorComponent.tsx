@@ -124,6 +124,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const targetValue = (config.targetValue as string | undefined) ?? ''
   const customTitle = config.title as string | undefined
   const centerTitle = (config.centerTitle as boolean) ?? false
+  const centerContent = (config.centerContent as boolean) ?? false
+  const sizePct = (config.size as number | undefined) ?? 100
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
   const chartType = (config.chartType as string) ?? 'none'
@@ -258,21 +260,29 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const hasChart = chartType !== 'none' && (values.length > 0 || (isProportion && sourceRows.length > 0))
   const isSideChart = hasChart && chartPosition === 'side'
 
+  // Scale factor for all text/icon sizes (100% = default)
+  const scale = sizePct / 100
+  const iconSize = Math.round((compact ? 16 : 18) * scale)
+  const numberSize = Math.round((compact ? 30 : 36) * scale)
+  const unitSize = Math.round((compact ? 16 : 18) * scale)
+  const titleSize = Math.round(12 * scale)
+  const subtitleSize = Math.round(12 * scale)
+
   const kpiContent = (
     <div className={isSideChart ? 'flex-1 min-w-0' : undefined}>
       {/* Icon + title */}
       <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
-        <Icon size={compact ? 16 : 18} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
-        <span className="text-xs font-medium text-muted-foreground truncate">{title}</span>
+        <Icon size={iconSize} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
+        <span className="font-medium text-muted-foreground truncate" style={{ fontSize: titleSize }}>{title}</span>
       </div>
 
       {/* Big number + unit */}
-      <div className={cn('flex items-baseline gap-1.5 mt-2', centerTitle && 'justify-center')}>
-        <span className={cn('font-bold tracking-tight', color.text, compact ? 'text-3xl' : 'text-4xl')} style={color.isCustom ? { color: color.hex } : undefined}>
+      <div className={cn('flex items-baseline gap-1.5 mt-2', centerContent && 'justify-center')}>
+        <span className={cn('font-bold tracking-tight', color.text)} style={{ fontSize: numberSize, ...(color.isCustom ? { color: color.hex } : {}) }}>
           {formatNumber(result, decimals)}
         </span>
         {unit && (
-          <span className={cn('font-medium text-muted-foreground', compact ? 'text-base' : 'text-lg')}>
+          <span className="font-medium text-muted-foreground" style={{ fontSize: unitSize }}>
             {unit}
           </span>
         )}
@@ -280,7 +290,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
 
       {/* Subtitle stats */}
       {subtitleParts.length > 0 && (
-        <div className={cn('mt-1.5 text-xs text-muted-foreground', centerTitle && 'text-center')}>
+        <div className={cn('mt-1.5 text-muted-foreground', centerContent && 'text-center')} style={{ fontSize: subtitleSize }}>
           {subtitleParts.join(' \u00b7 ')}
         </div>
       )}

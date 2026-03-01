@@ -9,6 +9,7 @@ export const COLOR_MAP: Record<string, { text: string; bg: string; accent: strin
   none: { text: 'text-foreground', bg: '', accent: 'border-border', hex: '#000000' },
   red: { text: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30', accent: 'border-red-200 dark:border-red-800', hex: '#dc2626' },
   rose: { text: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950/30', accent: 'border-rose-200 dark:border-rose-800', hex: '#e11d48' },
+  orange: { text: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950/30', accent: 'border-orange-200 dark:border-orange-800', hex: '#ea580c' },
   amber: { text: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', accent: 'border-amber-200 dark:border-amber-800', hex: '#d97706' },
   green: { text: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950/30', accent: 'border-green-200 dark:border-green-800', hex: '#16a34a' },
   emerald: { text: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', accent: 'border-emerald-200 dark:border-emerald-800', hex: '#059669' },

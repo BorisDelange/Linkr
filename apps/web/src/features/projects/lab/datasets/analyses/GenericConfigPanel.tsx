@@ -827,7 +827,13 @@ function NumberField({
   config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
-  const current = (value as number | undefined) ?? (field.default as number | undefined) ?? 0
+  const numValue = (value as number | undefined) ?? (field.default as number | undefined) ?? 0
+  const [localText, setLocalText] = useState<string>(String(numValue))
+
+  // Sync local text when external value changes (e.g. reset, undo)
+  useEffect(() => {
+    setLocalText(String(numValue))
+  }, [numValue])
 
   return (
     <div className="space-y-1.5">
@@ -835,10 +841,22 @@ function NumberField({
       <Input
         type="number"
         className="h-8 text-xs"
-        value={current}
+        value={localText}
         min={field.min}
         max={field.max}
-        onChange={e => onConfigChange({ [fieldKey]: Number(e.target.value) })}
+        onChange={e => {
+          const raw = e.target.value
+          setLocalText(raw)
+          if (raw !== '' && !isNaN(Number(raw))) {
+            onConfigChange({ [fieldKey]: Number(raw) })
+          }
+        }}
+        onBlur={() => {
+          // Restore to current value if left empty
+          if (localText === '' || isNaN(Number(localText))) {
+            setLocalText(String(numValue))
+          }
+        }}
       />
     </div>
   )
@@ -1026,6 +1044,7 @@ const COLOR_PALETTE = [
   { name: 'none', bg: 'bg-foreground/10 border border-border', ring: 'ring-foreground/30' },
   { name: 'red', bg: 'bg-red-500', ring: 'ring-red-500' },
   { name: 'rose', bg: 'bg-rose-500', ring: 'ring-rose-500' },
+  { name: 'orange', bg: 'bg-orange-500', ring: 'ring-orange-500' },
   { name: 'amber', bg: 'bg-amber-500', ring: 'ring-amber-500' },
   { name: 'green', bg: 'bg-green-500', ring: 'ring-green-500' },
   { name: 'emerald', bg: 'bg-emerald-500', ring: 'ring-emerald-500' },
