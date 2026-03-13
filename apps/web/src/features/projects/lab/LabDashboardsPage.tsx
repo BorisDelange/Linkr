@@ -128,7 +128,7 @@ export function LabDashboardsPage() {
               return (
                 <Card
                   key={dash.id}
-                  className="cursor-pointer transition-colors hover:bg-accent"
+                  className="cursor-pointer transition-colors hover:bg-accent/50"
                   onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${dash.id}`)}
                 >
                   <div className="p-4">

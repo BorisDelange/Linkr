@@ -383,7 +383,7 @@ export function ProjectsPage() {
               return (
                 <Card
                   key={project.uid}
-                  className="relative cursor-pointer transition-colors hover:bg-accent"
+                  className="relative cursor-pointer transition-colors hover:bg-accent/50"
                   onClick={() => handleOpenProject(project.uid, project.name)}
                 >
                   <div className="p-4">
