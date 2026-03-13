@@ -9,6 +9,54 @@ const duckdb_mvp_worker = new URL('/duckdb/duckdb-browser-mvp.worker.js', import
 const duckdb_eh_wasm = new URL('/duckdb/duckdb-eh.wasm', import.meta.url).href
 const duckdb_eh_worker = new URL('/duckdb/duckdb-browser-eh.worker.js', import.meta.url).href
 
+/**
+ * Split a SQL script into individual statements, respecting single-quoted
+ * string literals and `--` line comments so that semicolons inside strings
+ * (e.g. `'Sodium Chloride 23.4%;30ML V'`) are not treated as separators.
+ */
+function splitSqlStatements(sql: string): string[] {
+  const stmts: string[] = []
+  let current = ''
+  let i = 0
+  while (i < sql.length) {
+    const ch = sql[i]
+    // Single-quoted string literal — consume until closing quote
+    if (ch === "'") {
+      current += ch
+      i++
+      while (i < sql.length) {
+        if (sql[i] === "'" && sql[i + 1] === "'") {
+          current += "''"
+          i += 2
+        } else if (sql[i] === "'") {
+          current += "'"
+          i++
+          break
+        } else {
+          current += sql[i]
+          i++
+        }
+      }
+    // Line comment — consume until end of line
+    } else if (ch === '-' && sql[i + 1] === '-') {
+      const nl = sql.indexOf('\n', i)
+      if (nl === -1) { i = sql.length } else { i = nl + 1 }
+    // Statement separator
+    } else if (ch === ';') {
+      const trimmed = current.trim()
+      if (trimmed) stmts.push(trimmed)
+      current = ''
+      i++
+    } else {
+      current += ch
+      i++
+    }
+  }
+  const trimmed = current.trim()
+  if (trimmed) stmts.push(trimmed)
+  return stmts
+}
+
 let _db: duckdb.AsyncDuckDB | null = null
 let _initPromise: Promise<duckdb.AsyncDuckDB> | null = null
 let _worker: Worker | null = null
@@ -346,7 +394,10 @@ export async function queryDataSource(
     // sequentially. DuckDB-WASM doesn't reliably handle multi-statement
     // queries when views reference other views created in the same batch
     // (causes Binder Error with type mismatches like INTEGER vs BIGINT).
-    const statements = sql.split(';').map((s) => s.trim()).filter(Boolean)
+    // Use a parser that respects quoted strings so semicolons inside
+    // string literals (e.g. 'Sodium Chloride 23.4%;30ML V') are not
+    // treated as statement separators.
+    const statements = splitSqlStatements(sql)
 
     let result: Awaited<ReturnType<typeof conn.query>> | null = null
     for (const stmt of statements) {
