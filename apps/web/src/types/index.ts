@@ -112,8 +112,7 @@ export interface Project {
   notes?: string
   readme?: string
   readmeHistory?: ReadmeSnapshot[]
-  /** Structured research protocol for health data studies. */
-  protocol?: StudyProtocol
+
   /** IDs of app-level databases linked to this project. */
   linkedDataSourceIds?: string[]
   /** Organization or author metadata. */
@@ -290,97 +289,6 @@ export interface ReadmeAttachment {
   createdAt: string
 }
 
-// --- Study Protocol Types ---
-
-export type StudyType =
-  | 'retrospective_cohort' | 'prospective_cohort' | 'case_control'
-  | 'cross_sectional' | 'randomized_controlled_trial'
-  | 'before_after' | 'time_series' | 'ecological' | 'other'
-
-export type VariableRole =
-  | 'primary_outcome' | 'secondary_outcome' | 'exposure'
-  | 'covariate' | 'confounder' | 'descriptor'
-
-export type VariableDataType =
-  | 'continuous' | 'categorical' | 'binary' | 'ordinal' | 'date' | 'text'
-
-export type AggregateFunction =
-  | 'first' | 'last' | 'max' | 'min' | 'mean' | 'median'
-  | 'presence' | 'duration' | 'count' | 'sum'
-
-export interface ProtocolCriterion {
-  id: string
-  text: string
-  order: number
-}
-
-export interface ProtocolVariable {
-  id: string
-  name: LocalizedString
-  description?: string
-  conceptSource: 'concept_set' | 'custom'
-  conceptSetId?: string
-  customConceptName?: string
-  unit?: string
-  temporalAnchor: string
-  timeWindow: { start: string; end: string }
-  aggregateFunction: AggregateFunction
-  role: VariableRole
-  dataType?: VariableDataType
-  order: number
-}
-
-export interface ProtocolTimelinePhase {
-  id: string
-  name: string
-  startDate?: string
-  endDate?: string
-  description?: string
-  order: number
-}
-
-export interface ProtocolReference {
-  id: string
-  text: string
-  order: number
-}
-
-export interface ProtocolCustomSection {
-  id: string
-  title: LocalizedString
-  content: string
-  order: number
-}
-
-export interface StudyProtocol {
-  scientificContext?: string
-  primaryObjective?: string
-  secondaryObjectives?: string[]
-  hypotheses?: string
-  studyType?: StudyType
-  studyTypeOther?: string
-  isMulticentric?: boolean
-  studyPeriodStart?: string
-  studyPeriodEnd?: string
-  dataSources?: string
-  inclusionCriteria: ProtocolCriterion[]
-  nonInclusionCriteria: ProtocolCriterion[]
-  exclusionCriteria: ProtocolCriterion[]
-  variables: ProtocolVariable[]
-  primaryAnalysis?: string
-  secondaryAnalyses?: string
-  subgroupAnalyses?: string
-  missingDataHandling?: string
-  sampleSizeCalculation?: string
-  ethicsApproval?: string
-  consent?: string
-  dataProtection?: string
-  regulatoryReferences?: string
-  timelinePhases: ProtocolTimelinePhase[]
-  references: ProtocolReference[]
-  customSections: ProtocolCustomSection[]
-  updatedAt?: string
-}
 
 // --- Wiki Types ---
 

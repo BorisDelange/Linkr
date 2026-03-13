@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, StudyProtocol } from '@/types'
+import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -311,7 +311,7 @@ interface AppState {
   updateProjectTodos: (uid: string, todos: TodoItem[]) => void
   updateProjectNotes: (uid: string, notes: string) => void
   updateProjectReadme: (uid: string, readme: string) => void
-  updateProjectProtocol: (uid: string, protocol: StudyProtocol) => void
+
   restoreReadmeVersion: (uid: string, snapshotId: string) => void
   updateProjectStatus: (uid: string, status: ProjectStatus) => void
   updateProjectBadges: (uid: string, badges: ProjectBadge[]) => void
@@ -494,14 +494,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     getStorage().projects.update(uid, { readme })
   },
 
-  updateProjectProtocol: (uid, protocol) => {
-    set((s) => ({
-      _projectsRaw: s._projectsRaw.map((p) =>
-        p.uid === uid ? { ...p, protocol } : p
-      ),
-    }))
-    getStorage().projects.update(uid, { protocol })
-  },
 
   restoreReadmeVersion: () => {
     // No-op in local mode — readme history requires backend
