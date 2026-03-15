@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
-import { useFileStore } from '@/stores/file-store'
+import { useFileStore, type FileNode } from '@/stores/file-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import {
@@ -111,7 +111,7 @@ export function FileTreeItem({
   selectedFileId,
 }: FileTreeItemProps) {
   const { t } = useTranslation()
-  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode } = useFileStore()
+  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode } = useFileStore()
   const datasetStore = useDatasetStore()
   const [renameOpen, setRenameOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -256,6 +256,12 @@ export function FileTreeItem({
                 <Pencil size={14} />
                 {t('files.rename')}
               </ContextMenuItem>
+              {!isFolder && /\.(csv|tsv)$/i.test(node.name) && (
+                <ContextMenuItem onClick={() => openInEditorMode(node.id)}>
+                  <FileCode size={14} />
+                  {t('files.edit_in_editor')}
+                </ContextMenuItem>
+              )}
               {!isFolder && (
                 <ContextMenuItem onClick={() => {
                   if (isBridge && bridgeDatasetFileId) {

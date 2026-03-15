@@ -127,6 +127,7 @@ export function FilesPage() {
     saveFile,
     revertFile,
     _dirtyVersion,
+    editorModeFileIds,
   } = useFileStore()
   const { bottomPanelOpen, toggleBottomPanel, activeProjectUid } = useAppStore()
   const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
@@ -315,9 +316,11 @@ export function FilesPage() {
     })
   }, [selectedFileId, nodes, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
 
-  // When a CSV/TSV IDE file is selected, open it as a table in the output panel (hide editor)
+  // When a CSV/TSV IDE file is selected, open it as a table in the output panel
+  // (skip if the file was explicitly opened in editor mode via context menu)
   useEffect(() => {
     if (!selectedFileId || selectedFileId.startsWith('ds-bridge:') || selectedFileId.startsWith('virtual:')) return
+    if (editorModeFileIds.has(selectedFileId)) return
     const node = nodes.find((n) => n.id === selectedFileId)
     if (!node || node.type !== 'file') return
     const ext = node.name.split('.').pop()?.toLowerCase()
@@ -340,7 +343,29 @@ export function FilesPage() {
       content: { headers, rows: tableRows },
     })
     setOutputVisible(true)
-  }, [selectedFileId, nodes, addOutputTab, setOutputVisible])
+  }, [selectedFileId, nodes, addOutputTab, setOutputVisible, editorModeFileIds])
+
+  // Show editor pane when a file in editor mode is selected (e.g. CSV edit)
+  useEffect(() => {
+    if (selectedFileId && editorModeFileIds.has(selectedFileId) && !editorVisible) {
+      setEditorVisible(true)
+    }
+  }, [selectedFileId, editorModeFileIds, editorVisible])
+
+  // When no file is selected: auto-select first open file, or hide editor if only output tabs remain
+  useEffect(() => {
+    if (selectedNode) return
+    // Re-select the first open file tab if available
+    if (openFileIds.length > 0) {
+      selectFile(openFileIds[0])
+      return
+    }
+    // No file tabs open but output tabs exist — hide editor, show output
+    if (hasOutput && editorVisible) {
+      setEditorVisible(false)
+      setOutputVisible(true)
+    }
+  }, [selectedNode, hasOutput, editorVisible, openFileIds, selectFile, setOutputVisible])
 
   // CSV column colorization in Monaco — apply inline decorations per column
   const csvDecorationsRef = useRef<string[]>([])
@@ -620,7 +645,26 @@ export function FilesPage() {
   const handleSaveFile = useCallback(() => {
     if (!selectedNode || isVirtualFile) return
     saveFile(selectedNode.id)
-  }, [selectedNode, isVirtualFile, saveFile])
+    // If this is a CSV/TSV file opened in editor mode, refresh its output tab
+    const ext = selectedNode.name.split('.').pop()?.toLowerCase()
+    if ((ext === 'csv' || ext === 'tsv') && editorModeFileIds.has(selectedNode.id)) {
+      const content = selectedNode.content ?? ''
+      const delimiter = ext === 'tsv' ? '\t' : ','
+      const lines = content.split('\n').filter((l: string) => l.trim())
+      if (lines.length > 0) {
+        const headers = lines[0].split(delimiter).map((h: string) => h.trim().replace(/^"|"$/g, ''))
+        const tableRows = lines.slice(1, 1001).map((line: string) =>
+          line.split(delimiter).map((cell: string) => cell.trim().replace(/^"|"$/g, ''))
+        )
+        addOutputTab({
+          id: `csv-preview:${selectedNode.id}`,
+          label: selectedNode.name,
+          type: 'table',
+          content: { headers, rows: tableRows },
+        })
+      }
+    }
+  }, [selectedNode, isVirtualFile, saveFile, editorModeFileIds, addOutputTab])
 
   // Close file with unsaved changes confirmation
   const handleCloseFile = useCallback((fid: string) => {

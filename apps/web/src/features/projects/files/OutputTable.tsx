@@ -18,6 +18,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
+import {
+  ColumnFilterInput,
+  applyColumnFilter,
+  type ColumnFilterValue,
+} from '@/features/projects/lab/datasets/ColumnFilterInput'
 import { cn } from '@/lib/utils'
 import { DATE_DATETIME_RE } from '@/lib/dataset-utils'
 
@@ -53,6 +58,16 @@ function inferColumnType(rows: string[][], colIdx: number): InferredType {
   return 'string'
 }
 
+/** Detect whether date-typed column values contain time components. */
+function colHasTimeComponent(rows: string[][], colIdx: number): boolean {
+  const timeRe = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/
+  for (let i = 0; i < Math.min(rows.length, 200); i++) {
+    const val = rows[i][colIdx]
+    if (val != null && val !== '' && timeRe.test(val)) return true
+  }
+  return false
+}
+
 function isNullish(val: string | undefined): boolean {
   if (val == null || val === '') return true
   const lower = val.toLowerCase()
@@ -79,7 +94,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
+  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterValue>>({})
   const [hiddenColumns, setHiddenColumns] = useState<Set<number>>(new Set())
 
   // Infer column types from data
@@ -88,24 +103,29 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
     [headers, rows],
   )
 
+  // Detect datetime columns (for date filter input type)
+  const columnDatetimeFlags = useMemo(
+    () => headers.map((_, idx) => columnTypes[idx] === 'date' ? colHasTimeComponent(rows, idx) : false),
+    [headers, rows, columnTypes],
+  )
+
   // Visible column indices
   const visibleIndices = useMemo(
     () => headers.map((_, i) => i).filter((i) => !hiddenColumns.has(i)),
     [headers, hiddenColumns],
   )
 
-  // Filter rows client-side based on column search inputs
+  // Filter rows client-side using type-aware filtering
   const filteredRows = useMemo(() => {
-    const activeFilters = Object.entries(columnFilters).filter(([, v]) => v.length > 0)
+    const activeFilters = Object.entries(columnFilters).filter(([, v]) => v != null)
     if (activeFilters.length === 0) return rows
     return rows.filter((row) =>
-      activeFilters.every(([colKey, term]) => {
+      activeFilters.every(([colKey, filterValue]) => {
         const idx = parseInt(colKey, 10)
-        const val = row[idx] ?? ''
-        return val.toLowerCase().includes(term.toLowerCase())
+        return applyColumnFilter(row[idx], columnTypes[idx], filterValue)
       }),
     )
-  }, [rows, columnFilters])
+  }, [rows, columnFilters, columnTypes])
 
   const totalCount = filteredRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
@@ -116,8 +136,13 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   )
 
   const handleFilterChange = useCallback(
-    (colIdx: number, value: string) => {
-      setColumnFilters((prev) => ({ ...prev, [colIdx]: value }))
+    (colId: string, value: ColumnFilterValue) => {
+      setColumnFilters((prev) => {
+        const next = { ...prev }
+        if (value == null) delete next[colId]
+        else next[colId] = value
+        return next
+      })
       setPage(0)
     },
     [],
@@ -132,7 +157,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
     })
   }, [])
 
-  const hasActiveFilters = Object.values(columnFilters).some((v) => v.length > 0)
+  const hasActiveFilters = Object.keys(columnFilters).length > 0
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -163,11 +188,13 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                 <th className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1" />
                 {visibleIndices.map((idx) => (
                   <th key={`filter-${idx}`} className="border-b border-r px-1 py-1 bg-muted">
-                    <input
-                      className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-                      placeholder={`${headers[idx]}...`}
-                      value={columnFilters[idx] ?? ''}
-                      onChange={(e) => handleFilterChange(idx, e.target.value)}
+                    <ColumnFilterInput
+                      colId={String(idx)}
+                      colType={columnTypes[idx]}
+                      colName={headers[idx]}
+                      value={columnFilters[idx]}
+                      onChange={handleFilterChange}
+                      isDatetime={columnDatetimeFlags[idx]}
                     />
                   </th>
                 ))}
