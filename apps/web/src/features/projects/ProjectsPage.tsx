@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
-import JSZip from 'jszip'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
-import { buildProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -30,7 +30,7 @@ import {
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
-import type { Project, IdeFile, Pipeline, Cohort, IdeConnection, Dashboard, DashboardTab, DashboardWidget, DatasetFile, DatasetAnalysis, ReadmeAttachment } from '@/types'
+import type { Project, ReadmeAttachment } from '@/types'
 
 export function ProjectsPage() {
   const { t } = useTranslation()
@@ -48,7 +48,7 @@ export function ProjectsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   // Import conflict state
-  const [importConflict, setImportConflict] = useState<{ name: string; pending: Record<string, unknown> } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip } | null>(null)
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -96,34 +96,20 @@ export function ProjectsPage() {
   const handleDuplicateProject = useCallback(async (projectUid: string) => {
     const result = await buildProjectZip(projectUid, getStorage())
     if (!result) return
-    // Parse the ZIP we just built, then import as duplicate
-    const zip = await JSZip.loadAsync(result.blob)
-    const parsed: Record<string, unknown> = {}
-    for (const [path, entry] of Object.entries(zip.files)) {
-      if (entry.dir) continue
-      if (path.startsWith('attachments/')) {
-        parsed[path] = await entry.async('arraybuffer')
-      } else {
-        const content = await entry.async('string')
-        try { parsed[path] = JSON.parse(content) } catch { parsed[path] = content }
-      }
-    }
+    const parsed = await parseProjectZip(new File([result.blob], 'dup.zip'))
+    if (!parsed) return
     await doImport(parsed, true)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // --- Import ---
-  const doImport = useCallback(async (parsed: Record<string, unknown>, duplicate: boolean) => {
-    const project = parsed['project.json'] as Project | undefined
+  const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean) => {
+    const { project } = parsed
     if (!project?.uid) return
 
     const now = new Date().toISOString()
     const uid = duplicate ? crypto.randomUUID() : project.uid
     const storage = getStorage()
 
-    // Build the project entity
-    const projectName = typeof project.name === 'string'
-      ? project.name
-      : (project.name?.en || Object.values(project.name ?? {})[0] || 'Imported project')
     const entity: Project = {
       ...project,
       uid,
@@ -143,7 +129,6 @@ export function ProjectsPage() {
       await storage.connections.deleteByProject(project.uid).catch(() => {})
       await storage.readmeAttachments.deleteByProject(project.uid).catch(() => {})
       await storage.datasetFiles.deleteByProject(project.uid).catch(() => {})
-      // Delete dashboards + children
       const oldDashboards = await storage.dashboards.getByProject(project.uid)
       for (const d of oldDashboards) {
         const tabs = await storage.dashboardTabs.getByDashboard(d.id)
@@ -151,13 +136,10 @@ export function ProjectsPage() {
         await storage.dashboardTabs.deleteByDashboard(d.id)
         await storage.dashboards.delete(d.id)
       }
-      // Delete pipelines
       const oldPipelines = await storage.pipelines.getByProject(project.uid)
       for (const p of oldPipelines) await storage.pipelines.delete(p.id)
-      // Delete cohorts
       const oldCohorts = await storage.cohorts.getByProject(project.uid)
       for (const c of oldCohorts) await storage.cohorts.delete(c.id)
-      // Delete dataset analyses
       const oldDatasetFiles = await storage.datasetFiles.getByProject(project.uid)
       for (const df of oldDatasetFiles) {
         if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
@@ -165,7 +147,6 @@ export function ProjectsPage() {
       await storage.projects.delete(project.uid).catch(() => {})
     }
 
-    // Create project
     await storage.projects.create(entity)
 
     // Helper to remap IDs when duplicating
@@ -176,103 +157,38 @@ export function ProjectsPage() {
       return idMap.get(oldId)!
     }
 
-    // IDE files
-    const ideFiles = (parsed['ide-files.json'] ?? []) as IdeFile[]
-    for (const f of ideFiles) {
-      await storage.ideFiles.create({
-        ...f,
-        id: mapId(f.id),
-        projectUid: uid,
-        parentId: f.parentId ? mapId(f.parentId) : null,
-      })
+    for (const f of parsed.ideFiles) {
+      await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid: uid, parentId: f.parentId ? mapId(f.parentId) : null })
     }
-
-    // Pipelines
-    const pipelines = (parsed['pipelines.json'] ?? []) as Pipeline[]
-    for (const p of pipelines) {
-      await storage.pipelines.create({
-        ...p,
-        id: mapId(p.id),
-        projectUid: uid,
-      })
+    for (const p of parsed.pipelines) {
+      await storage.pipelines.create({ ...p, id: mapId(p.id), projectUid: uid })
     }
-
-    // Cohorts
-    const cohorts = (parsed['cohorts.json'] ?? []) as Cohort[]
-    for (const c of cohorts) {
-      await storage.cohorts.create({
-        ...c,
-        id: mapId(c.id),
-        projectUid: uid,
-      })
+    for (const c of parsed.cohorts) {
+      await storage.cohorts.create({ ...c, id: mapId(c.id), projectUid: uid })
     }
-
-    // Connections
-    const connections = (parsed['connections.json'] ?? []) as IdeConnection[]
-    for (const c of connections) {
-      await storage.connections.create({
-        ...c,
-        id: mapId(c.id),
-        projectUid: uid,
-      })
+    for (const c of parsed.connections) {
+      await storage.connections.create({ ...c, id: mapId(c.id), projectUid: uid })
     }
-
-    // Dashboards + tabs + widgets
-    const dashboards = (parsed['dashboards.json'] ?? []) as Dashboard[]
-    const dashboardTabs = (parsed['dashboard-tabs.json'] ?? []) as DashboardTab[]
-    const dashboardWidgets = (parsed['dashboard-widgets.json'] ?? []) as DashboardWidget[]
-    for (const d of dashboards) {
-      await storage.dashboards.create({
-        ...d,
-        id: mapId(d.id),
-        projectUid: uid,
-      })
+    for (const d of parsed.dashboards) {
+      await storage.dashboards.create({ ...d, id: mapId(d.id), projectUid: uid })
     }
-    for (const tab of dashboardTabs) {
-      await storage.dashboardTabs.create({
-        ...tab,
-        id: mapId(tab.id),
-        dashboardId: mapId(tab.dashboardId),
-      })
+    for (const tab of parsed.dashboardTabs) {
+      await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
     }
-    for (const w of dashboardWidgets) {
-      await storage.dashboardWidgets.create({
-        ...w,
-        id: mapId(w.id),
-        tabId: mapId(w.tabId),
-      })
+    for (const w of parsed.dashboardWidgets) {
+      await storage.dashboardWidgets.create({ ...w, id: mapId(w.id), tabId: mapId(w.tabId) })
     }
-
-    // Dataset files + analyses
-    const datasetFiles = (parsed['dataset-files.json'] ?? []) as DatasetFile[]
-    const datasetAnalyses = (parsed['dataset-analyses.json'] ?? []) as DatasetAnalysis[]
-    for (const df of datasetFiles) {
-      await storage.datasetFiles.create({
-        ...df,
-        id: mapId(df.id),
-        projectUid: uid,
-        parentId: df.parentId ? mapId(df.parentId) : null,
-      })
+    for (const df of parsed.datasetFiles) {
+      await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid: uid, parentId: df.parentId ? mapId(df.parentId) : null })
     }
-    for (const a of datasetAnalyses) {
-      await storage.datasetAnalyses.create({
-        ...a,
-        id: mapId(a.id),
-        datasetFileId: mapId(a.datasetFileId),
-      })
+    for (const a of parsed.datasetAnalyses) {
+      await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
     }
-
-    // Readme attachments (metadata + binary blobs)
-    const attachmentsMeta = (parsed['readme-attachments.json'] ?? []) as Omit<ReadmeAttachment, 'data'>[]
-    for (const meta of attachmentsMeta) {
-      const blobKey = `attachments/${meta.id}-${meta.fileName}`
-      const blobData = parsed[blobKey]
-      if (blobData instanceof ArrayBuffer) {
+    for (const meta of parsed.attachmentsMeta) {
+      const blobData = parsed.attachmentBlobs.get(meta.id)
+      if (blobData) {
         await storage.readmeAttachments.create({
-          ...meta,
-          id: mapId(meta.id),
-          projectUid: uid,
-          data: blobData,
+          ...meta, id: mapId(meta.id), projectUid: uid, data: blobData,
         } as ReadmeAttachment)
       }
     }
@@ -285,23 +201,10 @@ export function ProjectsPage() {
     if (!file) return
     e.target.value = ''
 
-    const zip = await JSZip.loadAsync(file)
-    const parsed: Record<string, unknown> = {}
-    for (const [path, entry] of Object.entries(zip.files)) {
-      if (entry.dir) continue
-      // Binary files (attachments/)
-      if (path.startsWith('attachments/')) {
-        parsed[path] = await entry.async('arraybuffer')
-      } else {
-        const content = await entry.async('string')
-        try { parsed[path] = JSON.parse(content) } catch { parsed[path] = content }
-      }
-    }
+    const parsed = await parseProjectZip(file)
+    if (!parsed) return
 
-    const project = parsed['project.json'] as Project | undefined
-    if (!project?.uid) return
-
-    const existing = await getStorage().projects.getById(project.uid)
+    const existing = await getStorage().projects.getById(parsed.project.uid)
     if (existing) {
       const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
       setImportConflict({ name: existingName, pending: parsed })

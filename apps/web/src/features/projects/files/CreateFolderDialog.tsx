@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useFileStore, buildFolderTree } from '@/stores/file-store'
+import { useFileStore, buildFolderTree, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
 import { FolderOpen } from 'lucide-react'
 import {
   Dialog,
@@ -46,10 +46,11 @@ export function CreateFolderDialog({
   const isDuplicate = trimmedName.length > 0 && files.some(
     (f) => f.name === trimmedName && f.parentId === actualParentId
   )
+  const isReserved = trimmedName.length > 0 && !actualParentId && RESERVED_ROOT_FOLDERS.has(trimmedName)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!trimmedName || isDuplicate) return
+    if (!trimmedName || isDuplicate || isReserved) return
     createFolder(trimmedName, actualParentId)
     setName('')
     onOpenChange(false)
@@ -110,6 +111,9 @@ export function CreateFolderDialog({
               {isDuplicate && (
                 <p className="text-xs text-destructive">{t('files.name_already_exists')}</p>
               )}
+              {isReserved && (
+                <p className="text-xs text-destructive">{t('files.name_reserved')}</p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-6">
@@ -120,7 +124,7 @@ export function CreateFolderDialog({
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!trimmedName || isDuplicate}>
+            <Button type="submit" disabled={!trimmedName || isDuplicate || isReserved}>
               {t('common.create')}
             </Button>
           </DialogFooter>

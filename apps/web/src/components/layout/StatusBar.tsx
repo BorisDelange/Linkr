@@ -8,6 +8,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
+import { APP_VERSION } from '@/lib/version'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
 function usageColor(pct: number) {
@@ -62,7 +63,7 @@ export function StatusBar() {
   return (
     <footer className="flex h-6 shrink-0 items-center justify-between border-t bg-background px-3 text-[11px] text-muted-foreground">
       <div className="flex items-center gap-3">
-        <span className="font-medium">Linkr v2.0</span>
+        <span className="font-medium">Linkr v{APP_VERSION}</span>
       </div>
       <div className="flex items-center gap-3">
         {/* Metrics popover */}

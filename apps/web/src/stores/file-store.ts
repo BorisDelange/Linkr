@@ -5,6 +5,12 @@ import { useAppStore } from '@/stores/app-store'
 
 export type FileNode = IdeFile
 
+/** Folder names reserved for structured export — cannot be created/renamed to at IDE root level. */
+export const RESERVED_ROOT_FOLDERS = new Set([
+  '_pipeline', '_cohorts', '_databases', '_dashboards',
+  '_datasets', '_data', '_attachments',
+])
+
 export interface OutputTab {
   id: string
   label: string
@@ -77,6 +83,10 @@ interface FileState {
   updateExecutionResult: (id: string, updates: Partial<ExecutionResult>) => void
   clearExecutionResults: () => void
   clearExecutionResultsByLanguage: (lang: ExecLanguage) => void
+
+  /** File IDs that should be opened in the code editor instead of as output table (e.g. CSV edit mode). */
+  editorModeFileIds: Set<string>
+  openInEditorMode: (id: string) => void
 
   undoStack: UndoAction[]
   pushUndo: (action: UndoAction) => void
@@ -752,6 +762,11 @@ export const useFileStore = create<FileState>((set, get) => ({
   },
 
   createFolder: (name, parentId) => {
+    // Block reserved system folder names at root level
+    if (!parentId && RESERVED_ROOT_FOLDERS.has(name)) {
+      console.warn(`[file-store] Cannot create reserved folder name: ${name}`)
+      return
+    }
     const projectUid = get().activeProjectUid ?? ''
     const id = newFileId('folder')
     const node: FileNode = {
@@ -843,6 +858,11 @@ export const useFileStore = create<FileState>((set, get) => ({
     const state = get()
     const node = state.files.find((f) => f.id === id)
     if (!node) return
+    // Block reserved system folder names at root level
+    if (node.type === 'folder' && !node.parentId && RESERVED_ROOT_FOLDERS.has(newName)) {
+      console.warn(`[file-store] Cannot rename to reserved folder name: ${newName}`)
+      return
+    }
     const oldName = node.name
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName } : f)),
@@ -1130,6 +1150,19 @@ export const useFileStore = create<FileState>((set, get) => ({
       }
       return { executionResults: remaining }
     }),
+
+  editorModeFileIds: new Set(),
+  openInEditorMode: (id) => {
+    set((s) => {
+      const next = new Set(s.editorModeFileIds)
+      next.add(id)
+      return {
+        editorModeFileIds: next,
+        selectedFileId: id,
+        openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
+      }
+    })
+  },
 
   undoStack: [],
   pushUndo: (action) =>

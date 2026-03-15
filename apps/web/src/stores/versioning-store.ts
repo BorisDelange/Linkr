@@ -3,6 +3,7 @@ import type { GitCommit, GitRemoteConfig } from '@/types'
 import { useAppStore } from '@/stores/app-store'
 import { getStorage } from '@/lib/storage'
 import { buildProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import type { BuildProjectZipOptions } from '@/lib/entity-io'
 
 const BACKEND_MSG = '[versioning] Requires backend — no-op in local mode'
 
@@ -20,7 +21,7 @@ interface VersioningState {
   restoreCommit: (projectUid: string, oid: string) => Promise<void>
   setRemoteConfig: (config: GitRemoteConfig) => void
   clearRemoteConfig: () => void
-  exportZip: () => Promise<void>
+  exportZip: (options?: BuildProjectZipOptions) => Promise<void>
 }
 
 export const useVersioningStore = create<VersioningState>((set) => ({
@@ -39,10 +40,10 @@ export const useVersioningStore = create<VersioningState>((set) => ({
   setRemoteConfig: (config) => set({ remoteConfig: config }),
   clearRemoteConfig: () => set({ remoteConfig: null }),
 
-  exportZip: async () => {
+  exportZip: async (options) => {
     const projectUid = useAppStore.getState().activeProjectUid
     if (!projectUid) return
-    const result = await buildProjectZip(projectUid, getStorage())
+    const result = await buildProjectZip(projectUid, getStorage(), options)
     if (!result) return
     downloadBlob(result.blob, `${slugify(result.projectName)}-${timestamp()}.zip`)
   },
