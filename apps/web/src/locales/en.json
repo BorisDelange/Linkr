@@ -1794,13 +1794,13 @@
     "confirm": "Delete all data"
   },
   "version_check": {
-    "title": "New version detected",
-    "description": "A new version of Linkr has been deployed since your last visit. We recommend reloading the page to use the latest version.",
-    "schema_warning": "The data structure has changed. It is strongly recommended to reset your data to avoid errors.",
-    "dev_notice": "Linkr is under active development — updates may require reloading or resetting local data.",
-    "reload": "Reload",
-    "reset_data": "Reset data",
-    "dismiss": "Ignore"
+    "update_title": "Linkr has been updated",
+    "update_description": "A new version is now active. No action required.",
+    "schema_title": "Data reset required",
+    "schema_description": "The local data format has changed with this update. Your existing data is no longer compatible and may cause errors.",
+    "schema_hint": "You can export your projects before resetting to avoid losing work.",
+    "reset_data": "Reset all data",
+    "dismiss": "Ignore (may cause errors)"
   },
   "common": {
     "save": "Save",

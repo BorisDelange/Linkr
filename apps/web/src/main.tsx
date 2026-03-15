@@ -8,6 +8,7 @@ import '@fontsource/inter/700.css'
 import '@/lib/i18n'
 import '@/index.css'
 import { App } from '@/app/App'
+import { AppErrorBoundary } from '@/components/layout/AppErrorBoundary'
 import { registerDefaultPlugins, registerUserPlugins } from '@/lib/plugins/default-plugins'
 import { initStorage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
@@ -20,9 +21,11 @@ async function boot() {
   await registerUserPlugins()
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <AppErrorBoundary>
+        <BrowserRouter>
+          <App />
+        </BrowserRouter>
+      </AppErrorBoundary>
     </StrictMode>,
   )
 }

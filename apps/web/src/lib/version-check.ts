@@ -21,6 +21,13 @@ export type VersionStatus =
   | { kind: 'first-visit' }
 
 export function checkVersion(): VersionStatus {
+  // Allow forcing in dev: ?force-version-check or ?force-version-check=schema
+  const params = new URLSearchParams(window.location.search)
+  const forceCheck = params.get('force-version-check')
+  if (forceCheck !== null) {
+    return { kind: 'new-build', schemaChanged: forceCheck === 'schema' }
+  }
+
   const storedHash = localStorage.getItem(BUILD_HASH_KEY)
   const storedSchema = localStorage.getItem(SCHEMA_VERSION_KEY)
 
