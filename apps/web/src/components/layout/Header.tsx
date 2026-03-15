@@ -11,6 +11,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { clearAllData } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -123,17 +124,7 @@ export function Header() {
     i18n.changeLanguage(newLang)
   }
 
-  const handleResetData = async () => {
-    // Clear IndexedDB
-    const databases = await indexedDB.databases()
-    for (const db of databases) {
-      if (db.name) indexedDB.deleteDatabase(db.name)
-    }
-    // Clear localStorage
-    localStorage.clear()
-    // Reload the app
-    window.location.href = '/'
-  }
+  const handleResetData = () => clearAllData()
 
   const getPageLabel = () => {
     // Check project-level routes: /workspaces/:wsUid/projects/:uid/segment

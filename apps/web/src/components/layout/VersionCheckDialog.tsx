@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { checkVersion, acknowledgeVersion, type VersionStatus } from '@/lib/version-check'
+import { checkVersion, acknowledgeVersion, clearAllData, type VersionStatus } from '@/lib/version-check'
 
 export function VersionCheckDialog() {
   const { t } = useTranslation()
@@ -31,16 +31,7 @@ export function VersionCheckDialog() {
 
   // --- Schema changed: blocking dialog ---
   if (status.schemaChanged) {
-    const handleResetData = async () => {
-      try {
-        const databases = await indexedDB.databases()
-        for (const db of databases) {
-          if (db.name) indexedDB.deleteDatabase(db.name)
-        }
-      } catch { /* best effort */ }
-      localStorage.clear()
-      window.location.href = '/'
-    }
+    const handleResetData = () => clearAllData()
 
     const handleDismiss = () => {
       acknowledgeVersion()

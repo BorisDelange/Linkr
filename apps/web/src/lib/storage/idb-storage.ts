@@ -660,6 +660,13 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       }
     },
   })
+  // Auto-close when another tab requests a deleteDatabase or version upgrade
+  _dbPromise.then((db) => {
+    db.addEventListener('versionchange', () => {
+      db.close()
+      _dbPromise = null
+    })
+  })
   _dbPromise.catch(() => { _dbPromise = null })
   return _dbPromise
 }

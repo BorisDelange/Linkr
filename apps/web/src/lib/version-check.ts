@@ -14,6 +14,7 @@ export const APP_SCHEMA_VERSION = 1
 
 const BUILD_HASH_KEY = 'linkr-app-build-hash'
 const SCHEMA_VERSION_KEY = 'linkr-app-schema-version'
+const PENDING_RESET_KEY = 'linkr-pending-reset'
 
 export type VersionStatus =
   | { kind: 'up-to-date' }
@@ -46,6 +47,45 @@ export function checkVersion(): VersionStatus {
   const schemaChanged = storedSchema !== null && parseInt(storedSchema, 10) !== currentSchema
 
   return { kind: 'new-build', schemaChanged }
+}
+
+/**
+ * Request a full data reset. Sets a flag in localStorage, then navigates to '/'.
+ * The actual deletion happens on next boot via `executePendingReset()`,
+ * before any IDB connection is opened — so deleteDatabase is never blocked
+ * by the current tab. Other tabs auto-close via the `versionchange` listener
+ * in idb-storage.ts.
+ */
+export function clearAllData(): void {
+  localStorage.setItem(PENDING_RESET_KEY, '1')
+  window.location.href = '/'
+}
+
+/**
+ * If a reset was requested, delete all IDB databases and clear localStorage.
+ * Must be called at app startup BEFORE opening any IDB connection.
+ */
+export async function executePendingReset(): Promise<boolean> {
+  if (localStorage.getItem(PENDING_RESET_KEY) !== '1') return false
+
+  try {
+    const databases = await indexedDB.databases()
+    await Promise.all(
+      databases
+        .filter((db) => db.name)
+        .map((db) => new Promise<void>((resolve) => {
+          const req = indexedDB.deleteDatabase(db.name!)
+          req.onsuccess = () => resolve()
+          req.onerror = () => resolve()
+          req.onblocked = () => resolve()
+        })),
+    )
+  } catch {
+    // indexedDB.databases() not supported in all browsers — best effort
+  }
+
+  localStorage.clear()
+  return true
 }
 
 /** Store current version info in localStorage (call after user acknowledges or on first visit). */

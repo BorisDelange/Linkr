@@ -20,16 +20,9 @@ export class AppErrorBoundary extends Component<Props, State> {
     return { hasError: true, error }
   }
 
-  handleReset = async () => {
-    try {
-      const databases = await indexedDB.databases()
-      for (const db of databases) {
-        if (db.name) indexedDB.deleteDatabase(db.name)
-      }
-    } catch {
-      // indexedDB.databases() not supported in all browsers — best effort
-    }
-    localStorage.clear()
+  handleReset = () => {
+    // Set flag and reload — actual deletion happens in main.tsx before IDB is opened
+    localStorage.setItem('linkr-pending-reset', '1')
     window.location.href = '/'
   }
 
