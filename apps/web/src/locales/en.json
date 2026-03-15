@@ -585,6 +585,8 @@
     "level_visit_desc": "One row per hospital visit",
     "level_visit_detail": "Unit stay",
     "level_visit_detail_desc": "One row per unit stay (ICU, ward, etc.)",
+    "level_event": "Event",
+    "level_event_desc": "One row per clinical event",
 
     "view_criteria": "Criteria",
 
@@ -593,14 +595,15 @@
     "criteria_death": "Death",
     "criteria_period": "Time period",
     "criteria_duration": "Length of stay",
-    "criteria_care_site": "Care site",
+    "criteria_care_site": "Care location",
     "criteria_concept": "Concept",
+    "criteria_text": "Free text",
 
     "age_reference": "Age reference",
     "age_current": "Current age",
-    "age_admission": "Age at admission",
-    "age_min": "Min",
-    "age_max": "Max",
+    "age_admission": "At admission",
+    "age_min": "Minimum age",
+    "age_max": "Maximum age",
 
     "sex_male": "Male",
     "sex_female": "Female",
@@ -608,20 +611,33 @@
 
     "death_deceased": "Deceased",
     "death_alive": "Alive",
+    "death_reference": "Period",
+    "death_visit": "During hospitalization",
+    "death_visit_detail": "During unit stay",
 
     "period_start": "Start date",
     "period_end": "End date",
 
     "duration_level": "Level",
-    "duration_min": "Min",
-    "duration_max": "Max",
+    "duration_unit": "Unit",
+    "duration_min": "Minimum",
+    "duration_max": "Maximum",
+    "duration_hours": "hours",
     "duration_days": "days",
+    "duration_min_hours": "Minimum hours",
+    "duration_max_hours": "Maximum hours",
+    "duration_min_days": "Minimum days",
+    "duration_max_days": "Maximum days",
+    "duration_visit": "Hospitalization",
+    "duration_visit_detail": "Unit stay",
 
     "care_site_level": "Level",
-    "care_site_values": "Care sites",
-    "care_site_placeholder": "Select care sites...",
+    "care_site_values": "Care locations",
+    "care_site_placeholder": "Select care locations...",
     "care_site_search": "Search...",
-    "care_site_no_values": "No care sites found",
+    "care_site_no_values": "No care locations found",
+
+    "text_description": "Description",
 
     "concept_event_table": "Event table",
     "concept_selected": "Selected concepts",
@@ -1619,9 +1635,12 @@
     "account": "Account",
     "account_description": "Your account information.",
     "username": "Username",
-    "email": "Email",
+    "first_name": "First name",
+    "last_name": "Last name",
     "change_password": "Change password",
     "change_password_description": "Update your password.",
+    "change_password_requires_backend": "Server mode required",
+    "change_password_requires_backend_description": "Password management is available when connected to a Linkr server. In local mode, there is no authentication.",
     "current_password": "Current password",
     "new_password": "New password",
     "confirm_password": "Confirm password",
@@ -1845,6 +1864,7 @@
   },
   "user_menu": {
     "profile": "Profile",
+    "reset_data": "Reset all data",
     "sign_out": "Sign out"
   },
   "runtime": {

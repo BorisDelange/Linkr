@@ -35,15 +35,17 @@ export function UsersTab() {
   const { users, addUser, deleteUser } = useAppStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [username, setUsername] = useState('')
-  const [email, setEmail] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [role, setRole] = useState('viewer')
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!username.trim()) return
-    addUser({ username: username.trim(), email: email.trim(), role })
+    addUser({ username: username.trim(), firstName: firstName.trim(), lastName: lastName.trim(), role })
     setUsername('')
-    setEmail('')
+    setFirstName('')
+    setLastName('')
     setRole('viewer')
     setDialogOpen(false)
   }
@@ -74,7 +76,8 @@ export function UsersTab() {
           <TableHeader>
             <TableRow>
               <TableHead>{t('settings.user_username')}</TableHead>
-              <TableHead>{t('settings.user_email')}</TableHead>
+              <TableHead>{t('profile.first_name')}</TableHead>
+              <TableHead>{t('profile.last_name')}</TableHead>
               <TableHead>{t('settings.user_role')}</TableHead>
               <TableHead className="w-12" />
             </TableRow>
@@ -83,7 +86,8 @@ export function UsersTab() {
             {users.map((user) => (
               <TableRow key={user.id}>
                 <TableCell className="text-sm font-medium">{user.username}</TableCell>
-                <TableCell className="text-sm text-muted-foreground">{user.email}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{user.firstName}</TableCell>
+                <TableCell className="text-sm text-muted-foreground">{user.lastName}</TableCell>
                 <TableCell>
                   <Badge variant={roleBadgeVariant(user.role)} className="text-[11px]">
                     {t(`settings.role_${user.role}`)}
@@ -123,12 +127,19 @@ export function UsersTab() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="user-email">{t('settings.user_email')}</Label>
+                <Label htmlFor="user-first-name">{t('profile.first_name')}</Label>
                 <Input
-                  id="user-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="user-first-name"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="user-last-name">{t('profile.last_name')}</Label>
+                <Input
+                  id="user-last-name"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
                 />
               </div>
               <div className="space-y-2">

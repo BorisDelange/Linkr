@@ -12,7 +12,8 @@ export function registerWorkspaceStore(store: any) {
 interface AuthUser {
   id: number
   username: string
-  email: string
+  firstName: string
+  lastName: string
   role: string
 }
 
@@ -27,7 +28,8 @@ interface ProjectItem {
 interface ManagedUser {
   id: number
   username: string
-  email: string
+  firstName: string
+  lastName: string
   role: string
 }
 
@@ -373,7 +375,7 @@ const prefs = loadPreferences()
 let nextUserId = 2
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: { id: 1, username: 'admin', email: 'admin@linkr.local', role: 'admin' },
+  user: { id: 1, username: 'admin', firstName: '', lastName: '', role: 'admin' },
   login: (user) => set({ user }),
   logout: () => set({ user: null }),
 
@@ -582,7 +584,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Users (not persisted yet)
   users: [
-    { id: 1, username: 'admin', email: 'admin@linkr.local', role: 'admin' },
+    { id: 1, username: 'admin', firstName: '', lastName: '', role: 'admin' },
   ],
   addUser: (user) =>
     set((s) => ({

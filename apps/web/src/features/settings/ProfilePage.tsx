@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EditorSettingsForm } from './EditorSettingsForm'
+import { Info, Lock } from 'lucide-react'
 
 export function ProfilePage() {
   const { t, i18n } = useTranslation()
@@ -63,9 +64,6 @@ export function ProfilePage() {
             <TabsTrigger value="editor">
               {t('profile.editor')}
             </TabsTrigger>
-            <TabsTrigger value="notifications">
-              {t('profile.notifications')}
-            </TabsTrigger>
           </TabsList>
 
           {/* Account tab */}
@@ -84,9 +82,15 @@ export function ProfilePage() {
                   <Label>{t('profile.username')}</Label>
                   <Input value={user?.username ?? ''} disabled />
                 </div>
-                <div className="space-y-2">
-                  <Label>{t('profile.email')}</Label>
-                  <Input value={user?.email ?? ''} disabled />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('profile.first_name')}</Label>
+                    <Input value={user?.firstName ?? ''} disabled />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t('profile.last_name')}</Label>
+                    <Input value={user?.lastName ?? ''} disabled />
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -100,26 +104,19 @@ export function ProfilePage() {
                   {t('profile.change_password_description')}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="current-password">
-                    {t('profile.current_password')}
-                  </Label>
-                  <Input id="current-password" type="password" />
+              <CardContent>
+                <div className="flex flex-col items-center py-6">
+                  <Lock size={36} className="text-muted-foreground/50" />
+                  <p className="mt-3 text-sm font-medium text-foreground">
+                    {t('profile.change_password_requires_backend')}
+                  </p>
+                  <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950 max-w-md">
+                    <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                    <p className="text-xs text-amber-700 dark:text-amber-300">
+                      {t('profile.change_password_requires_backend_description')}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-password">
-                    {t('profile.new_password')}
-                  </Label>
-                  <Input id="new-password" type="password" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">
-                    {t('profile.confirm_password')}
-                  </Label>
-                  <Input id="confirm-password" type="password" />
-                </div>
-                <Button size="sm">{t('common.save')}</Button>
               </CardContent>
             </Card>
           </TabsContent>
@@ -192,44 +189,6 @@ export function ProfilePage() {
               </CardHeader>
               <CardContent>
                 <EditorSettingsForm />
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Notifications tab */}
-          <TabsContent value="notifications" className="mt-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">
-                  {t('profile.notifications')}
-                </CardTitle>
-                <CardDescription>
-                  {t('profile.notifications_description')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">
-                      {t('profile.email_notifications')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('profile.email_notifications_description')}
-                    </p>
-                  </div>
-                  <Switch />
-                </div>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">
-                      {t('profile.project_updates')}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('profile.project_updates_description')}
-                    </p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
               </CardContent>
             </Card>
           </TabsContent>

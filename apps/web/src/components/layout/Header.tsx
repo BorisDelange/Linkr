@@ -12,7 +12,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2 } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, User, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -33,11 +33,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 
 const routeTitleKeys: Record<string, string> = {
   '/': 'nav.home',
@@ -126,6 +121,13 @@ export function Header() {
 
   const handleResetData = () => clearAllData()
 
+  // Build display name and initials from firstName/lastName
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ')
+  const displayName = fullName || user?.username || 'User'
+  const initials = fullName
+    ? [user?.firstName, user?.lastName].filter(Boolean).map((n) => n!.charAt(0).toUpperCase()).join('')
+    : (user?.username?.charAt(0).toUpperCase() ?? 'U')
+
   const getPageLabel = () => {
     // Check project-level routes: /workspaces/:wsUid/projects/:uid/segment
     const projectMatch = pathname.match(/^\/workspaces\/[^/]+\/projects\/[^/]+\/(.+)$/)
@@ -208,22 +210,13 @@ export function Header() {
             {darkMode ? <Sun size={15} /> : <Moon size={15} />}
           </Button>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={() => setResetDialogOpen(true)}>
-                <Trash2 size={15} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('reset.tooltip')}</TooltipContent>
-          </Tooltip>
-
           <div className="ml-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm" className="rounded-full">
                   <Avatar className="h-7 w-7">
                     <AvatarFallback className="bg-primary text-[11px] font-medium text-primary-foreground">
-                      {user?.username?.charAt(0).toUpperCase() ?? 'U'}
+                      {initials}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
@@ -231,18 +224,27 @@ export function Header() {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-0.5">
-                    <p className="text-sm font-medium">{user?.username ?? 'User'}</p>
+                    <p className="text-sm font-medium">{displayName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {user?.email ?? ''}
+                      {user?.username ?? ''}
                     </p>
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate('/profile')}>
+                  <User size={14} />
                   {t('user_menu.profile')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => setResetDialogOpen(true)}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 size={14} />
+                  {t('user_menu.reset_data')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout}>
+                  <LogOut size={14} />
                   {t('user_menu.sign_out')}
                 </DropdownMenuItem>
               </DropdownMenuContent>

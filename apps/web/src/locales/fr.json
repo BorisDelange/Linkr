@@ -583,8 +583,10 @@
     "level_patient_desc": "Une ligne par patient unique",
     "level_visit": "Hospitalisation",
     "level_visit_desc": "Une ligne par séjour hospitalier",
-    "level_visit_detail": "Unité de soins",
-    "level_visit_detail_desc": "Une ligne par passage en unité (réa, service, etc.)",
+    "level_visit_detail": "Séjour en unité",
+    "level_visit_detail_desc": "Une ligne par séjour en unité (réa, service, etc.)",
+    "level_event": "Événement",
+    "level_event_desc": "Une ligne par événement clinique",
 
     "view_criteria": "Critères",
 
@@ -593,14 +595,15 @@
     "criteria_death": "Décès",
     "criteria_period": "Période",
     "criteria_duration": "Durée de séjour",
-    "criteria_care_site": "Unité de soins",
+    "criteria_care_site": "Lieu de soins",
     "criteria_concept": "Concept",
+    "criteria_text": "Texte libre",
 
     "age_reference": "Référence d'âge",
     "age_current": "Âge actuel",
-    "age_admission": "Âge à l'admission",
-    "age_min": "Min",
-    "age_max": "Max",
+    "age_admission": "À l'admission",
+    "age_min": "Âge minimum",
+    "age_max": "Âge maximum",
 
     "sex_male": "Homme",
     "sex_female": "Femme",
@@ -608,20 +611,33 @@
 
     "death_deceased": "Décédé",
     "death_alive": "Vivant",
+    "death_reference": "Période",
+    "death_visit": "Durant l'hospitalisation",
+    "death_visit_detail": "Durant le séjour en unité",
 
     "period_start": "Date de début",
     "period_end": "Date de fin",
 
     "duration_level": "Niveau",
-    "duration_min": "Min",
-    "duration_max": "Max",
+    "duration_unit": "Unité",
+    "duration_min": "Minimum",
+    "duration_max": "Maximum",
+    "duration_hours": "heures",
     "duration_days": "jours",
+    "duration_min_hours": "Heures minimum",
+    "duration_max_hours": "Heures maximum",
+    "duration_min_days": "Jours minimum",
+    "duration_max_days": "Jours maximum",
+    "duration_visit": "Hospitalisation",
+    "duration_visit_detail": "Séjour en unité",
 
     "care_site_level": "Niveau",
-    "care_site_values": "Unités de soins",
-    "care_site_placeholder": "Sélectionner des unités...",
+    "care_site_values": "Lieux de soins",
+    "care_site_placeholder": "Sélectionner des lieux...",
     "care_site_search": "Rechercher...",
-    "care_site_no_values": "Aucune unité trouvée",
+    "care_site_no_values": "Aucun lieu trouvé",
+
+    "text_description": "Description",
 
     "concept_event_table": "Table d'événements",
     "concept_selected": "Concepts sélectionnés",
@@ -1620,9 +1636,12 @@
     "account": "Compte",
     "account_description": "Informations de votre compte.",
     "username": "Nom d'utilisateur",
-    "email": "Email",
+    "first_name": "Prénom",
+    "last_name": "Nom",
     "change_password": "Changer le mot de passe",
     "change_password_description": "Mettez à jour votre mot de passe.",
+    "change_password_requires_backend": "Mode serveur requis",
+    "change_password_requires_backend_description": "La gestion des mots de passe est disponible lorsque vous êtes connecté à un serveur Linkr. En mode local, il n'y a pas d'authentification.",
     "current_password": "Mot de passe actuel",
     "new_password": "Nouveau mot de passe",
     "confirm_password": "Confirmer le mot de passe",
@@ -1846,6 +1865,7 @@
   },
   "user_menu": {
     "profile": "Profil",
+    "reset_data": "Réinitialiser les données",
     "sign_out": "Se déconnecter"
   },
   "runtime": {
