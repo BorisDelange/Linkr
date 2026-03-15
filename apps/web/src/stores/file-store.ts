@@ -596,9 +596,11 @@ export const useFileStore = create<FileState>((set, get) => ({
 
       if (stored.length > 0) {
         // Migrate stale default demo files when DEMO_FILES_VERSION changes
+        // Only applies to demo projects — skip for user-created/imported projects
+        const isDemoProject = projectUid === DEMO_PROJECT_UID || projectUid === DEMO_ACTIVITY_PROJECT_UID
         const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
         const storedVersion = parseInt(localStorage.getItem(versionKey) ?? '0', 10)
-        if (storedVersion < DEMO_FILES_VERSION) {
+        if (isDemoProject && storedVersion < DEMO_FILES_VERSION) {
           const demoRef = projectUid === DEMO_ACTIVITY_PROJECT_UID
             ? createActivityDashboardFiles(projectUid)
             : createDefaultFiles(projectUid)
