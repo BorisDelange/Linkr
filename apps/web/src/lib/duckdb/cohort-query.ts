@@ -256,6 +256,8 @@ function buildCriterionClause(
       return buildCareSiteCriteria(criterion.config as CareSiteCriteriaConfig, level, mapping, baseTable)
     case 'concept':
       return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable)
+    case 'text':
+      return '1=1' // Free text is purely descriptive, no SQL filter
     default:
       return '1=1'
   }
@@ -399,6 +401,7 @@ function buildDurationCriteria(
   if (config.minDays == null && config.maxDays == null) return '1=1'
 
   const targetLevel = config.durationLevel ?? 'visit'
+  const datePart = config.durationUnit === 'hours' ? 'hour' : 'day'
 
   // Build the duration filter conditions for the target level
   const targetStartCol = getStartDateColumn(targetLevel, mapping)
@@ -410,7 +413,7 @@ function buildDurationCriteria(
 
   // If the target level matches the cohort level, filter directly
   if (targetLevel === level) {
-    const durExpr = `DATE_DIFF('day', "${baseTable}"."${targetStartCol}", "${baseTable}"."${targetEndCol}")`
+    const durExpr = `DATE_DIFF('${datePart}', "${baseTable}"."${targetStartCol}", "${baseTable}"."${targetEndCol}")`
     const parts: string[] = []
     if (config.minDays != null) parts.push(`${durExpr} >= ${config.minDays}`)
     if (config.maxDays != null) parts.push(`${durExpr} <= ${config.maxDays}`)
@@ -418,7 +421,7 @@ function buildDurationCriteria(
   }
 
   // Otherwise use a subquery (e.g. patient level filtering on visit duration)
-  const durExpr = `DATE_DIFF('day', "${targetTable}"."${targetStartCol}", "${targetTable}"."${targetEndCol}")`
+  const durExpr = `DATE_DIFF('${datePart}', "${targetTable}"."${targetStartCol}", "${targetTable}"."${targetEndCol}")`
   const durConditions: string[] = []
   if (config.minDays != null) durConditions.push(`${durExpr} >= ${config.minDays}`)
   if (config.maxDays != null) durConditions.push(`${durExpr} <= ${config.maxDays}`)
@@ -814,9 +817,10 @@ export function getNodeLabel(node: CriteriaTreeNode): string {
     }
     case 'duration': {
       const c = node.config as DurationCriteriaConfig
+      const unitSuffix = c.durationUnit === 'hours' ? 'h' : 'd'
       const parts: string[] = []
-      if (c.minDays != null) parts.push(`>= ${c.minDays}d`)
-      if (c.maxDays != null) parts.push(`<= ${c.maxDays}d`)
+      if (c.minDays != null) parts.push(`>= ${c.minDays}${unitSuffix}`)
+      if (c.maxDays != null) parts.push(`<= ${c.maxDays}${unitSuffix}`)
       const levelLabel = c.durationLevel === 'visit_detail' ? 'unit' : 'visit'
       return `${prefix}Duration (${levelLabel}) ${parts.join(' & ')}`
     }
@@ -830,6 +834,8 @@ export function getNodeLabel(node: CriteriaTreeNode): string {
       const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
       return `${prefix}${c.eventTableLabel}: ${label}`
     }
+    case 'text':
+      return `${prefix}(free text)`
     default:
       return 'Unknown'
   }

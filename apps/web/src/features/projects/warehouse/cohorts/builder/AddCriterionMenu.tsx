@@ -8,6 +8,7 @@ import {
   Plus,
   Beaker,
   User,
+  FileText,
   FolderTree,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ const criteriaItems: { type: CriteriaType; labelKey: string; icon: typeof User }
   { type: 'duration', labelKey: 'cohorts.criteria_duration', icon: Clock },
   { type: 'care_site', labelKey: 'cohorts.criteria_care_site', icon: Building2 },
   { type: 'concept', labelKey: 'cohorts.criteria_concept', icon: Beaker },
+  { type: 'text', labelKey: 'cohorts.criteria_text', icon: FileText },
 ]
 
 export function AddCriterionMenu({ onAddCriterion, onAddGroup }: AddCriterionMenuProps) {

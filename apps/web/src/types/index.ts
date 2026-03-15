@@ -401,6 +401,8 @@ export type {
   CareSiteCriteriaConfig,
   ValueFilter,
   ConceptCriteriaConfig,
+  TextCriteriaConfig,
+  DurationUnit,
   CriteriaConfig,
   CriterionNode,
   CriteriaGroupNode,

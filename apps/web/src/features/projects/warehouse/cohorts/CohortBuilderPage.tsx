@@ -43,6 +43,7 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
   { value: 'visit', labelKey: 'cohorts.level_visit' },
   { value: 'visit_detail', labelKey: 'cohorts.level_visit_detail' },
+  { value: 'event', labelKey: 'cohorts.level_event' },
 ]
 
 export function CohortBuilderPage() {
@@ -190,7 +191,7 @@ export function CohortBuilderPage() {
 
         {/* Level selector */}
         <Select value={cohort.level} onValueChange={(v) => handleLevelChange(v as CohortLevel)}>
-          <SelectTrigger className="h-7 w-32 text-xs">
+          <SelectTrigger className="h-7 w-40 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

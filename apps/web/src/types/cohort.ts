@@ -1,7 +1,7 @@
 // --- Cohort Builder Types ---
 
 /** Extraction level for the cohort */
-export type CohortLevel = 'patient' | 'visit' | 'visit_detail'
+export type CohortLevel = 'patient' | 'visit' | 'visit_detail' | 'event'
 
 /** Logical operator linking a node to the previous sibling */
 export type CriteriaOperator = 'AND' | 'OR'
@@ -15,6 +15,7 @@ export type CriteriaType =
   | 'duration'
   | 'care_site'
   | 'concept'
+  | 'text'
 
 // --- Criteria Config Types ---
 
@@ -32,6 +33,8 @@ export interface SexCriteriaConfig {
 export interface DeathCriteriaConfig {
   /** true = patient must be deceased, false = must be alive */
   isDead: boolean
+  /** Period reference: 'visit' = during hospitalization, 'visit_detail' = during unit stay */
+  deathReference?: 'visit' | 'visit_detail'
 }
 
 export interface PeriodCriteriaConfig {
@@ -39,9 +42,13 @@ export interface PeriodCriteriaConfig {
   endDate?: string
 }
 
+export type DurationUnit = 'hours' | 'days'
+
 export interface DurationCriteriaConfig {
   /** Which level to compute duration on: 'visit' = hospitalization, 'visit_detail' = unit stay */
   durationLevel: 'visit' | 'visit_detail'
+  /** Unit for min/max values */
+  durationUnit?: DurationUnit
   minDays?: number
   maxDays?: number
 }
@@ -75,6 +82,11 @@ export interface ConceptCriteriaConfig {
   }
 }
 
+export interface TextCriteriaConfig {
+  /** Free-text description */
+  description: string
+}
+
 export type CriteriaConfig =
   | AgeCriteriaConfig
   | SexCriteriaConfig
@@ -83,6 +95,7 @@ export type CriteriaConfig =
   | DurationCriteriaConfig
   | CareSiteCriteriaConfig
   | ConceptCriteriaConfig
+  | TextCriteriaConfig
 
 // --- Criteria Tree Nodes ---
 

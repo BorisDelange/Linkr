@@ -15,6 +15,7 @@ import {
   User,
   Building2,
   Beaker,
+  FileText,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -44,6 +45,7 @@ import { PeriodCriteriaForm } from './criteria/PeriodCriteriaForm'
 import { DurationCriteriaForm } from './criteria/DurationCriteriaForm'
 import { CareSiteCriteriaForm } from './criteria/CareSiteCriteriaForm'
 import { ConceptCriteriaForm } from './criteria/ConceptCriteriaForm'
+import { TextCriteriaForm } from './criteria/TextCriteriaForm'
 import { CohortConceptPickerDialog } from './criteria/CohortConceptPickerDialog'
 import type {
   CriterionNode,
@@ -56,6 +58,7 @@ import type {
   DurationCriteriaConfig,
   CareSiteCriteriaConfig,
   ConceptCriteriaConfig,
+  TextCriteriaConfig,
   SchemaMapping,
 } from '@/types'
 
@@ -77,7 +80,7 @@ function getDefaultConfig(type: CriteriaType): CriteriaConfig {
     case 'sex':
       return { values: [] }
     case 'death':
-      return { isDead: true }
+      return { isDead: true, deathReference: 'visit' }
     case 'period':
       return { startDate: undefined, endDate: undefined }
     case 'duration':
@@ -86,6 +89,8 @@ function getDefaultConfig(type: CriteriaType): CriteriaConfig {
       return { careSiteLevel: 'visit_detail', values: [] }
     case 'concept':
       return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
+    case 'text':
+      return { description: '' }
   }
 }
 
@@ -97,6 +102,7 @@ const criteriaTypeKeys: { value: CriteriaType; labelKey: string }[] = [
   { value: 'duration', labelKey: 'cohorts.criteria_duration' },
   { value: 'care_site', labelKey: 'cohorts.criteria_care_site' },
   { value: 'concept', labelKey: 'cohorts.criteria_concept' },
+  { value: 'text', labelKey: 'cohorts.criteria_text' },
 ]
 
 // --- Icon & color mapping per criteria type ---
@@ -150,6 +156,12 @@ const criteriaTypeMeta: Record<CriteriaType, CriteriaTypeMeta> = {
     color: 'text-emerald-500 dark:text-emerald-400',
     bgColor: 'bg-emerald-500/5',
     borderColor: 'border-l-emerald-500/50',
+  },
+  text: {
+    icon: FileText,
+    color: 'text-gray-500 dark:text-gray-400',
+    bgColor: 'bg-gray-500/5',
+    borderColor: 'border-l-gray-500/50',
   },
 }
 
@@ -209,13 +221,14 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
     }
     case 'duration': {
       const c = node.config as DurationCriteriaConfig
-      const levelLabel = c.durationLevel === 'visit_detail' ? t('cohorts.level_visit_detail') : t('cohorts.level_visit')
+      const levelLabel = c.durationLevel === 'visit_detail' ? t('cohorts.duration_visit_detail') : t('cohorts.duration_visit')
+      const unitLabel = c.durationUnit === 'hours' ? t('cohorts.duration_hours') : t('cohorts.duration_days')
       if (c.minDays != null && c.maxDays != null) {
-        parts.push(`${levelLabel}: ${c.minDays}–${c.maxDays} ${t('cohorts.duration_days')}`)
+        parts.push(`${levelLabel}: ${c.minDays}–${c.maxDays} ${unitLabel}`)
       } else if (c.minDays != null) {
-        parts.push(`${levelLabel}: ≥ ${c.minDays} ${t('cohorts.duration_days')}`)
+        parts.push(`${levelLabel}: ≥ ${c.minDays} ${unitLabel}`)
       } else if (c.maxDays != null) {
-        parts.push(`${levelLabel}: ≤ ${c.maxDays} ${t('cohorts.duration_days')}`)
+        parts.push(`${levelLabel}: ≤ ${c.maxDays} ${unitLabel}`)
       } else {
         parts.push(t('cohorts.criteria_duration'))
       }
@@ -237,6 +250,11 @@ function buildSummary(node: CriterionNode, t: (key: string) => string): string {
       } else {
         parts.push(t('cohorts.criteria_concept'))
       }
+      break
+    }
+    case 'text': {
+      const c = node.config as TextCriteriaConfig
+      parts.push(c.description || t('cohorts.criteria_text'))
       break
     }
   }
@@ -280,6 +298,8 @@ function CriteriaConfigForm({
       return <CareSiteCriteriaForm config={config} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
     case 'concept':
       return <ConceptCriteriaForm config={config} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
+    case 'text':
+      return <TextCriteriaForm config={config} onChange={onChange} />
     default:
       return null
   }
