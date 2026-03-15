@@ -3,6 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
+import { useFileStore } from '@/stores/file-store'
 import { getStorage } from '@/lib/storage'
 import { buildProjectZip, parseProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
@@ -123,29 +126,27 @@ export function ProjectsPage() {
       ...(duplicate ? { createdAt: now } : {}),
     }
 
-    if (!duplicate) {
-      // Overwrite: delete old project and children
-      await storage.ideFiles.deleteByProject(project.uid).catch(() => {})
-      await storage.connections.deleteByProject(project.uid).catch(() => {})
-      await storage.readmeAttachments.deleteByProject(project.uid).catch(() => {})
-      await storage.datasetFiles.deleteByProject(project.uid).catch(() => {})
-      const oldDashboards = await storage.dashboards.getByProject(project.uid)
-      for (const d of oldDashboards) {
-        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
-        await storage.dashboardTabs.deleteByDashboard(d.id)
-        await storage.dashboards.delete(d.id)
-      }
-      const oldPipelines = await storage.pipelines.getByProject(project.uid)
-      for (const p of oldPipelines) await storage.pipelines.delete(p.id)
-      const oldCohorts = await storage.cohorts.getByProject(project.uid)
-      for (const c of oldCohorts) await storage.cohorts.delete(c.id)
-      const oldDatasetFiles = await storage.datasetFiles.getByProject(project.uid)
-      for (const df of oldDatasetFiles) {
-        if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
-      }
-      await storage.projects.delete(project.uid).catch(() => {})
+    // Always clean up existing data for the target uid to avoid IDB constraint errors
+    await storage.ideFiles.deleteByProject(uid).catch(() => {})
+    await storage.connections.deleteByProject(uid).catch(() => {})
+    await storage.readmeAttachments.deleteByProject(uid).catch(() => {})
+    await storage.datasetFiles.deleteByProject(uid).catch(() => {})
+    const oldDashboards = await storage.dashboards.getByProject(uid)
+    for (const d of oldDashboards) {
+      const tabs = await storage.dashboardTabs.getByDashboard(d.id)
+      for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
+      await storage.dashboardTabs.deleteByDashboard(d.id)
+      await storage.dashboards.delete(d.id)
     }
+    const oldPipelines = await storage.pipelines.getByProject(uid)
+    for (const p of oldPipelines) await storage.pipelines.delete(p.id)
+    const oldCohorts = await storage.cohorts.getByProject(uid)
+    for (const c of oldCohorts) await storage.cohorts.delete(c.id)
+    const oldDatasetFiles = await storage.datasetFiles.getByProject(uid)
+    for (const df of oldDatasetFiles) {
+      if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
+    }
+    await storage.projects.delete(uid).catch(() => {})
 
     await storage.projects.create(entity)
 
@@ -192,6 +193,11 @@ export function ProjectsPage() {
         } as ReadmeAttachment)
       }
     }
+
+    // Invalidate in-memory caches so stores reload from IDB on next project open
+    useDashboardStore.setState({ activeProjectUid: null, loaded: false })
+    useDatasetStore.setState({ activeProjectUid: null })
+    useFileStore.setState({ activeProjectUid: null })
 
     await loadProjects()
   }, [wsUid, activeWorkspaceId, loadProjects])
