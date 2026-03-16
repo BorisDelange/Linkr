@@ -1861,6 +1861,7 @@
     "import_conflict_description": "Un élément nommé « {{name}} » existe déjà. Que souhaitez-vous faire ?",
     "import_duplicate": "Créer une copie",
     "import_overwrite": "Écraser",
+    "importing": "Import en cours…",
     "auto": "Auto"
   },
   "user_menu": {
@@ -2217,7 +2218,9 @@
     "restore_entity_description": "Ceci restaurera « {{name}} » dans l'état du commit « {{message}} » ({{hash}}). Les autres entités ne seront pas affectées. Un nouveau commit sera créé.",
     "no_entity_commits": "Aucun historique",
     "no_entity_commits_description": "Les modifications apparaîtront ici après la première sauvegarde.",
-    "export_description": "Télécharger le contenu du workspace sous forme d'archive ZIP."
+    "export_description": "Télécharger le contenu du workspace sous forme d'archive ZIP.",
+    "import_title": "Importer",
+    "import_description": "Restaurer un workspace à partir d'une archive ZIP. Cela importera tous les projets, pages wiki, scripts SQL, pipelines ETL et autres contenus du workspace."
   },
   "concept_mapping": {
     "title": "Mapping de concepts",

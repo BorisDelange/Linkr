@@ -1,5 +1,8 @@
 import { create } from 'zustand'
 import type { GitCommit, GitRemoteConfig, WikiPage, CommitFileChange, FileChangeType, RestoreResult } from '@/types'
+import { buildWorkspaceZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
+import { getStorage } from '@/lib/storage'
 
 export type VersionedEntityType = 'plugin' | 'schema' | 'database'
 
@@ -36,7 +39,7 @@ interface WorkspaceVersioningState {
 
   setRemoteConfig: (config: GitRemoteConfig) => void
   clearRemoteConfig: () => void
-  exportZip: (workspaceId: string) => Promise<void>
+  exportZip: (workspaceId: string, options?: BuildWorkspaceZipOptions) => Promise<void>
 }
 
 export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set) => ({
@@ -70,5 +73,15 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
 
   setRemoteConfig: (config) => set({ remoteConfig: config }),
   clearRemoteConfig: () => set({ remoteConfig: null }),
-  exportZip: async () => { console.info(BACKEND_MSG) },
+  exportZip: async (workspaceId: string, options?: BuildWorkspaceZipOptions) => {
+    set({ loading: true })
+    try {
+      const result = await buildWorkspaceZip(workspaceId, getStorage(), options)
+      if (result) {
+        downloadBlob(result.blob, `${slugify(result.workspaceName)}-${timestamp()}.zip`)
+      }
+    } finally {
+      set({ loading: false })
+    }
+  },
 }))

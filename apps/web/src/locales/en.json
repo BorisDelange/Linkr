@@ -1860,6 +1860,7 @@
     "import_conflict_description": "An item named \"{{name}}\" already exists. What would you like to do?",
     "import_duplicate": "Create copy",
     "import_overwrite": "Overwrite",
+    "importing": "Importing…",
     "auto": "Auto"
   },
   "user_menu": {
@@ -2216,7 +2217,9 @@
     "restore_entity_description": "This will restore \"{{name}}\" to the state at commit \"{{message}}\" ({{hash}}). Other entities will not be affected. A new commit will be created.",
     "no_entity_commits": "No history found",
     "no_entity_commits_description": "Changes will appear here after the first save.",
-    "export_description": "Download your workspace content as a ZIP archive."
+    "export_description": "Download your workspace content as a ZIP archive.",
+    "import_title": "Import",
+    "import_description": "Restore a workspace from a ZIP archive. This will import all projects, wiki pages, SQL scripts, ETL pipelines, and other workspace content."
   },
   "concept_mapping": {
     "title": "Concept Mapping",
