@@ -166,7 +166,7 @@ export const DatabaseCard = memo(function DatabaseCard({
                   {onExport && source.status === 'connected' && source.sourceType !== 'fhir' && (
                     <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport() }}>
                       <Download size={14} />
-                      {t('databases.export')}
+                      {t('databases.download_data')}
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuItem disabled>

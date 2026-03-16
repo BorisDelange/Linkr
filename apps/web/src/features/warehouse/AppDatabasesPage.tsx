@@ -4,17 +4,12 @@ import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode, Search, Plug, ChevronDown, Upload } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -244,17 +239,6 @@ export function AppDatabasesPage() {
             </p>
           </div>
           <div className="flex items-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button variant="outline" size="sm" disabled className="gap-1 text-xs">
-                    <Upload size={14} />
-                    {t('common.import')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.coming_soon')}</TooltipContent>
-            </Tooltip>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button size="sm" className="gap-1 text-xs">

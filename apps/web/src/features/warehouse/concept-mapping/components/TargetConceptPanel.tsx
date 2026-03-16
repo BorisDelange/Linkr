@@ -47,6 +47,7 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useAppStore } from '@/stores/app-store'
 import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
@@ -125,6 +126,7 @@ function textMatch(text: string, query: string): boolean {
 export function TargetConceptPanel({ project, dataSource, sourceConcept }: TargetConceptPanelProps) {
   const { t } = useTranslation()
   const { mappings, conceptSets, createMapping } = useConceptMappingStore()
+  const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
@@ -345,11 +347,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       comment,
       comments: comment ? [{
         id: crypto.randomUUID(),
-        authorId: 'current-user',
+        authorId: getUserDisplayName(),
         text: comment,
         createdAt: now,
       }] : undefined,
-      mappedBy: 'current-user',
+      mappedBy: getUserDisplayName(),
       mappedOn: now,
       createdAt: now,
       updatedAt: now,
@@ -994,7 +996,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Mode toggle + add mapping button */}
-      <div className="flex items-center justify-between border-b px-3 py-1 gap-2">
+      <div className="relative flex items-center justify-center border-b px-3 py-1 gap-2">
         <div className="flex rounded-md bg-muted p-0.5">
           <button
             className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
@@ -1020,7 +1022,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
         {/* Split add-mapping button (only when a source concept is selected) */}
         {sourceConcept && (
-          <div className="flex items-center">
+          <div className="absolute right-3 flex items-center">
             <Button
               size="sm"
               className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
@@ -1062,7 +1064,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
             <Button
               variant="outline"
               size="sm"
-              className="h-6 gap-1 px-1.5 text-[10px]"
+              className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
               disabled={!selectedTarget}
               title={t('concept_mapping.map_with_comment')}
               onClick={() => setCommentDialogOpen(true)}

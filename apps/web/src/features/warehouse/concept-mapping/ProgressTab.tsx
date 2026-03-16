@@ -27,10 +27,18 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const { mappings } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
-  // Total source concept count from the database
+  const isFileSource = project.sourceType === 'file'
+
+  // Total source concept count from the database or file
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
   useEffect(() => {
+    // File source: count from stored rows
+    if (isFileSource) {
+      setTotalSourceConcepts(project.fileSourceData?.rows.length ?? 0)
+      return
+    }
+
     if (!dataSource?.id || !dataSource.schemaMapping) return
     let cancelled = false
 
@@ -47,7 +55,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     }
     load()
     return () => { cancelled = true }
-  }, [dataSource?.id, dataSource?.schemaMapping, ensureMounted])
+  }, [isFileSource, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
     // Unique source concept IDs

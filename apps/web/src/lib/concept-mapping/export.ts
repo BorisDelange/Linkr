@@ -1,4 +1,4 @@
-import type { ConceptMapping, MappingProject, ConceptSet } from '@/types'
+import type { ConceptMapping, MappingProject, ConceptSet, FileColumnMapping } from '@/types'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -189,6 +189,62 @@ export function exportToJson(
     null,
     2,
   )
+}
+
+// ---------------------------------------------------------------------------
+// Source concepts CSV export (file-based projects)
+// ---------------------------------------------------------------------------
+
+/**
+ * Export the imported source concepts as a clean CSV.
+ * Only includes the columns that were mapped during import + extra columns.
+ * This is NOT the original file — it's the normalized version with mapped fields only.
+ */
+export function exportSourceConceptsCsv(
+  rows: Record<string, unknown>[],
+  columns: string[],
+  columnMapping: FileColumnMapping,
+): string {
+  // Collect mapped columns in a meaningful order
+  const mappedCols: { header: string; fileCol: string }[] = []
+
+  const roleOrder: { role: keyof FileColumnMapping; header: string }[] = [
+    { role: 'terminologyColumn', header: 'terminology' },
+    { role: 'conceptCodeColumn', header: 'concept_code' },
+    { role: 'conceptIdColumn', header: 'concept_id' },
+    { role: 'conceptNameColumn', header: 'concept_name' },
+    { role: 'domainColumn', header: 'domain' },
+    { role: 'conceptClassColumn', header: 'concept_class' },
+    { role: 'recordCountColumn', header: 'record_count' },
+    { role: 'patientCountColumn', header: 'patient_count' },
+    { role: 'infoJsonColumn', header: 'info_json' },
+  ]
+
+  for (const { role, header } of roleOrder) {
+    const fileCol = columnMapping[role] as string | undefined
+    if (fileCol) mappedCols.push({ header, fileCol })
+  }
+
+  // Add extra columns
+  if (columnMapping.extraColumns) {
+    for (const col of columnMapping.extraColumns) {
+      mappedCols.push({ header: col, fileCol: col })
+    }
+  }
+
+  // If no columns were mapped, export all original columns
+  if (mappedCols.length === 0) {
+    for (const col of columns) {
+      mappedCols.push({ header: col, fileCol: col })
+    }
+  }
+
+  const headerLine = mappedCols.map((c) => csvEscape(c.header)).join(',')
+  const dataLines = rows.map((row) =>
+    mappedCols.map((c) => csvEscape(row[c.fileCol] as string | number | undefined)).join(','),
+  )
+
+  return [headerLine, ...dataLines].join('\n')
 }
 
 // ---------------------------------------------------------------------------

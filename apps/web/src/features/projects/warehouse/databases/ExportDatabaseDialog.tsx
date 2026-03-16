@@ -94,16 +94,16 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('databases.export_title')}</DialogTitle>
+          <DialogTitle>{t('databases.download_data_title')}</DialogTitle>
           <DialogDescription>
-            {t('databases.export_description', { name: source?.name ?? '' })}
+            {t('databases.download_data_description', { name: source?.name ?? '' })}
           </DialogDescription>
         </DialogHeader>
 
         {state === 'idle' && (
           <>
             <p className="py-2 text-sm text-muted-foreground">
-              {t('databases.export_format_parquet_desc')}
+              {t('databases.download_data_format_parquet_desc')}
             </p>
             <DialogFooter>
               <Button variant="outline" onClick={() => handleClose(false)}>
@@ -111,7 +111,7 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
               </Button>
               <Button onClick={handleExport}>
                 <Download size={14} />
-                {t('databases.export_start')}
+                {t('databases.download_data_start')}
               </Button>
             </DialogFooter>
           </>
@@ -122,14 +122,14 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
             <div className="flex items-center gap-2">
               <Loader2 size={16} className="animate-spin text-primary" />
               <span className="text-sm">
-                {progress.phase === 'discovering' && t('databases.export_discovering')}
+                {progress.phase === 'discovering' && t('databases.download_data_discovering')}
                 {progress.phase === 'exporting' &&
-                  t('databases.export_table_progress', {
+                  t('databases.download_data_table_progress', {
                     current: progress.currentTable,
                     total: progress.totalTables,
                     table: progress.tableName,
                   })}
-                {progress.phase === 'packaging' && t('databases.export_packaging')}
+                {progress.phase === 'packaging' && t('databases.download_data_packaging')}
               </span>
             </div>
             <Progress value={progressPercent} />
@@ -140,7 +140,7 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
         {state === 'done' && (
           <div className="flex flex-col items-center py-6">
             <CheckCircle2 size={32} className="text-green-500" />
-            <p className="mt-2 text-sm font-medium">{t('databases.export_success')}</p>
+            <p className="mt-2 text-sm font-medium">{t('databases.download_data_success')}</p>
             <Button variant="outline" className="mt-4" onClick={() => handleClose(false)}>
               {t('common.close')}
             </Button>
@@ -150,7 +150,7 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
         {state === 'error' && (
           <div className="flex flex-col items-center py-6">
             <XCircle size={32} className="text-destructive" />
-            <p className="mt-2 text-sm font-medium">{t('databases.export_error')}</p>
+            <p className="mt-2 text-sm font-medium">{t('databases.download_data_error')}</p>
             {errorMessage && (
               <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
                 {errorMessage}
@@ -166,7 +166,7 @@ export function ExportDatabaseDialog({ source, open, onOpenChange }: ExportDatab
                   handleExport()
                 }}
               >
-                {t('databases.export_retry')}
+                {t('databases.download_data_retry')}
               </Button>
             </div>
           </div>

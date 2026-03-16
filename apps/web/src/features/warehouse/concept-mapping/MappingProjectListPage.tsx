@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowRightLeft, Database } from 'lucide-react'
+import { ArrowRightLeft, Database, FileSpreadsheet } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -163,8 +163,17 @@ export function MappingProjectListPage() {
                 )}
               </div>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Database size={12} />
-                <span>{getSourceName(project.dataSourceId)}</span>
+                {project.sourceType === 'file' ? (
+                  <>
+                    <FileSpreadsheet size={12} />
+                    <span>{project.fileSourceData?.fileName ?? t('concept_mapping.source_file')}</span>
+                  </>
+                ) : (
+                  <>
+                    <Database size={12} />
+                    <span>{getSourceName(project.dataSourceId)}</span>
+                  </>
+                )}
               </div>
               {project.stats && project.stats.totalSourceConcepts > 0 && (
                 <div className="mt-2">

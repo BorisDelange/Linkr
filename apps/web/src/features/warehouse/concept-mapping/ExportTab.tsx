@@ -10,8 +10,10 @@ import {
   exportToSourceToConceptMap,
   exportToSssomTsv,
   exportToJson,
+  exportSourceConceptsCsv,
   downloadFile,
 } from '@/lib/concept-mapping/export'
+import { Table2 } from 'lucide-react'
 import type { MappingProject, MappingStatus } from '@/types'
 
 interface ExportTabProps {
@@ -134,6 +136,21 @@ export function ExportTab({ project }: ExportTabProps) {
       mime: 'application/json',
       generate: () => exportToJson(filteredMappings, project, linkedSets),
     },
+    // Source concepts CSV — only for file-based projects
+    ...(project.sourceType === 'file' && project.fileSourceData ? [{
+      id: 'source-concepts',
+      icon: Table2,
+      name: t('concept_mapping.export_source_csv'),
+      description: t('concept_mapping.export_source_csv_desc'),
+      ext: 'csv',
+      mime: 'text/csv',
+      generate: () => exportSourceConceptsCsv(
+        project.fileSourceData!.rows,
+        project.fileSourceData!.columns,
+        project.fileSourceData!.columnMapping,
+      ),
+      alwaysEnabled: true,
+    }] : []),
   ]
 
   const handleDownload = (format: (typeof formats)[number]) => {
@@ -215,7 +232,7 @@ export function ExportTab({ project }: ExportTabProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => handleDownload(format)}
-                disabled={filteredMappings.length === 0}
+                disabled={filteredMappings.length === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
               >
                 <Download size={14} />
                 {t('concept_mapping.export_download')}

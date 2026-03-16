@@ -54,6 +54,7 @@ import {
 } from '@/components/ui/popover'
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useAppStore } from '@/stores/app-store'
 import type { MappingProject, ConceptMapping, MappingComment, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
@@ -171,6 +172,7 @@ function textMatch(text: string, query: string): boolean {
 function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
+  const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const [draft, setDraft] = useState('')
   const commentCount = (mapping.comments ?? []).length
 
@@ -181,7 +183,7 @@ function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
     if (!latest) return
     const comment: MappingComment = {
       id: crypto.randomUUID(),
-      authorId: 'current-user',
+      authorId: getUserDisplayName(),
       text,
       createdAt: new Date().toISOString(),
     }
@@ -255,6 +257,7 @@ function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
+  const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
@@ -409,8 +412,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
 
   /** Toggle review: clicking the same status resets to unchecked. */
   const handleReview = useCallback((mappingId: string, current: MappingStatus, target: MappingStatus) => {
-    updateMapping(mappingId, { status: current === target ? 'unchecked' : target })
-  }, [updateMapping])
+    const newStatus = current === target ? 'unchecked' : target
+    const reviewer = getUserDisplayName()
+    updateMapping(mappingId, {
+      status: newStatus,
+      reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
+      reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
+    })
+  }, [updateMapping, getUserDisplayName])
 
   const pageAllSelected = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
 

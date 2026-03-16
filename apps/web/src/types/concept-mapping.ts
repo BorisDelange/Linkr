@@ -57,6 +57,8 @@ export interface ConceptSet {
 
 // --- Mapping Project ---
 
+export type MappingProjectSourceType = 'database' | 'file'
+
 export interface MappingProjectStats {
   totalSourceConcepts: number
   mappedCount: number
@@ -65,17 +67,65 @@ export interface MappingProjectStats {
   unmappedCount: number
 }
 
-/** A workspace-level mapping project linked to a database. */
+/** Column mapping for file-based concept sources. */
+export interface FileColumnMapping {
+  /** Column containing the terminology / vocabulary name. */
+  terminologyColumn?: string
+  /** Column containing the concept code. */
+  conceptCodeColumn?: string
+  /** Column containing the concept ID (numeric). */
+  conceptIdColumn?: string
+  /** Column containing the concept name / label. */
+  conceptNameColumn?: string
+  /** Column containing domain information. */
+  domainColumn?: string
+  /** Column containing concept class information. */
+  conceptClassColumn?: string
+  /** Column containing a JSON blob with extra concept info (distribution, granularity…). */
+  infoJsonColumn?: string
+  /** Column containing record count. */
+  recordCountColumn?: string
+  /** Column containing patient count. */
+  patientCountColumn?: string
+  /** Additional columns to include in the import (available as extra data on each row). */
+  extraColumns?: string[]
+}
+
+/** Imported file source data stored on the project. */
+export interface FileSourceData {
+  /** Original filename. */
+  fileName: string
+  /** All rows from the parsed file. */
+  rows: Record<string, unknown>[]
+  /** Column names from the file. */
+  columns: string[]
+  /** Column mapping (which file column maps to which concept field). */
+  columnMapping: FileColumnMapping
+  /** Parse options used (delimiter, encoding, etc.). */
+  parseOptions?: {
+    delimiter?: string
+    encoding?: string
+    skipRows?: number
+    hasHeader?: boolean
+    sheet?: string
+  }
+}
+
+/** A workspace-level mapping project linked to a database or file. */
 export interface MappingProject {
   id: string
   workspaceId: string
   name: string
   description: string
-  /** Database to map source concepts from (clinical data). */
+  /** Source type: database or imported file. */
+  sourceType: MappingProjectSourceType
+  /** Database to map source concepts from (clinical data). Only used when sourceType = 'database'. */
   dataSourceId: string
   /** Optional vocabulary reference database (ATHENA import). When set, target concept
    *  searches and concept set resolution use this DB instead of the source DB. */
   vocabularyDataSourceId?: string
+  /** File source data. Only used when sourceType = 'file'. */
+  fileSourceData?: FileSourceData
   /** Concept sets used in this project (workspace-scoped IDs). */
   conceptSetIds: string[]
   /** Cached progress stats. */

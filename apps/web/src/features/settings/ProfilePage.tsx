@@ -21,6 +21,7 @@ export function ProfilePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const {
     user,
+    updateUser,
     language,
     setLanguage,
     darkMode,
@@ -85,11 +86,19 @@ export function ProfilePage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label>{t('profile.first_name')}</Label>
-                    <Input value={user?.firstName ?? ''} disabled />
+                    <Input
+                      value={user?.firstName ?? ''}
+                      placeholder={t('profile.first_name')}
+                      onChange={(e) => updateUser({ firstName: e.target.value })}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>{t('profile.last_name')}</Label>
-                    <Input value={user?.lastName ?? ''} disabled />
+                    <Input
+                      value={user?.lastName ?? ''}
+                      placeholder={t('profile.last_name')}
+                      onChange={(e) => updateUser({ lastName: e.target.value })}
+                    />
                   </div>
                 </div>
               </CardContent>

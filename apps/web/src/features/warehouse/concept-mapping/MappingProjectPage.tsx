@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -37,7 +37,8 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   }, [projectId, loadProjectMappings])
 
   const project = mappingProjects.find((p) => p.id === projectId)
-  const dataSource = project ? dataSources.find((ds) => ds.id === project.dataSourceId) : undefined
+  const isFileSource = project?.sourceType === 'file'
+  const dataSource = project && !isFileSource ? dataSources.find((ds) => ds.id === project.dataSourceId) : undefined
 
   if (!mappingProjectsLoaded) return null
 
@@ -57,22 +58,34 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           <ArrowLeft size={16} />
         </Button>
         <span className="truncate text-sm font-semibold">{project.name}</span>
-        {dataSource && (
-          <span className="shrink-0 text-xs text-muted-foreground">
-            · {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${dataSource.schemaMapping.presetLabel})` : ''}
+        {isFileSource && project.fileSourceData && (
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <FileSpreadsheet size={12} />
+            {project.fileSourceData.fileName}
+            <span className="text-[10px]">
+              ({project.fileSourceData.rows.length.toLocaleString()} {t('concept_mapping.file_rows')})
+            </span>
+          </span>
+        )}
+        {!isFileSource && dataSource && (
+          <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+            <Database size={12} />
+            {dataSource.name}{dataSource.schemaMapping?.presetLabel ? ` (${dataSource.schemaMapping.presetLabel})` : ''}
           </span>
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — centered */}
       <Tabs defaultValue="editor" className="flex flex-1 flex-col overflow-hidden">
-        <TabsList className="mx-4 mt-2 w-fit">
-          <TabsTrigger value="concept-sets">{t('concept_mapping.tab_concept_sets')}</TabsTrigger>
-          <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
-          <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
-          <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
-          <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
-        </TabsList>
+        <div className="flex justify-center">
+          <TabsList className="mt-2 mb-0 w-fit">
+            <TabsTrigger value="concept-sets">{t('concept_mapping.tab_concept_sets')}</TabsTrigger>
+            <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
+            <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
+            <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
+            <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
+          </TabsList>
+        </div>
         <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
           <ConceptSetsTab project={project} dataSource={dataSource} />
         </TabsContent>

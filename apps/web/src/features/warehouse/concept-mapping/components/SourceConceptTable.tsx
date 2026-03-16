@@ -15,6 +15,7 @@ import {
   ArrowDown,
   SlidersHorizontal,
   Settings2,
+  BarChart3,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -67,11 +68,21 @@ interface SourceConceptTableProps {
   mappingStatusMap: Map<number, string>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
+  /** True when source is a file import. */
+  isFileSource?: boolean
+  /** True when file source has record count column mapped. */
+  hasRecordCount?: boolean
+  /** True when file source has patient count column mapped. */
+  hasPatientCount?: boolean
+  /** True when at least one row has info_json data. */
+  hasInfoJson?: boolean
   onPageChange: (page: number) => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
   onMappingStatusFilterChange: (filter: MappingStatusFilter) => void
   onSelectConcept: (id: number | null) => void
+  /** Show concept detail view (chart icon click). */
+  onShowDetail?: (row: SourceConceptRow) => void
 }
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -152,11 +163,16 @@ export function SourceConceptTable({
   mappingStatusMap,
   mappingStatusFilter,
   selectedConceptId,
+  isFileSource,
+  hasRecordCount,
+  hasPatientCount,
+  hasInfoJson,
   onPageChange,
   onFiltersChange,
   onSortingChange,
   onMappingStatusFilterChange,
   onSelectConcept,
+  onShowDetail,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [filterOpen, setFilterOpen] = useState(false)
@@ -180,6 +196,10 @@ export function SourceConceptTable({
   const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
   const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn)
   const hasExtraColumns = conceptDicts.some((d) => d.extraColumns && Object.keys(d.extraColumns).length > 0)
+  // For file sources, check if terminology/domain/class columns exist in data
+  const fileHasTerminology = isFileSource && filterOptions.terminology_name?.length > 0
+  const fileHasDomain = isFileSource && filterOptions.domain_id?.length > 0
+  const fileHasClass = isFileSource && filterOptions.concept_class_id?.length > 0
 
   // Initial column visibility: hide extra OMOP columns by default
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
@@ -196,6 +216,9 @@ export function SourceConceptTable({
   const renderColumnFilter = (columnId: string) => {
     if (columnId === 'concept_id') {
       return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchId: e.target.value || undefined })} />
+    }
+    if (columnId === 'concept_code') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={filters.searchCode ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchCode: e.target.value || undefined })} />
     }
     if (columnId === 'concept_name') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchText: e.target.value || undefined })} />
@@ -242,24 +265,43 @@ export function SourceConceptTable({
         minSize: 28,
         enableResizing: false,
       },
-      {
+    ]
+
+    // Show concept_id column only for database source or if conceptIdColumn is mapped
+    if (!isFileSource) {
+      cols.push({
         id: 'concept_id',
         header: 'ID',
         accessorFn: (row) => row.concept_id,
         cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
         size: 70,
         minSize: 50,
-      },
-    ]
+      })
+    }
 
-    cols.push({
-      id: 'terminology_name',
-      header: () => t('concept_mapping.col_terminology'),
-      accessorFn: (row) => row.terminology_name,
-      cell: ({ row }) => row.original.terminology_name || row.original.vocabulary_id || '',
-      size: 110,
-      minSize: 60,
-    })
+    // Concept code column (file source)
+    if (isFileSource) {
+      cols.push({
+        id: 'concept_code',
+        header: () => t('concept_mapping.col_code'),
+        accessorFn: (row) => row.concept_code,
+        cell: ({ row }) => <span className="font-mono">{row.original.concept_code ?? ''}</span>,
+        size: 100,
+        minSize: 60,
+      })
+    }
+
+    // Terminology column
+    if (!isFileSource || fileHasTerminology) {
+      cols.push({
+        id: 'terminology_name',
+        header: () => t('concept_mapping.col_terminology'),
+        accessorFn: (row) => row.terminology_name,
+        cell: ({ row }) => row.original.terminology_name || row.original.vocabulary_id || '',
+        size: 110,
+        minSize: 60,
+      })
+    }
 
     if (hasCategory) {
       cols.push({
@@ -292,8 +334,9 @@ export function SourceConceptTable({
       minSize: 100,
     })
 
-    cols.push(
-      {
+    // Count columns: always for database source, or when mapped in file source
+    if (!isFileSource || hasPatientCount) {
+      cols.push({
         id: 'patient_count',
         header: () => t('concept_mapping.col_patients'),
         accessorFn: (row) => row.patient_count,
@@ -302,8 +345,10 @@ export function SourceConceptTable({
         ),
         size: 80,
         minSize: 50,
-      },
-      {
+      })
+    }
+    if (!isFileSource || hasRecordCount) {
+      cols.push({
         id: 'record_count',
         header: () => t('concept_mapping.col_records'),
         accessorFn: (row) => row.record_count,
@@ -312,33 +357,60 @@ export function SourceConceptTable({
         ),
         size: 80,
         minSize: 50,
-      },
-    )
+      })
+    }
 
     // Extra OMOP-specific columns (domain_id, concept_class_id) — hidden by default
-    if (hasExtraColumns) {
-      cols.push(
-        {
-          id: 'domain_id',
-          header: () => t('concept_mapping.col_domain_id'),
-          accessorFn: (row) => row.domain_id,
-          cell: ({ row }) => row.original.domain_id ?? '',
-          size: 90,
-          minSize: 60,
+    if (hasExtraColumns || fileHasDomain) {
+      cols.push({
+        id: 'domain_id',
+        header: () => t('concept_mapping.col_domain_id'),
+        accessorFn: (row) => row.domain_id,
+        cell: ({ row }) => row.original.domain_id ?? '',
+        size: 90,
+        minSize: 60,
+      })
+    }
+    if (hasExtraColumns || fileHasClass) {
+      cols.push({
+        id: 'concept_class_id',
+        header: () => t('concept_mapping.col_concept_class'),
+        accessorFn: (row) => row.concept_class_id,
+        cell: ({ row }) => row.original.concept_class_id ?? '',
+        size: 100,
+        minSize: 60,
+      })
+    }
+
+    // Info/chart column (last position) — shows chart icon if concept has info_json
+    if (hasInfoJson && onShowDetail) {
+      cols.push({
+        id: '_info',
+        header: '',
+        accessorFn: () => null,
+        cell: ({ row }) => {
+          if (!row.original.info_json) return null
+          return (
+            <button
+              type="button"
+              className="flex items-center justify-center text-muted-foreground hover:text-primary"
+              onClick={(e) => {
+                e.stopPropagation()
+                onShowDetail(row.original)
+              }}
+            >
+              <BarChart3 size={14} />
+            </button>
+          )
         },
-        {
-          id: 'concept_class_id',
-          header: () => t('concept_mapping.col_concept_class'),
-          accessorFn: (row) => row.concept_class_id,
-          cell: ({ row }) => row.original.concept_class_id ?? '',
-          size: 100,
-          minSize: 60,
-        },
-      )
+        size: 32,
+        minSize: 32,
+        enableResizing: false,
+      })
     }
 
     return cols
-  }, [t, mappingStatusMap, hasCategory, hasSubcategory, hasExtraColumns])
+  }, [t, mappingStatusMap, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
 
   const table = useReactTable({
     data: rows,

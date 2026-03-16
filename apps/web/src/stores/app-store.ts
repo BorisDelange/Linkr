@@ -53,6 +53,8 @@ interface Preferences {
   darkMode: boolean
   editorSettings: EditorSettings
   sidebarCollapsed: boolean
+  userFirstName?: string
+  userLastName?: string
 }
 
 function loadPreferences(): Partial<Preferences> {
@@ -302,6 +304,9 @@ interface AppState {
   user: AuthUser | null
   login: (user: AuthUser) => void
   logout: () => void
+  updateUser: (changes: Partial<Pick<AuthUser, 'firstName' | 'lastName'>>) => void
+  /** Get display name: "First Last", or username if no name set. */
+  getUserDisplayName: () => string
 
   // Projects
   _projectsRaw: Project[]
@@ -375,9 +380,19 @@ const prefs = loadPreferences()
 let nextUserId = 2
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: { id: 1, username: 'admin', firstName: '', lastName: '', role: 'admin' },
+  user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin' },
   login: (user) => set({ user }),
   logout: () => set({ user: null }),
+  updateUser: (changes) => set((s) => {
+    if (!s.user) return s
+    return { user: { ...s.user, ...changes } }
+  }),
+  getUserDisplayName: () => {
+    const u = get().user
+    if (!u) return ''
+    const full = `${u.firstName} ${u.lastName}`.trim()
+    return full || u.username
+  },
 
   // Projects
   _projectsRaw: [],
@@ -655,5 +670,7 @@ useAppStore.subscribe((state) => {
     darkMode: state.darkMode,
     editorSettings: state.editorSettings,
     sidebarCollapsed: state.sidebarCollapsed,
+    userFirstName: state.user?.firstName,
+    userLastName: state.user?.lastName,
   })
 })

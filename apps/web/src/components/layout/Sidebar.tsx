@@ -7,7 +7,7 @@ import {
   Home,
   FolderOpen,
   Settings,
-  Users,
+  User,
   BarChart3,
   UsersRound,
   Settings2,
@@ -152,7 +152,7 @@ const projectNavItems: SegmentNavEntry[] = [
       { segment: 'warehouse/databases', icon: Database, labelKey: 'project_nav.databases', iconColor: 'text-teal-500' },
       { segment: 'warehouse/concepts', icon: BookOpen, labelKey: 'project_nav.concepts', iconColor: 'text-teal-500' },
       { segment: 'warehouse/cohorts', icon: UsersRound, labelKey: 'project_nav.cohorts', iconColor: 'text-teal-500' },
-      { segment: 'warehouse/patient-data', icon: Users, labelKey: 'project_nav.patient_data', iconColor: 'text-teal-500' },
+      { segment: 'warehouse/patient-data', icon: User, labelKey: 'project_nav.patient_data', iconColor: 'text-teal-500' },
     ],
   },
   {
