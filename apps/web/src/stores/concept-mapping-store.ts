@@ -186,12 +186,16 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     const flaggedIds = new Set(
       mappings.filter((m) => m.status === 'flagged').map((m) => m.sourceConceptId),
     )
+    const ignoredIds = new Set(
+      mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId),
+    )
 
     const stats: MappingProjectStats = {
       totalSourceConcepts: 0, // Must be set externally (from DuckDB query)
       mappedCount: mappedSourceIds.size,
       approvedCount: approvedIds.size,
       flaggedCount: flaggedIds.size,
+      ignoredCount: ignoredIds.size,
       unmappedCount: 0, // totalSourceConcepts - mappedCount
     }
 

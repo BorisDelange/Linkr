@@ -33,6 +33,15 @@ export interface ConceptSetItem {
 }
 
 /** An OHDSI concept set with expression and optional resolved IDs. Workspace-scoped. */
+/** Per-language translations for concept set metadata. */
+export interface ConceptSetTranslation {
+  name?: string
+  description?: string
+  longDescription?: string
+  category?: string
+  subcategory?: string
+}
+
 export interface ConceptSet {
   id: string
   workspaceId: string
@@ -51,6 +60,8 @@ export interface ConceptSet {
   provenance?: string
   /** Batch ID grouping concept sets imported together from a catalog. */
   importBatchId?: string
+  /** Multilingual translations keyed by ISO 639-1 code (e.g. { en: {...}, fr: {...} }). */
+  translations?: Record<string, ConceptSetTranslation>
   createdAt: string
   updatedAt: string
 }
@@ -64,6 +75,7 @@ export interface MappingProjectStats {
   mappedCount: number
   approvedCount: number
   flaggedCount: number
+  ignoredCount: number
   unmappedCount: number
 }
 

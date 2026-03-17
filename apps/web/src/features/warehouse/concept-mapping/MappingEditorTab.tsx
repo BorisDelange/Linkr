@@ -84,7 +84,7 @@ function fileRowsToSourceRows(
 
 export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const isFileSource = project.sourceType === 'file'
@@ -104,6 +104,12 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
 
   const loadingRef = useRef(false)
+
+  // Ignored source concepts: derived from mappings with status='ignored'
+  const ignoredConceptIds = useMemo(
+    () => new Set(mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId)),
+    [mappings],
+  )
 
   // Cached concept counts: computed once per data source, never recomputed on page/filter change
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
@@ -368,8 +374,9 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
   const statusFilteredRows = mappingStatusFilter === 'all'
     ? sortedRows
     : sortedRows.filter((row) => {
+        if (mappingStatusFilter === 'ignored') return ignoredConceptIds.has(row.concept_id)
         const status = mappingStatusMap.get(row.concept_id)
-        if (mappingStatusFilter === 'unmapped') return !status
+        if (mappingStatusFilter === 'unmapped') return !status && !ignoredConceptIds.has(row.concept_id)
         if (mappingStatusFilter === 'mapped') return !!status
         return status === mappingStatusFilter
       })
@@ -416,6 +423,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             hasRecordCount={isFileSource && !!project.fileSourceData?.columnMapping.recordCountColumn}
             hasPatientCount={isFileSource && !!project.fileSourceData?.columnMapping.patientCountColumn}
             hasInfoJson={hasInfoJson}
+            ignoredConceptIds={ignoredConceptIds}
             onPageChange={setPage}
             onFiltersChange={setFilters}
             onSortingChange={setSorting}
@@ -430,6 +438,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             project={project}
             dataSource={dataSource}
             sourceConcept={selectedRow ?? null}
+            ignoredConceptIds={ignoredConceptIds}
           />
         </Allotment.Pane>
       </Allotment>

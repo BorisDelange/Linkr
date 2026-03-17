@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode, FileJson } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileCode } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -9,7 +9,6 @@ import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
-  exportToJson,
   exportSourceConceptsCsv,
   downloadFile,
 } from '@/lib/concept-mapping/export'
@@ -22,11 +21,11 @@ interface ExportTabProps {
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
-const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'invalid', 'ignored']
+const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 export function ExportTab({ project }: ExportTabProps) {
   const { t } = useTranslation()
-  const { mappings, conceptSets } = useConceptMappingStore()
+  const { mappings } = useConceptMappingStore()
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(
@@ -92,11 +91,6 @@ export function ExportTab({ project }: ExportTabProps) {
     return result
   }, [mappings, includedStatuses, approvalRule])
 
-  const linkedSets = useMemo(
-    () => conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id)),
-    [conceptSets, project.conceptSetIds],
-  )
-
   const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
   const formats = [
@@ -127,15 +121,6 @@ export function ExportTab({ project }: ExportTabProps) {
       mime: 'text/tab-separated-values',
       generate: () => exportToSssomTsv(filteredMappings, project),
     },
-    {
-      id: 'json',
-      icon: FileJson,
-      name: t('concept_mapping.export_json'),
-      description: t('concept_mapping.export_json_desc'),
-      ext: 'json',
-      mime: 'application/json',
-      generate: () => exportToJson(filteredMappings, project, linkedSets),
-    },
     // Source concepts CSV — only for file-based projects
     ...(project.sourceType === 'file' && project.fileSourceData ? [{
       id: 'source-concepts',
@@ -158,6 +143,8 @@ export function ExportTab({ project }: ExportTabProps) {
     const filename = `${slug}-${format.id}.${format.ext}`
     downloadFile(content, filename, format.mime)
   }
+
+  const totalExportCount = filteredMappings.length
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -206,11 +193,12 @@ export function ExportTab({ project }: ExportTabProps) {
                 </div>
               )
             })}
+
           </div>
 
           <div className="mt-3 border-t pt-3">
             <p className="text-xs text-muted-foreground">
-              {t('concept_mapping.export_total')}: <strong>{filteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
+              {t('concept_mapping.export_total')}: <strong>{totalExportCount}</strong> {t('concept_mapping.export_mappings_count')}
             </p>
           </div>
         </Card>
@@ -232,7 +220,7 @@ export function ExportTab({ project }: ExportTabProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => handleDownload(format)}
-                disabled={filteredMappings.length === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
+                disabled={totalExportCount === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
               >
                 <Download size={14} />
                 {t('concept_mapping.export_download')}

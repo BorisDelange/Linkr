@@ -42,9 +42,9 @@ type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
 
 /** Known concept field roles for column mapping, grouped for layout. */
 const COLUMN_ROLE_ROWS: (readonly (keyof FileColumnMapping)[])[] = [
-  ['conceptNameColumn'],
   ['terminologyColumn'],
-  ['conceptIdColumn', 'conceptCodeColumn'],
+  ['conceptNameColumn'],
+  ['conceptCodeColumn', 'conceptIdColumn'],
   ['recordCountColumn', 'patientCountColumn'],
   ['infoJsonColumn'],
 ] as const
@@ -540,7 +540,7 @@ export function CreateMappingProjectDialog({
                           <Label className="w-28 shrink-0 text-[10px] text-muted-foreground">
                             {t(`concept_mapping.col_role_${role}`)}
                             {(role === 'conceptNameColumn' || role === 'conceptCodeColumn') && (
-                              <span className="text-destructive ml-0.5">*</span>
+                              <span className="text-destructive">*</span>
                             )}
                           </Label>
                           <Select

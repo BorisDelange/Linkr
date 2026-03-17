@@ -38,9 +38,10 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { escSql } from '@/lib/format-helpers'
-import { ImportConceptSetDialog, extractMetadata } from './ImportConceptSetDialog'
+import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
+import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 
 // ---------------------------------------------------------------------------
 // ATHENA vocabulary schema mapping
@@ -92,7 +93,8 @@ interface ConceptSetsTabProps {
 }
 
 export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
   const { conceptSets, deleteConceptSet, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
@@ -144,14 +146,15 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
 
-  // Compute unique filter values
+  // Compute unique filter values (using translated fields)
   const { categories, subcategories, provenances } = useMemo(() => {
     const cats = new Set<string>()
     const subs = new Set<string>()
     const provs = new Set<string>()
     for (const cs of linkedSets) {
-      if (cs.category) cats.add(cs.category)
-      if (cs.subcategory) subs.add(cs.subcategory)
+      const tr = getConceptSetI18n(cs, lang)
+      if (tr.category) cats.add(tr.category)
+      if (tr.subcategory) subs.add(tr.subcategory)
       if (cs.provenance) provs.add(cs.provenance)
     }
     return {
@@ -159,7 +162,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       subcategories: [...subs].sort(),
       provenances: [...provs].sort(),
     }
-  }, [linkedSets])
+  }, [linkedSets, lang])
 
   // Fuzzy match: all query characters appear in order in the target
   const fuzzyMatch = (target: string, query: string): boolean => {
@@ -176,22 +179,23 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   // Apply filters
   const filteredSets = useMemo(() => {
     return linkedSets.filter((cs) => {
+      const tr = getConceptSetI18n(cs, lang)
       if (searchText) {
         const q = searchText.toLowerCase()
         const matches =
-          textMatch(cs.name.toLowerCase(), q) ||
-          (cs.category ? textMatch(cs.category.toLowerCase(), q) : false) ||
-          (cs.subcategory ? textMatch(cs.subcategory.toLowerCase(), q) : false) ||
+          textMatch(tr.name.toLowerCase(), q) ||
+          (tr.category ? textMatch(tr.category.toLowerCase(), q) : false) ||
+          (tr.subcategory ? textMatch(tr.subcategory.toLowerCase(), q) : false) ||
           (cs.provenance ? textMatch(cs.provenance.toLowerCase(), q) : false)
         if (!matches) return false
       }
-      if (filterCategory !== '__all__' && cs.category !== filterCategory) return false
-      if (filterSubcategory !== '__all__' && cs.subcategory !== filterSubcategory) return false
+      if (filterCategory !== '__all__' && tr.category !== filterCategory) return false
+      if (filterSubcategory !== '__all__' && tr.subcategory !== filterSubcategory) return false
       if (filterProvenance !== '__all__' && cs.provenance !== filterProvenance) return false
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedSets, searchText, filterCategory, filterSubcategory, filterProvenance])
+  }, [linkedSets, searchText, filterCategory, filterSubcategory, filterProvenance, lang])
 
   const handleDelete = async () => {
     if (!setToDelete) return
@@ -269,19 +273,21 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       const expr = obj.expression as Record<string, unknown>
       if (!Array.isArray(expr.items)) return
 
-      const lang = document.documentElement.lang?.substring(0, 2) ?? 'en'
+      const curLang = lang.substring(0, 2)
       const meta = obj.metadata as Record<string, unknown> | undefined
-      const translations = meta?.translations as Record<string, Record<string, string>> | undefined
-      const tr = translations?.[lang] ?? translations?.en
-      const md = extractMetadata(obj, lang)
+      const rawTranslations = meta?.translations as Record<string, Record<string, string>> | undefined
+      const tr = rawTranslations?.[curLang] ?? rawTranslations?.en
+      const md = extractMetadata(obj, curLang)
+      const translations = extractTranslations(obj)
 
       await updateConceptSet(cs.id, {
         name: tr?.name ?? String(obj.name ?? cs.name),
-        description: obj.description ? String(obj.description) : cs.description,
+        description: tr?.description ?? (obj.description ? String(obj.description) : cs.description),
         expression: { items: expr.items as ConceptSet['expression']['items'] },
         category: md.category ?? cs.category,
         subcategory: md.subcategory ?? cs.subcategory,
         provenance: md.provenance ?? cs.provenance,
+        translations,
         updatedAt: new Date().toISOString(),
       })
     } catch (err) {
@@ -649,10 +655,13 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               </div>
                             </TableCell>
                           )}
+                          {(() => {
+                            const tr = getConceptSetI18n(cs, lang)
+                            return (<>
                           <TableCell className="max-w-[300px] py-1.5">
-                            <div className="truncate text-xs font-medium">{cs.name}</div>
-                            {cs.description && (
-                              <div className="truncate text-[10px] text-muted-foreground mt-0.5">{cs.description}</div>
+                            <div className="truncate text-xs font-medium">{tr.name}</div>
+                            {tr.description && (
+                              <div className="truncate text-[10px] text-muted-foreground mt-0.5">{tr.description}</div>
                             )}
                           </TableCell>
                           <TableCell className="text-center py-1.5">
@@ -661,15 +670,17 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             </Badge>
                           </TableCell>
                           <TableCell className="py-1.5">
-                            {cs.category && (
-                              <span className="text-xs text-muted-foreground truncate block">{cs.category}</span>
+                            {tr.category && (
+                              <span className="text-xs text-muted-foreground truncate block">{tr.category}</span>
                             )}
                           </TableCell>
                           <TableCell className="py-1.5">
-                            {cs.subcategory && (
-                              <span className="text-xs text-muted-foreground truncate block">{cs.subcategory}</span>
+                            {tr.subcategory && (
+                              <span className="text-xs text-muted-foreground truncate block">{tr.subcategory}</span>
                             )}
                           </TableCell>
+                            </>)
+                          })()}
                           <TableCell className="text-xs text-muted-foreground truncate max-w-[110px] py-1.5">
                             {cs.provenance ?? ''}
                           </TableCell>

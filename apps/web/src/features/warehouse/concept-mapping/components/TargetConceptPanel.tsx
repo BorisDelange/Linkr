@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +45,8 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
+import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
@@ -55,6 +57,8 @@ interface TargetConceptPanelProps {
   project: MappingProject
   dataSource?: DataSource
   sourceConcept: SourceConceptRow | null
+  /** Set of source concept IDs marked as ignored (derived from mappings). */
+  ignoredConceptIds: Set<number>
 }
 
 interface SearchResult {
@@ -123,9 +127,10 @@ function textMatch(text: string, query: string): boolean {
   return t.includes(q) || fuzzyMatch(t, q)
 }
 
-export function TargetConceptPanel({ project, dataSource, sourceConcept }: TargetConceptPanelProps) {
-  const { t } = useTranslation()
-  const { mappings, conceptSets, createMapping } = useConceptMappingStore()
+export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds }: TargetConceptPanelProps) {
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language
+  const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -140,6 +145,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
   const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
   const [commentText, setCommentText] = useState('')
 
+  // "Ignore with comment" dialog
+  const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false)
+  const [ignoreCommentText, setIgnoreCommentText] = useState('')
+
   // Browse mode state
   const [catalogFilter, setCatalogFilter] = useState<string>('__all__')
   const [csFilterCategory, setCsFilterCategory] = useState('')
@@ -149,6 +158,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
 
   // Selected concept set for resolved view
   const [selectedCs, setSelectedCs] = useState<ConceptSet | null>(null)
+  const selectedCsTr = useMemo(
+    () => selectedCs ? getConceptSetI18n(selectedCs, lang) : { name: '', description: '', category: undefined, subcategory: undefined },
+    [selectedCs, lang],
+  )
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false)
   const [resolvedConcepts, setResolvedConcepts] = useState<ResolvedConcept[]>([])
   const [resolvedLoading, setResolvedLoading] = useState(false)
   const [resolvedError, setResolvedError] = useState<string | null>(null)
@@ -190,9 +204,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
       const batchIds = importBatches.filter((b) => b.sourceName === catalogFilter).map((b) => b.id)
       if (!cs.importBatchId || !batchIds.includes(cs.importBatchId)) return false
     }
-    if (csFilterCategory && !textMatch(cs.category ?? '', csFilterCategory)) return false
-    if (csFilterSubcategory && !textMatch(cs.subcategory ?? '', csFilterSubcategory)) return false
-    if (csFilterName && !textMatch(cs.name, csFilterName)) return false
+    const tr = getConceptSetI18n(cs, lang)
+    if (csFilterCategory && !textMatch(tr.category ?? '', csFilterCategory)) return false
+    if (csFilterSubcategory && !textMatch(tr.subcategory ?? '', csFilterSubcategory)) return false
+    if (csFilterName && !textMatch(tr.name, csFilterName)) return false
     return true
   })
 
@@ -367,6 +382,57 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
     setCommentEquivalence('skos:exactMatch')
   }
 
+  /** Toggle ignored status: create or delete the ignored mapping. */
+  const handleToggleIgnored = async (comment = '') => {
+    if (!sourceConcept) return
+    const isIgnored = ignoredConceptIds.has(sourceConcept.concept_id)
+    if (isIgnored) {
+      // Remove the ignored mapping
+      const ignoredMapping = mappings.find(
+        (m) => m.sourceConceptId === sourceConcept.concept_id && m.status === 'ignored',
+      )
+      if (ignoredMapping) await deleteMapping(ignoredMapping.id)
+    } else {
+      // Create an ignored mapping (targetConceptId=0)
+      const now = new Date().toISOString()
+      await createMapping({
+        id: crypto.randomUUID(),
+        projectId: project.id,
+        sourceConceptId: sourceConcept.concept_id,
+        sourceConceptName: sourceConcept.concept_name,
+        sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
+        sourceDomainId: sourceConcept.domain_id ?? '',
+        sourceConceptCode: sourceConcept.concept_code ?? '',
+        sourceFrequency: sourceConcept.record_count,
+        targetConceptId: 0,
+        targetConceptName: '',
+        targetVocabularyId: '',
+        targetDomainId: '',
+        targetConceptCode: '',
+        equivalence: 'skos:exactMatch',
+        status: 'ignored',
+        comment,
+        comments: comment ? [{
+          id: crypto.randomUUID(),
+          authorId: getUserDisplayName(),
+          text: comment,
+          createdAt: now,
+        }] : undefined,
+        mappedBy: getUserDisplayName(),
+        mappedOn: now,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+  }
+
+  /** Submit from the "Ignore with comment" dialog. */
+  const handleIgnoreDialogSubmit = () => {
+    handleToggleIgnored(ignoreCommentText.trim())
+    setIgnoreDialogOpen(false)
+    setIgnoreCommentText('')
+  }
+
   // ─── Concept sets datatable (browse view) ───────────────────────────
 
   const renderConceptSetsBrowse = () => (
@@ -432,17 +498,32 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
             <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
           </div>
         ) : (
-          csPageItems.map((cs) => (
-            <button
+          csPageItems.map((cs) => {
+            const tr = getConceptSetI18n(cs, lang)
+            return (
+            <div
               key={cs.id}
-              className="grid w-full grid-cols-[1fr_1fr_2fr] gap-0.5 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50 border-b border-border/40"
+              className="grid w-full grid-cols-[1fr_1fr_2fr_auto] gap-0.5 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50 border-b border-border/40 cursor-pointer"
               onClick={() => handleSelectCs(cs)}
             >
-              <span className="truncate text-muted-foreground">{cs.category ?? ''}</span>
-              <span className="truncate text-muted-foreground">{cs.subcategory ?? ''}</span>
-              <span className="truncate">{cs.name}</span>
-            </button>
-          ))
+              <span className="truncate text-muted-foreground">{tr.category ?? ''}</span>
+              <span className="truncate text-muted-foreground">{tr.subcategory ?? ''}</span>
+              <span className="truncate">{tr.name}</span>
+              <button
+                type="button"
+                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+                title={t('concept_mapping.cs_detail_info')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedCs(cs)
+                  setDetailSheetOpen(true)
+                }}
+              >
+                <Info size={12} />
+              </button>
+            </div>
+            )
+          })
         )}
       </div>
 
@@ -477,19 +558,28 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
             <ArrowLeft size={14} />
           </Button>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium">{selectedCs!.name}</p>
+            <p className="truncate text-xs font-medium">{selectedCsTr.name}</p>
             <div className="flex gap-1 mt-0.5">
-              {selectedCs!.category && (
-                <Badge variant="outline" className="text-[9px]">{selectedCs!.category}</Badge>
+              {selectedCsTr.category && (
+                <Badge variant="outline" className="text-[9px]">{selectedCsTr.category}</Badge>
               )}
-              {selectedCs!.subcategory && (
-                <Badge variant="outline" className="text-[9px]">{selectedCs!.subcategory}</Badge>
+              {selectedCsTr.subcategory && (
+                <Badge variant="outline" className="text-[9px]">{selectedCsTr.subcategory}</Badge>
               )}
               <Badge variant="secondary" className="text-[9px]">
                 {resolvedConcepts.length} {t('concept_mapping.cs_concepts')}
               </Badge>
             </div>
           </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0"
+            title={t('concept_mapping.cs_detail_info')}
+            onClick={() => setDetailSheetOpen(true)}
+          >
+            <Info size={14} />
+          </Button>
         </div>
         <div className="relative mt-2">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -1023,54 +1113,82 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
         {/* Split add-mapping button (only when a source concept is selected) */}
         {sourceConcept && (
           <div className="absolute right-3 flex items-center">
-            <Button
-              size="sm"
-              className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
-              disabled={!selectedTarget}
-              onClick={() => handleAddSelectedMapping('skos:exactMatch')}
-            >
-              <Plus size={10} />
-              {t('concept_mapping.skos_exact_match_short')}
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            {selectedTarget ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
+                  onClick={() => handleAddSelectedMapping('skos:exactMatch')}
+                >
+                  <Plus size={10} />
+                  {t('concept_mapping.skos_exact_match_short')}
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 rounded-l-none border-l px-1"
+                    >
+                      <ChevronDown size={10} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-[180px]">
+                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
+                      <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
+                      <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
+                      <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
+                      <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
+                      <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                {/* Map with comment button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
+                  title={t('concept_mapping.map_with_comment')}
+                  onClick={() => setCommentDialogOpen(true)}
+                >
+                  <MessageSquare size={10} />
+                </Button>
+              </>
+            ) : (
+              <>
                 <Button
                   size="sm"
-                  className="h-6 rounded-l-none border-l border-primary-foreground/20 px-1"
-                  disabled={!selectedTarget}
+                  variant={ignoredConceptIds.has(sourceConcept.concept_id) ? 'default' : 'outline'}
+                  className={`h-6 gap-1 px-2 text-[10px] ${ignoredConceptIds.has(sourceConcept.concept_id) ? 'bg-gray-500 hover:bg-gray-600' : ''}`}
+                  onClick={() => handleToggleIgnored()}
                 >
-                  <ChevronDown size={10} />
+                  <EyeOff size={10} />
+                  {ignoredConceptIds.has(sourceConcept.concept_id)
+                    ? t('concept_mapping.unignore')
+                    : t('concept_mapping.ignore')}
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-[180px]">
-                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
-                  <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
-                  <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
-                  <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
-                  <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
-                  <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            {/* Map with comment button */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
-              disabled={!selectedTarget}
-              title={t('concept_mapping.map_with_comment')}
-              onClick={() => setCommentDialogOpen(true)}
-            >
-              <MessageSquare size={10} />
-            </Button>
+                {!ignoredConceptIds.has(sourceConcept.concept_id) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
+                    title={t('concept_mapping.ignore_with_comment')}
+                    onClick={() => setIgnoreDialogOpen(true)}
+                  >
+                    <MessageSquare size={10} />
+                  </Button>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1136,6 +1254,56 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept }: Targe
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* "Ignore with comment" dialog */}
+      <Dialog open={ignoreDialogOpen} onOpenChange={setIgnoreDialogOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">{t('concept_mapping.ignore_with_comment')}</DialogTitle>
+          </DialogHeader>
+          {sourceConcept && (
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium">{sourceConcept.concept_name}</p>
+                <div className="mt-1 flex gap-1">
+                  {sourceConcept.concept_code && (
+                    <Badge variant="outline" className="text-[10px]">{sourceConcept.concept_code}</Badge>
+                  )}
+                  {sourceConcept.vocabulary_id && (
+                    <Badge variant="outline" className="text-[10px]">{sourceConcept.vocabulary_id}</Badge>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="mb-1 text-[10px] text-muted-foreground">{t('concept_mapping.comment_placeholder')}</p>
+                <Textarea
+                  className="text-xs"
+                  rows={3}
+                  placeholder={t('concept_mapping.comment_placeholder')}
+                  value={ignoreCommentText}
+                  onChange={(e) => setIgnoreCommentText(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setIgnoreDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={handleIgnoreDialogSubmit}>
+              <EyeOff size={12} className="mr-1" />
+              {t('concept_mapping.ignore')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Concept set detail sheet */}
+      <ConceptSetDetailSheet
+        conceptSet={selectedCs}
+        open={detailSheetOpen}
+        onOpenChange={setDetailSheetOpen}
+      />
     </div>
   )
 }

@@ -58,13 +58,17 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   }, [isFileSource, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
-    // Unique source concept IDs
-    const allSourceIds = new Set(mappings.map((m) => m.sourceConceptId))
+    // Unique source concept IDs (excluding ignored)
+    const ignoredSourceIds = new Set(
+      mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId),
+    )
+    const nonIgnoredMappings = mappings.filter((m) => m.status !== 'ignored')
+    const allSourceIds = new Set(nonIgnoredMappings.map((m) => m.sourceConceptId))
 
     // Best status per source concept
     const bestStatus = new Map<number, MappingStatus>()
     const statusPriority: MappingStatus[] = ['approved', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
-    for (const m of mappings) {
+    for (const m of nonIgnoredMappings) {
       const current = bestStatus.get(m.sourceConceptId)
       if (!current || statusPriority.indexOf(m.status) < statusPriority.indexOf(current)) {
         bestStatus.set(m.sourceConceptId, m.status)
@@ -95,6 +99,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       uniqueSourceConcepts: allSourceIds.size,
       approvedCount: sourceStatusCounts.approved ?? 0,
       flaggedCount: sourceStatusCounts.flagged ?? 0,
+      ignoredCount: ignoredSourceIds.size,
       sourceStatusCounts,
       domainData: Array.from(domainMapped.entries()).map(([domain, ids]) => ({
         domain,
@@ -110,20 +115,32 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     color: STATUS_COLORS[status as MappingStatus] ?? '#9ca3af',
   }))
 
-  // Add "unmapped" slice to pie if we know the total
-  if (totalSourceConcepts !== null && totalSourceConcepts > stats.uniqueSourceConcepts) {
+  // Add "ignored" slice
+  if (stats.ignoredCount > 0) {
     pieData.push({
-      name: t('concept_mapping.filter_unmapped'),
-      value: totalSourceConcepts - stats.uniqueSourceConcepts,
-      color: '#e5e7eb',
+      name: t('concept_mapping.status_ignored'),
+      value: stats.ignoredCount,
+      color: STATUS_COLORS.ignored,
     })
+  }
+
+  // Add "unmapped" slice to pie if we know the total (exclude ignored from unmapped)
+  if (totalSourceConcepts !== null) {
+    const unmappedCount = totalSourceConcepts - stats.uniqueSourceConcepts - stats.ignoredCount
+    if (unmappedCount > 0) {
+      pieData.push({
+        name: t('concept_mapping.filter_unmapped'),
+        value: unmappedCount,
+        color: '#e5e7eb',
+      })
+    }
   }
 
   return (
     <div className="h-full overflow-auto p-4">
       <div className="mx-auto max-w-4xl space-y-6">
         {/* Big numbers */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <Card className="p-4 text-center">
             <p className="text-2xl font-bold">{totalSourceConcepts !== null ? totalSourceConcepts.toLocaleString() : '—'}</p>
             <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_total_source_concepts')}</p>
@@ -153,6 +170,10 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
           <Card className="p-4 text-center">
             <p className="text-2xl font-bold text-orange-500">{stats.flaggedCount}</p>
             <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_flagged')}</p>
+          </Card>
+          <Card className="p-4 text-center">
+            <p className="text-2xl font-bold text-gray-500">{stats.ignoredCount}</p>
+            <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_ignored')}</p>
           </Card>
         </div>
 

@@ -8,7 +8,7 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Check, Flag, X, MessageSquare,
+  Check, Flag, X, MessageSquare, EyeOff,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown,
 } from 'lucide-react'
@@ -502,6 +502,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
         accessorFn: (row) => row.targetConceptName,
         cell: ({ row }) => {
           const m = row.original
+          if (m.status === 'ignored' || (m.targetConceptId === 0 && !m.targetConceptName)) {
+            return (
+              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+                <EyeOff size={10} className="shrink-0" />
+                <span className="truncate italic text-[10px]">{t('concept_mapping.no_mapping_needed')}</span>
+              </span>
+            )
+          }
           return (
             <span className="flex min-w-0 items-center gap-1.5">
               <span className="truncate">{m.targetConceptName}</span>

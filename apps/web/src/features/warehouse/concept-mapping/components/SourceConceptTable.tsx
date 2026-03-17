@@ -52,7 +52,7 @@ import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-m
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptDictionary } from '@/types/schema-mapping'
 
-export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'approved' | 'rejected' | 'flagged'
+export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'approved' | 'rejected' | 'flagged' | 'ignored'
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -81,6 +81,8 @@ interface SourceConceptTableProps {
   onSortingChange: (sorting: SourceConceptSorting | null) => void
   onMappingStatusFilterChange: (filter: MappingStatusFilter) => void
   onSelectConcept: (id: number | null) => void
+  /** Set of source concept IDs marked as ignored. */
+  ignoredConceptIds: Set<number>
   /** Show concept detail view (chart icon click). */
   onShowDetail?: (row: SourceConceptRow) => void
 }
@@ -124,6 +126,7 @@ const STATUS_COLORS: Record<string, string> = {
   approved: 'bg-green-500',
   flagged: 'bg-orange-500',
   invalid: 'bg-red-500',
+  ignored: 'bg-gray-400',
 }
 
 /** Get human-readable label for a TanStack column def. */
@@ -171,6 +174,7 @@ export function SourceConceptTable({
   onFiltersChange,
   onSortingChange,
   onMappingStatusFilterChange,
+  ignoredConceptIds,
   onSelectConcept,
   onShowDetail,
 }: SourceConceptTableProps) {
@@ -190,7 +194,7 @@ export function SourceConceptTable({
     }
   }
 
-  const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'approved', 'rejected', 'flagged']
+  const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'approved', 'rejected', 'flagged', 'ignored']
 
   // Determine which optional columns are available based on the schema dicts
   const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
@@ -254,7 +258,8 @@ export function SourceConceptTable({
         header: '',
         accessorFn: () => null,
         cell: ({ row }) => {
-          const status = mappingStatusMap.get(row.original.concept_id) ?? 'unmapped'
+          const isIgnored = ignoredConceptIds.has(row.original.concept_id)
+          const status = isIgnored ? 'ignored' : (mappingStatusMap.get(row.original.concept_id) ?? 'unmapped')
           return (
             <span className="flex justify-center">
               <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[status] ?? STATUS_COLORS.unmapped}`} />
@@ -393,7 +398,8 @@ export function SourceConceptTable({
           return (
             <button
               type="button"
-              className="flex items-center justify-center text-muted-foreground hover:text-primary"
+              className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+              title={t('concept_mapping.show_concept_stats')}
               onClick={(e) => {
                 e.stopPropagation()
                 onShowDetail(row.original)
@@ -410,7 +416,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
+  }, [t, mappingStatusMap, ignoredConceptIds, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
 
   const table = useReactTable({
     data: rows,

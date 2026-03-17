@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2 } from 'lucide-react'
+import { Loader2, BarChart3 } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -18,7 +18,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Card } from '@/components/ui/card'
+import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { ConceptSet, ResolvedConcept } from '@/types'
+import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 
 interface ConceptSetDetailSheetProps {
   conceptSet: ConceptSet | null
@@ -35,11 +38,12 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 }
 
 const MIN_WIDTH = 400
-const MAX_WIDTH = 1200
-const DEFAULT_WIDTH = 600
+const MAX_WIDTH = 1600
+const DEFAULT_WIDTH = Math.round(window.innerWidth / 2)
 
 export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: ConceptSetDetailSheetProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const csI18n = conceptSet ? getConceptSetI18n(conceptSet, i18n.language) : null
 
   const [resolvedConcepts, setResolvedConcepts] = useState<ResolvedConcept[]>([])
   const [resolvedLoading, setResolvedLoading] = useState(false)
@@ -139,13 +143,13 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
 
         <div className="flex h-full flex-col overflow-hidden pl-2">
           <SheetHeader>
-            <SheetTitle className="truncate">{conceptSet.name}</SheetTitle>
+            <SheetTitle className="truncate">{csI18n!.name}</SheetTitle>
             <div className="flex flex-wrap gap-1">
-              {conceptSet.category && (
-                <Badge variant="outline" className="text-[10px]">{conceptSet.category}</Badge>
+              {csI18n!.category && (
+                <Badge variant="outline" className="text-[10px]">{csI18n!.category}</Badge>
               )}
-              {conceptSet.subcategory && (
-                <Badge variant="outline" className="text-[10px]">{conceptSet.subcategory}</Badge>
+              {csI18n!.subcategory && (
+                <Badge variant="outline" className="text-[10px]">{csI18n!.subcategory}</Badge>
               )}
               {conceptSet.provenance && (
                 <Badge variant="secondary" className="text-[10px]">{conceptSet.provenance}</Badge>
@@ -154,13 +158,19 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
                 {conceptSet.expression.items.length} {t('concept_mapping.cs_concepts')}
               </Badge>
             </div>
-            {conceptSet.description && (
-              <p className="text-xs text-muted-foreground">{conceptSet.description}</p>
+            {csI18n!.description && (
+              <div className="prose prose-sm max-w-none text-xs text-muted-foreground">
+                <MarkdownRenderer content={csI18n!.description} />
+              </div>
             )}
           </SheetHeader>
 
-          <Tabs defaultValue="resolved" className="flex flex-1 flex-col overflow-hidden px-4 pb-4">
+          <Tabs defaultValue="description" className="flex flex-1 flex-col overflow-hidden px-4 pb-4">
             <TabsList className="mb-2 w-fit">
+              <TabsTrigger value="description">
+                {t('concept_mapping.cs_detail_description')}
+              </TabsTrigger>
+              <TabsTrigger value="statistics">{t('concept_mapping.cs_detail_statistics')}</TabsTrigger>
               <TabsTrigger value="resolved" disabled={!resolvedUrl}>
                 {t('concept_mapping.cs_detail_resolved')}
                 {resolvedLoaded && resolvedConcepts.length > 0 && (
@@ -169,6 +179,34 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
               </TabsTrigger>
               <TabsTrigger value="expression">{t('concept_mapping.cs_detail_expression')}</TabsTrigger>
             </TabsList>
+
+            <TabsContent value="description" className="flex-1 overflow-hidden">
+              {csI18n!.longDescription ? (
+                <ScrollArea className="h-full">
+                  <div className="prose prose-sm max-w-none">
+                    <MarkdownRenderer content={csI18n!.longDescription} />
+                  </div>
+                </ScrollArea>
+              ) : (
+                <div className="flex h-40 items-center justify-center">
+                  <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_no_description')}</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="statistics" className="flex-1 overflow-hidden">
+              <ScrollArea className="h-full">
+                <Card className="flex flex-col items-center justify-center py-12">
+                  <BarChart3 size={32} className="text-muted-foreground" />
+                  <p className="mt-3 text-sm text-muted-foreground">
+                    {t('concept_mapping.cs_detail_statistics_coming_soon')}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground/60">
+                    {t('concept_mapping.cs_detail_statistics_coming_soon_desc')}
+                  </p>
+                </Card>
+              </ScrollArea>
+            </TabsContent>
 
             <TabsContent value="resolved" className="flex-1 overflow-hidden">
               {!resolvedUrl ? (

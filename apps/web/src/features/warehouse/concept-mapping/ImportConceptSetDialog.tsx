@@ -50,6 +50,27 @@ interface ParsedConceptSet {
   category?: string
   subcategory?: string
   provenance?: string
+  /** All translations from the source JSON, keyed by lang code. */
+  translations?: Record<string, { name?: string; description?: string; category?: string; subcategory?: string }>
+}
+
+/** Extract raw translations map from INDICATE-style JSON metadata. */
+export function extractTranslations(obj: Record<string, unknown>): Record<string, import('@/types').ConceptSetTranslation> | undefined {
+  const meta = obj.metadata as Record<string, unknown> | undefined
+  if (!meta) return undefined
+  const translations = meta.translations as Record<string, Record<string, string>> | undefined
+  if (!translations || Object.keys(translations).length === 0) return undefined
+  const result: Record<string, import('@/types').ConceptSetTranslation> = {}
+  for (const [lang, tr] of Object.entries(translations)) {
+    result[lang] = {
+      name: tr.name || undefined,
+      description: tr.description || undefined,
+      longDescription: tr.longDescription || undefined,
+      category: tr.category || undefined,
+      subcategory: tr.subcategory || undefined,
+    }
+  }
+  return result
 }
 
 /** Extract metadata (category, subcategory, provenance) from INDICATE-style JSON. */
@@ -87,7 +108,7 @@ function parseConceptSetJson(json: unknown, lang = 'en'): ParsedConceptSet | nul
 
       base = {
         name: tr?.name ?? String(obj.name ?? 'Unnamed Concept Set'),
-        description: obj.description ? String(obj.description) : undefined,
+        description: tr?.description ?? (obj.description ? String(obj.description) : undefined),
         items: expr.items as ConceptSetItem[],
       }
     }
@@ -105,7 +126,8 @@ function parseConceptSetJson(json: unknown, lang = 'en'): ParsedConceptSet | nul
   if (!base) return null
 
   const metadata = extractMetadata(obj, lang)
-  return { ...base, ...metadata }
+  const translations = extractTranslations(obj)
+  return { ...base, ...metadata, translations }
 }
 
 export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportConceptSetDialogProps) {
@@ -170,6 +192,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
         category: parsed.category,
         subcategory: parsed.subcategory,
         provenance: parsed.provenance,
+        translations: parsed.translations,
         createdAt: now,
         updatedAt: now,
       })
@@ -237,6 +260,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
             category: parsed.category,
             subcategory: parsed.subcategory,
             provenance: parsed.provenance,
+            translations: parsed.translations,
             importBatchId: batchId,
             createdAt: now,
             updatedAt: now,

@@ -24,12 +24,16 @@ interface DatabaseStatsDashboardProps {
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [cacheLoaded, setCacheLoaded] = useState(false)
   const autoRefreshed = useRef(false)
 
   useEffect(() => {
     autoRefreshed.current = false
+    setCacheLoaded(false)
+    setCache(null)
     getStorage().databaseStatsCache.get(dataSourceId).then((cached) => {
       if (cached) setCache(cached)
+      setCacheLoaded(true)
     })
   }, [dataSourceId])
 
@@ -50,15 +54,15 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   }, [dataSourceId, schemaMapping, ensureMounted])
 
   // Auto-compute if no cache or cache is from an older schema (missing genderDistribution)
-  // Wait until the source is connected before querying to avoid getting zeros from unmounted schemas
+  // Wait until the source is connected and cache has been loaded from IDB
   useEffect(() => {
-    if (isLoading || autoRefreshed.current) return
+    if (!cacheLoaded || isLoading || autoRefreshed.current) return
     if (sourceStatus && sourceStatus !== 'connected') return
     if (!cache || !cache.genderDistribution) {
       autoRefreshed.current = true
       refresh()
     }
-  }, [cache, isLoading, refresh, sourceStatus])
+  }, [cache, cacheLoaded, isLoading, refresh, sourceStatus])
 
   return { cache, isLoading, refresh }
 }

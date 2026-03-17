@@ -22,11 +22,52 @@ function tsvEscape(value: string | number | undefined | null): string {
 // USAGI CSV export
 // ---------------------------------------------------------------------------
 
+/** Convert our SKOS equivalence to Usagi's equivalence enum. */
+function equivalenceToUsagi(equiv: string): string {
+  switch (equiv) {
+    case 'skos:exactMatch': return 'EQUAL'
+    case 'skos:closeMatch': return 'EQUIVALENT'
+    case 'skos:broadMatch': return 'WIDER'
+    case 'skos:narrowMatch': return 'NARROWER'
+    case 'skos:relatedMatch': return 'INEXACT'
+    // Legacy values (pre-SKOS)
+    case 'equal': return 'EQUAL'
+    case 'equivalent': return 'EQUIVALENT'
+    case 'wider': return 'WIDER'
+    case 'narrower': return 'NARROWER'
+    case 'inexact': return 'INEXACT'
+    default: return 'UNREVIEWED'
+  }
+}
+
+/** Convert our status to Usagi's MappingStatus enum. */
+function statusToUsagi(status: string): string {
+  switch (status) {
+    case 'approved': return 'APPROVED'
+    case 'unchecked': return 'UNCHECKED'
+    case 'flagged': return 'FLAGGED'
+    case 'ignored': return 'IGNORED'
+    case 'invalid': return 'INVALID_TARGET'
+    case 'rejected': return 'FLAGGED' // Usagi has no REJECTED — closest is FLAGGED
+    default: return 'UNCHECKED'
+  }
+}
+
+/** Convert ISO date string to epoch milliseconds (Usagi format). */
+function isoToEpochMs(iso: string | undefined | null): string {
+  if (!iso) return '0'
+  const ms = new Date(iso).getTime()
+  return isNaN(ms) ? '0' : String(ms)
+}
+
 /**
  * Export mappings in USAGI-compatible CSV format.
  * Columns match OHDSI Usagi's WriteCodeMappingsToFile format.
+ * Ignored mappings (status='ignored', targetConceptId=0) are exported with IGNORED status.
  */
-export function exportToUsagiCsv(mappings: ConceptMapping[]): string {
+export function exportToUsagiCsv(
+  mappings: ConceptMapping[],
+): string {
   const header = [
     'sourceCode', 'sourceName', 'sourceFrequency', 'sourceAutoAssignedConceptIds',
     'matchScore', 'mappingStatus', 'equivalence', 'statusSetBy', 'statusSetOn',
@@ -39,18 +80,18 @@ export function exportToUsagiCsv(mappings: ConceptMapping[]): string {
     csvEscape(m.sourceConceptName),
     csvEscape(m.sourceFrequency),
     csvEscape(m.sourceConceptId),
-    csvEscape(m.matchScore),
-    csvEscape(m.status.toUpperCase()),
-    csvEscape(m.equivalence.toUpperCase()),
+    csvEscape(m.matchScore ?? 0),
+    csvEscape(statusToUsagi(m.status)),
+    csvEscape(m.status === 'ignored' ? 'UNREVIEWED' : equivalenceToUsagi(m.equivalence)),
     csvEscape(m.mappedBy),
-    csvEscape(m.mappedOn),
+    csvEscape(isoToEpochMs(m.mappedOn)),
     csvEscape(m.targetConceptId),
     csvEscape(m.targetConceptName),
     csvEscape(m.targetDomainId),
-    csvEscape(m.mappingType),
+    csvEscape(m.mappingType?.toUpperCase()),
     csvEscape(m.comment),
     csvEscape(m.mappedBy),
-    csvEscape(m.createdAt),
+    csvEscape(isoToEpochMs(m.createdAt)),
     csvEscape(m.assignedReviewer),
   ].join(','))
 
@@ -119,13 +160,18 @@ function statusToJustification(status: string): string {
 /**
  * Export mappings in SSSOM TSV format.
  * Includes YAML metadata header as per SSSOM spec.
+ * Ignored mappings use sssom:NoTermFound predicate per SSSOM spec.
  */
-export function exportToSssomTsv(mappings: ConceptMapping[], project: MappingProject): string {
+export function exportToSssomTsv(
+  mappings: ConceptMapping[],
+  project: MappingProject,
+): string {
   // YAML metadata header
   const metadataLines = [
     `#curie_map:`,
     `#  skos: "http://www.w3.org/2004/02/skos/core#"`,
     `#  semapv: "https://w3id.org/semapv/vocab/"`,
+    `#  sssom: "https://w3id.org/sssom/"`,
     `#  OHDSI: "http://ohdsi.org/concept/"`,
     `#mapping_set_id: "${project.id}"`,
     `#mapping_set_title: "${project.name}"`,
@@ -141,19 +187,22 @@ export function exportToSssomTsv(mappings: ConceptMapping[], project: MappingPro
     'author_id', 'comment',
   ].join('\t')
 
-  const rows = mappings.map((m) => [
-    tsvEscape(`${m.sourceVocabularyId}:${m.sourceConceptCode}`),
-    tsvEscape(m.sourceConceptName),
-    tsvEscape(m.sourceVocabularyId),
-    tsvEscape(equivalenceToSkosPredicate(m.equivalence)),
-    tsvEscape(`OHDSI:${m.targetConceptId}`),
-    tsvEscape(m.targetConceptName),
-    tsvEscape(m.targetVocabularyId),
-    tsvEscape(statusToJustification(m.status)),
-    tsvEscape(m.matchScore),
-    tsvEscape(m.mappedBy),
-    tsvEscape(m.comment),
-  ].join('\t'))
+  const rows = mappings.map((m) => {
+    const isIgnored = m.status === 'ignored'
+    return [
+      tsvEscape(`${m.sourceVocabularyId}:${m.sourceConceptCode}`),
+      tsvEscape(m.sourceConceptName),
+      tsvEscape(m.sourceVocabularyId),
+      tsvEscape(isIgnored ? 'sssom:NoTermFound' : equivalenceToSkosPredicate(m.equivalence)),
+      tsvEscape(isIgnored ? '' : `OHDSI:${m.targetConceptId}`),
+      tsvEscape(isIgnored ? '' : m.targetConceptName),
+      tsvEscape(isIgnored ? '' : m.targetVocabularyId),
+      tsvEscape(isIgnored ? 'semapv:ManualMappingCuration' : statusToJustification(m.status)),
+      tsvEscape(m.matchScore),
+      tsvEscape(m.mappedBy),
+      tsvEscape(m.comment),
+    ].join('\t')
+  })
 
   return [...metadataLines, header, ...rows].join('\n')
 }
