@@ -58,6 +58,8 @@ export interface ConceptSet {
   subcategory?: string
   /** Provenance: name of the organization that created the concept set. */
   provenance?: string
+  /** Version label (e.g. "1.0.0") from the source concept set JSON. */
+  version?: string
   /** Batch ID grouping concept sets imported together from a catalog. */
   importBatchId?: string
   /** Multilingual translations keyed by ISO 639-1 code (e.g. { en: {...}, fr: {...} }). */

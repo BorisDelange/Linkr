@@ -50,6 +50,7 @@ interface ParsedConceptSet {
   category?: string
   subcategory?: string
   provenance?: string
+  version?: string
   /** All translations from the source JSON, keyed by lang code. */
   translations?: Record<string, { name?: string; description?: string; category?: string; subcategory?: string }>
 }
@@ -73,8 +74,8 @@ export function extractTranslations(obj: Record<string, unknown>): Record<string
   return result
 }
 
-/** Extract metadata (category, subcategory, provenance) from INDICATE-style JSON. */
-export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string } {
+/** Extract metadata (category, subcategory, provenance, version) from INDICATE-style JSON. */
+export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string; version?: string } {
   const meta = obj.metadata as Record<string, unknown> | undefined
   if (!meta) return {}
 
@@ -87,6 +88,7 @@ export function extractMetadata(obj: Record<string, unknown>, lang: string): { c
     category: tr.category || undefined,
     subcategory: tr.subcategory || undefined,
     provenance: org?.name || undefined,
+    version: meta.version ? String(meta.version) : (obj.version ? String(obj.version) : undefined),
   }
 }
 
@@ -192,6 +194,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
         category: parsed.category,
         subcategory: parsed.subcategory,
         provenance: parsed.provenance,
+        version: parsed.version,
         translations: parsed.translations,
         createdAt: now,
         updatedAt: now,
@@ -260,6 +263,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
             category: parsed.category,
             subcategory: parsed.subcategory,
             provenance: parsed.provenance,
+            version: parsed.version,
             translations: parsed.translations,
             importBatchId: batchId,
             createdAt: now,

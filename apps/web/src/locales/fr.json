@@ -1863,7 +1863,8 @@
     "import_overwrite": "Écraser",
     "importing": "Import en cours…",
     "auto": "Auto",
-    "validate": "Valider"
+    "validate": "Valider",
+    "ok": "OK"
   },
   "user_menu": {
     "profile": "Profil",
@@ -2367,6 +2368,7 @@
     "export_source_csv": "Concepts source",
     "export_source_csv_desc": "Concepts source tels qu'importés (uniquement les colonnes mappées). Utile pour partager le dictionnaire de concepts avec les mappings.",
     "cs_select": "Sélectionner",
+    "cs_edit": "Éditer",
     "cs_exit_selection": "Annuler",
     "cs_select_all": "Tout sélectionner",
     "cs_deselect_all": "Tout désélectionner",
@@ -2375,8 +2377,12 @@
     "cs_bulk_delete_description": "Cette action supprimera définitivement {{count}} concept sets. Cette action est irréversible.",
     "cs_view_detail": "Voir le détail",
     "cs_col_items": "Items",
+    "cs_col_version": "Version",
     "cs_col_source": "Source",
     "cs_col_actions": "Actions",
+    "cs_update_all": "Tout mettre à jour",
+    "cs_update_all_title": "Mise à jour terminée",
+    "cs_update_all_result": "{{updated}} concept sets sur {{total}} mis à jour avec succès.",
     "cs_import_history": "Historique des imports",
     "cs_delete_batch": "Supprimer tous les concept sets de cet import",
     "cs_batch_delete_title": "Supprimer le lot d'import ?",

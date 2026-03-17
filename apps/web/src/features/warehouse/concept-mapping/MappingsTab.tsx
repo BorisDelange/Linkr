@@ -267,7 +267,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     createdAt: false,
-    mappedBy: false,
     sourceCategoryId: false,
     sourceSubcategoryId: false,
     targetConceptClassId: false,

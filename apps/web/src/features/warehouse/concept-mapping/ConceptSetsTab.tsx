@@ -1,8 +1,16 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type VisibilityState,
+} from '@tanstack/react-table'
+import {
   Plus, BookOpen, Trash2, RefreshCw, Upload, Search, Loader2,
-  Eye, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight,
+  Info, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
+  ArrowUpDown, ArrowUp, ArrowDown, Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -19,6 +27,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,6 +103,36 @@ function isConceptFile(name: string): boolean {
 
 const BROWSE_PAGE_SIZE = 25
 
+const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+interface CsSorting {
+  columnId: string
+  desc: boolean
+}
+
+function SortIndicator({ columnId, sorting }: { columnId: string; sorting: CsSorting | null }) {
+  if (!sorting || sorting.columnId !== columnId) {
+    return <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+  }
+  if (sorting.desc) {
+    return <ArrowDown size={10} className="shrink-0 text-primary" />
+  }
+  return <ArrowUp size={10} className="shrink-0 text-primary" />
+}
+
+/** Translated row for the concept sets table. */
+interface CsRow {
+  id: string
+  category: string
+  subcategory: string
+  name: string
+  description: string
+  items: number
+  version: string
+  provenance: string
+  raw: ConceptSet
+}
+
 interface ConceptSetsTabProps {
   project: MappingProject
   dataSource?: DataSource
@@ -95,16 +141,15 @@ interface ConceptSetsTabProps {
 export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { conceptSets, deleteConceptSet, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
+  const { conceptSets, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
-  const [setToDelete, setSetToDelete] = useState<ConceptSet | null>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   // Detail sheet
   const [detailConceptSet, setDetailConceptSet] = useState<ConceptSet | null>(null)
 
-  // Bulk selection
+  // Bulk selection (edit mode)
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
@@ -114,6 +159,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   // Import history
   const [historyOpen, setHistoryOpen] = useState(false)
+
+  // Update all state
+  const [updateAllRunning, setUpdateAllRunning] = useState(false)
+  const [updateAllResult, setUpdateAllResult] = useState<{ updated: number; total: number } | null>(null)
 
   // Vocabulary reference import
   const vocabInputRef = useRef<HTMLInputElement>(null)
@@ -138,31 +187,23 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [browseVocabOptions, setBrowseVocabOptions] = useState<string[]>([])
   const [browseDomainOptions, setBrowseDomainOptions] = useState<string[]>([])
 
-  // Filters
-  const [searchText, setSearchText] = useState('')
-  const [filterCategory, setFilterCategory] = useState<string>('__all__')
-  const [filterSubcategory, setFilterSubcategory] = useState<string>('__all__')
-  const [filterProvenance, setFilterProvenance] = useState<string>('__all__')
+  // Inline column filters
+  const [filterCategory, setFilterCategory] = useState('')
+  const [filterSubcategory, setFilterSubcategory] = useState('')
+  const [filterName, setFilterName] = useState('')
+  const [filterVersion, setFilterVersion] = useState('')
+  const [filterProvenance, setFilterProvenance] = useState('')
+
+  // TanStack table state
+  const [csSorting, setCsSorting] = useState<CsSorting | null>(null)
+  const [csColVisibility, setCsColVisibility] = useState<VisibilityState>({})
+  const [csColSizing, setCsColSizing] = useState<Record<string, number>>({})
+
+  // Pagination
+  const CS_PAGE_SIZE = 25
+  const [csPage, setCsPage] = useState(0)
 
   const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
-
-  // Compute unique filter values (using translated fields)
-  const { categories, subcategories, provenances } = useMemo(() => {
-    const cats = new Set<string>()
-    const subs = new Set<string>()
-    const provs = new Set<string>()
-    for (const cs of linkedSets) {
-      const tr = getConceptSetI18n(cs, lang)
-      if (tr.category) cats.add(tr.category)
-      if (tr.subcategory) subs.add(tr.subcategory)
-      if (cs.provenance) provs.add(cs.provenance)
-    }
-    return {
-      categories: [...cats].sort(),
-      subcategories: [...subs].sort(),
-      provenances: [...provs].sort(),
-    }
-  }, [linkedSets, lang])
 
   // Fuzzy match: all query characters appear in order in the target
   const fuzzyMatch = (target: string, query: string): boolean => {
@@ -176,35 +217,270 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const textMatch = (text: string, query: string): boolean =>
     text.includes(query) || fuzzyMatch(text, query)
 
-  // Apply filters
-  const filteredSets = useMemo(() => {
-    return linkedSets.filter((cs) => {
+  // Unique dropdown options for category, subcategory, provenance
+  const categoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).category).filter(Boolean) as string[])].sort(), [linkedSets, lang])
+  const subcategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).subcategory).filter(Boolean) as string[])].sort(), [linkedSets, lang])
+  const provenanceOptions = useMemo(() => [...new Set(linkedSets.map((cs) => cs.provenance).filter(Boolean) as string[])].sort(), [linkedSets])
+
+  // Build translated rows for the table
+  const csRows = useMemo<CsRow[]>(() => {
+    return linkedSets.map((cs) => {
       const tr = getConceptSetI18n(cs, lang)
-      if (searchText) {
-        const q = searchText.toLowerCase()
-        const matches =
-          textMatch(tr.name.toLowerCase(), q) ||
-          (tr.category ? textMatch(tr.category.toLowerCase(), q) : false) ||
-          (tr.subcategory ? textMatch(tr.subcategory.toLowerCase(), q) : false) ||
-          (cs.provenance ? textMatch(cs.provenance.toLowerCase(), q) : false)
-        if (!matches) return false
+      return {
+        id: cs.id,
+        category: tr.category ?? '',
+        subcategory: tr.subcategory ?? '',
+        name: tr.name,
+        description: tr.description ?? '',
+        items: cs.expression.items.length,
+        version: cs.version ?? '',
+        provenance: cs.provenance ?? '',
+        raw: cs,
       }
-      if (filterCategory !== '__all__' && tr.category !== filterCategory) return false
-      if (filterSubcategory !== '__all__' && tr.subcategory !== filterSubcategory) return false
-      if (filterProvenance !== '__all__' && cs.provenance !== filterProvenance) return false
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkedSets, lang])
+
+  // Apply inline column filters
+  const filteredRows = useMemo(() => {
+    return csRows.filter((r) => {
+      if (filterCategory && r.category !== filterCategory) return false
+      if (filterSubcategory && r.subcategory !== filterSubcategory) return false
+      if (filterName && !textMatch(r.name.toLowerCase(), filterName.toLowerCase())) return false
+      if (filterVersion && !r.version.toLowerCase().includes(filterVersion.toLowerCase())) return false
+      if (filterProvenance && r.provenance !== filterProvenance) return false
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linkedSets, searchText, filterCategory, filterSubcategory, filterProvenance, lang])
+  }, [csRows, filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance])
 
-  const handleDelete = async () => {
-    if (!setToDelete) return
-    await updateMappingProject(project.id, {
-      conceptSetIds: project.conceptSetIds.filter((id) => id !== setToDelete.id),
+  // Also keep filteredSets for backward compat with selection mode
+  const filteredSets = useMemo(() => {
+    return linkedSets.filter((cs) => filteredRows.some((r) => r.id === cs.id))
+  }, [linkedSets, filteredRows])
+
+  // Apply sorting
+  const sortedRows = useMemo(() => {
+    if (!csSorting) return filteredRows
+    const col = csSorting.columnId as keyof CsRow
+    const dir = csSorting.desc ? -1 : 1
+    return [...filteredRows].sort((a, b) => {
+      const va = a[col] ?? ''
+      const vb = b[col] ?? ''
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb)
+      return dir * String(va).localeCompare(String(vb))
     })
-    await deleteConceptSet(setToDelete.id)
-    setSetToDelete(null)
+  }, [filteredRows, csSorting])
+
+  // Reset page when filters change
+  const prevFiltersRef = useRef({ filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance })
+  if (
+    prevFiltersRef.current.filterCategory !== filterCategory ||
+    prevFiltersRef.current.filterSubcategory !== filterSubcategory ||
+    prevFiltersRef.current.filterName !== filterName ||
+    prevFiltersRef.current.filterVersion !== filterVersion ||
+    prevFiltersRef.current.filterProvenance !== filterProvenance
+  ) {
+    prevFiltersRef.current = { filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance }
+    setCsPage(0)
   }
+
+  const csTotalPages = Math.max(1, Math.ceil(sortedRows.length / CS_PAGE_SIZE))
+  const csPageItems = sortedRows.slice(csPage * CS_PAGE_SIZE, (csPage + 1) * CS_PAGE_SIZE)
+
+  const handleCsSort = (columnId: string) => {
+    if (csSorting?.columnId === columnId) {
+      if (csSorting.desc) setCsSorting({ columnId, desc: false })
+      else setCsSorting(null)
+    } else {
+      setCsSorting({ columnId, desc: true })
+    }
+  }
+
+  // Column filter renderer
+  const renderCsColumnFilter = (columnId: string) => {
+    if (columnId === 'category') return (
+      <Select value={filterCategory || '__all__'} onValueChange={(v) => setFilterCategory(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {categoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    if (columnId === 'subcategory') return (
+      <Select value={filterSubcategory || '__all__'} onValueChange={(v) => setFilterSubcategory(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {subcategoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    if (columnId === 'name') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filterName} onChange={(e) => setFilterName(e.target.value)} />
+    if (columnId === 'version') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filterVersion} onChange={(e) => setFilterVersion(e.target.value)} />
+    if (columnId === 'provenance') return (
+      <Select value={filterProvenance || '__all__'} onValueChange={(v) => setFilterProvenance(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {provenanceOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    return null
+  }
+
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredSets.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filteredSets.map((cs) => cs.id)))
+    }
+  }
+
+  // TanStack column definitions
+  const csColumns = useMemo<ColumnDef<CsRow>[]>(() => {
+    const cols: ColumnDef<CsRow>[] = []
+
+    if (selectionMode) {
+      cols.push({
+        id: '_selection',
+        header: '',
+        cell: ({ row }) => {
+          const isSelected = selectedIds.has(row.original.id)
+          return (
+            <div
+              className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border ${isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}
+              onClick={(e) => { e.stopPropagation(); toggleSelection(row.original.id) }}
+            >
+              {isSelected && <Check size={12} />}
+            </div>
+          )
+        },
+        size: 36,
+        minSize: 36,
+        enableResizing: false,
+      })
+    }
+
+    cols.push(
+      {
+        id: 'category',
+        header: () => t('concept_mapping.cs_filter_category'),
+        accessorFn: (row) => row.category,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.category}</span>,
+        size: 120,
+        minSize: 60,
+      },
+      {
+        id: 'subcategory',
+        header: () => t('concept_mapping.cs_filter_subcategory'),
+        accessorFn: (row) => row.subcategory,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.subcategory}</span>,
+        size: 120,
+        minSize: 60,
+      },
+      {
+        id: 'name',
+        header: () => t('concept_mapping.col_name'),
+        accessorFn: (row) => row.name,
+        cell: ({ row }) => (
+          <div>
+            <div className="truncate font-medium">{row.original.name}</div>
+            {row.original.description && (
+              <div className="truncate text-[10px] text-muted-foreground mt-0.5">{row.original.description}</div>
+            )}
+          </div>
+        ),
+        size: 250,
+        minSize: 100,
+      },
+      {
+        id: 'items',
+        header: () => t('concept_mapping.cs_col_items'),
+        accessorFn: (row) => row.items,
+        cell: ({ row }) => (
+          <span className="flex justify-center">
+            <Badge variant="secondary" className="text-[10px]">{row.original.items}</Badge>
+          </span>
+        ),
+        size: 60,
+        minSize: 40,
+      },
+      {
+        id: 'version',
+        header: () => t('concept_mapping.cs_col_version'),
+        accessorFn: (row) => row.version,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.version}</span>,
+        size: 80,
+        minSize: 50,
+      },
+      {
+        id: 'provenance',
+        header: () => t('concept_mapping.cs_filter_provenance'),
+        accessorFn: (row) => row.provenance,
+        cell: ({ row }) => <span className="text-muted-foreground">{row.original.provenance}</span>,
+        size: 120,
+        minSize: 60,
+      },
+    )
+
+    if (!selectionMode) {
+      cols.push({
+        id: '_actions',
+        header: '',
+        cell: ({ row }) => (
+          <button
+            type="button"
+            className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+            title={t('concept_mapping.cs_view_detail')}
+            onClick={(e) => { e.stopPropagation(); setDetailConceptSet(row.original.raw) }}
+          >
+            <Info size={14} />
+          </button>
+        ),
+        size: 40,
+        minSize: 40,
+        enableResizing: false,
+      })
+    }
+
+    return cols
+  }, [t, selectionMode, selectedIds, toggleSelection])
+
+  /** Get human-readable label for a column def. */
+  const getCsColLabel = (id: string): string => {
+    const def = csColumns.find((c) => 'id' in c && c.id === id)
+    if (def && typeof def.header === 'function') {
+      const result = (def.header as () => unknown)()
+      if (typeof result === 'string') return result
+    }
+    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
+  const csTable = useReactTable({
+    data: csPageItems,
+    columns: csColumns,
+    state: { columnVisibility: csColVisibility, columnSizing: csColSizing },
+    onColumnVisibilityChange: setCsColVisibility,
+    onColumnSizingChange: setCsColSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    manualFiltering: true,
+    manualSorting: true,
+    pageCount: csTotalPages,
+  })
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return
@@ -235,23 +511,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       })
     }
     setBatchToDelete(null)
-  }
-
-  const toggleSelection = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const toggleSelectAll = () => {
-    if (selectedIds.size === filteredSets.length) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(filteredSets.map((cs) => cs.id)))
-    }
   }
 
   const exitSelectionMode = () => {
@@ -287,6 +546,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         category: md.category ?? cs.category,
         subcategory: md.subcategory ?? cs.subcategory,
         provenance: md.provenance ?? cs.provenance,
+        version: md.version ?? cs.version,
         translations,
         updatedAt: new Date().toISOString(),
       })
@@ -295,6 +555,22 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     } finally {
       setUpdatingId(null)
     }
+  }
+
+  /** Update all concept sets that have a sourceUrl. */
+  const handleUpdateAll = async () => {
+    const updatable = linkedSets.filter((cs) => cs.sourceUrl)
+    if (updatable.length === 0) return
+    setUpdateAllRunning(true)
+    let updated = 0
+    for (const cs of updatable) {
+      try {
+        await handleUpdateFromRemote(cs)
+        updated++
+      } catch { /* skip failed */ }
+    }
+    setUpdateAllRunning(false)
+    setUpdateAllResult({ updated, total: updatable.length })
   }
 
   const formatDate = (iso: string) => {
@@ -455,7 +731,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
             Tab 1: Concept Sets — DataTable
         ================================================================ */}
         <TabsContent value="concept-sets">
-          <div className="mx-auto max-w-4xl">
+          <div className="mx-auto max-w-5xl">
             {/* Toolbar */}
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
@@ -463,17 +739,34 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               </p>
               <div className="flex gap-2">
                 {linkedSets.length > 0 && (
-                  selectionMode ? (
-                    <Button size="sm" variant="outline" onClick={exitSelectionMode}>
-                      <X size={14} />
-                      {t('concept_mapping.cs_exit_selection')}
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
-                      <CheckCheck size={14} />
-                      {t('concept_mapping.cs_select')}
-                    </Button>
-                  )
+                  <>
+                    {linkedSets.some((cs) => cs.sourceUrl) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleUpdateAll}
+                        disabled={updateAllRunning}
+                      >
+                        {updateAllRunning ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                        {t('concept_mapping.cs_update_all')}
+                      </Button>
+                    )}
+                    {selectionMode ? (
+                      <Button size="sm" variant="outline" onClick={exitSelectionMode}>
+                        <X size={14} />
+                        {t('concept_mapping.cs_exit_selection')}
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => setSelectionMode(true)}>
+                        <Pencil size={14} />
+                        {t('concept_mapping.cs_edit')}
+                      </Button>
+                    )}
+                  </>
                 )}
                 <Button size="sm" onClick={() => setImportOpen(true)}>
                   <Plus size={14} />
@@ -518,72 +811,32 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               </Collapsible>
             )}
 
-            {/* Filters */}
-            {linkedSets.length > 0 && (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[180px] flex-1">
-                  <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    className="h-8 pl-8 text-xs"
-                    placeholder={t('concept_mapping.cs_filter_search')}
-                    value={searchText}
-                    onChange={(e) => setSearchText(e.target.value)}
-                  />
-                </div>
-                {categories.length > 0 && (
-                  <Select value={filterCategory} onValueChange={setFilterCategory}>
-                    <SelectTrigger className="h-8 w-[140px] text-xs">
-                      <SelectValue placeholder={t('concept_mapping.cs_filter_category')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">{t('concept_mapping.cs_filter_all_categories')}</SelectItem>
-                      {categories.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )}
-                {subcategories.length > 0 && (
-                  <Select value={filterSubcategory} onValueChange={setFilterSubcategory}>
-                    <SelectTrigger className="h-8 w-[160px] text-xs">
-                      <SelectValue placeholder={t('concept_mapping.cs_filter_subcategory')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">{t('concept_mapping.cs_filter_all_subcategories')}</SelectItem>
-                      {subcategories.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )}
-                {provenances.length > 0 && (
-                  <Select value={filterProvenance} onValueChange={setFilterProvenance}>
-                    <SelectTrigger className="h-8 w-[160px] text-xs">
-                      <SelectValue placeholder={t('concept_mapping.cs_filter_provenance')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__all__">{t('concept_mapping.cs_filter_all_provenances')}</SelectItem>
-                      {provenances.map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )}
-              </div>
-            )}
-
-            {/* Selection mode toolbar */}
+            {/* Edit mode toolbar */}
             {selectionMode && filteredSets.length > 0 && (
               <div className="mb-3 flex items-center gap-3">
-                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={toggleSelectAll}>
-                  {selectedIds.size === filteredSets.length
-                    ? t('concept_mapping.cs_deselect_all')
-                    : t('concept_mapping.cs_select_all')}
+                <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => {
+                  if (selectedIds.size === filteredSets.length) setSelectedIds(new Set())
+                  else setSelectedIds(new Set(filteredSets.map((cs) => cs.id)))
+                }}>
+                  <CheckCheck size={12} />
+                  {t('concept_mapping.cs_select_all')}
                 </Button>
                 {selectedIds.size > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    className="h-7 text-xs"
-                    onClick={() => setBulkDeleteOpen(true)}
-                  >
-                    <Trash2 size={12} />
-                    {t('concept_mapping.cs_delete_selected', { count: selectedIds.size })}
-                  </Button>
+                  <>
+                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setSelectedIds(new Set())}>
+                      <SquareX size={12} />
+                      {t('concept_mapping.cs_deselect_all')}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => setBulkDeleteOpen(true)}
+                    >
+                      <Trash2 size={12} />
+                      {t('concept_mapping.cs_delete_selected', { count: selectedIds.size })}
+                    </Button>
+                  </>
                 )}
               </div>
             )}
@@ -609,123 +862,159 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               </Card>
             ) : (
               <Card className="overflow-hidden">
-                <div className="text-[10px] text-muted-foreground px-3 py-1.5 border-b bg-muted/30">
-                  {filteredSets.length} / {linkedSets.length} concept sets
-                </div>
-                <Table>
-                  <TableHeader>
-                    <TableRow className="hover:bg-transparent">
-                      {selectionMode && (
-                        <TableHead className="w-[36px] px-2 h-8">
-                          <div
-                            className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border ${selectedIds.size === filteredSets.length && filteredSets.length > 0 ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}
-                            onClick={toggleSelectAll}
-                          >
-                            {selectedIds.size === filteredSets.length && filteredSets.length > 0 && <Check size={12} />}
-                          </div>
-                        </TableHead>
-                      )}
-                      <TableHead className="text-xs h-8">{t('concept_mapping.col_name')}</TableHead>
-                      <TableHead className="w-[50px] text-xs text-center h-8">{t('concept_mapping.cs_col_items')}</TableHead>
-                      <TableHead className="w-[110px] text-xs h-8">{t('concept_mapping.cs_filter_category')}</TableHead>
-                      <TableHead className="w-[110px] text-xs h-8">{t('concept_mapping.cs_filter_subcategory')}</TableHead>
-                      <TableHead className="w-[110px] text-xs h-8">{t('concept_mapping.cs_filter_provenance')}</TableHead>
-                      {!selectionMode && (
-                        <TableHead className="w-[90px] text-xs text-right h-8">{t('concept_mapping.cs_col_actions')}</TableHead>
-                      )}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredSets.map((cs) => {
-                      const isUpdating = updatingId === cs.id
-                      const isSelected = selectedIds.has(cs.id)
-                      return (
-                        <TableRow
-                          key={cs.id}
-                          className={isSelected ? 'bg-accent' : ''}
-                          data-state={isSelected ? 'selected' : undefined}
-                        >
-                          {selectionMode && (
-                            <TableCell className="px-2 py-1.5">
-                              <div
-                                className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border ${isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}
-                                onClick={() => toggleSelection(cs.id)}
+                <div className="overflow-auto">
+                  <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+                    <TableHeader>
+                      {/* Column titles */}
+                      <TableRow>
+                        {csTable.getHeaderGroups().map((headerGroup) =>
+                          headerGroup.headers.map((header) => {
+                            const colId = header.column.id
+                            const isMetaCol = colId.startsWith('_')
+                            return (
+                              <TableHead
+                                key={header.id}
+                                className="relative select-none text-xs"
+                                style={{ width: header.getSize() }}
                               >
-                                {isSelected && <Check size={12} />}
-                              </div>
-                            </TableCell>
-                          )}
-                          {(() => {
-                            const tr = getConceptSetI18n(cs, lang)
-                            return (<>
-                          <TableCell className="max-w-[300px] py-1.5">
-                            <div className="truncate text-xs font-medium">{tr.name}</div>
-                            {tr.description && (
-                              <div className="truncate text-[10px] text-muted-foreground mt-0.5">{tr.description}</div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-center py-1.5">
-                            <Badge variant="secondary" className="text-[10px]">
-                              {cs.expression.items.length}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            {tr.category && (
-                              <span className="text-xs text-muted-foreground truncate block">{tr.category}</span>
-                            )}
-                          </TableCell>
-                          <TableCell className="py-1.5">
-                            {tr.subcategory && (
-                              <span className="text-xs text-muted-foreground truncate block">{tr.subcategory}</span>
-                            )}
-                          </TableCell>
-                            </>)
-                          })()}
-                          <TableCell className="text-xs text-muted-foreground truncate max-w-[110px] py-1.5">
-                            {cs.provenance ?? ''}
-                          </TableCell>
-                          {!selectionMode && (
-                            <TableCell className="text-right py-1">
-                              <div className="flex justify-end gap-0.5">
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  title={t('concept_mapping.cs_view_detail')}
-                                  onClick={() => setDetailConceptSet(cs)}
-                                >
-                                  <Eye size={14} />
-                                </Button>
-                                {cs.sourceUrl && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    title={t('concept_mapping.cs_update_remote')}
-                                    disabled={isUpdating}
-                                    onClick={() => handleUpdateFromRemote(cs)}
+                                {isMetaCol ? (
+                                  colId === '_selection' ? (
+                                    <div
+                                      className={`flex h-4 w-4 cursor-pointer items-center justify-center rounded border ${selectedIds.size === filteredSets.length && filteredSets.length > 0 ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40'}`}
+                                      onClick={toggleSelectAll}
+                                    >
+                                      {selectedIds.size === filteredSets.length && filteredSets.length > 0 && <Check size={12} />}
+                                    </div>
+                                  ) : null
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                                    onClick={() => handleCsSort(colId)}
                                   >
-                                    {isUpdating ? (
-                                      <Loader2 size={14} className="animate-spin" />
-                                    ) : (
-                                      <RefreshCw size={14} />
-                                    )}
-                                  </Button>
+                                    <span className="truncate">
+                                      {flexRender(header.column.columnDef.header, header.getContext())}
+                                    </span>
+                                    <SortIndicator columnId={colId} sorting={csSorting} />
+                                  </button>
                                 )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  onClick={() => setSetToDelete(cs)}
-                                  className="text-destructive hover:text-destructive"
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          )}
+                                {/* Resize handle */}
+                                {header.column.getCanResize() && (
+                                  <div
+                                    onMouseDown={header.getResizeHandler()}
+                                    onTouchStart={header.getResizeHandler()}
+                                    onDoubleClick={() => header.column.resetSize()}
+                                    className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                                  >
+                                    <div
+                                      className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                                        header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                                      }`}
+                                    />
+                                  </div>
+                                )}
+                              </TableHead>
+                            )
+                          })
+                        )}
+                      </TableRow>
+                      {/* Inline column filters */}
+                      <TableRow className="hover:bg-transparent">
+                        {csTable.getHeaderGroups().map((headerGroup) =>
+                          headerGroup.headers.map((header) => (
+                            <TableHead
+                              key={`filter-${header.id}`}
+                              className="px-1 py-1"
+                              style={{ width: header.getSize() }}
+                            >
+                              {renderCsColumnFilter(header.column.id)}
+                            </TableHead>
+                          ))
+                        )}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {csPageItems.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={csTable.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
+                            {t('common.no_results')}
+                          </TableCell>
                         </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
+                      ) : (
+                        csTable.getRowModel().rows.map((row) => {
+                          const isSelected = selectedIds.has(row.original.id)
+                          return (
+                            <TableRow
+                              key={row.original.id}
+                              className={isSelected ? 'bg-accent' : ''}
+                              data-state={isSelected ? 'selected' : undefined}
+                            >
+                              {row.getVisibleCells().map((cell) => {
+                                const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                                const raw = cell.getValue()
+                                const title = raw != null ? String(raw) : undefined
+                                return (
+                                  <TableCell
+                                    key={cell.id}
+                                    className="overflow-hidden truncate text-xs"
+                                    style={{ maxWidth: cell.column.getSize() }}
+                                    title={title}
+                                  >
+                                    {rendered}
+                                  </TableCell>
+                                )
+                              })}
+                            </TableRow>
+                          )
+                        })
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Pagination + column visibility */}
+                <div className="flex items-center justify-between border-t px-3 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-muted-foreground">
+                      {sortedRows.length} / {linkedSets.length} concept sets
+                    </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                          <Settings2 size={12} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="start" className="w-[180px]">
+                        <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        {csTable.getAllColumns()
+                          .filter((col) => !col.id.startsWith('_'))
+                          .map((col) => (
+                            <DropdownMenuCheckboxItem
+                              key={col.id}
+                              checked={col.getIsVisible()}
+                              onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                              onSelect={(e) => e.preventDefault()}
+                              className="text-xs"
+                            >
+                              {getCsColLabel(col.id)}
+                            </DropdownMenuCheckboxItem>
+                          ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button variant="ghost" size="icon-sm" disabled={csPage === 0} onClick={() => setCsPage(csPage - 1)}>
+                      <ChevronLeft size={14} />
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground">
+                      {csPage + 1} / {csTotalPages}
+                    </span>
+                    <Button variant="ghost" size="icon-sm" disabled={csPage >= csTotalPages - 1} onClick={() => setCsPage(csPage + 1)}>
+                      <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                </div>
               </Card>
             )}
           </div>
@@ -972,18 +1261,17 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         onOpenChange={(open) => { if (!open) setDetailConceptSet(null) }}
       />
 
-      {/* Single delete dialog */}
-      <AlertDialog open={!!setToDelete} onOpenChange={(open) => { if (!open) setSetToDelete(null) }}>
+      {/* Update all result dialog */}
+      <AlertDialog open={!!updateAllResult} onOpenChange={(open) => { if (!open) setUpdateAllResult(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t('concept_mapping.cs_delete_title')}</AlertDialogTitle>
+            <AlertDialogTitle>{t('concept_mapping.cs_update_all_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('concept_mapping.cs_delete_description', { name: setToDelete?.name ?? '' })}
+              {t('concept_mapping.cs_update_all_result', { updated: updateAllResult?.updated ?? 0, total: updateAllResult?.total ?? 0 })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
+            <AlertDialogAction onClick={() => setUpdateAllResult(null)}>{t('common.ok')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

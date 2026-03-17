@@ -150,7 +150,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [ignoreCommentText, setIgnoreCommentText] = useState('')
 
   // Browse mode state
-  const [catalogFilter, setCatalogFilter] = useState<string>('__all__')
   const [csFilterCategory, setCsFilterCategory] = useState('')
   const [csFilterSubcategory, setCsFilterSubcategory] = useState('')
   const [csFilterName, setCsFilterName] = useState('')
@@ -163,6 +162,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     [selectedCs, lang],
   )
   const [detailSheetOpen, setDetailSheetOpen] = useState(false)
+  const [detailSheetCs, setDetailSheetCs] = useState<ConceptSet | null>(null)
   const [resolvedConcepts, setResolvedConcepts] = useState<ResolvedConcept[]>([])
   const [resolvedLoading, setResolvedLoading] = useState(false)
   const [resolvedError, setResolvedError] = useState<string | null>(null)
@@ -183,8 +183,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Linked concept sets
   const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
 
-  // Import batches for catalog dropdown
-  const importBatches = project.importBatches ?? []
 
   // Existing mappings for selected source concept (match by ID or by code for code-only tables)
   const existingMappings = sourceConcept
@@ -194,35 +192,30 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       )
     : []
 
-  // Compute unique catalog source names from import batches
-  const catalogSources = importBatches.map((b) => b.sourceName).filter((v, i, a) => a.indexOf(v) === i).sort()
+  // Unique dropdown options for category, subcategory, provenance
+  const csCategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).category).filter(Boolean) as string[])].sort(), [linkedSets, lang])
+  const csSubcategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).subcategory).filter(Boolean) as string[])].sort(), [linkedSets, lang])
+  const csProvenanceOptions = useMemo(() => [...new Set(linkedSets.map((cs) => cs.provenance).filter(Boolean) as string[])].sort(), [linkedSets])
 
-  // Filter concept sets by catalog and column filters
+  // Filter concept sets by column filters
   const filteredCs = linkedSets.filter((cs) => {
-    // Catalog filter: match by importBatchId
-    if (catalogFilter !== '__all__') {
-      const batchIds = importBatches.filter((b) => b.sourceName === catalogFilter).map((b) => b.id)
-      if (!cs.importBatchId || !batchIds.includes(cs.importBatchId)) return false
-    }
     const tr = getConceptSetI18n(cs, lang)
-    if (csFilterCategory && !textMatch(tr.category ?? '', csFilterCategory)) return false
-    if (csFilterSubcategory && !textMatch(tr.subcategory ?? '', csFilterSubcategory)) return false
+    if (csFilterCategory && (tr.category ?? '') !== csFilterCategory) return false
+    if (csFilterSubcategory && (tr.subcategory ?? '') !== csFilterSubcategory) return false
     if (csFilterName && !textMatch(tr.name, csFilterName)) return false
     return true
   })
 
-  const csTotalPages = Math.max(1, Math.ceil(filteredCs.length / CS_PAGE_SIZE))
-  const csPageItems = filteredCs.slice(csPage * CS_PAGE_SIZE, (csPage + 1) * CS_PAGE_SIZE)
+  // csTotalPages and csPageItems computed in renderConceptSetsBrowse via fullyFilteredCs
 
   // Reset cs page when filters change
-  const prevFiltersRef = useRef({ catalogFilter, csFilterCategory, csFilterSubcategory, csFilterName })
+  const prevFiltersRef = useRef({ csFilterCategory, csFilterSubcategory, csFilterName })
   if (
-    prevFiltersRef.current.catalogFilter !== catalogFilter ||
     prevFiltersRef.current.csFilterCategory !== csFilterCategory ||
     prevFiltersRef.current.csFilterSubcategory !== csFilterSubcategory ||
     prevFiltersRef.current.csFilterName !== csFilterName
   ) {
-    prevFiltersRef.current = { catalogFilter, csFilterCategory, csFilterSubcategory, csFilterName }
+    prevFiltersRef.current = { csFilterCategory, csFilterSubcategory, csFilterName }
     setCsPage(0)
   }
 
@@ -435,111 +428,366 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // ─── Concept sets datatable (browse view) ───────────────────────────
 
+  // Filters for additional concept set columns
+  const [csFilterVersion, setCsFilterVersion] = useState('')
+  const [csFilterProvenance, setCsFilterProvenance] = useState('')
+
+  // TanStack table state for concept sets browse
+  const [csColVisibility, setCsColVisibility] = useState<VisibilityState>({
+    items: false,
+    version: false,
+    provenance: false,
+  })
+  const [csColSizing, setCsColSizing] = useState<Record<string, number>>({})
+  const [csSorting, setCsSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
+
+  // Reset cs page when provenance/version filters change too
+  const prevExtraFiltersRef = useRef({ csFilterVersion, csFilterProvenance })
+  if (prevExtraFiltersRef.current.csFilterVersion !== csFilterVersion || prevExtraFiltersRef.current.csFilterProvenance !== csFilterProvenance) {
+    prevExtraFiltersRef.current = { csFilterVersion, csFilterProvenance }
+    setCsPage(0)
+  }
+
+  /** Translated row for the concept sets browse table. */
+  interface CsBrowseRow {
+    id: string
+    category: string
+    subcategory: string
+    name: string
+    items: number
+    version: string
+    provenance: string
+    raw: ConceptSet
+  }
+
+  // Build translated rows
+  const csBrowseRows = useMemo<CsBrowseRow[]>(() => {
+    return filteredCs
+      .filter((cs) => {
+        if (csFilterVersion && !(cs.version ?? '').toLowerCase().includes(csFilterVersion.toLowerCase())) return false
+        if (csFilterProvenance && (cs.provenance ?? '') !== csFilterProvenance) return false
+        return true
+      })
+      .map((cs) => {
+        const tr = getConceptSetI18n(cs, lang)
+        return {
+          id: cs.id,
+          category: tr.category ?? '',
+          subcategory: tr.subcategory ?? '',
+          name: tr.name,
+          items: cs.expression.items.length,
+          version: cs.version ?? '',
+          provenance: cs.provenance ?? '',
+          raw: cs,
+        }
+      })
+  }, [filteredCs, csFilterVersion, csFilterProvenance, lang])
+
+  // Apply sorting
+  const csSortedRows = useMemo(() => {
+    if (!csSorting) return csBrowseRows
+    const col = csSorting.columnId as keyof CsBrowseRow
+    const dir = csSorting.desc ? -1 : 1
+    return [...csBrowseRows].sort((a, b) => {
+      const va = a[col] ?? ''
+      const vb = b[col] ?? ''
+      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb)
+      return dir * String(va).localeCompare(String(vb))
+    })
+  }, [csBrowseRows, csSorting])
+
+  const csFullTotalPages = Math.max(1, Math.ceil(csSortedRows.length / CS_PAGE_SIZE))
+  const csFullPageItems = csSortedRows.slice(csPage * CS_PAGE_SIZE, (csPage + 1) * CS_PAGE_SIZE)
+
+  const handleCsSort = (columnId: string) => {
+    if (csSorting?.columnId === columnId) {
+      if (csSorting.desc) setCsSorting({ columnId, desc: false })
+      else setCsSorting(null)
+    } else {
+      setCsSorting({ columnId, desc: true })
+    }
+  }
+
+  const FILTER_INPUT_CLASS = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+  const renderCsFilter = (columnId: string) => {
+    if (columnId === 'category') return (
+      <Select value={csFilterCategory || '__all__'} onValueChange={(v) => setCsFilterCategory(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {csCategoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    if (columnId === 'subcategory') return (
+      <Select value={csFilterSubcategory || '__all__'} onValueChange={(v) => setCsFilterSubcategory(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {csSubcategoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    if (columnId === 'name') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterName} onChange={(e) => setCsFilterName(e.target.value)} />
+    if (columnId === 'version') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterVersion} onChange={(e) => setCsFilterVersion(e.target.value)} />
+    if (columnId === 'provenance') return (
+      <Select value={csFilterProvenance || '__all__'} onValueChange={(v) => setCsFilterProvenance(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">...</SelectItem>
+          {csProvenanceOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    return null
+  }
+
+  // TanStack column definitions for concept sets browse
+  const csColumns = useMemo<ColumnDef<CsBrowseRow>[]>(() => [
+    {
+      id: 'category',
+      header: () => t('concept_mapping.col_category'),
+      accessorFn: (row) => row.category,
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.category}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'subcategory',
+      header: () => t('concept_mapping.col_subcategory'),
+      accessorFn: (row) => row.subcategory,
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.subcategory}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'name',
+      header: () => t('concept_mapping.col_concept_set'),
+      accessorFn: (row) => row.name,
+      cell: ({ row }) => row.original.name,
+      size: 180,
+      minSize: 80,
+    },
+    {
+      id: 'items',
+      header: () => t('concept_mapping.cs_col_items'),
+      accessorFn: (row) => row.items,
+      cell: ({ row }) => (
+        <span className="flex justify-center">
+          <Badge variant="secondary" className="text-[9px]">{row.original.items}</Badge>
+        </span>
+      ),
+      size: 50,
+      minSize: 40,
+    },
+    {
+      id: 'version',
+      header: () => t('concept_mapping.cs_col_version'),
+      accessorFn: (row) => row.version,
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.version}</span>,
+      size: 60,
+      minSize: 40,
+    },
+    {
+      id: 'provenance',
+      header: () => t('concept_mapping.cs_filter_provenance'),
+      accessorFn: (row) => row.provenance,
+      cell: ({ row }) => <span className="text-muted-foreground">{row.original.provenance}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: '_actions',
+      header: '',
+      cell: ({ row }) => (
+        <button
+          type="button"
+          className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+          title={t('concept_mapping.cs_view_detail')}
+          onClick={(e) => {
+            e.stopPropagation()
+            setDetailSheetCs(row.original.raw)
+            setDetailSheetOpen(true)
+          }}
+        >
+          <Info size={12} />
+        </button>
+      ),
+      size: 28,
+      minSize: 28,
+      enableResizing: false,
+    },
+  ], [t])
+
+  /** Get human-readable label for a concept set column. */
+  const getCsColLabel = (id: string): string => {
+    const def = csColumns.find((c) => 'id' in c && c.id === id)
+    if (def && typeof def.header === 'function') {
+      const result = (def.header as () => unknown)()
+      if (typeof result === 'string') return result
+    }
+    return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+  }
+
+  const csTable = useReactTable({
+    data: csFullPageItems,
+    columns: csColumns,
+    state: { columnVisibility: csColVisibility, columnSizing: csColSizing },
+    onColumnVisibilityChange: setCsColVisibility,
+    onColumnSizingChange: setCsColSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+    manualFiltering: true,
+    manualSorting: true,
+    pageCount: csFullTotalPages,
+  })
+
   const renderConceptSetsBrowse = () => (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Catalog dropdown */}
-      <div className="border-b px-3 py-2 space-y-2">
-        {catalogSources.length > 0 && (
-          <Select value={catalogFilter} onValueChange={setCatalogFilter}>
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">{t('concept_mapping.browse_all_catalogs')}</SelectItem>
-              {catalogSources.map((name) => (
-                <SelectItem key={name} value={name}>{name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      {/* Table */}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <TableHeader>
+            {/* Column titles */}
+            <TableRow>
+              {csTable.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => {
+                  const colId = header.column.id
+                  const isMetaCol = colId.startsWith('_')
+                  return (
+                    <TableHead
+                      key={header.id}
+                      className="relative select-none text-[10px]"
+                      style={{ width: header.getSize() }}
+                    >
+                      {isMetaCol ? null : (
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                          onClick={() => handleCsSort(colId)}
+                        >
+                          <span className="truncate">
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                          </span>
+                          {!csSorting || csSorting.columnId !== colId
+                            ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                            : csSorting.desc
+                              ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                              : <ArrowUp size={10} className="shrink-0 text-primary" />}
+                        </button>
+                      )}
+                      {/* Resize handle */}
+                      {header.column.getCanResize() && (
+                        <div
+                          onMouseDown={header.getResizeHandler()}
+                          onTouchStart={header.getResizeHandler()}
+                          onDoubleClick={() => header.column.resetSize()}
+                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                        >
+                          <div
+                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                            }`}
+                          />
+                        </div>
+                      )}
+                    </TableHead>
+                  )
+                })
+              )}
+            </TableRow>
+            {/* Inline filters */}
+            <TableRow className="hover:bg-transparent">
+              {csTable.getHeaderGroups().map((headerGroup) =>
+                headerGroup.headers.map((header) => (
+                  <TableHead
+                    key={`filter-${header.id}`}
+                    className="px-1 py-1"
+                    style={{ width: header.getSize() }}
+                  >
+                    {renderCsFilter(header.column.id)}
+                  </TableHead>
+                ))
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {csFullPageItems.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={csTable.getVisibleLeafColumns().length} className="h-32 text-center">
+                  <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
+                </TableCell>
+              </TableRow>
+            ) : (
+              csTable.getRowModel().rows.map((row) => (
+                <TableRow
+                  key={row.original.id}
+                  className="cursor-pointer"
+                  onClick={() => handleSelectCs(row.original.raw)}
+                >
+                  {row.getVisibleCells().map((cell) => {
+                    const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                    const raw = cell.getValue()
+                    const title = raw != null ? String(raw) : undefined
+                    return (
+                      <TableCell
+                        key={cell.id}
+                        className="overflow-hidden truncate text-xs"
+                        style={{ maxWidth: cell.column.getSize() }}
+                        title={title}
+                      >
+                        {rendered}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
       </div>
 
-      {/* Table header with column filters */}
-      <div className="grid grid-cols-[1fr_1fr_2fr] gap-0.5 border-b bg-muted/30 px-2 py-1">
-        <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
-            {t('concept_mapping.col_category')}
-          </p>
-          <Input
-            className="h-6 text-[10px] px-1.5"
-            value={csFilterCategory}
-            onChange={(e) => setCsFilterCategory(e.target.value)}
-            placeholder="..."
-          />
-        </div>
-        <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
-            {t('concept_mapping.col_subcategory')}
-          </p>
-          <Input
-            className="h-6 text-[10px] px-1.5"
-            value={csFilterSubcategory}
-            onChange={(e) => setCsFilterSubcategory(e.target.value)}
-            placeholder="..."
-          />
-        </div>
-        <div>
-          <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-0.5">
-            {t('concept_mapping.col_concept_set')}
-          </p>
-          <Input
-            className="h-6 text-[10px] px-1.5"
-            value={csFilterName}
-            onChange={(e) => setCsFilterName(e.target.value)}
-            placeholder="..."
-          />
-        </div>
-      </div>
-
-      {/* Table body */}
-      <div className="flex-1 overflow-auto">
-        {csPageItems.length === 0 ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
-          </div>
-        ) : (
-          csPageItems.map((cs) => {
-            const tr = getConceptSetI18n(cs, lang)
-            return (
-            <div
-              key={cs.id}
-              className="grid w-full grid-cols-[1fr_1fr_2fr_auto] gap-0.5 px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent/50 border-b border-border/40 cursor-pointer"
-              onClick={() => handleSelectCs(cs)}
-            >
-              <span className="truncate text-muted-foreground">{tr.category ?? ''}</span>
-              <span className="truncate text-muted-foreground">{tr.subcategory ?? ''}</span>
-              <span className="truncate">{tr.name}</span>
-              <button
-                type="button"
-                className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
-                title={t('concept_mapping.cs_detail_info')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedCs(cs)
-                  setDetailSheetOpen(true)
-                }}
-              >
-                <Info size={12} />
-              </button>
-            </div>
-            )
-          })
-        )}
-      </div>
-
-      {/* Pagination */}
+      {/* Pagination + column visibility */}
       <div className="flex items-center justify-between border-t px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">
-          {filteredCs.length} concept sets
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {csSortedRows.length} concept sets
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {csTable.getAllColumns()
+                .filter((col) => !col.id.startsWith('_'))
+                .map((col) => (
+                  <DropdownMenuCheckboxItem
+                    key={col.id}
+                    checked={col.getIsVisible()}
+                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-xs"
+                  >
+                    {getCsColLabel(col.id)}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={csPage === 0} onClick={() => setCsPage(csPage - 1)}>
             <ChevronLeft size={14} />
           </Button>
           <span className="text-[10px] text-muted-foreground">
-            {csPage + 1} / {csTotalPages}
+            {csPage + 1} / {csFullTotalPages}
           </span>
-          <Button variant="ghost" size="icon-sm" disabled={csPage >= csTotalPages - 1} onClick={() => setCsPage(csPage + 1)}>
+          <Button variant="ghost" size="icon-sm" disabled={csPage >= csFullTotalPages - 1} onClick={() => setCsPage(csPage + 1)}>
             <ChevronRight size={14} />
           </Button>
         </div>
@@ -576,7 +824,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             size="icon-sm"
             className="shrink-0"
             title={t('concept_mapping.cs_detail_info')}
-            onClick={() => setDetailSheetOpen(true)}
+            onClick={() => { setDetailSheetCs(selectedCs); setDetailSheetOpen(true) }}
           >
             <Info size={14} />
           </Button>
@@ -1300,7 +1548,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
       {/* Concept set detail sheet */}
       <ConceptSetDetailSheet
-        conceptSet={selectedCs}
+        conceptSet={detailSheetCs}
         open={detailSheetOpen}
         onOpenChange={setDetailSheetOpen}
       />

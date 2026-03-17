@@ -95,13 +95,13 @@ export function ExportTab({ project }: ExportTabProps) {
 
   const formats = [
     {
-      id: 'usagi',
-      icon: FileSpreadsheet,
-      name: t('concept_mapping.export_usagi'),
-      description: t('concept_mapping.export_usagi_desc'),
-      ext: 'csv',
-      mime: 'text/csv',
-      generate: () => exportToUsagiCsv(filteredMappings),
+      id: 'sssom',
+      icon: FileCode,
+      name: t('concept_mapping.export_sssom'),
+      description: t('concept_mapping.export_sssom_desc'),
+      ext: 'tsv',
+      mime: 'text/tab-separated-values',
+      generate: () => exportToSssomTsv(filteredMappings, project),
     },
     {
       id: 'source_to_concept_map',
@@ -113,13 +113,13 @@ export function ExportTab({ project }: ExportTabProps) {
       generate: () => exportToSourceToConceptMap(filteredMappings),
     },
     {
-      id: 'sssom',
-      icon: FileCode,
-      name: t('concept_mapping.export_sssom'),
-      description: t('concept_mapping.export_sssom_desc'),
-      ext: 'tsv',
-      mime: 'text/tab-separated-values',
-      generate: () => exportToSssomTsv(filteredMappings, project),
+      id: 'usagi',
+      icon: FileSpreadsheet,
+      name: t('concept_mapping.export_usagi'),
+      description: t('concept_mapping.export_usagi_desc'),
+      ext: 'csv',
+      mime: 'text/csv',
+      generate: () => exportToUsagiCsv(filteredMappings),
     },
     // Source concepts CSV — only for file-based projects
     ...(project.sourceType === 'file' && project.fileSourceData ? [{
