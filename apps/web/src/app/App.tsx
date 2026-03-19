@@ -13,6 +13,7 @@ import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
+import { AuthGate } from '@/app/AuthGate'
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
 import { HomePage } from '@/features/home/HomePage'
@@ -114,6 +115,7 @@ export function App() {
   }
 
   return (
+    <AuthGate>
     <SidebarProvider className="!min-h-0 h-screen">
       <VersionCheckDialog />
       <AppSidebar />
@@ -190,5 +192,6 @@ export function App() {
         <StatusBar />
       </SidebarInset>
     </SidebarProvider>
+    </AuthGate>
   )
 }

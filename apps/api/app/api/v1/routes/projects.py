@@ -3,13 +3,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.models.project import Project
+from app.models.user import User
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 @router.get("/")
-async def list_projects(db: AsyncSession = Depends(get_db)):
+async def list_projects(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(Project))
     projects = result.scalars().all()
     return [
@@ -29,6 +34,7 @@ async def list_projects(db: AsyncSession = Depends(get_db)):
 async def create_project(
     name: dict,
     description: dict | None = None,
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = Project(

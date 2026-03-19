@@ -1796,10 +1796,34 @@
   },
   "login": {
     "title": "Sign in to Linkr",
+    "subtitle": "Sign in to your account",
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
-    "error": "Invalid username or password"
+    "signing_in": "Signing in…",
+    "error": "Invalid username or password",
+    "setup_complete": "Account created successfully. Please sign in."
+  },
+  "setup": {
+    "title": "Welcome to Linkr",
+    "subtitle": "Let's set up your instance",
+    "next": "Next",
+    "back": "Back",
+    "db_title": "Configure Database",
+    "db_description": "Choose where Linkr stores its application data. You can change this later in Settings.",
+    "test_success": "Connection successful",
+    "test_error": "Connection failed",
+    "test_unreachable": "Server unreachable",
+    "admin_title": "Create Admin Account",
+    "admin_description": "This will be the first administrator account.",
+    "admin_username": "Username",
+    "admin_email": "Email (optional)",
+    "admin_password": "Password",
+    "admin_password_confirm": "Confirm password",
+    "admin_password_mismatch": "Passwords do not match",
+    "create_account": "Create Account",
+    "creating": "Creating account…",
+    "error_generic": "Setup failed. Please try again."
   },
   "reset": {
     "tooltip": "Reset local data",

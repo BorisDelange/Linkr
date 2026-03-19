@@ -1797,10 +1797,34 @@
   },
   "login": {
     "title": "Connexion à Linkr",
+    "subtitle": "Connectez-vous à votre compte",
     "username": "Nom d'utilisateur",
     "password": "Mot de passe",
     "submit": "Se connecter",
-    "error": "Nom d'utilisateur ou mot de passe incorrect"
+    "signing_in": "Connexion en cours…",
+    "error": "Nom d'utilisateur ou mot de passe incorrect",
+    "setup_complete": "Compte créé avec succès. Veuillez vous connecter."
+  },
+  "setup": {
+    "title": "Bienvenue sur Linkr",
+    "subtitle": "Configurons votre instance",
+    "next": "Suivant",
+    "back": "Retour",
+    "db_title": "Configurer la base de données",
+    "db_description": "Choisissez où Linkr stocke ses données applicatives. Vous pourrez modifier cela plus tard dans les Paramètres.",
+    "test_success": "Connexion réussie",
+    "test_error": "Échec de la connexion",
+    "test_unreachable": "Serveur inaccessible",
+    "admin_title": "Créer un compte administrateur",
+    "admin_description": "Ce sera le premier compte administrateur.",
+    "admin_username": "Nom d'utilisateur",
+    "admin_email": "Email (optionnel)",
+    "admin_password": "Mot de passe",
+    "admin_password_confirm": "Confirmer le mot de passe",
+    "admin_password_mismatch": "Les mots de passe ne correspondent pas",
+    "create_account": "Créer le compte",
+    "creating": "Création en cours…",
+    "error_generic": "La configuration a échoué. Veuillez réessayer."
   },
   "reset": {
     "tooltip": "Réinitialiser les données locales",
