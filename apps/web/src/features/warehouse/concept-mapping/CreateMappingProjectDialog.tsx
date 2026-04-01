@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Checkbox } from '@/components/ui/checkbox'
+// Note: Popover is still used for the extra-columns multi-select below
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -42,10 +43,9 @@ type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
 
 export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatus, { bg: string; text: string; dot: string }> = {
-  in_progress: { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
-  completed:   { bg: 'bg-blue-100 dark:bg-blue-950',     text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-500' },
+  in_progress: { bg: 'bg-blue-100 dark:bg-blue-950',     text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-500' },
   on_hold:     { bg: 'bg-amber-100 dark:bg-amber-950',   text: 'text-amber-700 dark:text-amber-300',   dot: 'bg-amber-500' },
-  draft:       { bg: 'bg-slate-100 dark:bg-slate-800',   text: 'text-slate-600 dark:text-slate-400',   dot: 'bg-slate-400' },
+  completed:   { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
 }
 
 /** Known concept field roles for column mapping, grouped for layout. */
@@ -715,7 +715,7 @@ export function CreateMappingProjectDialog({
             <div className="grid gap-2">
               <Label>{t('concept_mapping.project_status')}</Label>
               <div className="flex gap-2 flex-wrap">
-                {(['in_progress', 'completed', 'on_hold', 'draft'] as MappingProjectStatus[]).map((s) => (
+                {(['in_progress', 'on_hold', 'completed'] as MappingProjectStatus[]).map((s) => (
                   <button
                     key={s}
                     type="button"
@@ -756,64 +756,67 @@ export function CreateMappingProjectDialog({
                   ))}
                 </div>
               )}
-              <div className="flex gap-2 items-center">
-                <Popover>
-                  <PopoverTrigger asChild>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-1.5">
+                  {PRESET_COLORS.map((c) => (
                     <button
+                      key={c.value}
                       type="button"
-                      className="size-6 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/40 hover:border-muted-foreground/70 transition-colors"
-                      style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
-                    >
-                      {!isCustomColor(newBadgeColor) && (
-                        <span className={`block size-full rounded-full ${PRESET_COLORS.find((c) => c.value === newBadgeColor)?.swatch ?? ''}`} />
-                      )}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-48 p-2" align="start">
-                    <div className="flex flex-wrap gap-1.5 mb-2">
-                      {PRESET_COLORS.map((c) => (
-                        <button
-                          key={c.value}
-                          type="button"
-                          className={`size-5 rounded-full ${c.swatch} ring-offset-background transition-all ${newBadgeColor === c.value ? 'ring-2 ring-ring ring-offset-1' : ''}`}
-                          onClick={() => setNewBadgeColor(c.value)}
-                        />
-                      ))}
-                    </div>
+                      onClick={() => setNewBadgeColor(c.value)}
+                      className={`h-6 w-6 rounded-full ${c.swatch} ring-offset-background transition-all ${
+                        newBadgeColor === c.value
+                          ? 'ring-2 ring-ring ring-offset-2'
+                          : 'hover:ring-1 hover:ring-ring hover:ring-offset-1'
+                      }`}
+                    />
+                  ))}
+                  <div className="relative">
                     <input
                       type="color"
-                      className="h-7 w-full cursor-pointer rounded border px-1"
                       value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
                       onChange={(e) => setNewBadgeColor(e.target.value)}
+                      className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
                     />
-                  </PopoverContent>
-                </Popover>
-                <Input
-                  value={newBadgeLabel}
-                  onChange={(e) => setNewBadgeLabel(e.target.value)}
-                  placeholder={t('concept_mapping.badge_label_placeholder')}
-                  className="h-7 text-xs flex-1"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newBadgeLabel.trim()) {
-                      e.preventDefault()
+                    <div
+                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all ${
+                        isCustomColor(newBadgeColor)
+                          ? 'ring-2 ring-ring ring-offset-2'
+                          : 'hover:border-muted-foreground/60'
+                      }`}
+                      style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
+                    >
+                      {!isCustomColor(newBadgeColor) && <Plus size={10} />}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 items-center">
+                  <Input
+                    value={newBadgeLabel}
+                    onChange={(e) => setNewBadgeLabel(e.target.value)}
+                    placeholder={t('concept_mapping.badge_label_placeholder')}
+                    className="h-7 text-xs flex-1"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newBadgeLabel.trim()) {
+                        e.preventDefault()
+                        setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
+                        setNewBadgeLabel('')
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    disabled={!newBadgeLabel.trim()}
+                    onClick={() => {
                       setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
                       setNewBadgeLabel('')
-                    }
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 px-2"
-                  disabled={!newBadgeLabel.trim()}
-                  onClick={() => {
-                    setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
-                    setNewBadgeLabel('')
-                  }}
-                >
-                  <Plus size={12} />
-                </Button>
+                    }}
+                  >
+                    <Plus size={12} />
+                  </Button>
+                </div>
               </div>
             </div>
 

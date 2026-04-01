@@ -306,11 +306,11 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
           <DialogDescription>{t('concept_mapping.cs_import_description')}</DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="file">
+        <Tabs defaultValue="referenced">
           <TabsList className="w-fit">
-            <TabsTrigger value="file">{t('concept_mapping.cs_import_file')}</TabsTrigger>
-            <TabsTrigger value="url">{t('concept_mapping.cs_import_url')}</TabsTrigger>
             <TabsTrigger value="referenced">{t('concept_mapping.cs_import_referenced')}</TabsTrigger>
+            <TabsTrigger value="url">{t('concept_mapping.cs_import_url')}</TabsTrigger>
+            <TabsTrigger value="file">{t('concept_mapping.cs_import_file')}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="file" className="mt-4 space-y-3">

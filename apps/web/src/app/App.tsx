@@ -14,6 +14,7 @@ import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { StatusBar } from '@/components/layout/StatusBar'
 import { WorkspaceGuard } from '@/app/WorkspaceGuard'
+import { ProjectGuard } from '@/app/ProjectGuard'
 import { VersionCheckDialog } from '@/components/layout/VersionCheckDialog'
 import { HomePage } from '@/features/home/HomePage'
 import { ProjectsPage } from '@/features/projects/ProjectsPage'
@@ -153,27 +154,27 @@ export function App() {
             <Route path="/workspaces/:wsUid/settings" element={<WorkspaceGuard><WorkspaceSettingsPage /></WorkspaceGuard>} />
 
             {/* Project-level routes (nested under workspace) */}
-            <Route path="/workspaces/:wsUid/projects/:uid" element={<WorkspaceGuard><Navigate to="summary" replace /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/summary" element={<WorkspaceGuard><SummaryPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/pipeline" element={<WorkspaceGuard><PipelinePage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/ide" element={<WorkspaceGuard><IdePage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid" element={<WorkspaceGuard><ProjectGuard><Navigate to="summary" replace /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/summary" element={<WorkspaceGuard><ProjectGuard><SummaryPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/pipeline" element={<WorkspaceGuard><ProjectGuard><PipelinePage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/ide" element={<WorkspaceGuard><ProjectGuard><IdePage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Project warehouse routes */}
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases" element={<WorkspaceGuard><DatabasesPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ConceptsPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><CohortListPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts/:cohortId" element={<WorkspaceGuard><CohortBuilderPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><PatientDataPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/databases" element={<WorkspaceGuard><ProjectGuard><DatabasesPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/concepts" element={<WorkspaceGuard><ProjectGuard><ConceptsPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts" element={<WorkspaceGuard><ProjectGuard><CohortListPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/cohorts/:cohortId" element={<WorkspaceGuard><ProjectGuard><CohortBuilderPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/warehouse/patient-data" element={<WorkspaceGuard><ProjectGuard><PatientDataPage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Project lab routes */}
-            <Route path="/workspaces/:wsUid/projects/:uid/lab/datasets" element={<WorkspaceGuard><DatasetsPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards" element={<WorkspaceGuard><LabDashboardsPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards/:dashboardId" element={<WorkspaceGuard><DashboardPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/lab/reports" element={<WorkspaceGuard><ReportsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/datasets" element={<WorkspaceGuard><ProjectGuard><DatasetsPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards" element={<WorkspaceGuard><ProjectGuard><LabDashboardsPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/dashboards/:dashboardId" element={<WorkspaceGuard><ProjectGuard><DashboardPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/lab/reports" element={<WorkspaceGuard><ProjectGuard><ReportsPage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Project common routes */}
-            <Route path="/workspaces/:wsUid/projects/:uid/versioning" element={<WorkspaceGuard><VersioningPage /></WorkspaceGuard>} />
-            <Route path="/workspaces/:wsUid/projects/:uid/settings" element={<WorkspaceGuard><ProjectSettingsPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/versioning" element={<WorkspaceGuard><ProjectGuard><VersioningPage /></ProjectGuard></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/projects/:uid/settings" element={<WorkspaceGuard><ProjectGuard><ProjectSettingsPage /></ProjectGuard></WorkspaceGuard>} />
 
             {/* Legacy redirects */}
             <Route path="/projects" element={<Navigate to="/workspaces" replace />} />

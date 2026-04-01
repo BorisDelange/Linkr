@@ -16,7 +16,7 @@ export function WorkspaceGuard({ children }: { children: React.ReactNode }) {
   const { wsUid } = useParams()
   const { activeWorkspaceId, _workspacesRaw, workspacesLoaded, openWorkspace } = useWorkspaceStore()
   const language = useAppStore((s) => s.language)
-  const prevWsUid = useRef(wsUid)
+  const prevWsUid = useRef<string | null | undefined>(null)
 
   useEffect(() => {
     if (!wsUid || !workspacesLoaded) return

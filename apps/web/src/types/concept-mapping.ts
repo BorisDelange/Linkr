@@ -125,7 +125,7 @@ export interface FileSourceData {
   }
 }
 
-export type MappingProjectStatus = 'in_progress' | 'completed' | 'on_hold' | 'draft'
+export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 
 /** A workspace-level mapping project linked to a database or file. */
 export interface MappingProject {

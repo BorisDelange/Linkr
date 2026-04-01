@@ -2487,9 +2487,8 @@
     "import_settings_description": "Configure how the file is parsed and map columns to concept fields.",
     "project_status": "Status",
     "project_status_in_progress": "In progress",
-    "project_status_completed": "Completed",
     "project_status_on_hold": "On hold",
-    "project_status_draft": "Draft",
+    "project_status_completed": "Completed",
     "project_badges": "Badges",
     "badge_label_placeholder": "Badge label…"
   },

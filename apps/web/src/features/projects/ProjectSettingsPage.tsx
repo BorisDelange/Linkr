@@ -36,8 +36,8 @@ import {
 } from '@/components/ui/alert-dialog'
 
 export const PRESET_COLORS: { value: PresetBadgeColor; bg: string; text: string; swatch: string }[] = [
-  { value: 'red', bg: 'bg-red-100 dark:bg-red-950', text: 'text-red-700 dark:text-red-300', swatch: 'bg-red-400' },
   { value: 'blue', bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', swatch: 'bg-blue-400' },
+  { value: 'red', bg: 'bg-red-100 dark:bg-red-950', text: 'text-red-700 dark:text-red-300', swatch: 'bg-red-400' },
   { value: 'green', bg: 'bg-green-100 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', swatch: 'bg-green-400' },
   { value: 'violet', bg: 'bg-violet-100 dark:bg-violet-950', text: 'text-violet-700 dark:text-violet-300', swatch: 'bg-violet-400' },
   { value: 'amber', bg: 'bg-amber-100 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', swatch: 'bg-amber-400' },
