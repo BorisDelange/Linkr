@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -28,7 +28,8 @@ import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import type { MappingProject, MappingProjectSourceType, FileColumnMapping } from '@/types'
+import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
+import type { MappingProject, MappingProjectSourceType, FileColumnMapping, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 
 interface CreateMappingProjectDialogProps {
   open: boolean
@@ -39,6 +40,13 @@ interface CreateMappingProjectDialogProps {
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
+
+export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatus, { bg: string; text: string; dot: string }> = {
+  in_progress: { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
+  completed:   { bg: 'bg-blue-100 dark:bg-blue-950',     text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-500' },
+  on_hold:     { bg: 'bg-amber-100 dark:bg-amber-950',   text: 'text-amber-700 dark:text-amber-300',   dot: 'bg-amber-500' },
+  draft:       { bg: 'bg-slate-100 dark:bg-slate-800',   text: 'text-slate-600 dark:text-slate-400',   dot: 'bg-slate-400' },
+}
 
 /** Known concept field roles for column mapping, grouped for layout. */
 const COLUMN_ROLE_ROWS: (readonly (keyof FileColumnMapping)[])[] = [
@@ -63,6 +71,10 @@ export function CreateMappingProjectDialog({
   // --- Common fields ---
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [status, setStatus] = useState<MappingProjectStatus>('in_progress')
+  const [badges, setBadges] = useState<ProjectBadge[]>([])
+  const [newBadgeLabel, setNewBadgeLabel] = useState('')
+  const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
   const [sourceType, setSourceType] = useState<MappingProjectSourceType>('database')
 
   // --- Database source ---
@@ -99,6 +111,8 @@ export function CreateMappingProjectDialog({
     if (editingProject) {
       setName(editingProject.name)
       setDescription(editingProject.description)
+      setStatus(editingProject.status ?? 'in_progress')
+      setBadges(editingProject.badges ?? [])
       setSourceType(editingProject.sourceType ?? 'database')
       setDataSourceId(editingProject.dataSourceId ?? '')
       if (editingProject.fileSourceData?.columnMapping) {
@@ -107,6 +121,10 @@ export function CreateMappingProjectDialog({
     } else if (open) {
       setName('')
       setDescription('')
+      setStatus('in_progress')
+      setBadges([])
+      setNewBadgeLabel('')
+      setNewBadgeColor('blue')
       setSourceType('database')
       setDataSourceId('')
       setFile(null)
@@ -332,6 +350,8 @@ export function CreateMappingProjectDialog({
       const changes: Partial<MappingProject> = {
         name: name.trim(),
         description: description.trim(),
+        status,
+        badges,
         sourceType,
       }
       if (sourceType === 'database') {
@@ -357,6 +377,8 @@ export function CreateMappingProjectDialog({
         workspaceId: activeWorkspaceId,
         name: name.trim(),
         description: description.trim(),
+        status,
+        badges,
         sourceType,
         dataSourceId: sourceType === 'database' ? dataSourceId : '',
         conceptSetIds: [],
@@ -396,7 +418,7 @@ export function CreateMappingProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={isImportSettingsPage ? 'sm:max-w-4xl max-h-[85vh] flex flex-col' : 'sm:max-w-md'}>
+      <DialogContent className={isImportSettingsPage ? 'sm:max-w-4xl max-h-[85vh] flex flex-col' : 'sm:max-w-lg'}>
         <DialogHeader>
           <DialogTitle>
             {isImportSettingsPage
@@ -686,6 +708,112 @@ export function CreateMappingProjectDialog({
                   placeholder={t('concept_mapping.project_desc_placeholder')}
                   rows={2}
                 />
+              </div>
+            </div>
+
+            {/* Status */}
+            <div className="grid gap-2">
+              <Label>{t('concept_mapping.project_status')}</Label>
+              <div className="flex gap-2 flex-wrap">
+                {(['in_progress', 'completed', 'on_hold', 'draft'] as MappingProjectStatus[]).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatus(s)}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all border ${
+                      status === s
+                        ? 'border-transparent ' + MAPPING_STATUS_COLORS[s].bg + ' ' + MAPPING_STATUS_COLORS[s].text
+                        : 'border-border bg-background text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    <span className={`size-1.5 rounded-full ${status === s ? MAPPING_STATUS_COLORS[s].dot : 'bg-muted-foreground'}`} />
+                    {t(`concept_mapping.project_status_${s}`)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Badges */}
+            <div className="grid gap-2">
+              <Label>{t('concept_mapping.project_badges')}</Label>
+              {badges.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-1">
+                  {badges.map((badge) => (
+                    <span
+                      key={badge.id}
+                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ${getBadgeClasses(badge.color)}`}
+                      style={getBadgeStyle(badge.color)}
+                    >
+                      {badge.label}
+                      <button
+                        type="button"
+                        className="ml-0.5 opacity-60 hover:opacity-100"
+                        onClick={() => setBadges(badges.filter((b) => b.id !== badge.id))}
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 items-center">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="size-6 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/40 hover:border-muted-foreground/70 transition-colors"
+                      style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
+                    >
+                      {!isCustomColor(newBadgeColor) && (
+                        <span className={`block size-full rounded-full ${PRESET_COLORS.find((c) => c.value === newBadgeColor)?.swatch ?? ''}`} />
+                      )}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48 p-2" align="start">
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {PRESET_COLORS.map((c) => (
+                        <button
+                          key={c.value}
+                          type="button"
+                          className={`size-5 rounded-full ${c.swatch} ring-offset-background transition-all ${newBadgeColor === c.value ? 'ring-2 ring-ring ring-offset-1' : ''}`}
+                          onClick={() => setNewBadgeColor(c.value)}
+                        />
+                      ))}
+                    </div>
+                    <input
+                      type="color"
+                      className="h-7 w-full cursor-pointer rounded border px-1"
+                      value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
+                      onChange={(e) => setNewBadgeColor(e.target.value)}
+                    />
+                  </PopoverContent>
+                </Popover>
+                <Input
+                  value={newBadgeLabel}
+                  onChange={(e) => setNewBadgeLabel(e.target.value)}
+                  placeholder={t('concept_mapping.badge_label_placeholder')}
+                  className="h-7 text-xs flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newBadgeLabel.trim()) {
+                      e.preventDefault()
+                      setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
+                      setNewBadgeLabel('')
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={!newBadgeLabel.trim()}
+                  onClick={() => {
+                    setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
+                    setNewBadgeLabel('')
+                  }}
+                >
+                  <Plus size={12} />
+                </Button>
               </div>
             </div>
 

@@ -9,6 +9,8 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import type { MappingProject } from '@/types'
@@ -154,14 +156,33 @@ export function MappingProjectListPage() {
               <ArrowRightLeft size={20} className="text-violet-500" />
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="truncate text-sm font-medium">{project.name}</span>
+                {project.status && (
+                  <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
+                    <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />
+                    {t(`concept_mapping.project_status_${project.status}`)}
+                  </span>
+                )}
                 {project.stats && (
                   <Badge variant="secondary" className="text-[10px]">
                     {project.stats.approvedCount}/{project.stats.totalSourceConcepts}
                   </Badge>
                 )}
               </div>
+              {project.badges && project.badges.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  {project.badges.map((badge) => (
+                    <span
+                      key={badge.id}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
+                      style={getBadgeStyle(badge.color)}
+                    >
+                      {badge.label}
+                    </span>
+                  ))}
+                </div>
+              )}
               <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                 {project.sourceType === 'file' ? (
                   <>

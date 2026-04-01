@@ -125,12 +125,18 @@ export interface FileSourceData {
   }
 }
 
+export type MappingProjectStatus = 'in_progress' | 'completed' | 'on_hold' | 'draft'
+
 /** A workspace-level mapping project linked to a database or file. */
 export interface MappingProject {
   id: string
   workspaceId: string
   name: string
   description: string
+  /** Project status: tracks whether the mapping work is ongoing or done. */
+  status?: MappingProjectStatus
+  /** Badges for grouping/tagging (e.g. hospital center name). */
+  badges?: import('./index').ProjectBadge[]
   /** Source type: database or imported file. */
   sourceType: MappingProjectSourceType
   /** Database to map source concepts from (clinical data). Only used when sourceType = 'database'. */

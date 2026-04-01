@@ -131,7 +131,7 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }
               <DropdownMenuItem disabled>
                 <History size={14} />
                 {t('common.history')}
-                <span className="ml-auto text-[10px] text-muted-foreground">{t('common.server_only')}</span>
+                <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

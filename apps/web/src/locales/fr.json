@@ -2485,7 +2485,14 @@
     "detail_no_info": "Aucune information supplémentaire disponible pour ce concept.",
     "detail_raw_json": "JSON source",
     "import_settings_title": "Paramètres d'import",
-    "import_settings_description": "Configurez le parsing du fichier et associez les colonnes aux champs de concepts."
+    "import_settings_description": "Configurez le parsing du fichier et associez les colonnes aux champs de concepts.",
+    "project_status": "Statut",
+    "project_status_in_progress": "En cours",
+    "project_status_completed": "Terminé",
+    "project_status_on_hold": "En pause",
+    "project_status_draft": "Brouillon",
+    "project_badges": "Badges",
+    "badge_label_placeholder": "Libellé du badge…"
   },
   "data_catalog": {
     "title": "Catalogue de données",
