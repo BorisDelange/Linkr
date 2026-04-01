@@ -128,7 +128,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           <MappingsTab project={project} />
         </TabsContent>
         <TabsContent value="export" className="flex-1 overflow-hidden">
-          <ExportTab project={project} />
+          <ExportTab project={project} dataSource={dataSource} />
         </TabsContent>
       </Tabs>
     </div>

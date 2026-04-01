@@ -50,9 +50,9 @@ export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatu
 
 /** Known concept field roles for column mapping, grouped for layout. */
 const COLUMN_ROLE_ROWS: (readonly (keyof FileColumnMapping)[])[] = [
-  ['terminologyColumn'],
-  ['conceptNameColumn'],
+  ['terminologyColumn', 'categoryColumn'],
   ['conceptCodeColumn', 'conceptIdColumn'],
+  ['conceptNameColumn'],
   ['recordCountColumn', 'patientCountColumn'],
   ['infoJsonColumn'],
 ] as const
@@ -188,6 +188,10 @@ export function CreateMappingProjectDialog({
         mapping.recordCountColumn = header
       else if (!mapping.patientCountColumn && (lh.includes('patientcount') || lh.includes('patients')))
         mapping.patientCountColumn = header
+      else if (!mapping.categoryColumn && lh.includes('category'))
+        mapping.categoryColumn = header
+      else if (!mapping.infoJsonColumn && lh.includes('json'))
+        mapping.infoJsonColumn = header
     })
     setColumnMapping(mapping)
   }, [])

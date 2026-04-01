@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, ChevronDown, ChevronRight, Code2 } from 'lucide-react'
+import { ArrowLeft, Code2, Maximize2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
 interface ConceptDetailViewProps {
@@ -29,9 +30,9 @@ const TOOLTIP_STYLE = {
 export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
   const { t } = useTranslation()
   const info = concept.info_json
-  const [showJson, setShowJson] = useState(false)
+  const [jsonModalOpen, setJsonModalOpen] = useState(false)
 
-  const sections = info ? extractSections(info) : []
+  const sections = info ? extractSections(info, t) : []
   const textFields = info ? extractTextFields(info) : []
 
   return (
@@ -89,27 +90,41 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
             </Card>
           )}
 
-          {/* Raw JSON — always available as collapsible */}
+          {/* Raw JSON — button opens modal */}
           {info && (
-            <div className="rounded border">
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted/50"
-                onClick={() => setShowJson(!showJson)}
-              >
-                <Code2 size={12} />
-                {t('concept_mapping.detail_raw_json')}
-                {showJson ? <ChevronDown size={12} className="ml-auto" /> : <ChevronRight size={12} className="ml-auto" />}
-              </button>
-              {showJson && (
-                <pre className="max-h-[300px] overflow-auto border-t bg-muted/30 p-3 text-[10px] leading-relaxed">
-                  {JSON.stringify(info, null, 2)}
-                </pre>
-              )}
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs text-muted-foreground"
+              onClick={() => setJsonModalOpen(true)}
+            >
+              <Code2 size={12} />
+              {t('concept_mapping.detail_raw_json')}
+              <Maximize2 size={11} className="ml-0.5" />
+            </Button>
           )}
         </div>
       </div>
+
+      {/* JSON modal */}
+      <Dialog open={jsonModalOpen} onOpenChange={setJsonModalOpen}>
+        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Code2 size={14} />
+              {t('concept_mapping.detail_raw_json')}
+              {concept.concept_name && (
+                <span className="truncate text-xs font-normal text-muted-foreground">— {concept.concept_name}</span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto">
+            <pre className="rounded-md bg-muted/50 p-4 text-[11px] leading-relaxed">
+              {JSON.stringify(info, null, 2)}
+            </pre>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -120,12 +135,14 @@ interface StatsSection {
   type: 'stats'
   title?: string
   items: { label: string; value: string; highlight?: boolean }[]
+  boxplot?: { min: number; p25: number; median: number; p75: number; max: number; mean?: number }
 }
 
 interface BarChartSection {
   type: 'bar'
   title: string
   data: { label: string; value: number }[]
+  longLabels?: boolean
 }
 
 interface PieChartSection {
@@ -148,6 +165,43 @@ interface TableSection {
 
 type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection
 
+// Custom boxplot shape
+function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: {
+  min: number; p25: number; median: number; p75: number; max: number; mean?: number; height?: number
+}) {
+  const range = max - min || 1
+  const pct = (v: number) => `${((v - min) / range) * 100}%`
+  const cy = height / 2
+
+  return (
+    <svg width="100%" height={height} className="overflow-visible">
+      {/* Whisker lines */}
+      <line x1={pct(min)} y1={cy} x2={pct(p25)} y2={cy} stroke="currentColor" strokeWidth={1.5} className="text-muted-foreground" />
+      <line x1={pct(p75)} y1={cy} x2={pct(max)} y2={cy} stroke="currentColor" strokeWidth={1.5} className="text-muted-foreground" />
+      {/* Whisker end caps */}
+      <line x1={pct(min)} y1={cy - 6} x2={pct(min)} y2={cy + 6} stroke="currentColor" strokeWidth={1.5} className="text-muted-foreground" />
+      <line x1={pct(max)} y1={cy - 6} x2={pct(max)} y2={cy + 6} stroke="currentColor" strokeWidth={1.5} className="text-muted-foreground" />
+      {/* IQR box */}
+      <rect
+        x={pct(p25)} y={cy - 10} width={`${((p75 - p25) / range) * 100}%`} height={20}
+        fill="var(--color-primary)" fillOpacity={0.15} stroke="var(--color-primary)" strokeWidth={1.5} rx={2}
+      />
+      {/* Median line */}
+      <line x1={pct(median)} y1={cy - 10} x2={pct(median)} y2={cy + 10} stroke="var(--color-primary)" strokeWidth={2} />
+      {/* Mean dot */}
+      {mean !== undefined && (
+        <circle cx={pct(mean)} cy={cy} r={3} fill="#fb923c" />
+      )}
+      {/* Axis labels */}
+      <text x={pct(min)} y={height} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(min)}</text>
+      <text x={pct(p25)} y={height} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p25)}</text>
+      <text x={pct(median)} y={height} textAnchor="middle" fontSize={9} fill="var(--color-primary)">{fmtNum(median)}</text>
+      <text x={pct(p75)} y={height} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(p75)}</text>
+      <text x={pct(max)} y={height} textAnchor="middle" fontSize={9} fill="currentColor" className="text-muted-foreground">{fmtNum(max)}</text>
+    </svg>
+  )
+}
+
 function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'stats') {
     return (
@@ -161,23 +215,32 @@ function SectionRenderer({ section }: { section: Section }) {
             </div>
           ))}
         </div>
+        {section.boxplot && (
+          <div className="mt-3">
+            <BoxPlot {...section.boxplot} height={44} />
+          </div>
+        )}
       </Card>
     )
   }
 
   if (section.type === 'bar' && section.data.length > 0) {
+    const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
+    const bottomMargin = longLabels ? 70 : 25
     return (
       <Card className="p-3">
         <p className="mb-2 text-xs font-medium">{section.title}</p>
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={section.data} margin={{ left: 5, right: 5, bottom: 5 }}>
+          <BarChart data={section.data} margin={{ left: 5, right: 5, bottom: bottomMargin }}>
             <XAxis
               dataKey="label"
-              tick={{ fontSize: 10 }}
+              tick={longLabels
+                ? <TruncatedTick maxLength={12} />
+                : { fontSize: 10 }}
               interval={section.data.length > 20 ? 'preserveStartEnd' : 0}
-              angle={section.data.length > 8 ? -45 : 0}
-              textAnchor={section.data.length > 8 ? 'end' : 'middle'}
-              height={section.data.length > 8 ? 60 : 25}
+              angle={longLabels ? -40 : 0}
+              textAnchor={longLabels ? 'end' : 'middle'}
+              height={bottomMargin}
             />
             <YAxis tick={{ fontSize: 10 }} width={45} />
             <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} />
@@ -255,6 +318,30 @@ function SectionRenderer({ section }: { section: Section }) {
   return null
 }
 
+// Custom XAxis tick that truncates long labels and shows full value on title
+function TruncatedTick({ x, y, payload, maxLength = 12 }: {
+  x?: number; y?: number; payload?: { value: string }; maxLength?: number
+}) {
+  if (!payload) return null
+  const full = String(payload.value)
+  const truncated = full.length > maxLength ? full.slice(0, maxLength) + '…' : full
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{full}</title>
+      <text
+        x={0} y={0} dy={4}
+        textAnchor="end"
+        transform="rotate(-40)"
+        fontSize={9}
+        fill="currentColor"
+        className="text-muted-foreground"
+      >
+        {truncated}
+      </text>
+    </g>
+  )
+}
+
 // --- Extraction helpers ---
 
 /** Keys rendered as sections — excluded from text fields. */
@@ -317,18 +404,35 @@ function extractTextFields(info: Record<string, unknown>): { label: string; valu
   return items
 }
 
+type TFunction = (key: string) => string
+
+/** Build a boxplot data object from a numeric_data or statistics object if enough fields are present. */
+function tryBuildBoxplot(nd: Record<string, unknown>): StatsSection['boxplot'] | undefined {
+  const get = (keys: string[]) => {
+    for (const k of keys) if (nd[k] != null && typeof nd[k] === 'number') return nd[k] as number
+    return undefined
+  }
+  const min = get(['min'])
+  const p25 = get(['p25', 'q1'])
+  const median = get(['median', 'p50'])
+  const p75 = get(['p75', 'q3'])
+  const max = get(['max'])
+  const mean = get(['mean'])
+  if (min == null || p25 == null || median == null || p75 == null || max == null) return undefined
+  return { min, p25, median, p75, max, mean }
+}
+
 /** Extract all visualizable sections from the JSON. */
-function extractSections(info: Record<string, unknown>): Section[] {
+function extractSections(info: Record<string, unknown>, t: TFunction): Section[] {
   // Use normalized parser if detected
-  if (isNormalizedFormat(info)) return extractNormalizedSections(info)
+  if (isNormalizedFormat(info)) return extractNormalizedSections(info, t)
 
   const sections: Section[] = []
 
-  // 1. numeric_data object → compact stats row
+  // 1. numeric_data object → compact stats row + boxplot
   if (info.numeric_data && typeof info.numeric_data === 'object' && !Array.isArray(info.numeric_data)) {
     const nd = info.numeric_data as Record<string, unknown>
     const items: StatsSection['items'] = []
-    // Define display order and grouping
     const statOrder = [
       { key: 'min', label: 'Min' },
       { key: 'p5', label: 'P5' },
@@ -350,7 +454,6 @@ function extractSections(info: Record<string, unknown>): Section[] {
         highlight: def.highlight,
       })
     }
-    // Also pick up any remaining keys not in statOrder
     const covered = new Set(statOrder.map((s) => s.key))
     for (const [key, val] of Object.entries(nd)) {
       if (covered.has(key) || val == null) continue
@@ -360,7 +463,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
       })
     }
     if (items.length > 0) {
-      sections.push({ type: 'stats', title: 'Descriptive statistics', items })
+      sections.push({ type: 'stats', title: t('concept_mapping.detail_descriptive_stats'), items, boxplot: tryBuildBoxplot(nd) })
     }
   }
 
@@ -374,7 +477,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
   if (Array.isArray(info.histogram)) {
     sections.push({
       type: 'bar',
-      title: 'Histogram',
+      title: t('concept_mapping.detail_histogram'),
       data: info.histogram.map((item: Record<string, unknown>) => ({
         label: String(item.x ?? item.bucket ?? item.label ?? item.bin ?? ''),
         value: Number(item.count ?? item.value ?? item.n ?? 0),
@@ -386,7 +489,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
   if (Array.isArray(info.distribution)) {
     sections.push({
       type: 'bar',
-      title: typeof info.distributionTitle === 'string' ? info.distributionTitle : 'Distribution',
+      title: typeof info.distributionTitle === 'string' ? info.distributionTitle : t('concept_mapping.detail_distribution'),
       data: info.distribution.map((item: Record<string, unknown>) => ({
         label: String(item.label ?? item.name ?? item.bucket ?? item.key ?? ''),
         value: Number(item.value ?? item.count ?? item.n ?? 0),
@@ -400,7 +503,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
     if (entries.length > 0) {
       sections.push({
         type: entries.length <= 8 ? 'pie' : 'bar',
-        title: 'Categories',
+        title: t('concept_mapping.detail_categories'),
         data: entries.map(([label, value]) => ({ label, value: Number(value ?? 0) })),
       })
     }
@@ -410,7 +513,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
   if (Array.isArray(info.values) && !info.histogram && !info.distribution) {
     sections.push({
       type: 'bar',
-      title: 'Values',
+      title: t('concept_mapping.detail_values'),
       data: info.values.map((item: Record<string, unknown>) => ({
         label: String(item.label ?? item.name ?? item.key ?? ''),
         value: Number(item.value ?? item.count ?? 0),
@@ -424,7 +527,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
     if (Array.isArray(td.by_year)) {
       sections.push({
         type: 'line',
-        title: `Temporal distribution${td.start_date || td.end_date ? ` (${td.start_date ?? '?'} → ${td.end_date ?? '?'})` : ''}`,
+        title: `${t('concept_mapping.detail_temporal')}${td.start_date || td.end_date ? ` (${td.start_date ?? '?'} → ${td.end_date ?? '?'})` : ''}`,
         data: td.by_year.map((item: Record<string, unknown>) => ({
           label: String(item.year ?? ''),
           value: Number(item.percentage ?? item.count ?? item.value ?? 0),
@@ -433,13 +536,13 @@ function extractSections(info: Record<string, unknown>): Section[] {
     }
   }
 
-  // 7. hospital_units → pie (≤8) or table
+  // 7. hospital_units → pie (≤8) or bar with long labels
   if (Array.isArray(info.hospital_units) && info.hospital_units.length > 0) {
     const units = info.hospital_units as Record<string, unknown>[]
     if (units.length <= 8) {
       sections.push({
         type: 'pie',
-        title: 'Hospital units',
+        title: t('concept_mapping.detail_hospital_units'),
         data: units.map((item) => ({
           label: String(item.unit ?? item.name ?? item.label ?? ''),
           value: Number(item.percentage ?? item.count ?? item.value ?? 0),
@@ -447,11 +550,12 @@ function extractSections(info: Record<string, unknown>): Section[] {
       })
     } else {
       sections.push({
-        type: 'table',
-        title: 'Hospital units',
-        rows: units.map((item) => ({
+        type: 'bar',
+        title: t('concept_mapping.detail_hospital_units'),
+        longLabels: true,
+        data: units.map((item) => ({
           label: String(item.unit ?? item.name ?? item.label ?? ''),
-          value: item.percentage != null ? `${item.percentage}%` : String(item.count ?? item.value ?? ''),
+          value: Number(item.percentage ?? item.count ?? item.value ?? 0),
         })),
       })
     }
@@ -465,7 +569,7 @@ function extractSections(info: Record<string, unknown>): Section[] {
       if (val != null) rows.push({ label: formatLabel(key), value: String(val) })
     }
     if (rows.length > 0) {
-      sections.push({ type: 'table', title: 'Measurement frequency', rows })
+      sections.push({ type: 'table', title: t('concept_mapping.detail_measurement_frequency'), rows })
     }
   }
 
@@ -539,10 +643,10 @@ function fmtNum(n: number): string {
 }
 
 /** Extract sections from normalized format (metadata/statistics/distributions/properties). */
-function extractNormalizedSections(info: Record<string, unknown>): Section[] {
+function extractNormalizedSections(info: Record<string, unknown>, t: TFunction): Section[] {
   const sections: Section[] = []
 
-  // statistics → compact stats row
+  // statistics → compact stats row + boxplot
   if (info.statistics && typeof info.statistics === 'object' && !Array.isArray(info.statistics)) {
     const stats = info.statistics as Record<string, unknown>
     const items: StatsSection['items'] = []
@@ -578,7 +682,7 @@ function extractNormalizedSections(info: Record<string, unknown>): Section[] {
       })
     }
     if (items.length > 0) {
-      sections.push({ type: 'stats', title: 'Statistics', items })
+      sections.push({ type: 'stats', title: t('concept_mapping.detail_statistics'), items, boxplot: tryBuildBoxplot(stats) })
     }
   }
 
@@ -586,7 +690,7 @@ function extractNormalizedSections(info: Record<string, unknown>): Section[] {
   if (Array.isArray(info.distributions)) {
     for (const dist of info.distributions as Record<string, unknown>[]) {
       if (!dist || typeof dist !== 'object') continue
-      const name = String(dist.name ?? 'Distribution')
+      const name = String(dist.name ?? t('concept_mapping.detail_distribution'))
       const chartType = String(dist.type ?? 'bar') as 'bar' | 'pie' | 'line'
       const data = Array.isArray(dist.data)
         ? (dist.data as Record<string, unknown>[]).map((item) => ({
@@ -611,7 +715,7 @@ function extractNormalizedSections(info: Record<string, unknown>): Section[] {
       label: String(item.label ?? item.name ?? ''),
       value: String(item.value ?? ''),
     }))
-    sections.push({ type: 'table', title: 'Properties', rows })
+    sections.push({ type: 'table', title: t('concept_mapping.detail_properties'), rows })
   }
 
   return sections

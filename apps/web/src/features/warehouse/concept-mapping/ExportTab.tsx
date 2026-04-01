@@ -1,31 +1,38 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileCode, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { queryDataSource } from '@/lib/duckdb/engine'
 import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
   exportSourceConceptsCsv,
+  buildSourceConceptsCsvFromRows,
   downloadFile,
 } from '@/lib/concept-mapping/export'
+import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { Table2 } from 'lucide-react'
-import type { MappingProject, MappingStatus } from '@/types'
+import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
 interface ExportTabProps {
   project: MappingProject
+  dataSource?: DataSource
 }
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
 const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
-export function ExportTab({ project }: ExportTabProps) {
+export function ExportTab({ project, dataSource }: ExportTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const [sourceExporting, setSourceExporting] = useState(false)
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(
@@ -127,7 +134,7 @@ export function ExportTab({ project }: ExportTabProps) {
       bg: 'bg-emerald-50 dark:bg-emerald-950/30',
       generate: () => exportToUsagiCsv(filteredMappings),
     },
-    // Source concepts CSV — only for file-based projects
+    // Source concepts CSV — file-based projects
     ...(project.sourceType === 'file' && project.fileSourceData ? [{
       id: 'source-concepts',
       icon: Table2,
@@ -150,6 +157,21 @@ export function ExportTab({ project }: ExportTabProps) {
     const content = format.generate()
     const filename = `${slug}-${format.id}.${format.ext}`
     downloadFile(content, filename, format.mime)
+  }
+
+  const handleExportSourceDb = async () => {
+    if (!dataSource?.id || !dataSource.schemaMapping) return
+    setSourceExporting(true)
+    try {
+      await ensureMounted(dataSource.id)
+      const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
+      if (!sql) return
+      const rows = await queryDataSource(dataSource.id, sql)
+      if (rows.length === 0) return
+      downloadFile(buildSourceConceptsCsvFromRows(rows), `${slug}-source-concepts.csv`, 'text/csv')
+    } finally {
+      setSourceExporting(false)
+    }
   }
 
   const totalExportCount = filteredMappings.length
@@ -237,6 +259,32 @@ export function ExportTab({ project }: ExportTabProps) {
               </div>
             </Card>
           ))}
+
+          {/* Source concepts CSV — database projects */}
+          {project.sourceType !== 'file' && dataSource?.schemaMapping && (
+            <Card className="flex flex-col justify-between overflow-hidden p-0">
+              <div className="flex items-center gap-2.5 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+                <Table2 size={16} className="shrink-0 text-amber-500" />
+                <span className="text-sm font-medium">{t('concept_mapping.export_source_csv')}</span>
+                <Badge variant="outline" className="ml-auto text-[10px]">.csv</Badge>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">{t('concept_mapping.export_source_csv_db_desc')}</p>
+              </div>
+              <div className="px-4 pb-4">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportSourceDb}
+                  disabled={sourceExporting}
+                >
+                  {sourceExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  {t('concept_mapping.export_download')}
+                </Button>
+              </div>
+            </Card>
+          )}
         </div>
 
         {/* Empty state */}

@@ -15,7 +15,10 @@ import {
   exportToSourceToConceptMap,
   exportToSssomTsv,
   exportSourceConceptsCsv,
+  buildSourceConceptsCsvFromRows,
 } from '@/lib/concept-mapping/export'
+import { queryDataSource } from '@/lib/duckdb/engine'
+import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
@@ -39,6 +42,7 @@ export function MappingProjectListPage({ onShowGlobal }: MappingProjectListPageP
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
   const loadConceptSets = useConceptMappingStore((s) => s.loadConceptSets)
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -77,11 +81,27 @@ export function MappingProjectListPage({ onShowGlobal }: MappingProjectListPageP
           project.fileSourceData.columnMapping,
         ),
       )
+    } else if (project.sourceType !== 'file' && project.dataSourceId) {
+      const dataSource = dataSources.find((ds) => ds.id === project.dataSourceId)
+      if (dataSource?.schemaMapping) {
+        try {
+          await ensureMounted(dataSource.id)
+          const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
+          if (sql) {
+            const rows = await queryDataSource(dataSource.id, sql)
+            if (rows.length > 0) {
+              zip.file(`${slugify(project.name)}-source-concepts.csv`, buildSourceConceptsCsvFromRows(rows))
+            }
+          }
+        } catch {
+          // Source concepts export failed — continue without it
+        }
+      }
     }
 
     const blob = await zip.generateAsync({ type: 'blob' })
     downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
-  }, [])
+  }, [dataSources, ensureMounted])
 
   const handleImport = useCallback(async (file: File) => {
     const parsed = await parseImportZip(file)

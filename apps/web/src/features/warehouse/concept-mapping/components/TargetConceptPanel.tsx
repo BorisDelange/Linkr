@@ -169,6 +169,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [resolvedError, setResolvedError] = useState<string | null>(null)
   const [resolvedSearch, setResolvedSearch] = useState('')
   const [resolvedPage, setResolvedPage] = useState(0)
+  const [resolvedColVisibility, setResolvedColVisibility] = useState({ domain: true, class: false, std: false, code: false })
 
   // Browse mode toggle
   const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search'>('concept_sets')
@@ -861,66 +862,103 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       </div>
 
       {/* Table header */}
-      <div className="grid grid-cols-[1fr_60px_70px_70px_20px] items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-        <span>{t('concept_mapping.col_name')}</span>
-        <span>ID</span>
-        <span>{t('concept_mapping.col_vocab')}</span>
-        <span>{t('concept_mapping.col_domain')}</span>
-        <span />
-      </div>
+      {(() => {
+        const cols = resolvedColVisibility
+        const gridCols = `grid-cols-[1fr_60px_70px${cols.domain ? '_70px' : ''}${cols.class ? '_70px' : ''}${cols.code ? '_60px' : ''}${cols.std ? '_24px' : ''}_20px]`
+        return (
+          <>
+            <div className={`grid ${gridCols} items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider`}>
+              <span>{t('concept_mapping.col_name')}</span>
+              <span>ID</span>
+              <span>{t('concept_mapping.col_vocab')}</span>
+              {cols.domain && <span>{t('concept_mapping.col_domain')}</span>}
+              {cols.class && <span>{t('concept_mapping.col_class')}</span>}
+              {cols.code && <span>{t('concept_mapping.col_code')}</span>}
+              {cols.std && <span title={t('concept_mapping.col_std')}>Std</span>}
+              <span className="flex justify-end">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="rounded p-0.5 hover:bg-muted" title={t('concept_mapping.col_visibility')}>
+                      <Settings2 size={11} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="text-xs">
+                    <DropdownMenuLabel className="text-[10px]">{t('concept_mapping.col_visibility')}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {(['domain', 'class', 'code', 'std'] as const).map((col) => (
+                      <DropdownMenuCheckboxItem
+                        key={col}
+                        checked={resolvedColVisibility[col]}
+                        onCheckedChange={(v) => setResolvedColVisibility((prev) => ({ ...prev, [col]: v }))}
+                        className="text-xs"
+                      >
+                        {col === 'domain' ? t('concept_mapping.col_domain')
+                          : col === 'class' ? t('concept_mapping.col_class')
+                          : col === 'code' ? t('concept_mapping.col_code')
+                          : t('concept_mapping.col_std')}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </span>
+            </div>
 
-      {/* Table body */}
-      <div className="flex-1 overflow-auto">
-        {resolvedLoading ? (
-          <div className="flex h-32 items-center justify-center">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
-          </div>
-        ) : resolvedError ? (
-          <div className="flex h-32 items-center justify-center px-4">
-            <p className="text-xs text-destructive">{resolvedError}</p>
-          </div>
-        ) : resolvedPageItems.length === 0 ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
-          </div>
-        ) : (
-          resolvedPageItems.map((rc) => {
-            const alreadyMapped = sourceConcept
-              ? existingMappings.some((m) => m.targetConceptId === rc.conceptId)
-              : false
-            const isSelected = selectedTarget?.conceptId === rc.conceptId
-            return (
-              <button
-                key={rc.conceptId}
-                className={`grid w-full grid-cols-[1fr_60px_70px_70px_20px] items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
-                  isSelected ? 'bg-accent' : 'hover:bg-accent/50'
-                } ${alreadyMapped ? 'opacity-50' : ''}`}
-                onClick={() => {
-                  if (!alreadyMapped && sourceConcept) {
-                    setSelectedTarget(isSelected ? null : {
-                      conceptId: rc.conceptId,
-                      conceptName: rc.conceptName,
-                      vocabularyId: rc.vocabularyId,
-                      domainId: rc.domainId,
-                      conceptCode: rc.conceptCode,
-                    })
-                  }
-                }}
-              >
-                <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>
-                <span className="text-muted-foreground">{rc.conceptId}</span>
-                <span className="truncate text-muted-foreground">{rc.vocabularyId}</span>
-                <span className="truncate text-muted-foreground">{rc.domainId}</span>
-                <span className="flex justify-center">
-                  {alreadyMapped && (
-                    <Check size={12} className="text-green-600" />
-                  )}
-                </span>
-              </button>
-            )
-          })
-        )}
-      </div>
+            {/* Table body */}
+            <div className="flex-1 overflow-auto">
+              {resolvedLoading ? (
+                <div className="flex h-32 items-center justify-center">
+                  <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                </div>
+              ) : resolvedError ? (
+                <div className="flex h-32 items-center justify-center px-4">
+                  <p className="text-xs text-destructive">{resolvedError}</p>
+                </div>
+              ) : resolvedPageItems.length === 0 ? (
+                <div className="flex h-32 items-center justify-center">
+                  <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
+                </div>
+              ) : (
+                resolvedPageItems.map((rc) => {
+                  const alreadyMapped = sourceConcept
+                    ? existingMappings.some((m) => m.targetConceptId === rc.conceptId)
+                    : false
+                  const isSelected = selectedTarget?.conceptId === rc.conceptId
+                  return (
+                    <button
+                      key={rc.conceptId}
+                      className={`grid w-full ${gridCols} items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
+                        isSelected ? 'bg-accent' : 'hover:bg-accent/50'
+                      } ${alreadyMapped ? 'opacity-50' : ''}`}
+                      onClick={() => {
+                        if (!alreadyMapped && sourceConcept) {
+                          setSelectedTarget(isSelected ? null : {
+                            conceptId: rc.conceptId,
+                            conceptName: rc.conceptName,
+                            vocabularyId: rc.vocabularyId,
+                            domainId: rc.domainId,
+                            conceptCode: rc.conceptCode,
+                          })
+                        }
+                      }}
+                    >
+                      <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>
+                      <span className="text-muted-foreground">{rc.conceptId}</span>
+                      <span className="truncate text-muted-foreground">{rc.vocabularyId}</span>
+                      {cols.domain && <span className="truncate text-muted-foreground">{rc.domainId}</span>}
+                      {cols.class && <span className="truncate text-muted-foreground">{rc.conceptClassId}</span>}
+                      {cols.code && <span className="truncate text-muted-foreground">{rc.conceptCode}</span>}
+                      {cols.std && <span className="text-center text-muted-foreground">{rc.standardConcept === 'S' ? '✓' : ''}</span>}
+                      <span className="flex justify-center">
+                        {alreadyMapped && <Check size={12} className="text-green-600" />}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </>
+        )
+      })()}
 
       {/* Pagination */}
       <div className="flex items-center justify-between border-t px-3 py-1.5">

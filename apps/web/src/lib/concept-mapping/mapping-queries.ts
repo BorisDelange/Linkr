@@ -106,6 +106,27 @@ export function buildAllConceptCountsQuery(
 }
 
 /**
+ * Build a SQL query to export ALL source concepts (no pagination).
+ */
+export function buildSourceConceptsAllQuery(
+  mapping: SchemaMapping,
+  filters: SourceConceptFilters,
+): string {
+  const dicts = mapping.conceptTables ?? []
+  if (dicts.length === 0) return ''
+
+  const unionParts = buildConceptUnionParts(dicts)
+
+  let sql = unionParts.length === 1
+    ? `SELECT * FROM (${unionParts[0]}) AS src`
+    : `SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS src`
+
+  sql += buildWhereClause(filters)
+  sql += ' ORDER BY concept_name ASC'
+  return sql
+}
+
+/**
  * Count query for pagination.
  */
 export function buildSourceConceptsCountQuery(

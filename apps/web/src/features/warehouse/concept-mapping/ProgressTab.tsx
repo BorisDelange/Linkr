@@ -1,12 +1,15 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
+import { Maximize2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
-import type { MappingProject, MappingStatus, DataSource } from '@/types'
+import type { MappingProject, MappingStatus, DataSource, ConceptMapping } from '@/types'
 
 interface ProgressTabProps {
   project: MappingProject
@@ -28,6 +31,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const isFileSource = project.sourceType === 'file'
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false)
 
   // Total source concept count from the database or file
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
@@ -58,20 +62,34 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   }, [isFileSource, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
+    // Effective status per mapping (reviews majority vote, fallback to m.status)
+    const effectiveStatus = (m: ConceptMapping): MappingStatus => {
+      const reviews = m.reviews ?? []
+      if (reviews.length === 0) return m.status
+      const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
+      for (const r of reviews) counts[r.status as MappingStatus] = (counts[r.status as MappingStatus] ?? 0) + 1
+      const max = Math.max(...Object.values(counts))
+      if (counts.approved === max) return 'approved'
+      if (counts.rejected === max) return 'rejected'
+      if (counts.flagged === max) return 'flagged'
+      return m.status
+    }
+
     // Unique source concept IDs (excluding ignored)
     const ignoredSourceIds = new Set(
-      mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId),
+      mappings.filter((m) => effectiveStatus(m) === 'ignored').map((m) => m.sourceConceptId),
     )
-    const nonIgnoredMappings = mappings.filter((m) => m.status !== 'ignored')
+    const nonIgnoredMappings = mappings.filter((m) => effectiveStatus(m) !== 'ignored')
     const allSourceIds = new Set(nonIgnoredMappings.map((m) => m.sourceConceptId))
 
     // Best status per source concept
     const bestStatus = new Map<number, MappingStatus>()
     const statusPriority: MappingStatus[] = ['approved', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
     for (const m of nonIgnoredMappings) {
+      const eff = effectiveStatus(m)
       const current = bestStatus.get(m.sourceConceptId)
-      if (!current || statusPriority.indexOf(m.status) < statusPriority.indexOf(current)) {
-        bestStatus.set(m.sourceConceptId, m.status)
+      if (!current || statusPriority.indexOf(eff) < statusPriority.indexOf(current)) {
+        bestStatus.set(m.sourceConceptId, eff)
       }
     }
 
@@ -227,12 +245,19 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
             )}
           </Card>
 
-          {/* Domain breakdown bar chart */}
+          {/* Category breakdown bar chart */}
           <Card className="p-4">
-            <p className="mb-3 text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</p>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</p>
+              {stats.domainData.length > 10 && (
+                <Button variant="ghost" size="icon" className="h-6 w-6" title={t('concept_mapping.prog_category_show_all')} onClick={() => setCategoryModalOpen(true)}>
+                  <Maximize2 size={13} />
+                </Button>
+              )}
+            </div>
             {stats.domainData.length > 0 ? (
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={stats.domainData} layout="vertical" margin={{ left: 80 }}>
+                <BarChart data={stats.domainData.slice(0, 10)} layout="vertical" margin={{ left: 80 }}>
                   <XAxis type="number" tick={{ fontSize: 11 }} />
                   <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={80} />
                   <Tooltip
@@ -275,6 +300,9 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
                       className="inline-block size-2 rounded-full"
                       style={{ backgroundColor: STATUS_COLORS[m.status] }}
                     />
+                    {m.mappedBy && (
+                      <span className="max-w-[100px] truncate text-muted-foreground" title={m.mappedBy}>{m.mappedBy}</span>
+                    )}
                     <span className="text-muted-foreground">
                       {new Date(m.updatedAt).toLocaleDateString()}
                     </span>
@@ -294,6 +322,36 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
           </Card>
         )}
       </div>
+
+      {/* Category breakdown full modal */}
+      <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</DialogTitle>
+          </DialogHeader>
+          <div className="overflow-auto">
+            <ResponsiveContainer width="100%" height={Math.max(300, stats.domainData.length * 24)}>
+              <BarChart data={stats.domainData} layout="vertical" margin={{ left: 120 }}>
+                <XAxis type="number" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={120} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: 'var(--color-popover)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: 'var(--color-popover-foreground)',
+                  }}
+                  itemStyle={{ color: 'var(--color-popover-foreground)' }}
+                  labelStyle={{ color: 'var(--color-popover-foreground)' }}
+                  cursor={{ fill: 'var(--color-accent)' }}
+                />
+                <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

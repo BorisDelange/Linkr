@@ -232,7 +232,7 @@ export function SourceConceptTable({
       if (termOpts?.length) {
         const filterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
         const value = filterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId
-        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder="Terminology" onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} />
+        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder={t('concept_mapping.col_terminology')} onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} />
       }
     }
     if (columnId === 'category' && filterOptions.category?.length > 0) {

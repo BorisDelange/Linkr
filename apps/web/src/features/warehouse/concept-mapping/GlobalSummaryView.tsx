@@ -97,6 +97,18 @@ interface GroupStat {
 }
 
 /** Returns a label → stat map, with items beyond TOP_N merged into "__other__". */
+function effectiveStatus(m: ConceptMapping): MappingStatus {
+  const reviews = m.reviews ?? []
+  if (reviews.length === 0) return m.status
+  const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
+  for (const r of reviews) counts[r.status as MappingStatus] = (counts[r.status as MappingStatus] ?? 0) + 1
+  const max = Math.max(...Object.values(counts))
+  if (counts.approved === max) return 'approved'
+  if (counts.rejected === max) return 'rejected'
+  if (counts.flagged === max) return 'flagged'
+  return m.status
+}
+
 function computeGroupStats(
   mappings: ConceptMapping[],
   projects: MappingProject[],
@@ -122,16 +134,17 @@ function computeGroupStats(
       const labels = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
       keys = labels.length > 0 ? labels : ['Other']
     } else {
-      keys = [m.status ?? 'unchecked']
+      keys = [effectiveStatus(m)]
     }
+    const eff = effectiveStatus(m)
     for (const key of keys) {
       const g = ensure(key)
       g.totalMappings++
       g.projectIds.add(m.projectId)
-      if (m.status === 'approved') g.approved++
-      else if (m.status === 'flagged') g.flagged++
-      else if (m.status === 'rejected') g.rejected++
-      else if (m.status === 'ignored') g.ignored++
+      if (eff === 'approved') g.approved++
+      else if (eff === 'flagged') g.flagged++
+      else if (eff === 'rejected') g.rejected++
+      else if (eff === 'ignored') g.ignored++
       else g.unchecked++
     }
   }
@@ -615,13 +628,16 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     {
       id: 'groupLabel',
       header: () => groupMode === 'project' ? t('concept_mapping.global_project_col') : t('concept_mapping.col_status'),
-      accessorFn: (r) => groupMode === 'project' ? r.projectName : r.status,
-      cell: ({ row }) => groupMode === 'project'
-        ? <span className="truncate text-muted-foreground">{row.original.projectName}</span>
-        : <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${STATUS_BADGE[row.original.status] ?? ''}`}>
-            <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[row.original.status] }} />
-            {t(`concept_mapping.status_${row.original.status}`)}
-          </span>,
+      accessorFn: (r) => groupMode === 'project' ? r.projectName : effectiveStatus(r),
+      cell: ({ row }) => {
+        const eff = effectiveStatus(row.original)
+        return groupMode === 'project'
+          ? <span className="truncate text-muted-foreground">{row.original.projectName}</span>
+          : <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${STATUS_BADGE[eff] ?? ''}`}>
+              <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[eff] }} />
+              {t(`concept_mapping.status_${eff}`)}
+            </span>
+      },
       size: 130,
     },
     {
@@ -910,8 +926,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">{groupModeLabel}</TableHead>
-                      <TableHead className="text-right text-xs">{t('concept_mapping.global_projects')}</TableHead>
-                      <TableHead className="text-right text-xs">{t('concept_mapping.global_mappings')}</TableHead>
+                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_projects')}</TableHead>
+                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_mappings')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_approved')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_flagged')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.status_rejected')}</TableHead>
@@ -962,10 +978,15 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                         : sorting.desc
                           ? <ArrowDown size={10} className="shrink-0 text-primary" />
                           : <ArrowUp size={10} className="shrink-0 text-primary" />
+                      const headerContent = flexRender(header.column.columnDef.header, header.getContext())
+                      const rawHeader = typeof header.column.columnDef.header === 'function'
+                        ? header.column.columnDef.header(header.getContext())
+                        : header.column.columnDef.header
+                      const headerTitle = typeof rawHeader === 'string' ? rawHeader : undefined
                       return (
-                        <TableHead key={header.id} className="select-none text-xs" style={{ width: header.getSize() }}>
-                          <button type="button" className="flex min-w-0 items-center gap-1 hover:text-foreground" onClick={() => handleSort(colId)}>
-                            <span className="truncate">{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                        <TableHead key={header.id} className="relative select-none overflow-hidden text-xs" style={{ width: header.getSize(), maxWidth: header.getSize() }}>
+                          <button type="button" className="flex min-w-0 items-center gap-1 hover:text-foreground" title={headerTitle} onClick={() => handleSort(colId)}>
+                            <span className="truncate">{headerContent}</span>
                             {sortIcon}
                           </button>
                         </TableHead>

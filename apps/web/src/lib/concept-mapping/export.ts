@@ -4,13 +4,32 @@ import type { ConceptMapping, MappingProject, ConceptSet, FileColumnMapping } fr
 // CSV helpers
 // ---------------------------------------------------------------------------
 
-function csvEscape(value: string | number | undefined | null): string {
+export function csvEscape(value: string | number | undefined | null): string {
   if (value == null) return ''
   const str = String(value)
   if (str.includes(',') || str.includes('"') || str.includes('\n')) {
     return `"${str.replace(/"/g, '""')}"`
   }
   return str
+}
+
+/** Preferred column order for source concept CSV exports. */
+const SOURCE_CONCEPT_PREFERRED_COLUMNS = ['vocabulary_id', 'terminology_name', 'category', 'subcategory', 'concept_id', 'concept_code', 'concept_name']
+
+/**
+ * Build a CSV string from DuckDB rows with preferred column ordering.
+ * Preferred columns appear first, then remaining columns in original order.
+ */
+export function buildSourceConceptsCsvFromRows(rows: Record<string, unknown>[]): string {
+  if (rows.length === 0) return ''
+  const rawColumns = Object.keys(rows[0])
+  const columns = [
+    ...SOURCE_CONCEPT_PREFERRED_COLUMNS.filter((c) => rawColumns.includes(c)),
+    ...rawColumns.filter((c) => !SOURCE_CONCEPT_PREFERRED_COLUMNS.includes(c)),
+  ]
+  const header = columns.map((c) => csvEscape(c)).join(',')
+  const lines = rows.map((row) => columns.map((c) => csvEscape(row[c] as string | number | null | undefined)).join(','))
+  return [header, ...lines].join('\n')
 }
 
 function tsvEscape(value: string | number | undefined | null): string {
