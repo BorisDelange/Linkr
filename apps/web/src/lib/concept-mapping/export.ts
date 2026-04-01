@@ -125,11 +125,11 @@ export function exportToUsagiCsv(
  * Export approved mappings as OMOP source_to_concept_map CSV.
  * Ready for ETL import into an OMOP CDM target database.
  */
-export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?: MappingProject): string {
-  // For file-based projects without a conceptIdColumn, sourceConceptId is an artificial index — export 0 per OMOP convention
-  const useRealSourceConceptId = !(
-    project?.sourceType === 'file' && !project.fileSourceData?.columnMapping?.conceptIdColumn
-  )
+export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?: MappingProject | MappingProject[]): string {
+  // Build a per-project lookup when multiple projects are passed (global summary export)
+  const projectMap = Array.isArray(project)
+    ? new Map(project.map((p) => [p.id, p]))
+    : null
 
   const header = [
     'source_code', 'source_concept_id', 'source_vocabulary_id',
@@ -137,17 +137,25 @@ export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?:
     'valid_start_date', 'valid_end_date', 'invalid_reason',
   ].join(',')
 
-  const rows = mappings.map((m) => [
-    csvEscape(m.sourceConceptCode),
-    csvEscape(useRealSourceConceptId ? m.sourceConceptId : 0),
-    csvEscape(m.sourceVocabularyId),
-    csvEscape(m.sourceConceptName),
-    csvEscape(m.targetConceptId),
-    csvEscape(m.targetVocabularyId),
-    csvEscape('1970-01-01'),
-    csvEscape('2099-12-31'),
-    csvEscape(''),
-  ].join(','))
+  const rows = mappings.map((m) => {
+    // Resolve the project for this mapping
+    const resolvedProject = projectMap ? projectMap.get(m.projectId) : project as MappingProject | undefined
+    // For file-based projects without a conceptIdColumn, sourceConceptId is an artificial index — export 0 per OMOP convention
+    const useRealSourceConceptId = !(
+      resolvedProject?.sourceType === 'file' && !resolvedProject.fileSourceData?.columnMapping?.conceptIdColumn
+    )
+    return [
+      csvEscape(m.sourceConceptCode),
+      csvEscape(useRealSourceConceptId ? m.sourceConceptId : 0),
+      csvEscape(m.sourceVocabularyId),
+      csvEscape(m.sourceConceptName),
+      csvEscape(m.targetConceptId),
+      csvEscape(m.targetVocabularyId),
+      csvEscape('1970-01-01'),
+      csvEscape('2099-12-31'),
+      csvEscape(''),
+    ].join(',')
+  })
 
   return [header, ...rows].join('\n')
 }

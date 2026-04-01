@@ -504,6 +504,35 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     })
   }, [flatRows, colFilters, groupMode])
 
+  // Export: mappings filtered by group only (used for per-status counts in the checkbox UI)
+  const exportGroupOnlyMappings = useMemo(() => {
+    const hasGroupFilter = exportGroupFilter.size > 0
+    let result = hasGroupFilter
+      ? allMappings.filter((m) => {
+          const p = projects.find((proj) => proj.id === m.projectId)
+          if (groupMode === 'badge') {
+            const labels = (p?.badges ?? []).map((b) => b.label)
+            return labels.some((l) => exportGroupFilter.has(l))
+          }
+          const name = p?.name ?? m.projectId
+          return exportGroupFilter.has(name)
+        })
+      : allMappings
+
+    // Badge mode: deduplicate by (sourceConceptCode || sourceConceptId, targetConceptId)
+    if (groupMode === 'badge') {
+      const seen = new Set<string>()
+      result = result.filter((m) => {
+        const key = `${m.sourceConceptCode ?? m.sourceConceptId}__${m.targetConceptId}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+
+    return result
+  }, [allMappings, projects, exportGroupFilter, groupMode])
+
   // Export filtered mappings
   const exportFilteredMappings = useMemo(() => {
     // Group filter: project names or badge labels
@@ -543,6 +572,17 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         return true
       })
     }
+    // Badge mode: deduplicate by (sourceConceptCode || sourceConceptId, targetConceptId) — same as the datatable
+    if (groupMode === 'badge') {
+      const seen = new Set<string>()
+      result = result.filter((m) => {
+        const key = `${m.sourceConceptCode ?? m.sourceConceptId}__${m.targetConceptId}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
+    }
+
     return result
   }, [allMappings, projects, exportStatuses, exportApprovalRule, exportGroupFilter, groupMode])
 
@@ -562,8 +602,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       const virtualProject = { name: 'global', id: 'global' } as MappingProject
       downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
     } else if (format === 'stcm') {
-      const virtualProject = { name: 'global', id: 'global' } as MappingProject
-      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, virtualProject), `global-source-to-concept-map.csv`, 'text/csv')
+      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, projects), `global-source-to-concept-map.csv`, 'text/csv')
     } else {
       downloadFile(exportToUsagiCsv(exportFilteredMappings), `global-usagi.csv`, 'text/csv')
     }
@@ -1215,7 +1254,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                         />
                         <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
                         <Badge variant="secondary" className="text-[10px]">
-                          {allMappings.filter((m) => effectiveStatus(m) === status).length}
+                          {exportGroupOnlyMappings.filter((m) => effectiveStatus(m) === status).length}
                         </Badge>
                       </label>
                       {status === 'approved' && checked && (
