@@ -85,6 +85,19 @@ async function tryInstantiate(
     ),
   ])
 
+  // Disable extension autoloading — DuckDB-WASM bundles Parquet support
+  // natively, but the autoloader still tries to fetch from the CDN and fails.
+  // Explicitly load parquet to ensure read_parquet() is available before any
+  // query runs (avoids "not in catalog" errors on first Parquet mount).
+  const conn = await db.connect()
+  try {
+    await conn.query("SET autoinstall_known_extensions = false")
+    await conn.query("SET autoload_known_extensions = false")
+    await conn.query("LOAD parquet")
+  } finally {
+    await conn.close()
+  }
+
   return db
 }
 

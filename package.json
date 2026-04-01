@@ -13,6 +13,7 @@
     "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\""
   },
+  "packageManager": "npm@11.5.2",
   "devDependencies": {
     "turbo": "^2"
   }
