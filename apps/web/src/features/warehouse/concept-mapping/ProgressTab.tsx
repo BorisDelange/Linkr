@@ -81,10 +81,10 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       sourceStatusCounts[status] = (sourceStatusCounts[status] ?? 0) + 1
     }
 
-    // Domain breakdown
+    // Category breakdown
     const domainMapped = new Map<string, Set<number>>()
     for (const m of mappings) {
-      const domain = m.sourceDomainId || t('concept_mapping.prog_domain_unknown')
+      const domain = m.sourceCategoryId || t('concept_mapping.prog_domain_unknown')
       if (!domainMapped.has(domain)) domainMapped.set(domain, new Set())
       domainMapped.get(domain)!.add(m.sourceConceptId)
     }

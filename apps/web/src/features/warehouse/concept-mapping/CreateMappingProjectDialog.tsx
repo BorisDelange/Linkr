@@ -337,8 +337,12 @@ export function CreateMappingProjectDialog({
   }
 
   // --- Validation ---
-  const isFileValid = sourceType === 'file' && parsedColumns.length > 0 && parsedRows.length > 0
-    && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn)
+  // In edit mode with a file source and no new file uploaded, the existing fileSourceData is sufficient
+  const hasExistingFileData = isEdit && sourceType === 'file' && !!editingProject?.fileSourceData?.rows.length
+  const isFileValid = sourceType === 'file' && (
+    hasExistingFileData && parsedRows.length === 0  // no new file → existing data is valid
+    || (parsedColumns.length > 0 && parsedRows.length > 0 && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn))
+  )
   const isDatabaseValid = sourceType === 'database' && !!dataSourceId
   const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid)
 
@@ -873,7 +877,41 @@ export function CreateMappingProjectDialog({
             {/* File source */}
             {sourceType === 'file' && (
               <>
-                {!file ? (
+                {/* Existing file in edit mode (no new file uploaded yet) */}
+                {!file && hasExistingFileData && (
+                  <div className="flex items-center gap-2 rounded-md border bg-muted/30 p-2">
+                    <FileSpreadsheet size={16} className="text-emerald-500 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{editingProject!.fileSourceData!.fileName}</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {editingProject!.fileSourceData!.rows.length.toLocaleString()} {t('datasets.rows')} · {editingProject!.fileSourceData!.columns.length} {t('datasets.columns')}
+                      </p>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs shrink-0"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload size={12} />
+                      {t('concept_mapping.replace_file')}
+                    </Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) handleFile(f)
+                        e.target.value = ''
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Drop zone — shown when no existing file OR new file not yet picked */}
+                {!file && !hasExistingFileData && (
                   <div
                     className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer ${
                       dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
@@ -898,8 +936,10 @@ export function CreateMappingProjectDialog({
                       }}
                     />
                   </div>
-                ) : (
-                  /* File info bar with settings icon */
+                )}
+
+                {/* New file just uploaded */}
+                {file && (
                   <div className="flex items-center gap-2 rounded-md border p-2">
                     <FileSpreadsheet size={16} className="text-emerald-500 shrink-0" />
                     <div className="min-w-0 flex-1">

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowRightLeft, Database, FileSpreadsheet } from 'lucide-react'
+import { ArrowRightLeft, Database, FileSpreadsheet, LayoutGrid } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -27,7 +28,11 @@ function getProgress(project: MappingProject) {
   return Math.round((project.stats.mappedCount / project.stats.totalSourceConcepts) * 100)
 }
 
-export function MappingProjectListPage() {
+interface MappingProjectListPageProps {
+  onShowGlobal?: () => void
+}
+
+export function MappingProjectListPage({ onShowGlobal }: MappingProjectListPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
@@ -170,6 +175,12 @@ export function MappingProjectListPage() {
       onDelete={(id) => deleteMappingProject(id)}
       onExport={handleExport}
       onImport={handleImport}
+      headerActions={onShowGlobal && projects.length > 0 ? (
+        <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={onShowGlobal}>
+          <LayoutGrid size={14} />
+          {t('concept_mapping.global_view_button')}
+        </Button>
+      ) : undefined}
       renderCardBody={(project) => {
         const progress = getProgress(project)
         return (

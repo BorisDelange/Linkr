@@ -10,7 +10,7 @@ import {
 import {
   Check, Flag, X, MessageSquare, EyeOff,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
-  Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users,
+  Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -157,10 +157,12 @@ interface MappingColumnFilters {
   targetConceptId?: string
   targetVocabularyId?: string | null
   targetDomainId?: string | null
-  status?: string | null
   equivalence?: string | null
   mappedBy?: string
 }
+
+type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
+const FILTER_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
@@ -402,6 +404,9 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(FILTER_STATUSES))
+  const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     createdAt: false,
     sourceCategoryId: false,
@@ -421,13 +426,32 @@ export function MappingsTab({ project }: MappingsTabProps) {
       sourceVocabularyId: unique((m) => m.sourceVocabularyId),
       targetVocabularyId: unique((m) => m.targetVocabularyId),
       targetDomainId: unique((m) => m.targetDomainId),
-      status: unique((m) => m.status),
       equivalence: unique((m) => m.equivalence),
     }
   }, [projectMappings])
 
-  // Apply column filters (client-side)
-  const filtered = projectMappings.filter((m) => {
+  // Status counts for filter popover
+  const statusCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const m of projectMappings) counts[m.status] = (counts[m.status] ?? 0) + 1
+    return counts
+  }, [projectMappings])
+
+  // Compute effective status per mapping (based on reviews majority vote)
+  const effectiveStatus = useCallback((m: ConceptMapping): MappingStatus => {
+    const reviews = m.reviews ?? []
+    if (reviews.length === 0) return m.status
+    const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
+    for (const r of reviews) counts[r.status] = (counts[r.status] ?? 0) + 1
+    const max = Math.max(...Object.values(counts))
+    if (counts.approved === max) return 'approved'
+    if (counts.rejected === max) return 'rejected'
+    if (counts.flagged === max) return 'flagged'
+    return m.status
+  }, [])
+
+  // Apply column filters + status popover filter (client-side)
+  const filtered = useMemo(() => projectMappings.filter((m) => {
     const f = colFilters
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
@@ -436,11 +460,21 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId && m.targetVocabularyId !== f.targetVocabularyId) return false
     if (f.targetDomainId && m.targetDomainId !== f.targetDomainId) return false
-    if (f.status && m.status !== f.status) return false
     if (f.equivalence && m.equivalence !== f.equivalence) return false
     if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
+    // Status popover filter
+    const eff = effectiveStatus(m)
+    if (!includedStatuses.has(eff)) return false
+    // Approval rule sub-filter
+    if (eff === 'approved' && includedStatuses.has('approved') && approvalRule !== 'at_least_one') {
+      const reviews = m.reviews ?? []
+      const approvedCount = reviews.filter((r) => r.status === 'approved').length
+      const rejectedCount = reviews.filter((r) => r.status === 'rejected').length
+      if (approvalRule === 'majority' && !(approvedCount > rejectedCount)) return false
+      if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
+    }
     return true
-  })
+  }), [projectMappings, colFilters, includedStatuses, approvalRule, effectiveStatus])
 
   // Apply sorting
   const sorted = useMemo(() => {
@@ -504,10 +538,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
       return <ColumnFilterSelect value={colFilters.targetDomainId ?? null} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateFilter('targetDomainId', v)} />
     }
-    if (columnId === 'status' && filterOptions.status.length > 0) {
-      const statusOptions = filterOptions.status.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))
-      return <ColumnFilterSelect value={colFilters.status ?? null} options={statusOptions} placeholder="Status" onChange={(v) => updateFilter('status', v)} />
-    }
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
       const equivOptions = filterOptions.equivalence.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e }))
       return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={equivOptions} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
@@ -552,12 +582,24 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const handleReview = useCallback((mappingId: string, current: MappingStatus, target: MappingStatus) => {
     const newStatus = current === target ? 'unchecked' : target
     const reviewer = getUserDisplayName()
+    const m = mappings.find((x) => x.id === mappingId)
+    const prevReviews = m?.reviews ?? []
+    const newReviews = [
+      ...prevReviews.filter((r) => r.reviewerId !== reviewer),
+      ...(newStatus !== 'unchecked' ? [{
+        id: prevReviews.find((r) => r.reviewerId === reviewer)?.id ?? crypto.randomUUID(),
+        reviewerId: reviewer,
+        status: newStatus,
+        createdAt: new Date().toISOString(),
+      }] : []),
+    ]
     updateMapping(mappingId, {
       status: newStatus,
+      reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
-  }, [updateMapping, getUserDisplayName])
+  }, [updateMapping, getUserDisplayName, mappings])
 
   const pageAllSelected = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
 
@@ -593,29 +635,34 @@ export function MappingsTab({ project }: MappingsTabProps) {
     }
 
     cols.push(
+      // ── Source ──────────────────────────────────────────────────────
       {
-        id: 'sourceConceptName',
-        header: () => t('concept_mapping.col_source'),
-        accessorFn: (row) => row.sourceConceptName,
-        cell: ({ row }) => row.original.sourceConceptName,
-        size: 200,
-        minSize: 100,
+        id: 'sourceVocabularyId',
+        header: () => t('concept_mapping.col_source_vocabulary'),
+        accessorFn: (row) => row.sourceVocabularyId,
+        cell: ({ row }) => row.original.sourceVocabularyId || '',
+        size: 100,
+        minSize: 50,
       },
       {
         id: 'sourceConceptCode',
-        header: 'Code',
+        header: () => t('concept_mapping.col_source_concept_code'),
         accessorFn: (row) => row.sourceConceptCode,
         cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptCode || row.original.sourceConceptId || ''}</span>,
-        size: 80,
+        size: 100,
         minSize: 50,
       },
       {
-        id: 'sourceVocabularyId',
-        header: () => t('concept_mapping.col_terminology'),
-        accessorFn: (row) => row.sourceVocabularyId,
-        cell: ({ row }) => row.original.sourceVocabularyId || '',
-        size: 90,
-        minSize: 50,
+        id: 'sourceConceptName',
+        header: () => t('concept_mapping.col_source_concept_name'),
+        accessorFn: (row) => row.sourceConceptName,
+        cell: ({ row }) => (
+          <span className="block truncate" title={row.original.sourceConceptName}>
+            {row.original.sourceConceptName}
+          </span>
+        ),
+        size: 200,
+        minSize: 100,
       },
       // Hidden by default: source optional columns
       {
@@ -634,9 +681,44 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 90,
         minSize: 60,
       },
+      // ── Equivalence ─────────────────────────────────────────────────
+      {
+        id: 'equivalence',
+        header: () => t('concept_mapping.col_equiv'),
+        accessorFn: (row) => row.equivalence,
+        cell: ({ row }) => {
+          const equiv = row.original.equivalence
+          const badge = EQUIV_BADGE[equiv]
+          if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
+          return (
+            <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}>
+              {badge.label}
+            </Badge>
+          )
+        },
+        size: 70,
+        minSize: 50,
+      },
+      // ── Target ──────────────────────────────────────────────────────
+      {
+        id: 'targetVocabularyId',
+        header: () => t('concept_mapping.col_target_vocabulary'),
+        accessorFn: (row) => row.targetVocabularyId,
+        cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.targetVocabularyId}</span>,
+        size: 100,
+        minSize: 50,
+      },
+      {
+        id: 'targetConceptId',
+        header: () => t('concept_mapping.col_target_concept_id'),
+        accessorFn: (row) => row.targetConceptId,
+        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.targetConceptId}</span>,
+        size: 80,
+        minSize: 50,
+      },
       {
         id: 'targetConceptName',
-        header: () => t('concept_mapping.col_target'),
+        header: () => t('concept_mapping.col_target_concept_name'),
         accessorFn: (row) => row.targetConceptName,
         cell: ({ row }) => {
           const m = row.original
@@ -650,29 +732,13 @@ export function MappingsTab({ project }: MappingsTabProps) {
           }
           return (
             <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate">{m.targetConceptName}</span>
+              <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
               {m.comment && <span title={m.comment}><MessageSquare size={10} className="shrink-0 text-muted-foreground" /></span>}
             </span>
           )
         },
         size: 200,
         minSize: 100,
-      },
-      {
-        id: 'targetConceptId',
-        header: 'Target ID',
-        accessorFn: (row) => row.targetConceptId,
-        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.targetConceptId}</span>,
-        size: 70,
-        minSize: 50,
-      },
-      {
-        id: 'targetVocabularyId',
-        header: () => t('concept_mapping.col_terminology'),
-        accessorFn: (row) => row.targetVocabularyId,
-        cell: ({ row }) => row.original.targetVocabularyId,
-        size: 90,
-        minSize: 50,
       },
       // Hidden by default: target OMOP-specific columns
       {
@@ -691,39 +757,13 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 90,
         minSize: 50,
       },
+      // ── Provenance ──────────────────────────────────────────────────
       {
-        id: 'equivalence',
-        header: () => t('concept_mapping.col_equiv'),
-        accessorFn: (row) => row.equivalence,
-        cell: ({ row }) => {
-          const equiv = row.original.equivalence
-          const badge = EQUIV_BADGE[equiv]
-          if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
-          return (
-            <Badge
-              variant="secondary"
-              className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}
-            >
-              {badge.label}
-            </Badge>
-          )
-        },
-        size: 70,
-        minSize: 50,
-      },
-      {
-        id: 'status',
-        header: () => t('concept_mapping.col_status'),
-        accessorFn: (row) => row.status,
-        cell: ({ row }) => (
-          <Badge
-            variant="secondary"
-            className={`px-1.5 py-0 text-[9px] font-medium ${STATUS_BADGE[row.original.status] ?? ''}`}
-          >
-            {t(`concept_mapping.status_${row.original.status}`)}
-          </Badge>
-        ),
-        size: 80,
+        id: 'mappedBy',
+        header: () => t('concept_mapping.col_mapped_by'),
+        accessorFn: (row) => row.mappedBy,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.mappedBy ?? ''}</span>,
+        size: 100,
         minSize: 60,
       },
       {
@@ -743,17 +783,39 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 130,
         minSize: 90,
       },
+      // ── Votes ───────────────────────────────────────────────────────
       {
-        id: 'mappedBy',
-        header: () => t('concept_mapping.col_mapped_by'),
-        accessorFn: (row) => row.mappedBy,
-        cell: ({ row }) => (
-          <span className="text-[10px] text-muted-foreground">
-            {row.original.mappedBy ?? ''}
-          </span>
-        ),
-        size: 100,
-        minSize: 60,
+        id: '_votes_approved',
+        header: () => <span className="text-green-600">✓</span>,
+        cell: ({ row }) => {
+          const count = (row.original.reviews ?? []).filter((r) => r.status === 'approved').length
+          return count > 0 ? <span className="text-xs font-medium text-green-600">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
+        },
+        size: 36,
+        minSize: 36,
+        enableResizing: false,
+      },
+      {
+        id: '_votes_flagged',
+        header: () => <span className="text-orange-500">⚑</span>,
+        cell: ({ row }) => {
+          const count = (row.original.reviews ?? []).filter((r) => r.status === 'flagged').length
+          return count > 0 ? <span className="text-xs font-medium text-orange-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
+        },
+        size: 36,
+        minSize: 36,
+        enableResizing: false,
+      },
+      {
+        id: '_votes_rejected',
+        header: () => <span className="text-red-500">✗</span>,
+        cell: ({ row }) => {
+          const count = (row.original.reviews ?? []).filter((r) => r.status === 'rejected').length
+          return count > 0 ? <span className="text-xs font-medium text-red-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
+        },
+        size: 36,
+        minSize: 36,
+        enableResizing: false,
       },
     )
 
@@ -853,6 +915,63 @@ export function MappingsTab({ project }: MappingsTabProps) {
               {t('concept_mapping.delete_selected', { count: selected.size })}
             </Button>
           )}
+          {/* Filter popover */}
+          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant={includedStatuses.size < FILTER_STATUSES.length ? 'default' : 'outline'}
+                size="icon-sm"
+                className="h-7 w-7"
+              >
+                <Filter size={12} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-64 p-3" onClick={(e) => e.stopPropagation()}>
+              <p className="mb-2 text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
+              <div className="space-y-2">
+                {FILTER_STATUSES.map((status) => {
+                  const count = statusCounts[status] ?? 0
+                  const checked = includedStatuses.has(status)
+                  return (
+                    <div key={status}>
+                      <label className="flex cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setIncludedStatuses((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(status)) next.delete(status); else next.add(status)
+                            return next
+                          })}
+                          className="size-3.5 rounded border-gray-300 accent-primary"
+                        />
+                        <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
+                        <Badge variant="secondary" className="text-[10px] ml-auto">{count}</Badge>
+                      </label>
+                      {status === 'approved' && checked && (
+                        <div className="ml-6 mt-1.5 space-y-1">
+                          {(['at_least_one', 'majority', 'no_rejections'] as ApprovalRule[]).map((rule) => (
+                            <label key={rule} className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="radio"
+                                name="mapping-approval-rule"
+                                checked={approvalRule === rule}
+                                onChange={() => setApprovalRule(rule)}
+                                className="size-3 accent-primary"
+                              />
+                              <span className="text-[11px] text-muted-foreground">
+                                {t(`concept_mapping.export_rule_${rule}`)}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
           <Button
             variant={editMode ? 'default' : 'outline'}
             size="sm"
@@ -862,7 +981,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
             <Pencil size={12} />
             {editMode ? t('concept_mapping.done_editing') : t('concept_mapping.edit_mode')}
           </Button>
-          {/* Column visibility — moved to footer */}
         </div>
       </div>
 

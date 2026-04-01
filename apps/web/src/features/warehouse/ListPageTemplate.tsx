@@ -70,6 +70,8 @@ interface ListPageTemplateProps<T extends { id: string; name: string }> {
   renderCreateDialog: (props: { open: boolean; onOpenChange: (open: boolean) => void; onCreated: (id: string) => void }) => ReactNode
   /** Render the edit dialog */
   renderEditDialog: (props: { item: T; onOpenChange: (open: boolean) => void }) => ReactNode
+  /** Optional extra actions rendered before the Import/New buttons in the header */
+  headerActions?: ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +96,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   renderCardBody,
   renderCreateDialog,
   renderEditDialog,
+  headerActions,
 }: ListPageTemplateProps<T>) {
   const { t } = useTranslation()
 
@@ -126,6 +129,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
             <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
           </div>
           <div className="flex items-center gap-1">
+            {headerActions}
             {onImport ? (
               <>
                 <Button
