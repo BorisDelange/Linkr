@@ -123,12 +123,10 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-3xl px-6 py-10">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
-          </div>
-          <div className="flex items-center gap-1">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
+          <div className="mt-3 flex items-center justify-end gap-1">
             {headerActions}
             {onImport ? (
               <>

@@ -113,6 +113,48 @@ function ColumnFilterSelect({
   )
 }
 
+const RESOLVED_FILTER_INPUT = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+/** Multi-select dropdown for resolved concept column filters. */
+function ResolvedMultiSelect({
+  options,
+  selected,
+  onChange,
+}: {
+  options: string[]
+  selected?: Set<string>
+  onChange: (v: Set<string>) => void
+}) {
+  if (options.length === 0) return <span />
+  const count = selected?.size ?? 0
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className={`${RESOLVED_FILTER_INPUT} flex items-center justify-between truncate ${count > 0 ? 'border-primary text-foreground' : ''}`}>
+          <span className="truncate">{count > 0 ? `(${count})` : '...'}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-52 overflow-auto">
+        {options.map((opt) => (
+          <DropdownMenuCheckboxItem
+            key={opt}
+            checked={selected?.has(opt) ?? false}
+            onCheckedChange={(v) => {
+              const next = new Set(selected)
+              if (v) next.add(opt); else next.delete(opt)
+              onChange(next)
+            }}
+            onSelect={(e) => e.preventDefault()}
+            className="text-xs"
+          >
+            {opt}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 /** Fuzzy match: all query characters appear in order in the target. */
 function fuzzyMatch(target: string, query: string): boolean {
   let qi = 0
@@ -169,6 +211,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [resolvedError, setResolvedError] = useState<string | null>(null)
   const [resolvedSearch, setResolvedSearch] = useState('')
   const [resolvedPage, setResolvedPage] = useState(0)
+  const [resolvedFilters, setResolvedFilters] = useState<{
+    name?: string; id?: string; code?: string
+    vocab?: Set<string>; domain?: Set<string>; class?: Set<string>; std?: Set<string>
+  }>({})
   const [resolvedColVisibility, setResolvedColVisibility] = useState({ domain: true, class: false, std: false, code: false })
 
   // Browse mode toggle
@@ -281,17 +327,33 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [loadResolved])
 
   // Filter resolved concepts
-  const filteredResolved = resolvedSearch.trim()
-    ? resolvedConcepts.filter((c) => {
-        const q = resolvedSearch.toLowerCase()
-        return (
-          c.conceptName.toLowerCase().includes(q) ||
-          String(c.conceptId).includes(q) ||
-          c.vocabularyId.toLowerCase().includes(q) ||
-          c.domainId.toLowerCase().includes(q)
-        )
-      })
-    : resolvedConcepts
+  const resolvedFilterOptions = useMemo(() => ({
+    vocab: [...new Set(resolvedConcepts.map((c) => c.vocabularyId).filter(Boolean))].sort(),
+    domain: [...new Set(resolvedConcepts.map((c) => c.domainId).filter(Boolean))].sort(),
+    class: [...new Set(resolvedConcepts.map((c) => c.conceptClassId).filter(Boolean) as string[])].sort(),
+    std: [...new Set(resolvedConcepts.map((c) => c.standardConcept).filter(Boolean) as string[])].sort(),
+  }), [resolvedConcepts])
+
+  const filteredResolved = useMemo(() => {
+    const q = resolvedSearch.trim().toLowerCase()
+    const f = resolvedFilters
+    return resolvedConcepts.filter((c) => {
+      if (q && !(
+        c.conceptName.toLowerCase().includes(q) ||
+        String(c.conceptId).includes(q) ||
+        c.vocabularyId.toLowerCase().includes(q) ||
+        c.domainId.toLowerCase().includes(q)
+      )) return false
+      if (f.name && !c.conceptName.toLowerCase().includes(f.name.toLowerCase())) return false
+      if (f.id && !String(c.conceptId).includes(f.id)) return false
+      if (f.code && !c.conceptCode?.toLowerCase().includes(f.code.toLowerCase())) return false
+      if (f.vocab?.size && !f.vocab.has(c.vocabularyId)) return false
+      if (f.domain?.size && !f.domain.has(c.domainId)) return false
+      if (f.class?.size && !f.class.has(c.conceptClassId ?? '')) return false
+      if (f.std?.size && !f.std.has(c.standardConcept ?? '')) return false
+      return true
+    })
+  }, [resolvedConcepts, resolvedSearch, resolvedFilters])
 
   const resolvedTotalPages = Math.max(1, Math.ceil(filteredResolved.length / RESOLVED_PAGE_SIZE))
   const resolvedPageItems = filteredResolved.slice(
@@ -299,10 +361,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     (resolvedPage + 1) * RESOLVED_PAGE_SIZE,
   )
 
-  // Reset resolved page when search changes
+  // Reset resolved page when filters change
   useEffect(() => {
     setResolvedPage(0)
-  }, [resolvedSearch])
+  }, [resolvedSearch, resolvedFilters])
 
   const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) return
@@ -850,24 +912,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             <Info size={14} />
           </Button>
         </div>
-        <div className="relative mt-2">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-7 pl-8 text-xs"
-            placeholder={t('concept_mapping.browse_search_resolved')}
-            value={resolvedSearch}
-            onChange={(e) => setResolvedSearch(e.target.value)}
-          />
-        </div>
       </div>
 
       {/* Table header */}
       {(() => {
         const cols = resolvedColVisibility
-        const gridCols = `grid-cols-[1fr_60px_70px${cols.domain ? '_70px' : ''}${cols.class ? '_70px' : ''}${cols.code ? '_60px' : ''}${cols.std ? '_24px' : ''}_20px]`
+        const gridTemplate = `1fr 60px 70px${cols.domain ? ' 70px' : ''}${cols.class ? ' 70px' : ''}${cols.code ? ' 60px' : ''}${cols.std ? ' 24px' : ''} 20px`
         return (
           <>
-            <div className={`grid ${gridCols} items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider`}>
+            <div className="grid items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider" style={{ gridTemplateColumns: gridTemplate }}>
               <span>{t('concept_mapping.col_name')}</span>
               <span>ID</span>
               <span>{t('concept_mapping.col_vocab')}</span>
@@ -875,32 +928,19 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               {cols.class && <span>{t('concept_mapping.col_class')}</span>}
               {cols.code && <span>{t('concept_mapping.col_code')}</span>}
               {cols.std && <span title={t('concept_mapping.col_std')}>Std</span>}
-              <span className="flex justify-end">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="rounded p-0.5 hover:bg-muted" title={t('concept_mapping.col_visibility')}>
-                      <Settings2 size={11} />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="text-xs">
-                    <DropdownMenuLabel className="text-[10px]">{t('concept_mapping.col_visibility')}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    {(['domain', 'class', 'code', 'std'] as const).map((col) => (
-                      <DropdownMenuCheckboxItem
-                        key={col}
-                        checked={resolvedColVisibility[col]}
-                        onCheckedChange={(v) => setResolvedColVisibility((prev) => ({ ...prev, [col]: v }))}
-                        className="text-xs"
-                      >
-                        {col === 'domain' ? t('concept_mapping.col_domain')
-                          : col === 'class' ? t('concept_mapping.col_class')
-                          : col === 'code' ? t('concept_mapping.col_code')
-                          : t('concept_mapping.col_std')}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </span>
+              <span />
+            </div>
+
+            {/* Filter row */}
+            <div className="grid items-center gap-1 border-b bg-muted/10 px-3 py-1" style={{ gridTemplateColumns: gridTemplate }}>
+              <input className={RESOLVED_FILTER_INPUT} placeholder="..." value={resolvedFilters.name ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, name: e.target.value || undefined }))} />
+              <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="ID..." value={resolvedFilters.id ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, id: e.target.value || undefined }))} />
+              <ResolvedMultiSelect options={resolvedFilterOptions.vocab} selected={resolvedFilters.vocab} onChange={(v) => setResolvedFilters((f) => ({ ...f, vocab: v }))} />
+              {cols.domain && <ResolvedMultiSelect options={resolvedFilterOptions.domain} selected={resolvedFilters.domain} onChange={(v) => setResolvedFilters((f) => ({ ...f, domain: v }))} />}
+              {cols.class && <ResolvedMultiSelect options={resolvedFilterOptions.class} selected={resolvedFilters.class} onChange={(v) => setResolvedFilters((f) => ({ ...f, class: v }))} />}
+              {cols.code && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="Code..." value={resolvedFilters.code ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, code: e.target.value || undefined }))} />}
+              {cols.std && <ResolvedMultiSelect options={resolvedFilterOptions.std} selected={resolvedFilters.std} onChange={(v) => setResolvedFilters((f) => ({ ...f, std: v }))} />}
+              <span />
             </div>
 
             {/* Table body */}
@@ -926,9 +966,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                   return (
                     <button
                       key={rc.conceptId}
-                      className={`grid w-full ${gridCols} items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
+                      className={`grid w-full items-center gap-1 px-3 py-1.5 text-left text-xs transition-colors border-b border-border/40 ${
                         isSelected ? 'bg-accent' : 'hover:bg-accent/50'
                       } ${alreadyMapped ? 'opacity-50' : ''}`}
+                      style={{ gridTemplateColumns: gridTemplate }}
                       onClick={() => {
                         if (!alreadyMapped && sourceConcept) {
                           setSelectedTarget(isSelected ? null : {
@@ -943,10 +984,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     >
                       <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>
                       <span className="text-muted-foreground">{rc.conceptId}</span>
-                      <span className="truncate text-muted-foreground">{rc.vocabularyId}</span>
-                      {cols.domain && <span className="truncate text-muted-foreground">{rc.domainId}</span>}
-                      {cols.class && <span className="truncate text-muted-foreground">{rc.conceptClassId}</span>}
-                      {cols.code && <span className="truncate text-muted-foreground">{rc.conceptCode}</span>}
+                      <span className="truncate text-muted-foreground" title={rc.vocabularyId}>{rc.vocabularyId}</span>
+                      {cols.domain && <span className="truncate text-muted-foreground" title={rc.domainId}>{rc.domainId}</span>}
+                      {cols.class && <span className="truncate text-muted-foreground" title={rc.conceptClassId}>{rc.conceptClassId}</span>}
+                      {cols.code && <span className="truncate text-muted-foreground" title={rc.conceptCode}>{rc.conceptCode}</span>}
                       {cols.std && <span className="text-center text-muted-foreground">{rc.standardConcept === 'S' ? '✓' : ''}</span>}
                       <span className="flex justify-center">
                         {alreadyMapped && <Check size={12} className="text-green-600" />}
@@ -962,9 +1003,35 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
       {/* Pagination */}
       <div className="flex items-center justify-between border-t px-3 py-1.5">
-        <span className="text-[10px] text-muted-foreground">
-          {filteredResolved.length} {t('concept_mapping.cs_concepts')}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground">
+            {filteredResolved.length} {t('concept_mapping.cs_concepts')}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="text-xs">
+              <DropdownMenuLabel className="text-[10px]">{t('concept_mapping.col_visibility')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {(['domain', 'class', 'code', 'std'] as const).map((col) => (
+                <DropdownMenuCheckboxItem
+                  key={col}
+                  checked={resolvedColVisibility[col]}
+                  onCheckedChange={(v) => setResolvedColVisibility((prev) => ({ ...prev, [col]: v }))}
+                  className="text-xs"
+                >
+                  {col === 'domain' ? t('concept_mapping.col_domain')
+                    : col === 'class' ? t('concept_mapping.col_class')
+                    : col === 'code' ? t('concept_mapping.col_code')
+                    : t('concept_mapping.col_std')}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-sm" disabled={resolvedPage === 0} onClick={() => setResolvedPage(resolvedPage - 1)}>
             <ChevronLeft size={14} />

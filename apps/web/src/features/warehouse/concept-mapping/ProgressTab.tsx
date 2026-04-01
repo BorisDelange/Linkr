@@ -256,10 +256,10 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
               )}
             </div>
             {stats.domainData.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={stats.domainData.slice(0, 10)} layout="vertical" margin={{ left: 80 }}>
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={80} />
+              <ResponsiveContainer width="100%" height={Math.max(180, stats.domainData.slice(0, 10).length * 26 + 20)}>
+                <BarChart data={stats.domainData.slice(0, 10)} layout="vertical" margin={{ left: 90 }}>
+                  <XAxis type="number" tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="domain" tick={{ fontSize: 10 }} width={90} interval={0} />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'var(--color-popover)',
@@ -276,7 +276,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-[220px] items-center justify-center">
+              <div className="flex h-[180px] items-center justify-center">
                 <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_no_data')}</p>
               </div>
             )}
@@ -325,15 +325,15 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
 
       {/* Category breakdown full modal */}
       <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</DialogTitle>
           </DialogHeader>
           <div className="overflow-auto">
-            <ResponsiveContainer width="100%" height={Math.max(300, stats.domainData.length * 24)}>
+            <ResponsiveContainer width="100%" height={Math.max(300, stats.domainData.length * 26 + 20)}>
               <BarChart data={stats.domainData} layout="vertical" margin={{ left: 120 }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={120} />
+                <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={120} interval={0} />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: 'var(--color-popover)',

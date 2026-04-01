@@ -434,46 +434,6 @@ export function SourceConceptTable({
 
   return (
     <div className="flex h-full flex-col border-r overflow-hidden">
-      {/* Top bar: count + filter popover + columns toggle */}
-      <div className="flex items-center justify-between border-b px-3 py-2">
-        <span className="text-xs text-muted-foreground">
-          {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
-        </span>
-        <div className="flex items-center gap-1">
-          {/* Mapping status filter popover */}
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="relative h-7 gap-1 px-2 text-xs shrink-0">
-                <SlidersHorizontal size={14} />
-                {activePopoverFilterCount > 0 && (
-                  <Badge variant="default" className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full p-0 text-[8px]">
-                    {activePopoverFilterCount}
-                  </Badge>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-3">
-              <p className="mb-2 text-xs font-medium">{t('concept_mapping.col_status')}</p>
-              <Select
-                value={mappingStatusFilter}
-                onValueChange={(v) => onMappingStatusFilterChange(v as MappingStatusFilter)}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MAPPING_STATUS_OPTIONS.map((opt) => (
-                    <SelectItem key={opt} value={opt} className="text-xs">
-                      {t(`concept_mapping.filter_${opt}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </PopoverContent>
-          </Popover>
-        </div>
-      </div>
-
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
@@ -594,10 +554,41 @@ export function SourceConceptTable({
 
       {/* Pagination + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
             {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
           </span>
+          {/* Mapping status filter popover */}
+          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="relative h-6 w-6">
+                <SlidersHorizontal size={12} />
+                {activePopoverFilterCount > 0 && (
+                  <Badge variant="default" className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full p-0 text-[7px]">
+                    {activePopoverFilterCount}
+                  </Badge>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-56 p-3">
+              <p className="mb-2 text-xs font-medium">{t('concept_mapping.col_status')}</p>
+              <Select
+                value={mappingStatusFilter}
+                onValueChange={(v) => onMappingStatusFilterChange(v as MappingStatusFilter)}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MAPPING_STATUS_OPTIONS.map((opt) => (
+                    <SelectItem key={opt} value={opt} className="text-xs">
+                      {t(`concept_mapping.filter_${opt}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </PopoverContent>
+          </Popover>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-sm" className="h-6 w-6">

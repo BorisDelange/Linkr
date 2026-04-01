@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, FileSpreadsheet } from 'lucide-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -40,6 +40,13 @@ import {
 } from '@/components/ui/table'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
+import {
+  exportToUsagiCsv,
+  exportToSourceToConceptMap,
+  exportToSssomTsv,
+  downloadFile,
+} from '@/lib/concept-mapping/export'
+import { slugify } from '@/lib/entity-io'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { ConceptMapping, MappingProject, MappingStatus } from '@/types'
@@ -311,6 +318,11 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [colFilters, setColFilters] = useState<GlobalTableFilters>({})
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
 
+  // Export tab state
+  const [exportStatuses, setExportStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
+  const [exportApprovalRule, setExportApprovalRule] = useState<'at_least_one' | 'majority' | 'no_rejections'>('at_least_one')
+  const [exportGroupFilter, setExportGroupFilter] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
   }, [mappingProjectsLoaded, loadMappingProjects])
@@ -491,6 +503,72 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       return true
     })
   }, [flatRows, colFilters, groupMode])
+
+  // Export filtered mappings
+  const exportFilteredMappings = useMemo(() => {
+    // Group filter: project names or badge labels
+    const hasGroupFilter = exportGroupFilter.size > 0
+    let result = allMappings.filter((m) => {
+      if (hasGroupFilter) {
+        const p = projects.find((proj) => proj.id === m.projectId)
+        if (groupMode === 'badge') {
+          const labels = (p?.badges ?? []).map((b) => b.label)
+          if (!labels.some((l) => exportGroupFilter.has(l))) return false
+        } else {
+          // project mode
+          const name = p?.name ?? m.projectId
+          if (!exportGroupFilter.has(name)) return false
+        }
+      }
+      return exportStatuses.has(effectiveStatus(m))
+    })
+
+    // Approval sub-rule
+    if (exportStatuses.has('approved') && exportApprovalRule !== 'at_least_one') {
+      const sourceConceptStatuses = new Map<string, MappingStatus[]>()
+      for (const m of allMappings) {
+        const key = `${m.projectId}:${m.sourceConceptId}`
+        const arr = sourceConceptStatuses.get(key) ?? []
+        arr.push(effectiveStatus(m))
+        sourceConceptStatuses.set(key, arr)
+      }
+      result = result.filter((m) => {
+        if (effectiveStatus(m) !== 'approved') return true
+        const key = `${m.projectId}:${m.sourceConceptId}`
+        const statuses = sourceConceptStatuses.get(key) ?? []
+        const approvedCount = statuses.filter((s) => s === 'approved').length
+        const rejectedCount = statuses.filter((s) => s === 'rejected').length
+        if (exportApprovalRule === 'majority') return approvedCount > rejectedCount
+        if (exportApprovalRule === 'no_rejections') return rejectedCount === 0
+        return true
+      })
+    }
+    return result
+  }, [allMappings, projects, exportStatuses, exportApprovalRule, exportGroupFilter, groupMode])
+
+  const exportGroupOptions = useMemo(() => {
+    if (groupMode === 'badge') {
+      const labels = new Set<string>()
+      for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
+      return Array.from(labels).sort()
+    }
+    return projects.map((p) => p.name).sort()
+  }, [projects, groupMode])
+
+  const handleExportDownload = (format: 'sssom' | 'stcm' | 'usagi') => {
+    const workspaceName = slugify(projects[0]?.name ?? 'global')
+    if (format === 'sssom') {
+      // SSSOM needs a project — use a virtual one with workspace name
+      const virtualProject = { name: 'global', id: 'global' } as MappingProject
+      downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
+    } else if (format === 'stcm') {
+      const virtualProject = { name: 'global', id: 'global' } as MappingProject
+      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, virtualProject), `global-source-to-concept-map.csv`, 'text/csv')
+    } else {
+      downloadFile(exportToUsagiCsv(exportFilteredMappings), `global-usagi.csv`, 'text/csv')
+    }
+    void workspaceName
+  }
 
   const handleSort = (columnId: string) => {
     if (sorting?.columnId === columnId) {
@@ -870,6 +948,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           <TabsList className="my-2 w-fit">
             <TabsTrigger value="summary">{t('concept_mapping.global_tab_summary')}</TabsTrigger>
             <TabsTrigger value="table">{t('concept_mapping.global_tab_table')}</TabsTrigger>
+            <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
 
@@ -1068,6 +1147,158 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
               <Button variant="ghost" size="icon-sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
                 <ChevronRight size={14} />
               </Button>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ── EXPORT TAB ── */}
+        <TabsContent value="export" className="flex-1 overflow-auto p-4">
+          <div className="mx-auto max-w-3xl space-y-6">
+
+            {/* Group filter */}
+            {exportGroupOptions.length > 0 && (
+              <Card className="p-4">
+                <p className="mb-3 text-sm font-medium">
+                  {t('concept_mapping.global_group_by')}: <span className="font-normal text-muted-foreground">{groupModeLabel}</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {exportGroupOptions.map((opt) => {
+                    const active = exportGroupFilter.has(opt)
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        onClick={() => setExportGroupFilter((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(opt)) next.delete(opt)
+                          else next.add(opt)
+                          return next
+                        })}
+                        className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'}`}
+                      >
+                        {opt}
+                      </button>
+                    )
+                  })}
+                  {exportGroupFilter.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setExportGroupFilter(new Set())}
+                      className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      {t('common.clear')}
+                    </button>
+                  )}
+                </div>
+              </Card>
+            )}
+
+            {/* Status filter */}
+            <Card className="p-4">
+              <p className="mb-3 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+              <div className="space-y-2">
+                {(['approved', 'rejected', 'flagged', 'unchecked', 'ignored'] as MappingStatus[]).map((status) => {
+                  const checked = exportStatuses.has(status)
+                  return (
+                    <div key={status}>
+                      <label className="flex cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => setExportStatuses((prev) => {
+                            const next = new Set(prev)
+                            if (next.has(status)) next.delete(status)
+                            else next.add(status)
+                            return next
+                          })}
+                          className="size-3.5 rounded border-gray-300 accent-primary"
+                        />
+                        <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
+                        <Badge variant="secondary" className="text-[10px]">
+                          {allMappings.filter((m) => effectiveStatus(m) === status).length}
+                        </Badge>
+                      </label>
+                      {status === 'approved' && checked && (
+                        <div className="ml-6 mt-1.5 space-y-1">
+                          {(['at_least_one', 'majority', 'no_rejections'] as const).map((rule) => (
+                            <label key={rule} className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="radio"
+                                name="export-approval-rule"
+                                checked={exportApprovalRule === rule}
+                                onChange={() => setExportApprovalRule(rule)}
+                                className="size-3 accent-primary"
+                              />
+                              <span className="text-[11px] text-muted-foreground">{t(`concept_mapping.export_rule_${rule}`)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-3 border-t pt-3">
+                <p className="text-xs text-muted-foreground">
+                  {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
+                </p>
+              </div>
+            </Card>
+
+            {/* Format cards */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[
+                {
+                  id: 'sssom' as const,
+                  icon: FileCode,
+                  name: t('concept_mapping.export_sssom'),
+                  description: t('concept_mapping.export_sssom_desc'),
+                  ext: 'tsv',
+                  color: 'text-violet-500',
+                  bg: 'bg-violet-50 dark:bg-violet-950/30',
+                },
+                {
+                  id: 'stcm' as const,
+                  icon: FileText,
+                  name: t('concept_mapping.export_stcm'),
+                  description: t('concept_mapping.export_stcm_desc'),
+                  ext: 'csv',
+                  color: 'text-blue-500',
+                  bg: 'bg-blue-50 dark:bg-blue-950/30',
+                },
+                {
+                  id: 'usagi' as const,
+                  icon: FileSpreadsheet,
+                  name: t('concept_mapping.export_usagi'),
+                  description: t('concept_mapping.export_usagi_desc'),
+                  ext: 'csv',
+                  color: 'text-emerald-500',
+                  bg: 'bg-emerald-50 dark:bg-emerald-950/30',
+                },
+              ].map((fmt) => (
+                <Card key={fmt.id} className="flex flex-col justify-between overflow-hidden p-0">
+                  <div className={`flex items-center gap-2.5 px-4 py-3 ${fmt.bg}`}>
+                    <fmt.icon size={16} className={`shrink-0 ${fmt.color}`} />
+                    <span className="text-sm font-medium">{fmt.name}</span>
+                    <Badge variant="outline" className="ml-auto text-[10px]">.{fmt.ext}</Badge>
+                  </div>
+                  <div className="px-4 py-3">
+                    <p className="text-xs text-muted-foreground">{fmt.description}</p>
+                  </div>
+                  <div className="px-4 pb-4">
+                    <Button
+                      className="w-full"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleExportDownload(fmt.id)}
+                      disabled={exportFilteredMappings.length === 0}
+                    >
+                      <Download size={14} />
+                      {t('concept_mapping.export_download')}
+                    </Button>
+                  </div>
+                </Card>
+              ))}
             </div>
           </div>
         </TabsContent>
