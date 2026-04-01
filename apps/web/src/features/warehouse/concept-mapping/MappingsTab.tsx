@@ -153,6 +153,7 @@ interface MappingColumnFilters {
   sourceConceptName?: string
   sourceConceptCode?: string
   sourceVocabularyId?: string | null
+  sourceCategoryId?: string | null
   targetConceptName?: string
   targetConceptId?: string
   targetVocabularyId?: string | null
@@ -181,90 +182,140 @@ function textMatch(text: string, query: string): boolean {
   return t.includes(q) || fuzzyMatch(t, q)
 }
 
-/** Self-contained comment popover — manages its own draft state so the parent
- *  table never re-renders on keystrokes. */
-function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
+/** Sheet showing all comments for a single mapping, with add/edit/delete. */
+function CommentsSheet({ mappingId, open, onOpenChange }: {
+  mappingId: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const [draft, setDraft] = useState('')
-  const commentCount = (mapping.comments ?? []).length
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editText, setEditText] = useState('')
 
-  const handleAdd = () => {
-    const text = draft.trim()
-    if (!text) return
-    const latest = mappings.find((m) => m.id === mapping.id)
-    if (!latest) return
-    const comment: MappingComment = {
-      id: crypto.randomUUID(),
-      authorId: getUserDisplayName(),
-      text,
-      createdAt: new Date().toISOString(),
-    }
-    updateMapping(mapping.id, { comments: [...(latest.comments ?? []), comment] })
-    setDraft('')
-  }
+  const currentUser = getUserDisplayName()
+  const mapping = mappingId ? (mappings.find((m) => m.id === mappingId) ?? null) : null
+  const comments = mapping?.comments ?? []
 
   const formatDate = (iso: string) => {
     const d = new Date(iso)
     return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
   }
 
+  const handleAdd = () => {
+    const text = draft.trim()
+    if (!text || !mapping) return
+    const comment: MappingComment = {
+      id: crypto.randomUUID(),
+      authorId: currentUser,
+      text,
+      createdAt: new Date().toISOString(),
+    }
+    updateMapping(mapping.id, { comments: [...comments, comment] })
+    setDraft('')
+  }
+
+  const handleDelete = (commentId: string) => {
+    if (!mapping) return
+    updateMapping(mapping.id, { comments: comments.filter((c) => c.id !== commentId) })
+  }
+
+  const handleEditSave = (commentId: string) => {
+    const text = editText.trim()
+    if (!text || !mapping) return
+    updateMapping(mapping.id, {
+      comments: comments.map((c) => c.id === commentId ? { ...c, text } : c),
+    })
+    setEditingId(null)
+    setEditText('')
+  }
+
+  if (!mapping) return null
+
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="icon-sm"
-          className="relative size-6"
-          title={t('concept_mapping.comments')}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <MessageSquare size={13} />
-          {commentCount > 0 && (
-            <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-              {commentCount}
-            </span>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="flex w-[480px] flex-col gap-0 p-0 sm:max-w-[480px]">
+        <SheetHeader className="border-b px-4 py-3">
+          <SheetTitle className="text-sm">{t('concept_mapping.comments')}</SheetTitle>
+          <p className="text-xs text-muted-foreground truncate">{mapping.sourceConceptName} → {mapping.targetConceptName}</p>
+        </SheetHeader>
+        <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
+          {comments.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('concept_mapping.no_comments_yet')}</p>
+          ) : (
+            <div className="space-y-2">
+              {comments.map((c) => (
+                <div key={c.id} className="rounded-lg border bg-muted/30 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">{c.authorId}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">{formatDate(c.createdAt)}</span>
+                      {c.authorId === currentUser && editingId !== c.id && (
+                        <>
+                          <button
+                            className="ml-1 text-muted-foreground hover:text-foreground"
+                            title={t('common.edit')}
+                            onClick={() => { setEditingId(c.id); setEditText(c.text) }}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                          <button
+                            className="text-muted-foreground hover:text-destructive"
+                            title={t('common.delete')}
+                            onClick={() => handleDelete(c.id)}
+                          >
+                            <Trash2 size={11} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {editingId === c.id ? (
+                    <div className="mt-1.5 space-y-1.5">
+                      <Textarea
+                        className="text-xs"
+                        rows={2}
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleEditSave(c.id) }
+                          if (e.key === 'Escape') { setEditingId(null); setEditText('') }
+                        }}
+                        autoFocus
+                      />
+                      <div className="flex gap-1.5">
+                        <Button size="sm" className="h-6 text-xs" onClick={() => handleEditSave(c.id)} disabled={!editText.trim()}>{t('common.save')}</Button>
+                        <Button size="sm" variant="outline" className="h-6 text-xs" onClick={() => { setEditingId(null); setEditText('') }}>{t('common.cancel')}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">{c.text}</p>
+                  )}
+                </div>
+              ))}
+            </div>
           )}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 p-3" onClick={(e) => e.stopPropagation()}>
-        <p className="mb-2 text-xs font-medium">{t('concept_mapping.comments')}</p>
-        {commentCount > 0 && (
-          <div className="mb-2 max-h-40 space-y-1.5 overflow-auto">
-            {(mapping.comments ?? []).map((c) => (
-              <div key={c.id} className="rounded-md bg-muted/50 px-2 py-1.5">
-                <p className="text-xs">{c.text}</p>
-                <p className="mt-0.5 text-[9px] text-muted-foreground">
-                  {c.authorId} — {formatDate(c.createdAt)}
-                </p>
-              </div>
-            ))}
+          <div className="rounded-lg border bg-card p-3 space-y-2">
+            <p className="text-xs font-medium">{t('concept_mapping.add_comment')}</p>
+            <Textarea
+              className="text-xs"
+              rows={3}
+              placeholder={t('concept_mapping.comment_placeholder')}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAdd() }
+              }}
+            />
+            <Button size="sm" className="h-7 w-full text-xs" disabled={!draft.trim()} onClick={handleAdd}>
+              {t('concept_mapping.add_comment')}
+            </Button>
           </div>
-        )}
-        <Textarea
-          className="text-xs"
-          rows={2}
-          placeholder={t('concept_mapping.comment_placeholder')}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              handleAdd()
-            }
-          }}
-        />
-        <Button
-          size="sm"
-          className="mt-1.5 h-7 w-full text-xs"
-          disabled={!draft.trim()}
-          onClick={handleAdd}
-        >
-          {t('concept_mapping.add_comment')}
-        </Button>
-      </PopoverContent>
-    </Popover>
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 
@@ -307,7 +358,6 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
     ]
     updateMapping(mapping.id, {
       reviews: newReviews,
-      status: newStatus,
       reviewedBy: newStatus !== 'unchecked' ? currentUser : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
@@ -396,6 +446,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const currentUser = getUserDisplayName()
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
@@ -406,6 +457,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(FILTER_STATUSES))
+  const [commentsMappingId, setCommentsMappingId] = useState<string | null>(null)
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     createdAt: false,
@@ -424,6 +476,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       [...new Set(projectMappings.map(fn))].filter((v): v is string => Boolean(v)).sort()
     return {
       sourceVocabularyId: unique((m) => m.sourceVocabularyId),
+      sourceCategoryId: unique((m) => m.sourceCategoryId),
       targetVocabularyId: unique((m) => m.targetVocabularyId),
       targetDomainId: unique((m) => m.targetDomainId),
       equivalence: unique((m) => m.equivalence),
@@ -456,6 +509,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
     if (f.sourceVocabularyId && m.sourceVocabularyId !== f.sourceVocabularyId) return false
+    if (f.sourceCategoryId && m.sourceCategoryId !== f.sourceCategoryId) return false
     if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId && m.targetVocabularyId !== f.targetVocabularyId) return false
@@ -532,6 +586,9 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (columnId === 'sourceVocabularyId' && filterOptions.sourceVocabularyId.length > 0) {
       return <ColumnFilterSelect value={colFilters.sourceVocabularyId ?? null} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('sourceVocabularyId', v)} />
     }
+    if (columnId === 'sourceCategoryId' && filterOptions.sourceCategoryId.length > 0) {
+      return <ColumnFilterSelect value={colFilters.sourceCategoryId ?? null} options={filterOptions.sourceCategoryId} placeholder="..." onChange={(v) => updateFilter('sourceCategoryId', v)} />
+    }
     if (columnId === 'targetVocabularyId' && filterOptions.targetVocabularyId.length > 0) {
       return <ColumnFilterSelect value={colFilters.targetVocabularyId ?? null} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('targetVocabularyId', v)} />
     }
@@ -579,11 +636,12 @@ export function MappingsTab({ project }: MappingsTabProps) {
   }
 
   /** Toggle review: clicking the same status resets to unchecked. */
-  const handleReview = useCallback((mappingId: string, current: MappingStatus, target: MappingStatus) => {
-    const newStatus = current === target ? 'unchecked' : target
+  const handleReview = useCallback((mappingId: string, target: MappingStatus) => {
     const reviewer = getUserDisplayName()
     const m = mappings.find((x) => x.id === mappingId)
     const prevReviews = m?.reviews ?? []
+    const currentReviewerStatus = prevReviews.find((r) => r.reviewerId === reviewer)?.status ?? 'unchecked'
+    const newStatus = currentReviewerStatus === target ? 'unchecked' : target
     const newReviews = [
       ...prevReviews.filter((r) => r.reviewerId !== reviewer),
       ...(newStatus !== 'unchecked' ? [{
@@ -594,7 +652,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
       }] : []),
     ]
     updateMapping(mappingId, {
-      status: newStatus,
       reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
@@ -684,7 +741,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       // ── Equivalence ─────────────────────────────────────────────────
       {
         id: 'equivalence',
-        header: () => t('concept_mapping.col_equiv'),
+        header: () => t('concept_mapping.col_equivalence'),
         accessorFn: (row) => row.equivalence,
         cell: ({ row }) => {
           const equiv = row.original.equivalence
@@ -786,7 +843,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       // ── Votes ───────────────────────────────────────────────────────
       {
         id: '_votes_approved',
-        header: () => <span className="text-green-600">✓</span>,
+        header: () => <span className="text-green-600" title={t('concept_mapping.approve')}>✓</span>,
         cell: ({ row }) => {
           const count = (row.original.reviews ?? []).filter((r) => r.status === 'approved').length
           return count > 0 ? <span className="text-xs font-medium text-green-600">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
@@ -797,7 +854,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       },
       {
         id: '_votes_flagged',
-        header: () => <span className="text-orange-500">⚑</span>,
+        header: () => <span className="text-orange-500" title={t('concept_mapping.flag')}>⚑</span>,
         cell: ({ row }) => {
           const count = (row.original.reviews ?? []).filter((r) => r.status === 'flagged').length
           return count > 0 ? <span className="text-xs font-medium text-orange-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
@@ -808,7 +865,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       },
       {
         id: '_votes_rejected',
-        header: () => <span className="text-red-500">✗</span>,
+        header: () => <span className="text-red-500" title={t('concept_mapping.reject')}>✗</span>,
         cell: ({ row }) => {
           const count = (row.original.reviews ?? []).filter((r) => r.status === 'rejected').length
           return count > 0 ? <span className="text-xs font-medium text-red-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
@@ -823,12 +880,25 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (!editMode) {
       cols.push({
         id: '_review',
-        header: () => <span className="text-right w-full block">{t('concept_mapping.col_review')}</span>,
+        header: () => t('concept_mapping.col_review'),
         cell: ({ row }) => {
           const m = row.original
           return (
             <span className="flex items-center justify-end gap-1">
-              <CommentPopover mapping={m} />
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
+                title={t('concept_mapping.comments')}
+                onClick={(e) => { e.stopPropagation(); setCommentsMappingId(m.id) }}
+              >
+                <MessageSquare size={12} />
+                {(m.comments ?? []).length > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                    {(m.comments ?? []).length}
+                  </span>
+                )}
+              </Button>
               <Button
                 variant="outline"
                 size="icon-sm"
@@ -843,33 +913,40 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   </span>
                 )}
               </Button>
-              <Button
-                variant={m.status === 'approved' ? 'default' : 'outline'}
-                size="icon-sm"
-                className={`size-6 ${m.status === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
-                title={t('concept_mapping.approve')}
-                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'approved') }}
-              >
-                <Check size={13} />
-              </Button>
-              <Button
-                variant={m.status === 'rejected' ? 'default' : 'outline'}
-                size="icon-sm"
-                className={`size-6 ${m.status === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
-                title={t('concept_mapping.reject')}
-                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'rejected') }}
-              >
-                <X size={13} />
-              </Button>
-              <Button
-                variant={m.status === 'flagged' ? 'default' : 'outline'}
-                size="icon-sm"
-                className={`size-6 ${m.status === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
-                title={t('concept_mapping.flag')}
-                onClick={(e) => { e.stopPropagation(); handleReview(m.id, m.status, 'flagged') }}
-              >
-                <Flag size={13} />
-              </Button>
+              {(() => {
+                const myReview = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
+                return (
+                  <>
+                    <Button
+                      variant={myReview === 'approved' ? 'default' : 'outline'}
+                      size="icon-sm"
+                      className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+                      title={t('concept_mapping.approve')}
+                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'approved') }}
+                    >
+                      <Check size={13} />
+                    </Button>
+                    <Button
+                      variant={myReview === 'rejected' ? 'default' : 'outline'}
+                      size="icon-sm"
+                      className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+                      title={t('concept_mapping.reject')}
+                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'rejected') }}
+                    >
+                      <X size={13} />
+                    </Button>
+                    <Button
+                      variant={myReview === 'flagged' ? 'default' : 'outline'}
+                      size="icon-sm"
+                      className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+                      title={t('concept_mapping.flag')}
+                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'flagged') }}
+                    >
+                      <Flag size={13} />
+                    </Button>
+                  </>
+                )
+              })()}
             </span>
           )
         },
@@ -881,7 +958,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, pageItems])
 
   const table = useReactTable({
     data: pageItems,
@@ -901,6 +978,11 @@ export function MappingsTab({ project }: MappingsTabProps) {
       mappingId={reviewsMappingId}
       open={!!reviewsMappingId}
       onOpenChange={(open) => { if (!open) setReviewsMappingId(null) }}
+    />
+    <CommentsSheet
+      mappingId={commentsMappingId}
+      open={!!commentsMappingId}
+      onOpenChange={(open) => { if (!open) setCommentsMappingId(null) }}
     />
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
@@ -1002,8 +1084,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   return (
                     <TableHead
                       key={header.id}
-                      className="relative select-none text-xs"
-                      style={{ width: header.getSize() }}
+                      className="relative select-none overflow-hidden text-xs"
+                      style={{ width: header.getSize(), maxWidth: header.getSize() }}
                     >
                       {isSortable ? (
                         <button
@@ -1011,9 +1093,18 @@ export function MappingsTab({ project }: MappingsTabProps) {
                           className="flex min-w-0 items-center gap-1 hover:text-foreground"
                           onClick={() => handleSort(colId)}
                         >
-                          <span className="truncate">
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                          </span>
+                          {(() => {
+                            const hDef = header.column.columnDef.header
+                            const label = typeof hDef === 'function'
+                              ? hDef(header.getContext())
+                              : hDef
+                            const titleText = typeof label === 'string' ? label : undefined
+                            return (
+                              <span className="truncate" title={titleText}>
+                                {flexRender(hDef, header.getContext())}
+                              </span>
+                            )
+                          })()}
                           {sortIcon}
                         </button>
                       ) : (

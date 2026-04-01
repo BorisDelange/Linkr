@@ -33,13 +33,15 @@ interface ReferencedCatalog {
   rawBase: string
 }
 
-const REFERENCED_CATALOGS: ReferencedCatalog[] = [
+const REFERENCED_CATALOGS: (ReferencedCatalog & { color: string; textColor: string })[] = [
   {
     id: 'indicate',
     name: 'INDICATE Data Dictionary',
     description: 'concept_mapping.cs_ref_indicate_desc',
     apiUrl: 'https://api.github.com/repos/indicate-eu/data-dictionary-content/contents/concept_sets',
     rawBase: 'https://raw.githubusercontent.com/indicate-eu/data-dictionary-content/main/concept_sets',
+    color: 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800',
+    textColor: 'text-blue-700 dark:text-blue-400',
   },
 ]
 
@@ -357,9 +359,9 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
               {REFERENCED_CATALOGS.map((catalog) => {
                 const isImporting = importingCatalogId === catalog.id
                 return (
-                  <Card key={catalog.id} className="flex items-center gap-4 p-4">
+                  <Card key={catalog.id} className={`flex items-center gap-4 p-4 ${catalog.color}`}>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium">{catalog.name}</p>
+                      <p className={`text-sm font-medium ${catalog.textColor}`}>{catalog.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{t(catalog.description)}</p>
                       {isImporting && catalogProgress && (
                         <div className="mt-2 space-y-1">

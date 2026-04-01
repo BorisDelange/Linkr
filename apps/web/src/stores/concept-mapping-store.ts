@@ -134,7 +134,24 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   activeProjectId: null,
 
   loadProjectMappings: async (projectId) => {
-    const mappings = await getStorage().conceptMappings.getByProject(projectId)
+    const raw = await getStorage().conceptMappings.getByProject(projectId)
+    // Migrate: mappings created before the reviews[] system have status set but no reviews entry.
+    // Synthesize a review from the original mapper so vote counts are correct.
+    const now = new Date().toISOString()
+    const mappings = await Promise.all(raw.map(async (m) => {
+      if ((m.reviews ?? []).length > 0) return m
+      if (!m.status || m.status === 'unchecked') return m
+      const reviewer = m.mappedBy ?? m.reviewedBy ?? 'Unknown'
+      const review = {
+        id: crypto.randomUUID(),
+        reviewerId: reviewer,
+        status: m.status,
+        createdAt: m.reviewedOn ?? m.updatedAt ?? now,
+      }
+      const migrated = { ...m, reviews: [review] }
+      await getStorage().conceptMappings.update(m.id, { reviews: [review] })
+      return migrated
+    }))
     set({ mappings, mappingsLoaded: true, activeProjectId: projectId })
   },
 

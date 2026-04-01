@@ -193,7 +193,8 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
                     cy="50%"
                     innerRadius={50}
                     outerRadius={80}
-                    paddingAngle={2}
+                    paddingAngle={0}
+                    minAngle={2}
                   >
                     {pieData.map((entry, idx) => (
                       <Cell key={idx} fill={entry.color} />

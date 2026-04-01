@@ -755,11 +755,11 @@ export async function seedDemoEtlFiles(): Promise<void> {
 
 const SEED_KEY_CONCEPT_MAPPINGS = 'linkr-demo-concept-mappings-seeded'
 /** Bump this version whenever mimic-iv-concept-mappings.json is updated to force re-seed. */
-const CONCEPT_MAPPINGS_VERSION = 3
+const CONCEPT_MAPPINGS_VERSION = 4
 
 /** Compact mapping row from mimic-iv-concept-mappings.json */
 interface CompactMapping {
-  sn: string; sc: string; sv: string
+  sn: string; sc: string; sv: string; cat?: string
   ti: number; tn: string; tv: string; td: string; tc: string
 }
 
@@ -810,6 +810,7 @@ export async function seedDemoConceptMappings(): Promise<void> {
       sourceVocabularyId: m.sv,
       sourceDomainId: '',
       sourceConceptCode: m.sc,
+      sourceCategoryId: m.cat,
       targetConceptId: m.ti,
       targetConceptName: m.tn,
       targetVocabularyId: m.tv,

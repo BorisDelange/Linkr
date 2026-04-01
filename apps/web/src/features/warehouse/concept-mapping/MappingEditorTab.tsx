@@ -76,6 +76,8 @@ function fileRowsToSourceRows(
       terminology_name: mapping.terminologyColumn ? String(row[mapping.terminologyColumn] ?? '') : undefined,
       domain_id: mapping.domainColumn ? String(row[mapping.domainColumn] ?? '') : undefined,
       concept_class_id: mapping.conceptClassColumn ? String(row[mapping.conceptClassColumn] ?? '') : undefined,
+      category: mapping.categoryColumn ? String(row[mapping.categoryColumn] ?? '') : undefined,
+      subcategory: mapping.subcategoryColumn ? String(row[mapping.subcategoryColumn] ?? '') : undefined,
       record_count: mapping.recordCountColumn ? (Number(row[mapping.recordCountColumn]) || 0) : 0,
       patient_count: mapping.patientCountColumn ? (Number(row[mapping.patientCountColumn]) || 0) : 0,
       info_json: infoJson,
@@ -85,7 +87,7 @@ function fileRowsToSourceRows(
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const isFileSource = project.sourceType === 'file'

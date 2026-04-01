@@ -311,6 +311,34 @@ export function buildResolveMappedQuery(
 // Filter options (distinct values for dropdowns)
 // ---------------------------------------------------------------------------
 
+/**
+ * Build a query to fetch concept_id → category, subcategory for a list of concept IDs.
+ * Used to backfill sourceCategoryId on existing mappings that were created before this field existed.
+ * Returns rows: { concept_id, category?, subcategory? }
+ */
+export function buildConceptCategoryQuery(
+  mapping: SchemaMapping,
+  conceptIds: number[],
+): string {
+  const dicts = mapping.conceptTables ?? []
+  if (dicts.length === 0 || conceptIds.length === 0) return ''
+
+  const idList = conceptIds.join(',')
+  const parts = dicts.map((dict) => {
+    const catCol = dict.categoryColumn ? `d.${dict.categoryColumn} AS category` : 'NULL AS category'
+    const subCol = dict.subcategoryColumn ? `d.${dict.subcategoryColumn} AS subcategory` : 'NULL AS subcategory'
+    let idExpr: string
+    if (dict.idColumn) {
+      idExpr = `d.${dict.idColumn}`
+    } else {
+      idExpr = `(hash(d.${dict.codeColumn ?? 'id'}) % 2147483647)::INTEGER`
+    }
+    return `SELECT ${idExpr} AS concept_id, ${catCol}, ${subCol} FROM ${dict.table} d WHERE ${idExpr} IN (${idList})`
+  })
+
+  return `SELECT concept_id, category, subcategory FROM (${parts.join(' UNION ALL ')}) GROUP BY concept_id, category, subcategory`
+}
+
 export function buildFilterOptionsQuery(
   mapping: SchemaMapping,
   columnAlias: string,

@@ -95,6 +95,10 @@ export interface FileColumnMapping {
   domainColumn?: string
   /** Column containing concept class information. */
   conceptClassColumn?: string
+  /** Column containing category information. */
+  categoryColumn?: string
+  /** Column containing subcategory information. */
+  subcategoryColumn?: string
   /** Column containing a JSON blob with extra concept info (distribution, granularity…). */
   infoJsonColumn?: string
   /** Column containing record count. */
