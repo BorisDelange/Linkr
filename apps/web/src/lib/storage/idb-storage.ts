@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -237,16 +237,37 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
+  source_concept_id_ranges: {
+    /** Composite key: `${workspaceId}__${badgeLabel}` */
+    key: string
+    value: SourceConceptIdRange
+    indexes: {
+      'by-workspace': string
+    }
+  }
+  source_concept_id_entries: {
+    /** Composite key: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}` */
+    key: string
+    value: SourceConceptIdEntry
+    indexes: {
+      'by-workspace-badge': string
+      'by-workspace': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 28
+const DB_VERSION = 29
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
 function getDB(): Promise<IDBPDatabase<LinkrDB>> {
   if (_dbPromise) return _dbPromise
   _dbPromise = openDB<LinkrDB>(DB_NAME, DB_VERSION, {
+    blocked(_currentVersion, _blockedVersion, event) {
+      // Another tab has the DB open at an older version — ask it to close
+      ;(event.target as IDBOpenDBRequest)?.result?.close?.()
+    },
     upgrade(db, oldVersion, _newVersion, transaction) {
       // Version 1: projects
       if (oldVersion < 1) {
@@ -657,6 +678,14 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
             stampRecords('data_sources')
           })
         } catch { /* workspaces store might not exist */ }
+      }
+      // Version 29: Source concept ID registry (OMOP custom IDs > 2B)
+      if (oldVersion < 29) {
+        const rangeStore = db.createObjectStore('source_concept_id_ranges', { keyPath: 'id' })
+        rangeStore.createIndex('by-workspace', 'workspaceId')
+        const entryStore = db.createObjectStore('source_concept_id_entries', { keyPath: 'id' })
+        entryStore.createIndex('by-workspace-badge', 'workspaceBadgeKey')
+        entryStore.createIndex('by-workspace', 'workspaceId')
       }
     },
   })
@@ -1844,6 +1873,79 @@ class IDBServiceMappingStorage implements ServiceMappingStorage {
   }
 }
 
+class IDBSourceConceptIdRangeStorage implements SourceConceptIdRangeStorage {
+  private rangeId(workspaceId: string, badgeLabel: string) {
+    return `${workspaceId}__${badgeLabel}`
+  }
+
+  async getByWorkspace(workspaceId: string): Promise<SourceConceptIdRange[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('source_concept_id_ranges', 'by-workspace', workspaceId)
+  }
+
+  async get(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdRange | undefined> {
+    const db = await getDB()
+    return db.get('source_concept_id_ranges', this.rangeId(workspaceId, badgeLabel))
+  }
+
+  async save(range: SourceConceptIdRange): Promise<void> {
+    const db = await getDB()
+    const id = this.rangeId(range.workspaceId, range.badgeLabel)
+    await db.put('source_concept_id_ranges', { ...range, id })
+  }
+
+  async delete(workspaceId: string, badgeLabel: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('source_concept_id_ranges', this.rangeId(workspaceId, badgeLabel))
+  }
+
+  async deleteByWorkspace(workspaceId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('source_concept_id_ranges', 'by-workspace', workspaceId)
+    const tx = db.transaction('source_concept_id_ranges', 'readwrite')
+    for (const item of items) tx.store.delete((item as SourceConceptIdRange & { id: string }).id)
+    await tx.done
+  }
+}
+
+class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
+  private workspaceBadgeKey(workspaceId: string, badgeLabel: string) {
+    return `${workspaceId}__${badgeLabel}`
+  }
+
+  async getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('source_concept_id_entries', 'by-workspace-badge', this.workspaceBadgeKey(workspaceId, badgeLabel))
+  }
+
+  async get(id: string): Promise<SourceConceptIdEntry | undefined> {
+    const db = await getDB()
+    return db.get('source_concept_id_entries', id)
+  }
+
+  async save(entry: SourceConceptIdEntry): Promise<void> {
+    const db = await getDB()
+    const workspaceBadgeKey = this.workspaceBadgeKey(entry.workspaceId, entry.badgeLabel)
+    await db.put('source_concept_id_entries', { ...entry, workspaceBadgeKey })
+  }
+
+  async deleteByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('source_concept_id_entries', 'by-workspace-badge', this.workspaceBadgeKey(workspaceId, badgeLabel))
+    const tx = db.transaction('source_concept_id_entries', 'readwrite')
+    for (const item of items) tx.store.delete(item.id)
+    await tx.done
+  }
+
+  async deleteByWorkspace(workspaceId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('source_concept_id_entries', 'by-workspace', workspaceId)
+    const tx = db.transaction('source_concept_id_entries', 'readwrite')
+    for (const item of items) tx.store.delete(item.id)
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -1881,5 +1983,7 @@ export function createIDBStorage(): Storage {
     dataCatalogs: new IDBDataCatalogStorage(),
     catalogResults: new IDBCatalogResultStorage(),
     serviceMappings: new IDBServiceMappingStorage(),
+    sourceConceptIdRanges: new IDBSourceConceptIdRangeStorage(),
+    sourceConceptIdEntries: new IDBSourceConceptIdEntryStorage(),
   }
 }

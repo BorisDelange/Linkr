@@ -49,7 +49,8 @@ import {
 import { slugify } from '@/lib/entity-io'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import type { ConceptMapping, MappingProject, MappingStatus } from '@/types'
+import { SourceIdTab } from './SourceIdTab'
+import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
 
 interface GlobalSummaryViewProps {
   onBack: () => void
@@ -119,7 +120,7 @@ function effectiveStatus(m: ConceptMapping): MappingStatus {
 function computeGroupStats(
   mappings: ConceptMapping[],
   projects: MappingProject[],
-  groupMode: 'project' | 'badge' | 'status',
+  groupMode: 'project' | 'badge',
 ): Map<string, GroupStat> {
   const raw = new Map<string, GroupStat>()
 
@@ -141,7 +142,7 @@ function computeGroupStats(
       const labels = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
       keys = labels.length > 0 ? labels : ['Other']
     } else {
-      keys = [effectiveStatus(m)]
+      keys = []
     }
     const eff = effectiveStatus(m)
     for (const key of keys) {
@@ -311,12 +312,13 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   const [allMappings, setAllMappings] = useState<ConceptMapping[]>([])
   const [loadingMappings, setLoadingMappings] = useState(true)
-  const [groupMode, setGroupMode] = useState<'project' | 'badge' | 'status'>('project')
+  const [registryEntries, setRegistryEntries] = useState<SourceConceptIdEntry[]>([])
+  const [groupMode, setGroupMode] = useState<'project' | 'badge'>('project')
   const [activeTab, setActiveTab] = useState('summary')
   const [page, setPage] = useState(0)
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [colFilters, setColFilters] = useState<GlobalTableFilters>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ sourceConceptId: false })
 
   // Export tab state
   const [exportStatuses, setExportStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
@@ -344,7 +346,19 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     setLoadingMappings(false)
   }, [projects])
 
+  // Load registry entries for this workspace (used in table + export)
+  const loadRegistry = useCallback(async () => {
+    if (!activeWorkspaceId) return
+    const ranges = await getStorage().sourceConceptIdRanges.getByWorkspace(activeWorkspaceId)
+    if (ranges.length === 0) { setRegistryEntries([]); return }
+    const all = await Promise.all(
+      ranges.map((r) => getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(activeWorkspaceId, r.badgeLabel)),
+    )
+    setRegistryEntries(all.flat())
+  }, [activeWorkspaceId])
+
   useEffect(() => { loadAllMappings() }, [loadAllMappings])
+  useEffect(() => { loadRegistry() }, [loadRegistry])
 
   const groupStats = useMemo(
     () => computeGroupStats(allMappings, projects, groupMode),
@@ -358,9 +372,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   const getDisplayName = useCallback((key: string) => {
     if (key === '__other__') return 'Other'
-    if (groupMode === 'status') return t(`concept_mapping.status_${key}`)
     return key
-  }, [groupMode, t])
+  }, [])
 
   const totals = useMemo(() => {
     let total = 0, approved = 0, flagged = 0, rejected = 0, unchecked = 0, ignored = 0
@@ -432,14 +445,29 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     return Array.from(map.values())
   }, [allMappings, tableProjectMap, groupMode, colFilters.groupLabels])
 
-  // project/status mode: one row per mapping
+  // Registry lookup: (vocabularyId, conceptCode) → sourceConceptId
+  const registryMap = useMemo(
+    () => new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId])),
+    [registryEntries],
+  )
+
+  // project mode: one row per mapping, with registry-resolved sourceConceptId
   const flatRows = useMemo<GlobalMappingRow[]>(() => {
     if (groupMode === 'badge') return []
-    return allMappings.map((m) => ({
-      ...m,
-      projectName: tableProjectMap.get(m.projectId)?.name ?? m.projectId,
-    }))
-  }, [allMappings, tableProjectMap, groupMode])
+    return allMappings.map((m) => {
+      const proj = tableProjectMap.get(m.projectId)
+      const isArtificialId = proj?.sourceType === 'database'
+        || (proj?.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
+      const resolvedId = isArtificialId && m.sourceVocabularyId && m.sourceConceptCode
+        ? (registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? m.sourceConceptId)
+        : m.sourceConceptId
+      return {
+        ...m,
+        sourceConceptId: resolvedId,
+        projectName: tableProjectMap.get(m.projectId)?.name ?? m.projectId,
+      }
+    })
+  }, [allMappings, tableProjectMap, groupMode, registryMap])
 
   const allEquivs = useMemo(() => {
     const vals = groupMode === 'badge'
@@ -448,12 +476,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     return [...new Set(vals.filter(Boolean) as string[])].sort()
   }, [groupMode, deduplicatedRows, flatRows])
 
-  const allStatuses = useMemo(() =>
-    [...new Set(flatRows.map((r) => r.status).filter(Boolean))].sort(),
-    [flatRows],
-  )
-
-  const allBadgeLabels = useMemo(() => {
+const allBadgeLabels = useMemo(() => {
     const labels = new Set<string>()
     for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
     return Array.from(labels).sort()
@@ -492,7 +515,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const filteredFlat = useMemo(() => {
     const f = colFilters
     return flatRows.filter((r) => {
-      if (f.groupLabels?.size && !f.groupLabels.has(groupMode === 'status' ? r.status : r.projectName)) return false
+      if (f.groupLabels?.size && !f.groupLabels.has(r.projectName)) return false
       if (f.sourceVocabularyId && r.sourceVocabularyId !== f.sourceVocabularyId) return false
       if (f.sourceConceptCode && !(r.sourceConceptCode ?? '').toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
       if (f.sourceConceptName && !r.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
@@ -596,17 +619,15 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   }, [projects, groupMode])
 
   const handleExportDownload = (format: 'sssom' | 'stcm' | 'usagi') => {
-    const workspaceName = slugify(projects[0]?.name ?? 'global')
     if (format === 'sssom') {
-      // SSSOM needs a project — use a virtual one with workspace name
       const virtualProject = { name: 'global', id: 'global' } as MappingProject
       downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
     } else if (format === 'stcm') {
-      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, projects), `global-source-to-concept-map.csv`, 'text/csv')
+      const entries = registryEntries.length > 0 ? registryEntries : undefined
+      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, projects, entries), `global-source-to-concept-map.csv`, 'text/csv')
     } else {
       downloadFile(exportToUsagiCsv(exportFilteredMappings), `global-usagi.csv`, 'text/csv')
     }
-    void workspaceName
   }
 
   const handleSort = (columnId: string) => {
@@ -744,8 +765,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const flatColumns = useMemo<ColumnDef<GlobalMappingRow>[]>(() => [
     {
       id: 'groupLabel',
-      header: () => groupMode === 'project' ? t('concept_mapping.global_project_col') : t('concept_mapping.col_status'),
-      accessorFn: (r) => groupMode === 'project' ? r.projectName : effectiveStatus(r),
+      header: () => t('concept_mapping.global_project_col'),
+      accessorFn: (r) => r.projectName,
       cell: ({ row }) => {
         const eff = effectiveStatus(row.original)
         return groupMode === 'project'
@@ -762,6 +783,13 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       header: () => t('concept_mapping.col_source_vocabulary'),
       accessorFn: (r) => r.sourceVocabularyId,
       cell: ({ row }) => <span className="truncate text-xs text-muted-foreground">{row.original.sourceVocabularyId}</span>,
+      size: 90,
+    },
+    {
+      id: 'sourceConceptId',
+      header: () => t('concept_mapping.col_source_concept_id'),
+      accessorFn: (r) => r.sourceConceptId,
+      cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{row.original.sourceConceptId}</span>,
       size: 90,
     },
     {
@@ -881,12 +909,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
           : null
       }
-      if (groupMode === 'status') {
-        const opts = allStatuses.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))
-        return opts.length > 0
-          ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
-          : null
-      }
       // project mode
       const opts = [...new Set(flatRows.map((r) => r.projectName))].sort().map((n) => ({ value: n, label: n }))
       return opts.length > 0
@@ -973,7 +995,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             <SelectContent>
               <SelectItem value="project" className="text-xs">{t('concept_mapping.global_group_by_project')}</SelectItem>
               <SelectItem value="badge" className="text-xs">{t('concept_mapping.global_badge')}</SelectItem>
-              <SelectItem value="status" className="text-xs">{t('concept_mapping.col_status')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -987,6 +1008,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           <TabsList className="my-2 w-fit">
             <TabsTrigger value="summary">{t('concept_mapping.global_tab_summary')}</TabsTrigger>
             <TabsTrigger value="table">{t('concept_mapping.global_tab_table')}</TabsTrigger>
+            <TabsTrigger value="source-ids">{t('concept_mapping.global_tab_source_ids')}</TabsTrigger>
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
@@ -1340,6 +1362,17 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
               ))}
             </div>
           </div>
+        </TabsContent>
+
+        {/* ── SOURCE IDs TAB ── */}
+        <TabsContent value="source-ids" className="flex-1 overflow-hidden">
+          {activeWorkspaceId && (
+            <SourceIdTab
+              workspaceId={activeWorkspaceId}
+              projects={projects}
+              allMappings={allMappings}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>

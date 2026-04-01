@@ -256,3 +256,40 @@ export interface ConceptMapping {
   createdAt: string
   updatedAt: string
 }
+
+// --- Source Concept ID Registry (OMOP custom IDs > 2,000,000,000) ---
+
+/**
+ * Range configuration for one badge label in the source concept ID registry.
+ * IDs are assigned deterministically by (vocabularyId, conceptCode) within the range.
+ */
+export interface SourceConceptIdRange {
+  /** Workspace this range belongs to. */
+  workspaceId: string
+  /** Badge label this range is for (e.g. "Rennes", "Nantes"). */
+  badgeLabel: string
+  /** Inclusive start of the range (must be > 2,000,000,000). */
+  rangeStart: number
+  /** Inclusive end of the range. */
+  rangeEnd: number
+  /** Next available ID to assign within this range. */
+  nextId: number
+  createdAt: string
+  updatedAt: string
+}
+
+/**
+ * A single entry in the source concept ID registry.
+ * Maps a (workspaceId, badgeLabel, vocabularyId, conceptCode) tuple to a stable custom source_concept_id.
+ * Key: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`
+ */
+export interface SourceConceptIdEntry {
+  /** Composite key: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}` */
+  id: string
+  workspaceId: string
+  badgeLabel: string
+  vocabularyId: string
+  conceptCode: string
+  sourceConceptId: number
+  createdAt: string
+}

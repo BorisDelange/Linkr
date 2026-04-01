@@ -1,4 +1,4 @@
-import type { ConceptMapping, MappingProject, ConceptSet, FileColumnMapping } from '@/types'
+import type { ConceptMapping, MappingProject, ConceptSet, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -125,10 +125,20 @@ export function exportToUsagiCsv(
  * Export approved mappings as OMOP source_to_concept_map CSV.
  * Ready for ETL import into an OMOP CDM target database.
  */
-export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?: MappingProject | MappingProject[]): string {
+export function exportToSourceToConceptMap(
+  mappings: ConceptMapping[],
+  project?: MappingProject | MappingProject[],
+  /** Optional registry entries — if provided, used to resolve source_concept_id for file projects without a conceptIdColumn */
+  registryEntries?: SourceConceptIdEntry[],
+): string {
   // Build a per-project lookup when multiple projects are passed (global summary export)
   const projectMap = Array.isArray(project)
     ? new Map(project.map((p) => [p.id, p]))
+    : null
+
+  // Build registry lookup: (vocabularyId, conceptCode) → sourceConceptId
+  const registryMap = registryEntries
+    ? new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
     : null
 
   const header = [
@@ -140,13 +150,22 @@ export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?:
   const rows = mappings.map((m) => {
     // Resolve the project for this mapping
     const resolvedProject = projectMap ? projectMap.get(m.projectId) : project as MappingProject | undefined
-    // For file-based projects without a conceptIdColumn, sourceConceptId is an artificial index — export 0 per OMOP convention
-    const useRealSourceConceptId = !(
-      resolvedProject?.sourceType === 'file' && !resolvedProject.fileSourceData?.columnMapping?.conceptIdColumn
-    )
+    // File project without conceptIdColumn: artificial index — try registry, fallback to 0
+    // Artificial ID = file project without conceptIdColumn, OR database project (non-OMOP source)
+    // In both cases, use registry if available, fallback to 0
+    const isArtificialId = resolvedProject?.sourceType === 'database'
+      || (resolvedProject?.sourceType === 'file' && !resolvedProject.fileSourceData?.columnMapping?.conceptIdColumn)
+    let sourceConceptId: number
+    if (!isArtificialId) {
+      sourceConceptId = m.sourceConceptId
+    } else if (registryMap && m.sourceVocabularyId && m.sourceConceptCode) {
+      sourceConceptId = registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? 0
+    } else {
+      sourceConceptId = 0
+    }
     return [
       csvEscape(m.sourceConceptCode),
-      csvEscape(useRealSourceConceptId ? m.sourceConceptId : 0),
+      csvEscape(sourceConceptId),
       csvEscape(m.sourceVocabularyId),
       csvEscape(m.sourceConceptName),
       csvEscape(m.targetConceptId),

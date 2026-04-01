@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -332,6 +332,24 @@ export interface ServiceMappingStorage {
   delete(id: string): Promise<void>
 }
 
+/** Storage interface for source concept ID ranges (OMOP custom IDs > 2B, one per badge label). */
+export interface SourceConceptIdRangeStorage {
+  getByWorkspace(workspaceId: string): Promise<SourceConceptIdRange[]>
+  get(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdRange | undefined>
+  save(range: SourceConceptIdRange): Promise<void>
+  delete(workspaceId: string, badgeLabel: string): Promise<void>
+  deleteByWorkspace(workspaceId: string): Promise<void>
+}
+
+/** Storage interface for source concept ID registry entries. */
+export interface SourceConceptIdEntryStorage {
+  getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]>
+  get(id: string): Promise<SourceConceptIdEntry | undefined>
+  save(entry: SourceConceptIdEntry): Promise<void>
+  deleteByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<void>
+  deleteByWorkspace(workspaceId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -369,6 +387,8 @@ export interface Storage {
   dataCatalogs: DataCatalogStorage
   catalogResults: CatalogResultStorage
   serviceMappings: ServiceMappingStorage
+  sourceConceptIdRanges: SourceConceptIdRangeStorage
+  sourceConceptIdEntries: SourceConceptIdEntryStorage
 }
 
 let _storage: Storage | null = null

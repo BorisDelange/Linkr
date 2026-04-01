@@ -16,6 +16,7 @@ import {
   downloadFile,
 } from '@/lib/concept-mapping/export'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
+import { getStorage } from '@/lib/storage'
 import { Table2 } from 'lucide-react'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
@@ -121,7 +122,19 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       mime: 'text/csv',
       color: 'text-blue-500',
       bg: 'bg-blue-50 dark:bg-blue-950/30',
-      generate: () => exportToSourceToConceptMap(filteredMappings, project),
+      generate: async () => {
+        // Load registry entries for the project's badge labels
+        const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+        let registryEntries = undefined
+        if (badgeLabels.length > 0 && project.workspaceId) {
+          const allEntries = await Promise.all(
+            badgeLabels.map((label) => getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(project.workspaceId, label)),
+          )
+          const flat = allEntries.flat()
+          if (flat.length > 0) registryEntries = flat
+        }
+        return exportToSourceToConceptMap(filteredMappings, project, registryEntries)
+      },
     },
     {
       id: 'usagi',
@@ -153,8 +166,8 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }] : []),
   ]
 
-  const handleDownload = (format: (typeof formats)[number]) => {
-    const content = format.generate()
+  const handleDownload = async (format: (typeof formats)[number]) => {
+    const content = await format.generate()
     const filename = `${slug}-${format.id}.${format.ext}`
     downloadFile(content, filename, format.mime)
   }
