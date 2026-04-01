@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -10,7 +10,7 @@ import {
 import {
   Check, Flag, X, MessageSquare, EyeOff,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
-  Settings2, ArrowUpDown, ArrowUp, ArrowDown,
+  Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -52,10 +52,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
-import type { MappingProject, ConceptMapping, MappingComment, MappingStatus } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -113,23 +119,29 @@ function ColumnFilterSelect({
   onChange,
 }: {
   value: string | null
-  options: string[]
+  options: string[] | { value: string; label: string }[]
   placeholder: string
   onChange: (v: string | null) => void
 }) {
   const { t } = useTranslation()
+  const normalized = options.map((o) =>
+    typeof o === 'string' ? { value: o, label: o } : o,
+  )
+  const selectedLabel = normalized.find((o) => o.value === value)?.label ?? value
   return (
     <Select
       value={value ?? '__all__'}
       onValueChange={(v) => onChange(v === '__all__' ? null : v)}
     >
       <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
+        <SelectValue placeholder={placeholder}>
+          {value ? selectedLabel : undefined}
+        </SelectValue>
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
+        {normalized.map((opt) => (
+          <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
         ))}
       </SelectContent>
     </Select>
@@ -254,6 +266,130 @@ function CommentPopover({ mapping }: { mapping: ConceptMapping }) {
   )
 }
 
+/** Sheet showing all reviewer opinions for a single mapping. */
+function ReviewsSheet({ mappingId, open, onOpenChange }: {
+  mappingId: string | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const { mappings, updateMapping } = useConceptMappingStore()
+  const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+
+  // Always read from live store so reviews appear immediately after save
+  const mapping = mappingId ? (mappings.find((m) => m.id === mappingId) ?? null) : null
+
+  const currentUser = getUserDisplayName()
+  const reviews = mapping?.reviews ?? []
+  const myReview = reviews.find((r) => r.reviewerId === currentUser)
+
+  // Préremplir le commentaire avec la valeur existante de mon review
+  const [comment, setComment] = useState(myReview?.comment ?? '')
+  useEffect(() => {
+    setComment(myReview?.comment ?? '')
+  }, [myReview?.comment, mappingId])
+
+  if (!mapping) return null
+
+  const handleReview = (status: MappingStatus) => {
+    const newStatus = myReview?.status === status ? 'unchecked' : status
+    const newReviews: MappingReview[] = [
+      ...reviews.filter((r) => r.reviewerId !== currentUser),
+      ...(newStatus !== 'unchecked' ? [{
+        id: myReview?.id ?? crypto.randomUUID(),
+        reviewerId: currentUser,
+        status: newStatus,
+        comment: comment.trim() || undefined,
+        createdAt: new Date().toISOString(),
+      }] : []),
+    ]
+    updateMapping(mapping.id, {
+      reviews: newReviews,
+      status: newStatus,
+      reviewedBy: newStatus !== 'unchecked' ? currentUser : undefined,
+      reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
+    })
+  }
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso)
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="flex w-[480px] flex-col gap-0 p-0 sm:max-w-[480px]">
+        <SheetHeader className="border-b px-4 py-3">
+          <SheetTitle className="text-sm">{t('concept_mapping.reviews_title')}</SheetTitle>
+          <p className="text-xs text-muted-foreground truncate">{mapping.sourceConceptName} → {mapping.targetConceptName}</p>
+        </SheetHeader>
+        <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
+          {/* Existing reviews */}
+          {reviews.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('concept_mapping.no_reviews_yet')}</p>
+          ) : (
+            <div className="space-y-2">
+              {reviews.map((r) => (
+                <div key={r.id} className="rounded-lg border bg-muted/30 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">{r.reviewerId}</span>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_BADGE[r.status] ?? ''}`}>
+                      {t(`concept_mapping.status_${r.status}`)}
+                    </span>
+                  </div>
+                  {r.comment && <p className="mt-1 text-xs text-muted-foreground">{r.comment}</p>}
+                  <p className="mt-1 text-[10px] text-muted-foreground">{formatDate(r.createdAt)}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* My review form */}
+          <div className="rounded-lg border bg-card p-3 space-y-2">
+            <p className="text-xs font-medium">{t('concept_mapping.my_review')} <span className="font-normal text-muted-foreground">({currentUser})</span></p>
+            <Textarea
+              className="text-xs"
+              rows={2}
+              placeholder={t('concept_mapping.review_comment_placeholder')}
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
+            <div className="grid grid-cols-3 gap-1.5">
+              <Button
+                size="sm"
+                className={`h-8 text-xs gap-1 ${myReview?.status === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
+                variant={myReview?.status === 'approved' ? 'default' : 'outline'}
+                onClick={() => handleReview('approved')}
+              >
+                <Check size={12} />
+                {t('concept_mapping.approve')}
+              </Button>
+              <Button
+                size="sm"
+                className={`h-8 text-xs gap-1 ${myReview?.status === 'rejected' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
+                variant={myReview?.status === 'rejected' ? 'default' : 'outline'}
+                onClick={() => handleReview('rejected')}
+              >
+                <X size={12} />
+                {t('concept_mapping.reject')}
+              </Button>
+              <Button
+                size="sm"
+                className={`h-8 text-xs gap-1 ${myReview?.status === 'flagged' ? 'bg-orange-500 hover:bg-orange-600 text-white' : ''}`}
+                variant={myReview?.status === 'flagged' ? 'default' : 'outline'}
+                onClick={() => handleReview('flagged')}
+              >
+                <Flag size={12} />
+                {t('concept_mapping.flag')}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
@@ -265,6 +401,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const [editMode, setEditMode] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     createdAt: false,
     sourceCategoryId: false,
@@ -368,10 +505,12 @@ export function MappingsTab({ project }: MappingsTabProps) {
       return <ColumnFilterSelect value={colFilters.targetDomainId ?? null} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateFilter('targetDomainId', v)} />
     }
     if (columnId === 'status' && filterOptions.status.length > 0) {
-      return <ColumnFilterSelect value={colFilters.status ?? null} options={filterOptions.status} placeholder="Status" onChange={(v) => updateFilter('status', v)} />
+      const statusOptions = filterOptions.status.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))
+      return <ColumnFilterSelect value={colFilters.status ?? null} options={statusOptions} placeholder="Status" onChange={(v) => updateFilter('status', v)} />
     }
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
-      return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={filterOptions.equivalence} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
+      const equivOptions = filterOptions.equivalence.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e }))
+      return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={equivOptions} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
     }
     return null
   }
@@ -626,8 +765,22 @@ export function MappingsTab({ project }: MappingsTabProps) {
         cell: ({ row }) => {
           const m = row.original
           return (
-            <span className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100">
+            <span className="flex items-center justify-end gap-1">
               <CommentPopover mapping={m} />
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className={`relative size-6 ${(m.reviews ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
+                title={t('concept_mapping.reviews_title')}
+                onClick={(e) => { e.stopPropagation(); setReviewsMappingId(m.id) }}
+              >
+                <Users size={12} />
+                {(m.reviews ?? []).length > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                    {(m.reviews ?? []).length}
+                  </span>
+                )}
+              </Button>
               <Button
                 variant={m.status === 'approved' ? 'default' : 'outline'}
                 size="icon-sm"
@@ -658,15 +811,15 @@ export function MappingsTab({ project }: MappingsTabProps) {
             </span>
           )
         },
-        size: 130,
-        minSize: 130,
+        size: 160,
+        minSize: 160,
         enableResizing: false,
       })
     }
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId])
 
   const table = useReactTable({
     data: pageItems,
@@ -681,6 +834,12 @@ export function MappingsTab({ project }: MappingsTabProps) {
   })
 
   return (
+    <>
+    <ReviewsSheet
+      mappingId={reviewsMappingId}
+      open={!!reviewsMappingId}
+      onOpenChange={(open) => { if (!open) setReviewsMappingId(null) }}
+    />
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
@@ -879,5 +1038,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </>
   )
 }

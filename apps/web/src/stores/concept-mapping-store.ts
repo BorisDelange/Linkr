@@ -32,6 +32,10 @@ interface ConceptMappingState {
   updateMapping: (id: string, changes: Partial<ConceptMapping>) => Promise<void>
   deleteMapping: (id: string) => Promise<void>
   bulkUpdateStatus: (ids: string[], status: MappingStatus, updatedBy?: string) => Promise<void>
+  /** Re-anchor mappings to new file rows after a file update.
+   *  Matches by (conceptCode + vocabulary) first, then conceptId.
+   *  Returns the number of mappings updated. */
+  reconcileMappingsToFile: (projectId: string, newRows: import('@/types').FileSourceData) => Promise<number>
 
   // --- Stats ---
   recomputeProjectStats: (projectId: string) => Promise<MappingProjectStats>
@@ -170,6 +174,53 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         ids.includes(m.id) ? { ...m, ...changes, updatedAt: now } : m,
       ),
     }))
+  },
+
+  reconcileMappingsToFile: async (projectId, newFileData) => {
+    const { columnMapping, rows } = newFileData
+    const now = new Date().toISOString()
+
+    // Build lookup maps from new file rows
+    // Key 1: "code::vocabulary" (most stable)
+    // Key 2: numeric conceptId from the id column
+    const byCodeVocab = new Map<string, number>()
+    const byConceptId = new Map<number, number>()
+
+    rows.forEach((row, index) => {
+      const newId = columnMapping.conceptIdColumn
+        ? Number(row[columnMapping.conceptIdColumn]) || index + 1
+        : index + 1
+      const code = columnMapping.conceptCodeColumn ? String(row[columnMapping.conceptCodeColumn] ?? '') : ''
+      const vocab = columnMapping.terminologyColumn ? String(row[columnMapping.terminologyColumn] ?? '') : ''
+
+      if (code) byCodeVocab.set(`${code}::${vocab}`, newId)
+      if (columnMapping.conceptIdColumn && Number(row[columnMapping.conceptIdColumn])) {
+        byConceptId.set(Number(row[columnMapping.conceptIdColumn]), newId)
+      }
+    })
+
+    const existingMappings = await getStorage().conceptMappings.getByProject(projectId)
+    let updatedCount = 0
+
+    for (const mapping of existingMappings) {
+      const codeKey = `${mapping.sourceConceptCode ?? ''}::${mapping.sourceVocabularyId ?? ''}`
+      const newId =
+        (mapping.sourceConceptCode ? byCodeVocab.get(codeKey) : undefined) ??
+        byConceptId.get(mapping.sourceConceptId)
+
+      if (newId !== undefined && newId !== mapping.sourceConceptId) {
+        await getStorage().conceptMappings.update(mapping.id, { sourceConceptId: newId, updatedAt: now })
+        updatedCount++
+      }
+    }
+
+    // Reload mappings if this is the active project
+    if (get().activeProjectId === projectId) {
+      const refreshed = await getStorage().conceptMappings.getByProject(projectId)
+      set({ mappings: refreshed })
+    }
+
+    return updatedCount
   },
 
   // --- Stats ---

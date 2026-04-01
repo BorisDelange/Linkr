@@ -23,6 +23,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const navigate = useNavigate()
   const { wsUid } = useParams()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('progress')
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
@@ -104,27 +105,27 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
       </div>
 
       {/* Tabs — centered */}
-      <Tabs defaultValue="editor" className="flex flex-1 flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
         <div className="flex justify-center">
           <TabsList className="mt-2 mb-0 w-fit">
+            <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
             <TabsTrigger value="concept-sets">{t('concept_mapping.tab_concept_sets')}</TabsTrigger>
             <TabsTrigger value="editor">{t('concept_mapping.tab_editor')}</TabsTrigger>
             <TabsTrigger value="mappings">{t('concept_mapping.tab_mappings')}</TabsTrigger>
-            <TabsTrigger value="progress">{t('concept_mapping.tab_progress')}</TabsTrigger>
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
+        <TabsContent value="progress" className="flex-1 overflow-hidden">
+          <ProgressTab project={project} dataSource={dataSource} />
+        </TabsContent>
         <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
           <ConceptSetsTab project={project} dataSource={dataSource} />
         </TabsContent>
         <TabsContent value="editor" className="flex-1 overflow-hidden">
-          <MappingEditorTab project={project} dataSource={dataSource} />
+          <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
         </TabsContent>
         <TabsContent value="mappings" className="flex-1 overflow-hidden">
           <MappingsTab project={project} />
-        </TabsContent>
-        <TabsContent value="progress" className="flex-1 overflow-hidden">
-          <ProgressTab project={project} dataSource={dataSource} />
         </TabsContent>
         <TabsContent value="export" className="flex-1 overflow-hidden">
           <ExportTab project={project} />

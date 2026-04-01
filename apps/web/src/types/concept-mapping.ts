@@ -190,6 +190,17 @@ export interface MappingComment {
   createdAt: string
 }
 
+// --- Mapping Review ---
+
+/** A single reviewer's opinion on a concept mapping. */
+export interface MappingReview {
+  id: string
+  reviewerId: string
+  status: MappingStatus
+  comment?: string
+  createdAt: string
+}
+
 // --- Concept Mapping ---
 
 /** A single source → target concept mapping. */
@@ -227,6 +238,8 @@ export interface ConceptMapping {
   comment?: string
   /** Threaded comments (mapping + review). */
   comments?: MappingComment[]
+  /** Multi-reviewer opinions on this mapping. */
+  reviews?: MappingReview[]
   // Provenance
   mappedBy?: string
   mappedOn?: string

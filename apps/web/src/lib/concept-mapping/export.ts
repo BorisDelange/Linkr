@@ -106,7 +106,12 @@ export function exportToUsagiCsv(
  * Export approved mappings as OMOP source_to_concept_map CSV.
  * Ready for ETL import into an OMOP CDM target database.
  */
-export function exportToSourceToConceptMap(mappings: ConceptMapping[]): string {
+export function exportToSourceToConceptMap(mappings: ConceptMapping[], project?: MappingProject): string {
+  // For file-based projects without a conceptIdColumn, sourceConceptId is an artificial index — export 0 per OMOP convention
+  const useRealSourceConceptId = !(
+    project?.sourceType === 'file' && !project.fileSourceData?.columnMapping?.conceptIdColumn
+  )
+
   const header = [
     'source_code', 'source_concept_id', 'source_vocabulary_id',
     'source_code_description', 'target_concept_id', 'target_vocabulary_id',
@@ -115,7 +120,7 @@ export function exportToSourceToConceptMap(mappings: ConceptMapping[]): string {
 
   const rows = mappings.map((m) => [
     csvEscape(m.sourceConceptCode),
-    csvEscape(m.sourceConceptId),
+    csvEscape(useRealSourceConceptId ? m.sourceConceptId : 0),
     csvEscape(m.sourceVocabularyId),
     csvEscape(m.sourceConceptName),
     csvEscape(m.targetConceptId),

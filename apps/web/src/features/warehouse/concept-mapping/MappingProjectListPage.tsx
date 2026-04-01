@@ -6,8 +6,15 @@ import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
+import { downloadBlob, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
+import {
+  exportToUsagiCsv,
+  exportToSourceToConceptMap,
+  exportToSssomTsv,
+  exportSourceConceptsCsv,
+} from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
@@ -46,14 +53,29 @@ export function MappingProjectListPage() {
     const allSets = await getStorage().conceptSets.getAll()
     const conceptSets = allSets.filter((cs) => project.conceptSetIds.includes(cs.id))
     const mappings = await getStorage().conceptMappings.getByProject(project.id)
-    await exportEntityZip(
-      [
-        { filename: 'project.json', data: project },
-        { filename: 'concept-sets.json', data: conceptSets },
-        { filename: 'mappings.json', data: mappings },
-      ],
-      `${slugify(project.name)}-${timestamp()}.zip`,
-    )
+
+    const zip = new JSZip()
+    // JSON files for re-import
+    zip.file('project.json', JSON.stringify(project, null, 2))
+    zip.file('concept-sets.json', JSON.stringify(conceptSets, null, 2))
+    zip.file('mappings.json', JSON.stringify(mappings, null, 2))
+    // Export format files for visualization / git
+    zip.file(`${slugify(project.name)}-sssom.tsv`, exportToSssomTsv(mappings, project))
+    zip.file(`${slugify(project.name)}-source-to-concept-map.csv`, exportToSourceToConceptMap(mappings, project))
+    zip.file(`${slugify(project.name)}-usagi.csv`, exportToUsagiCsv(mappings))
+    if (project.sourceType === 'file' && project.fileSourceData) {
+      zip.file(
+        `${slugify(project.name)}-source-concepts.csv`,
+        exportSourceConceptsCsv(
+          project.fileSourceData.rows,
+          project.fileSourceData.columns,
+          project.fileSourceData.columnMapping,
+        ),
+      )
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
   }, [])
 
   const handleImport = useCallback(async (file: File) => {

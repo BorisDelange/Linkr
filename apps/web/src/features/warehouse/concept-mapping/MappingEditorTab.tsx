@@ -37,6 +37,7 @@ export interface SourceConceptRow {
 interface MappingEditorTabProps {
   project: MappingProject
   dataSource?: DataSource
+  onGoToConceptSets?: () => void
 }
 
 const PAGE_SIZE = 50
@@ -82,7 +83,7 @@ function fileRowsToSourceRows(
   })
 }
 
-export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps) {
+export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
   const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -439,6 +440,7 @@ export function MappingEditorTab({ project, dataSource }: MappingEditorTabProps)
             dataSource={dataSource}
             sourceConcept={selectedRow ?? null}
             ignoredConceptIds={ignoredConceptIds}
+            onGoToConceptSets={onGoToConceptSets}
           />
         </Allotment.Pane>
       </Allotment>

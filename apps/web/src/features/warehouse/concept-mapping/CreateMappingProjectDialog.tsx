@@ -66,7 +66,7 @@ export function CreateMappingProjectDialog({
   const { t } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const { createMappingProject, updateMappingProject } = useConceptMappingStore()
+  const { createMappingProject, updateMappingProject, reconcileMappingsToFile } = useConceptMappingStore()
 
   // --- Common fields ---
   const [name, setName] = useState('')
@@ -358,13 +358,19 @@ export function CreateMappingProjectDialog({
         changes.dataSourceId = dataSourceId
         changes.fileSourceData = undefined
       } else {
-        changes.dataSourceId = ''
-        changes.fileSourceData = {
+        const newFileData = {
           fileName: file?.name ?? editingProject.fileSourceData?.fileName ?? '',
           rows: parsedRows.length > 0 ? parsedRows : editingProject.fileSourceData?.rows ?? [],
           columns: parsedColumns.length > 0 ? parsedColumns : editingProject.fileSourceData?.columns ?? [],
           columnMapping,
           parseOptions: buildParseOptions(),
+        }
+        changes.dataSourceId = ''
+        changes.fileSourceData = newFileData
+
+        // If a new file was uploaded, reconcile existing mappings to new row positions
+        if (file && parsedRows.length > 0) {
+          await reconcileMappingsToFile(editingProject.id, newFileData)
         }
       }
       await updateMappingProject(editingProject.id, changes)

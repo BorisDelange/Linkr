@@ -101,6 +101,8 @@ export function ExportTab({ project }: ExportTabProps) {
       description: t('concept_mapping.export_sssom_desc'),
       ext: 'tsv',
       mime: 'text/tab-separated-values',
+      color: 'text-violet-500',
+      bg: 'bg-violet-50 dark:bg-violet-950/30',
       generate: () => exportToSssomTsv(filteredMappings, project),
     },
     {
@@ -110,7 +112,9 @@ export function ExportTab({ project }: ExportTabProps) {
       description: t('concept_mapping.export_stcm_desc'),
       ext: 'csv',
       mime: 'text/csv',
-      generate: () => exportToSourceToConceptMap(filteredMappings),
+      color: 'text-blue-500',
+      bg: 'bg-blue-50 dark:bg-blue-950/30',
+      generate: () => exportToSourceToConceptMap(filteredMappings, project),
     },
     {
       id: 'usagi',
@@ -119,6 +123,8 @@ export function ExportTab({ project }: ExportTabProps) {
       description: t('concept_mapping.export_usagi_desc'),
       ext: 'csv',
       mime: 'text/csv',
+      color: 'text-emerald-500',
+      bg: 'bg-emerald-50 dark:bg-emerald-950/30',
       generate: () => exportToUsagiCsv(filteredMappings),
     },
     // Source concepts CSV — only for file-based projects
@@ -129,6 +135,8 @@ export function ExportTab({ project }: ExportTabProps) {
       description: t('concept_mapping.export_source_csv_desc'),
       ext: 'csv',
       mime: 'text/csv',
+      color: 'text-amber-500',
+      bg: 'bg-amber-50 dark:bg-amber-950/30',
       generate: () => exportSourceConceptsCsv(
         project.fileSourceData!.rows,
         project.fileSourceData!.columns,
@@ -206,25 +214,27 @@ export function ExportTab({ project }: ExportTabProps) {
         {/* Format cards */}
         <div className="grid gap-3 sm:grid-cols-2">
           {formats.map((format) => (
-            <Card key={format.id} className="flex flex-col justify-between p-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <format.icon size={18} className="shrink-0 text-muted-foreground" />
-                  <span className="text-sm font-medium">{format.name}</span>
-                  <Badge variant="outline" className="text-[10px]">.{format.ext}</Badge>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">{format.description}</p>
+            <Card key={format.id} className="flex flex-col justify-between overflow-hidden p-0">
+              <div className={`flex items-center gap-2.5 px-4 py-3 ${format.bg}`}>
+                <format.icon size={16} className={`shrink-0 ${format.color}`} />
+                <span className="text-sm font-medium">{format.name}</span>
+                <Badge variant="outline" className="text-[10px] ml-auto">.{format.ext}</Badge>
               </div>
-              <Button
-                className="mt-4 w-full"
-                variant="outline"
-                size="sm"
-                onClick={() => handleDownload(format)}
-                disabled={totalExportCount === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
-              >
-                <Download size={14} />
-                {t('concept_mapping.export_download')}
-              </Button>
+              <div className="px-4 py-3">
+                <p className="text-xs text-muted-foreground">{format.description}</p>
+              </div>
+              <div className="px-4 pb-4">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleDownload(format)}
+                  disabled={totalExportCount === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
+                >
+                  <Download size={14} />
+                  {t('concept_mapping.export_download')}
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

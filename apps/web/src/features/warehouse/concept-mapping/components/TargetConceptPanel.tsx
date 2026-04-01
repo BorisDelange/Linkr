@@ -59,6 +59,7 @@ interface TargetConceptPanelProps {
   sourceConcept: SourceConceptRow | null
   /** Set of source concept IDs marked as ignored (derived from mappings). */
   ignoredConceptIds: Set<number>
+  onGoToConceptSets?: () => void
 }
 
 interface SearchResult {
@@ -127,7 +128,7 @@ function textMatch(text: string, query: string): boolean {
   return t.includes(q) || fuzzyMatch(t, q)
 }
 
-export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds }: TargetConceptPanelProps) {
+export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
@@ -716,8 +717,23 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <TableBody>
             {csFullPageItems.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={csTable.getVisibleLeafColumns().length} className="h-32 text-center">
-                  <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
+                <TableCell colSpan={csTable.getVisibleLeafColumns().length} className="h-40 text-center">
+                  {linkedSets.length === 0 ? (
+                    <div className="flex flex-col items-center gap-2 px-4">
+                      <p className="text-xs text-muted-foreground">{t('concept_mapping.no_concept_sets_hint')}</p>
+                      {onGoToConceptSets && (
+                        <button
+                          type="button"
+                          onClick={onGoToConceptSets}
+                          className="text-xs text-primary underline-offset-2 hover:underline"
+                        >
+                          {t('concept_mapping.go_to_concept_sets')}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
+                  )}
                 </TableCell>
               </TableRow>
             ) : (
@@ -805,16 +821,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <Button variant="ghost" size="icon-sm" onClick={() => setSelectedCs(null)}>
             <ArrowLeft size={14} />
           </Button>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium">{selectedCsTr.name}</p>
+          <div className="min-w-0 flex-1 rounded-md bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1.5">
+            <p className="truncate text-xs font-semibold text-blue-900 dark:text-blue-100">{selectedCsTr.name}</p>
             <div className="flex gap-1 mt-0.5">
               {selectedCsTr.category && (
-                <Badge variant="outline" className="text-[9px]">{selectedCsTr.category}</Badge>
+                <Badge variant="outline" className="text-[9px] border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">{selectedCsTr.category}</Badge>
               )}
               {selectedCsTr.subcategory && (
-                <Badge variant="outline" className="text-[9px]">{selectedCsTr.subcategory}</Badge>
+                <Badge variant="outline" className="text-[9px] border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300">{selectedCsTr.subcategory}</Badge>
               )}
-              <Badge variant="secondary" className="text-[9px]">
+              <Badge variant="secondary" className="text-[9px] bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border-0">
                 {resolvedConcepts.length} {t('concept_mapping.cs_concepts')}
               </Badge>
             </div>
@@ -1161,10 +1177,25 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       {/* Results table */}
       <div className="min-h-0 flex-1 overflow-auto">
         {searchResults.length === 0 ? (
-          <div className="flex h-32 items-center justify-center">
-            <p className="text-xs text-muted-foreground">
-              {searching ? t('common.loading') : t('concept_mapping.search_hint')}
-            </p>
+          <div className="flex h-40 flex-col items-center justify-center gap-2 px-4">
+            {searching ? (
+              <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+            ) : !project.vocabularyDataSourceId && !dataSource ? (
+              <>
+                <p className="text-center text-xs text-muted-foreground">{t('concept_mapping.no_vocab_for_search_hint')}</p>
+                {onGoToConceptSets && (
+                  <button
+                    type="button"
+                    onClick={onGoToConceptSets}
+                    className="text-xs text-primary underline-offset-2 hover:underline"
+                  >
+                    {t('concept_mapping.go_to_concept_sets')}
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t('concept_mapping.search_hint')}</p>
+            )}
           </div>
         ) : (
           <Table className="w-full" style={{ tableLayout: 'fixed' }}>
