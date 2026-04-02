@@ -2255,6 +2255,8 @@
     "description": "Map source clinical concepts to standard OMOP vocabularies.",
     "new_project": "New Mapping Project",
     "new_project_description": "Create a new concept mapping project from a database or an imported file.",
+    "import_new_id_title": "New ID assigned",
+    "import_new_id_warning": "\"{{name}}\" was imported with a new internal ID because the original ID already exists in another workspace.",
     "edit_project": "Edit Mapping Project",
     "edit_project_description": "Modify mapping project settings.",
     "project_name_placeholder": "e.g. MIMIC-IV Conditions Mapping",

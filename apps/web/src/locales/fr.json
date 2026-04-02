@@ -2255,6 +2255,8 @@
     "title": "Mapping de concepts",
     "description": "Mapper les concepts cliniques sources vers les vocabulaires standard OMOP.",
     "new_project": "Nouveau projet de mapping",
+    "import_new_id_title": "Nouvel identifiant attribué",
+    "import_new_id_warning": "« {{name}} » a été importé avec un nouvel identifiant interne car l'identifiant original existe déjà dans un autre workspace.",
     "new_project_description": "Créer un nouveau projet de mapping à partir d'une base de données ou d'un fichier importé.",
     "edit_project": "Modifier le projet de mapping",
     "edit_project_description": "Modifier les paramètres du projet de mapping.",

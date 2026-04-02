@@ -20,6 +20,16 @@ import { downloadBlob, parseImportZip, slugify, timestamp } from '@/lib/entity-i
 import { buildMappingProjectFolder } from '@/lib/concept-mapping/export'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { AlertTriangle } from 'lucide-react'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
@@ -73,8 +83,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('concept_mapping.unknown_source')
 
-  type ImportChildren = { conceptSets: import('@/types').ConceptSet[]; mappings: import('@/types').ConceptMapping[] }
-  const [conflict, setConflict] = useState<{ name: string; pending: MappingProject; children: ImportChildren } | null>(null)
+  type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
+  const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
+  const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
 
   const handleExport = useCallback(async (project: MappingProject) => {
     const zip = new JSZip()
@@ -91,57 +102,57 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     const parsed = await parseImportZip(file)
     const project = parsed['project.json'] as MappingProject | undefined
     if (!project?.id) return
-    const conceptSets = (parsed['concept-sets.json'] ?? []) as import('@/types').ConceptSet[]
     const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
-    const existing = await getStorage().mappingProjects.getById(project.id)
+    // Check for conflict by entityId or name within the current workspace
+    const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
+    const existing = wsProjects.find(p =>
+      (project.entityId && p.entityId === project.entityId) || p.name === project.name
+    )
     if (existing) {
-      setConflict({ name: existing.name, pending: project, children: { conceptSets, mappings } })
+      setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
     } else {
-      await doImport(project, { conceptSets, mappings }, false)
+      await doImport(project, { mappings }, false)
     }
   }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean) => {
+  const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
     const now = new Date().toISOString()
-    const projectId = duplicate ? crypto.randomUUID() : project.id
-    const csIdMap = new Map<string, string>()
-    for (const cs of children.conceptSets) {
-      csIdMap.set(cs.id, duplicate ? crypto.randomUUID() : cs.id)
+    // Overwrite: reuse the existing ID after deleting
+    if (existingId) {
+      await getStorage().conceptMappings.deleteByProject(existingId).catch(() => {})
+      await getStorage().mappingProjects.delete(existingId).catch(() => {})
+    }
+    // Reuse original UUID if available, generate new one if already taken globally
+    let projectId: string
+    if (existingId) {
+      projectId = existingId
+    } else {
+      const globalExisting = await getStorage().mappingProjects.getById(project.id)
+      if (globalExisting) {
+        projectId = crypto.randomUUID()
+        if (!duplicate) setNewIdWarning(project.name)
+      } else {
+        projectId = project.id
+      }
     }
     const entity: MappingProject = {
       ...project,
       id: projectId,
       workspaceId: activeWorkspaceId ?? project.workspaceId,
-      name: duplicate ? `${project.name} (copy)` : project.name,
-      conceptSetIds: project.conceptSetIds.map((oldId) => csIdMap.get(oldId) ?? oldId),
+      conceptSetIds: project.conceptSetIds ?? [],
       updatedAt: now,
-      ...(duplicate ? { createdAt: now } : {}),
-    }
-    if (!duplicate) {
-      await getStorage().conceptMappings.deleteByProject(project.id)
-      await getStorage().mappingProjects.delete(project.id).catch(() => {})
-      for (const csId of project.conceptSetIds) {
-        await getStorage().conceptSets.delete(csId).catch(() => {})
-      }
-    }
-    for (const cs of children.conceptSets) {
-      await getStorage().conceptSets.create({
-        ...cs,
-        id: csIdMap.get(cs.id) ?? cs.id,
-        workspaceId: activeWorkspaceId ?? cs.workspaceId,
-      })
+      ...(duplicate ? { name: `${project.name} (copy)`, createdAt: now } : {}),
     }
     await getStorage().mappingProjects.create(entity)
     for (const m of children.mappings) {
       await getStorage().conceptMappings.create({
         ...m,
-        id: duplicate ? crypto.randomUUID() : m.id,
+        id: crypto.randomUUID(),
         projectId,
       })
     }
     await loadMappingProjects()
-    await loadConceptSets()
-  }, [activeWorkspaceId, loadMappingProjects, loadConceptSets])
+  }, [activeWorkspaceId, loadMappingProjects])
 
   // ---------------------------------------------------------------------------
   // Home view — two clickable entry-point widgets
@@ -234,8 +245,27 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         onOpenChange={(open) => { if (!open) setConflict(null) }}
         existingName={conflict?.name ?? ''}
         onDuplicate={() => { if (conflict) doImport(conflict.pending, conflict.children, true); setConflict(null) }}
-        onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.children, false); setConflict(null) }}
+        onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.children, false, conflict.existingId); setConflict(null) }}
       />
+
+      {/* New ID warning */}
+      <AlertDialog open={!!newIdWarning} onOpenChange={(open) => { if (!open) setNewIdWarning(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-amber-500" />
+              {t('concept_mapping.import_new_id_title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.import_new_id_warning', { name: newIdWarning })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setNewIdWarning(null)}>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <ListPageTemplate<MappingProject>
         titleKey="concept_mapping.projects_widget_title"
         descriptionKey="concept_mapping.new_project_description"

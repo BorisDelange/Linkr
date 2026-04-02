@@ -1,4 +1,4 @@
-import type { ConceptMapping, MappingProject, ConceptSet, FileColumnMapping, SourceConceptIdEntry } from '@/types'
+import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -269,7 +269,6 @@ export function exportToSssomTsv(
 export function exportToJson(
   mappings: ConceptMapping[],
   project: MappingProject,
-  conceptSets?: ConceptSet[],
 ): string {
   return JSON.stringify(
     {
@@ -283,7 +282,6 @@ export function exportToJson(
         dataSourceId: project.dataSourceId,
         vocabularyDataSourceId: project.vocabularyDataSourceId,
       },
-      conceptSets: conceptSets ?? [],
       mappings,
     },
     null,
@@ -417,7 +415,7 @@ interface BuildMappingProjectFolderOptions {
 /**
  * Add all mapping project files to a JSZip folder.
  * Reused by both individual project export and workspace export.
- * Files: project.json, concept-sets.json, mappings.json, SSSOM, STCM, Usagi, source-concepts.
+ * Files: project.json, mappings.json, SSSOM, STCM, Usagi, source-concepts.
  */
 export async function buildMappingProjectFolder(
   zip: JSZip,
@@ -426,13 +424,11 @@ export async function buildMappingProjectFolder(
   storage: Storage,
   options: BuildMappingProjectFolderOptions = {},
 ): Promise<void> {
-  const allSets = await storage.conceptSets.getAll()
-  const conceptSets = allSets.filter(cs => project.conceptSetIds.includes(cs.id))
   const mappings = await storage.conceptMappings.getByProject(project.id)
 
-  // Core data files
-  zip.file(`${prefix}project.json`, JSON.stringify(project, null, 2))
-  zip.file(`${prefix}concept-sets.json`, JSON.stringify(conceptSets, null, 2))
+  // Core data files (concept sets and import history excluded — reimportable from ATHENA)
+  const { conceptSetIds: _, importBatches: _ib, ...projectClean } = project
+  zip.file(`${prefix}project.json`, JSON.stringify(projectClean, null, 2))
   zip.file(`${prefix}mappings.json`, JSON.stringify(mappings, null, 2))
 
   // Formatted export files
