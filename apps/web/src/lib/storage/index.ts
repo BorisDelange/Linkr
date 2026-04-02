@@ -343,6 +343,7 @@ export interface SourceConceptIdRangeStorage {
 
 /** Storage interface for source concept ID registry entries. */
 export interface SourceConceptIdEntryStorage {
+  getByWorkspace(workspaceId: string): Promise<SourceConceptIdEntry[]>
   getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]>
   get(id: string): Promise<SourceConceptIdEntry | undefined>
   save(entry: SourceConceptIdEntry): Promise<void>

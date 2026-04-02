@@ -2357,6 +2357,7 @@
     "search_standard": "Search standard concepts…",
     "search_filters": "Filters",
     "search_hint": "Type a concept name and press Enter to search",
+    "status_mapped": "Mapped",
     "status_unchecked": "Unchecked",
     "status_approved": "Approved",
     "status_rejected": "Rejected",

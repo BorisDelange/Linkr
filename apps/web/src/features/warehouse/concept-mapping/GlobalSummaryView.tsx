@@ -330,6 +330,8 @@ interface GlobalMappingRow extends ConceptMapping {
 // Row for badge mode: deduplicated by (sourceConceptCode, targetConceptId), votes aggregated
 interface DeduplicatedMappingRow {
   key: string
+  isUnmapped?: boolean
+  resolvedSourceConceptId?: number
   sourceVocabularyId: string
   sourceConceptName: string
   sourceConceptCode: string
@@ -531,26 +533,42 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // ── Table tab ────────────────────────────────────────────────────────
   const tableProjectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
 
+  // Registry lookup: (vocabularyId, conceptCode) → sourceConceptId
+  const registryMap = useMemo(
+    () => new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId])),
+    [registryEntries],
+  )
+
   // badge mode: deduplicate by (sourceConceptCode||sourceConceptId, targetConceptId, effectiveBadges)
   // When a badge filter is active, only show the filtered badges and group on those only
   const deduplicatedRows = useMemo<DeduplicatedMappingRow[]>(() => {
     if (groupMode !== 'badge') return []
     const activeFilter = colFilters.groupLabels?.size ? colFilters.groupLabels : null
     const map = new Map<string, DeduplicatedMappingRow>()
+
+    // Track mapped source concept keys per badge set
+    const mappedKeys = new Set<string>() // `${badgeKey}__${vocab}__${code}`
+
     for (const m of allMappings) {
       const p = tableProjectMap.get(m.projectId)
       const allBadges = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
-      // If filter active, restrict to filtered badges; skip mapping if project has none
       const effectiveBadges = activeFilter
         ? allBadges.filter((b) => activeFilter.has(b))
         : allBadges
       if (activeFilter && effectiveBadges.length === 0) continue
-      // Key includes effective badges so grouping is consistent with what's displayed
       const badgeKey = [...effectiveBadges].sort().join('|')
+      const sourceKey = `${badgeKey}__${m.sourceVocabularyId}__${m.sourceConceptCode ?? m.sourceConceptId}`
+      mappedKeys.add(sourceKey)
       const key = `${m.sourceConceptCode ?? m.sourceConceptId}__${m.targetConceptId}__${badgeKey}`
+      const isArtificialId = p?.sourceType === 'database'
+        || (p?.sourceType === 'file' && !p.fileSourceData?.columnMapping?.conceptIdColumn)
+      const resolvedSourceConceptId = isArtificialId
+        ? registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
+        : m.sourceConceptId
       if (!map.has(key)) {
         map.set(key, {
           key,
+          resolvedSourceConceptId,
           sourceVocabularyId: m.sourceVocabularyId ?? '',
           sourceConceptName: m.sourceConceptName,
           sourceConceptCode: m.sourceConceptCode ?? String(m.sourceConceptId),
@@ -572,14 +590,48 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       row.votesRejected += reviews.filter((r) => r.status === 'rejected').length
       row.projectCount++
     }
-    return Array.from(map.values())
-  }, [allMappings, tableProjectMap, groupMode, colFilters.groupLabels])
 
-  // Registry lookup: (vocabularyId, conceptCode) → sourceConceptId
-  const registryMap = useMemo(
-    () => new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId])),
-    [registryEntries],
-  )
+    // Add unmapped source concepts
+    for (const [projectId, sourceConcepts] of allSourceConceptsByProject) {
+      const p = tableProjectMap.get(projectId)
+      if (!p) continue
+      const allBadges = (p.badges ?? []).map((b) => b.label).filter(Boolean)
+      const effectiveBadges = activeFilter
+        ? allBadges.filter((b) => activeFilter.has(b))
+        : allBadges
+      if (activeFilter && effectiveBadges.length === 0) continue
+      const badgeKey = [...effectiveBadges].sort().join('|')
+      const isArtificialId = p.sourceType === 'database'
+        || (p.sourceType === 'file' && !p.fileSourceData?.columnMapping?.conceptIdColumn)
+      for (const sc of sourceConcepts) {
+        const sourceKey = `${badgeKey}__${sc.vocabulary_id}__${sc.concept_code}`
+        if (mappedKeys.has(sourceKey)) continue
+        mappedKeys.add(sourceKey) // deduplicate across projects
+        const resolvedSourceConceptId = isArtificialId
+          ? registryMap.get(`${sc.vocabulary_id}__${sc.concept_code}`)
+          : (sc.concept_id || undefined)
+        const key = `unmapped__${sourceKey}`
+        map.set(key, {
+          key,
+          isUnmapped: true,
+          resolvedSourceConceptId,
+          sourceVocabularyId: sc.vocabulary_id,
+          sourceConceptName: sc.concept_name,
+          sourceConceptCode: sc.concept_code,
+          targetVocabularyId: '',
+          targetConceptName: '',
+          targetConceptId: 0,
+          votesApproved: 0,
+          votesFlagged: 0,
+          votesRejected: 0,
+          projectCount: 0,
+          badgeLabels: effectiveBadges,
+        })
+      }
+    }
+
+    return Array.from(map.values())
+  }, [allMappings, tableProjectMap, groupMode, colFilters.groupLabels, allSourceConceptsByProject, registryMap])
 
   // project mode: one row per mapping + unmapped source concepts
   const flatRows = useMemo<GlobalMappingRow[]>(() => {
@@ -675,6 +727,10 @@ const allBadgeLabels = useMemo(() => {
     const f = colFilters
     // groupLabels already applied during deduplication — only apply text/equiv filters here
     return deduplicatedRows.filter((r) => {
+      if (f.statusFilter?.size) {
+        const rowStatus = r.isUnmapped ? 'unmapped' : 'mapped'
+        if (!f.statusFilter.has(rowStatus)) return false
+      }
       if (f.sourceVocabularyId && r.sourceVocabularyId !== f.sourceVocabularyId) return false
       if (f.sourceConceptCode && !r.sourceConceptCode.toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
       if (f.sourceConceptName && !r.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
@@ -691,7 +747,7 @@ const allBadgeLabels = useMemo(() => {
     return flatRows.filter((r) => {
       // Status filter (empty set = all)
       if (f.statusFilter?.size) {
-        const rowStatus = r.isUnmapped ? 'unmapped' : effectiveStatus(r)
+        const rowStatus = r.isUnmapped ? 'unmapped' : 'mapped'
         if (!f.statusFilter.has(rowStatus)) return false
       }
       if (f.groupLabels?.size && !f.groupLabels.has(r.projectName)) return false
@@ -889,6 +945,21 @@ const allBadgeLabels = useMemo(() => {
   // ── Badge mode columns ──
   const dedupedColumns = useMemo<ColumnDef<DeduplicatedMappingRow>[]>(() => [
     {
+      id: 'status',
+      header: () => t('concept_mapping.col_status'),
+      accessorFn: (r) => r.isUnmapped ? 'unmapped' : 'mapped',
+      cell: ({ row }) => row.original.isUnmapped
+        ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_BAR_COLORS.unmapped }} />
+            {t('concept_mapping.filter_unmapped')}
+          </span>
+        : <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+            <span className="inline-block size-1.5 rounded-full bg-blue-500" />
+            {t('concept_mapping.status_mapped')}
+          </span>,
+      size: 80,
+    },
+    {
       id: 'badgeLabels',
       header: () => t('concept_mapping.global_badge'),
       accessorFn: (r) => r.badgeLabels.join(', '),
@@ -917,6 +988,16 @@ const allBadgeLabels = useMemo(() => {
       header: () => t('concept_mapping.col_source_vocabulary'),
       accessorFn: (r) => r.sourceVocabularyId,
       cell: ({ row }) => <span className="truncate text-xs text-muted-foreground">{row.original.sourceVocabularyId}</span>,
+      size: 90,
+    },
+    {
+      id: 'sourceConceptId',
+      header: () => t('concept_mapping.col_source_concept_id'),
+      accessorFn: (r) => r.resolvedSourceConceptId,
+      sortingFn: 'basic',
+      cell: ({ row }) => row.original.resolvedSourceConceptId != null
+        ? <span className="font-mono text-xs text-muted-foreground">{row.original.resolvedSourceConceptId}</span>
+        : <span className="text-xs text-muted-foreground/30">—</span>,
       size: 90,
     },
     {
@@ -1007,20 +1088,16 @@ const allBadgeLabels = useMemo(() => {
     {
       id: 'status',
       header: () => t('concept_mapping.col_status'),
-      accessorFn: (r) => r.isUnmapped ? 'unmapped' : effectiveStatus(r),
-      cell: ({ row }) => {
-        if (row.original.isUnmapped) {
-          return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+      accessorFn: (r) => r.isUnmapped ? 'unmapped' : 'mapped',
+      cell: ({ row }) => row.original.isUnmapped
+        ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_BAR_COLORS.unmapped }} />
             {t('concept_mapping.filter_unmapped')}
           </span>
-        }
-        const eff = effectiveStatus(row.original)
-        return <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${STATUS_BADGE[eff] ?? ''}`}>
-          <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[eff] }} />
-          {t(`concept_mapping.status_${eff}`)}
-        </span>
-      },
+        : <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+            <span className="inline-block size-1.5 rounded-full bg-blue-500" />
+            {t('concept_mapping.status_mapped')}
+          </span>,
       size: 90,
     },
     {
@@ -1159,12 +1236,10 @@ const allBadgeLabels = useMemo(() => {
 
   const renderColFilter = (columnId: string) => {
     if (columnId === 'status') {
-      const allStatuses = (['approved', 'flagged', 'rejected', 'unchecked', 'ignored', 'invalid', 'unmapped'] as const)
-        .filter((s) => flatRows.some((r) => (r.isUnmapped ? 'unmapped' : effectiveStatus(r)) === s))
-      const opts = allStatuses.map((s) => ({
-        value: s,
-        label: s === 'unmapped' ? t('concept_mapping.filter_unmapped') : t(`concept_mapping.status_${s}`),
-      }))
+      const opts = [
+        { value: 'mapped', label: t('concept_mapping.status_mapped') },
+        { value: 'unmapped', label: t('concept_mapping.filter_unmapped') },
+      ]
       return <MultiSelectFilter selected={colFilters.statusFilter ?? new Set()} options={opts} onChange={(v) => updateFilter('statusFilter', v)} />
     }
     if (columnId === 'groupLabel' || columnId === 'badgeLabels') {

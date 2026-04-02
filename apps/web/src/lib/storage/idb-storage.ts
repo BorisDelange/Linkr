@@ -1913,6 +1913,11 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
     return `${workspaceId}__${badgeLabel}`
   }
 
+  async getByWorkspace(workspaceId: string): Promise<SourceConceptIdEntry[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('source_concept_id_entries', 'by-workspace', workspaceId)
+  }
+
   async getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]> {
     const db = await getDB()
     return db.getAllFromIndex('source_concept_id_entries', 'by-workspace-badge', this.workspaceBadgeKey(workspaceId, badgeLabel))

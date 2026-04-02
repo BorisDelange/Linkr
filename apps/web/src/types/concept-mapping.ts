@@ -274,6 +274,8 @@ export interface SourceConceptIdRange {
   rangeEnd: number
   /** Next available ID to assign within this range. */
   nextId: number
+  /** Total source concepts covered by projects with this badge (updated on each assignIds run). */
+  totalConcepts?: number
   createdAt: string
   updatedAt: string
 }

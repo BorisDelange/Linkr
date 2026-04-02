@@ -35,6 +35,9 @@ interface SourceIdTabProps {
 interface RangeRow extends SourceConceptIdRange {
   /** id field added by storage layer */
   id: string
+  /** IDs assigned from this range's own range (sourceConceptId within [rangeStart, rangeEnd]) */
+  ownCount: number
+  /** Total entries for this badge (own + inherited from other badges) */
   assignedCount: number
 }
 
@@ -79,7 +82,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
     const rows: RangeRow[] = await Promise.all(
       stored.map(async (r) => {
         const entries = await getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(workspaceId, r.badgeLabel)
-        return { ...r, id: `${workspaceId}__${r.badgeLabel}`, assignedCount: entries.length }
+        const ownCount = entries.filter((e) => e.sourceConceptId >= r.rangeStart && e.sourceConceptId <= r.rangeEnd).length
+        return { ...r, id: `${workspaceId}__${r.badgeLabel}`, assignedCount: entries.length, ownCount }
       }),
     )
     setRanges(rows.sort((a, b) => a.rangeStart - b.rangeStart))
@@ -207,38 +211,54 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         }
       }
 
-      // Load existing entries for this badge
+      // Load existing entries for this badge (to skip already-assigned)
       const existing = await getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(workspaceId, badgeLabel)
       const existingMap = new Map(existing.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e]))
 
+      // Load ALL entries across the workspace — source_concept_id is global per (vocab, code)
+      const allEntries = await getStorage().sourceConceptIdEntries.getByWorkspace(workspaceId)
+      const globalMap = new Map(allEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
+
       let nextId = range.nextId
       const now = new Date().toISOString()
-      let assigned = 0
+      let newlyAssigned = 0 // IDs consumed from this range (truly new)
 
       for (const pairKey of pairsToAssign) {
-        if (existingMap.has(pairKey)) continue // already assigned
-        if (nextId > range.rangeEnd) break // range exhausted
+        if (existingMap.has(pairKey)) continue // already in this badge
 
         const sepIdx = pairKey.indexOf('__')
         const vocabularyId = pairKey.slice(0, sepIdx)
         const conceptCode = pairKey.slice(sepIdx + 2)
         const entryId = `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`
+
+        // Reuse existing global ID if concept already assigned in another badge
+        const existingGlobalId = globalMap.get(pairKey)
+        const sourceConceptId = existingGlobalId ?? nextId
+
+        if (!existingGlobalId) {
+          if (nextId > range.rangeEnd) break // range exhausted
+          nextId++
+          newlyAssigned++
+        }
+
         await getStorage().sourceConceptIdEntries.save({
           id: entryId,
           workspaceId,
           badgeLabel,
           vocabularyId,
           conceptCode,
-          sourceConceptId: nextId,
+          sourceConceptId,
           createdAt: now,
         })
-        nextId++
-        assigned++
       }
 
-      if (assigned > 0) {
-        await getStorage().sourceConceptIdRanges.save({ ...range, nextId, updatedAt: now })
-      }
+      // Always save range with updated nextId and totalConcepts
+      await getStorage().sourceConceptIdRanges.save({
+        ...range,
+        nextId,
+        totalConcepts: pairsToAssign.size,
+        updatedAt: now,
+      })
       await load()
     } finally {
       setAssignLoading(null)
@@ -272,7 +292,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   const unregisteredBadges = allBadgeLabels.filter((l) => !ranges.some((r) => r.badgeLabel === l))
 
-  const totalAssigned = ranges.reduce((s, r) => s + r.assignedCount, 0)
+  const totalAssigned = ranges.reduce((s, r) => s + r.ownCount, 0)
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -325,7 +345,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 const err = errors[range.badgeLabel]
                 const capacity = range.rangeEnd - range.rangeStart + 1
                 const used = range.nextId - range.rangeStart
-                const pct = Math.round((used / capacity) * 100)
+                const rangePct = Math.round((used / capacity) * 100)
+                const coveragePct = range.totalConcepts && range.totalConcepts > 0
+                  ? Math.round((range.assignedCount / range.totalConcepts) * 100)
+                  : null
                 return (
                   <Card key={range.badgeLabel} className="p-4">
                     <div className="flex items-start gap-3">
@@ -333,10 +356,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium">{range.badgeLabel}</span>
                           <Badge variant="secondary" className="text-[10px]">
-                            {range.assignedCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
+                            {range.ownCount.toLocaleString()} {t('concept_mapping.source_id_assigned')}
                           </Badge>
-                          {used > 0 && pct > 0 && (
-                            <span className="text-[10px] text-muted-foreground">{pct}% {t('concept_mapping.source_id_used')}</span>
+                          {coveragePct !== null && (
+                            <span className="text-[10px] text-muted-foreground">
+                              {range.assignedCount.toLocaleString()} / {range.totalConcepts!.toLocaleString()} ({coveragePct}%)
+                            </span>
+                          )}
+                          {used > 0 && rangePct > 0 && (
+                            <span className="text-[10px] text-muted-foreground">{rangePct}% {t('concept_mapping.source_id_used')}</span>
                           )}
                         </div>
 

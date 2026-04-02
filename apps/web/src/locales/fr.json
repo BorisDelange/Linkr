@@ -2358,6 +2358,7 @@
     "search_standard": "Rechercher des concepts standards…",
     "search_filters": "Filtres",
     "search_hint": "Saisissez un nom de concept et appuyez sur Entrée",
+    "status_mapped": "Mappé",
     "status_unchecked": "Non vérifié",
     "status_approved": "Approuvé",
     "status_rejected": "Rejeté",
