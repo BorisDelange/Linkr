@@ -2537,6 +2537,8 @@
     "detail_distribution": "Distribution",
     "detail_histogram": "Histogramme",
     "detail_categories": "Catégories",
+    "detail_col_value": "Valeur",
+    "detail_col_count": "Effectif",
     "detail_values": "Valeurs",
     "detail_temporal": "Distribution temporelle",
     "detail_hospital_units": "Unités hospitalières",

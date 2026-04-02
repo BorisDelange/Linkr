@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, Code2, Maximize2 } from 'lucide-react'
+import { ArrowLeft, Code2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -57,6 +57,17 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
             {concept.concept_class_id && <span>· {concept.concept_class_id}</span>}
           </div>
         </div>
+        {info && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground"
+            title={t('concept_mapping.detail_raw_json')}
+            onClick={() => setJsonModalOpen(true)}
+          >
+            <Code2 size={14} />
+          </Button>
+        )}
       </div>
 
       {/* Content */}
@@ -65,14 +76,16 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
           {/* Text fields */}
           {textFields.length > 0 && (
             <Card className="p-3">
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
-                {textFields.map((item) => (
-                  <div key={item.label} className="flex items-baseline gap-2 text-xs">
-                    <span className="shrink-0 text-muted-foreground">{item.label}</span>
-                    <span className="truncate font-medium" title={item.value}>{item.value}</span>
-                  </div>
-                ))}
-              </div>
+              <table className="w-full text-xs">
+                <tbody>
+                  {textFields.map((item) => (
+                    <tr key={item.label}>
+                      <td className="whitespace-nowrap pr-4 py-0.5 text-muted-foreground align-top">{item.label}</td>
+                      <td className="py-0.5 font-medium" title={item.value}>{item.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </Card>
           )}
 
@@ -90,19 +103,6 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
             </Card>
           )}
 
-          {/* Raw JSON — button opens modal */}
-          {info && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-xs text-muted-foreground"
-              onClick={() => setJsonModalOpen(true)}
-            >
-              <Code2 size={12} />
-              {t('concept_mapping.detail_raw_json')}
-              <Maximize2 size={11} className="ml-0.5" />
-            </Button>
-          )}
         </div>
       </div>
 
@@ -163,7 +163,14 @@ interface TableSection {
   rows: { label: string; value: string }[]
 }
 
-type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection
+interface ColumnsTableSection {
+  type: 'columns_table'
+  title: string
+  columns: { key: string; label: string; align?: 'left' | 'right' }[]
+  rows: Record<string, unknown>[]
+}
+
+type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection
 
 // Custom boxplot shape
 function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: {
@@ -315,6 +322,42 @@ function SectionRenderer({ section }: { section: Section }) {
     )
   }
 
+  if (section.type === 'columns_table' && section.rows.length > 0) {
+    return (
+      <Card className="p-3">
+        <p className="mb-2 text-xs font-medium">{section.title}</p>
+        <div className="max-h-[200px] overflow-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b">
+                {section.columns.map((col) => (
+                  <th key={col.key} className={`py-1 pr-3 text-[10px] font-medium text-muted-foreground ${col.align === 'right' ? 'text-right' : 'text-left'}`}>
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {section.rows.map((row, i) => (
+                <tr key={i} className="border-b last:border-0">
+                  {section.columns.map((col) => {
+                    const val = row[col.key]
+                    const display = col.key === 'percentage' && val != null ? `${val}%` : String(val ?? '')
+                    return (
+                      <td key={col.key} className={`max-w-[180px] truncate py-1 pr-3 ${col.align === 'right' ? 'text-right tabular-nums' : ''}`} title={display}>
+                        {display}
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    )
+  }
+
   return null
 }
 
@@ -348,7 +391,7 @@ function TruncatedTick({ x, y, payload, maxLength = 12 }: {
 const SECTION_KEYS = new Set([
   'histogram', 'distribution', 'categories', 'values',
   'numeric_data', 'temporal_distribution', 'hospital_units',
-  'by_year', 'measurement_frequency',
+  'by_year', 'measurement_frequency', 'categorical_data',
   // Normalized format keys
   'metadata', 'statistics', 'distributions', 'properties',
 ])
@@ -391,7 +434,7 @@ function extractTextFields(info: Record<string, unknown>): { label: string; valu
   const statsKeys = new Set([
     'count', 'n', 'total', 'mean', 'median', 'min', 'max', 'std', 'sd',
     'granularity', 'completeness', 'uniqueCount', 'nullCount', 'recordCount',
-    'patientCount', 'missing_rate', 'missingness',
+    'patientCount',
   ])
   for (const [key, val] of Object.entries(info)) {
     if (SECTION_KEYS.has(key)) continue
@@ -400,6 +443,10 @@ function extractTextFields(info: Record<string, unknown>): { label: string; valu
     if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
       items.push({ label: formatLabel(key), value: formatValue(key, val) })
     }
+  }
+  // measurement_frequency as string (new format) — show as text field
+  if (typeof info.measurement_frequency === 'string') {
+    items.push({ label: formatLabel('measurement_frequency'), value: info.measurement_frequency })
   }
   return items
 }
@@ -509,6 +556,31 @@ function extractSections(info: Record<string, unknown>, t: TFunction): Section[]
     }
   }
 
+  // 4b. categorical_data array → table with named columns + pie/bar chart
+  if (Array.isArray(info.categorical_data) && info.categorical_data.length > 0) {
+    const items = info.categorical_data as Record<string, unknown>[]
+    // Table with columns
+    sections.push({
+      type: 'columns_table',
+      title: t('concept_mapping.detail_categories'),
+      columns: [
+        { key: 'category', label: t('concept_mapping.detail_col_value'), align: 'left' },
+        { key: 'count', label: t('concept_mapping.detail_col_count'), align: 'right' },
+        { key: 'percentage', label: '%', align: 'right' },
+      ],
+      rows: items,
+    })
+    // Also add a pie (≤8) or bar chart
+    sections.push({
+      type: items.length <= 8 ? 'pie' : 'bar',
+      title: t('concept_mapping.detail_categories'),
+      data: items.map((item) => ({
+        label: String(item.category ?? item.label ?? item.name ?? ''),
+        value: Number(item.count ?? item.value ?? 0),
+      })),
+    })
+  }
+
   // 5. values array → bar chart
   if (Array.isArray(info.values) && !info.histogram && !info.distribution) {
     sections.push({
@@ -561,15 +633,20 @@ function extractSections(info: Record<string, unknown>, t: TFunction): Section[]
     }
   }
 
-  // 8. measurement_frequency → table
-  if (info.measurement_frequency && typeof info.measurement_frequency === 'object') {
-    const mf = info.measurement_frequency as Record<string, unknown>
-    const rows: { label: string; value: string }[] = []
-    for (const [key, val] of Object.entries(mf)) {
-      if (val != null) rows.push({ label: formatLabel(key), value: String(val) })
-    }
-    if (rows.length > 0) {
-      sections.push({ type: 'table', title: t('concept_mapping.detail_measurement_frequency'), rows })
+  // 8. measurement_frequency → string (new format) or table (legacy object format)
+  if (info.measurement_frequency != null) {
+    if (typeof info.measurement_frequency === 'string') {
+      // New format: direct string value — handled as text field below (removed from SECTION_KEYS would show it)
+      // We don't need a section for it, it will appear in textFields
+    } else if (typeof info.measurement_frequency === 'object') {
+      const mf = info.measurement_frequency as Record<string, unknown>
+      const rows: { label: string; value: string }[] = []
+      for (const [key, val] of Object.entries(mf)) {
+        if (val != null) rows.push({ label: formatLabel(key), value: String(val) })
+      }
+      if (rows.length > 0) {
+        sections.push({ type: 'table', title: t('concept_mapping.detail_measurement_frequency'), rows })
+      }
     }
   }
 

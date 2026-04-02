@@ -1067,7 +1067,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       </div>
 
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             {/* Column titles */}
