@@ -108,7 +108,7 @@ export function CohortCard({
                 onClick={onRemove}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 size={14} />
+                <Trash2 size={14} className="text-destructive" />
                 {t('subsets.remove')}
               </DropdownMenuItem>
             </DropdownMenuContent>

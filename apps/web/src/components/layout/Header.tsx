@@ -250,7 +250,7 @@ export function Header() {
                   onClick={() => setResetDialogOpen(true)}
                   className="text-destructive focus:text-destructive"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={14} className="text-destructive" />
                   {t('user_menu.reset_data')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />

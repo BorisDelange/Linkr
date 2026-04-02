@@ -1009,7 +1009,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="w-64 p-3" onClick={(e) => e.stopPropagation()}>
-              <p className="mb-2 text-xs font-medium">{t('concept_mapping.export_filter_title')}</p>
+              <p className="mb-2 text-xs font-medium">{t('concept_mapping.table_filter_title')}</p>
               <div className="space-y-2">
                 {FILTER_STATUSES.map((status) => {
                   const count = statusCounts[status] ?? 0

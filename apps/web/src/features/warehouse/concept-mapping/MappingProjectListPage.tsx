@@ -201,21 +201,21 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
               onClick={props.onShowProjects}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-teal-500/5 to-teal-600/10 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="relative flex flex-col gap-4 p-6">
-                <div className="flex size-11 items-center justify-center rounded-xl bg-teal-500/10">
-                  <ArrowRightLeft size={22} className="text-teal-600" />
+              <div className="relative flex flex-col gap-3 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                    <ArrowRightLeft size={18} className="text-teal-600" />
+                  </div>
+                  <p className="text-sm font-semibold">{t('concept_mapping.projects_widget_title')}</p>
+                  {projects.length > 0 && (
+                    <Badge variant="secondary" className="ml-auto shrink-0 text-[10px]">
+                      {projects.length}
+                    </Badge>
+                  )}
                 </div>
-                <div>
-                  <p className="text-base font-semibold">{t('concept_mapping.projects_widget_title')}</p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                    {t('concept_mapping.projects_widget_description')}
-                  </p>
-                </div>
-                {projects.length > 0 && (
-                  <Badge variant="secondary" className="w-fit text-[10px]">
-                    {projects.length} {t('concept_mapping.global_projects')}
-                  </Badge>
-                )}
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t('concept_mapping.projects_widget_description')}
+                </p>
                 <div className="flex items-center gap-1 text-xs font-medium text-teal-600">
                   {t('concept_mapping.projects_widget_open')}
                   <ChevronRight size={13} />
@@ -229,16 +229,16 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
               onClick={props.onShowGlobal}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-indigo-600/10 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="relative flex flex-col gap-4 p-6">
-                <div className="flex size-11 items-center justify-center rounded-xl bg-indigo-500/10">
-                  <BarChart3 size={22} className="text-indigo-600" />
+              <div className="relative flex flex-col gap-3 p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10">
+                    <BarChart3 size={18} className="text-indigo-600" />
+                  </div>
+                  <p className="text-sm font-semibold">{t('concept_mapping.global_widget_title')}</p>
                 </div>
-                <div>
-                  <p className="text-base font-semibold">{t('concept_mapping.global_widget_title')}</p>
-                  <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                    {t('concept_mapping.global_widget_description')}
-                  </p>
-                </div>
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  {t('concept_mapping.global_widget_description')}
+                </p>
                 <div className="flex items-center gap-1 text-xs font-medium text-indigo-600">
                   {t('concept_mapping.global_widget_open')}
                   <ChevronRight size={13} />

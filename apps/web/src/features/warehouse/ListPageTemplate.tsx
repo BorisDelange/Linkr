@@ -229,7 +229,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
                         onClick={(e) => { e.stopPropagation(); setToDelete(item) }}
                         className="text-destructive focus:text-destructive"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={14} className="text-destructive" />
                         {t('common.delete')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>

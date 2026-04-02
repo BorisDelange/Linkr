@@ -17,12 +17,12 @@ interface ProgressTabProps {
 }
 
 const STATUS_COLORS: Record<MappingStatus, string> = {
-  unchecked: '#9ca3af',
+  unchecked: '#94a3b8',
   approved: '#34d399',
   rejected: '#ef4444',
   flagged: '#fb923c',
   invalid: '#f87171',
-  ignored: '#d1d5db',
+  ignored: '#a78bfa',
 }
 
 export function ProgressTab({ project, dataSource }: ProgressTabProps) {
@@ -149,7 +149,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       pieData.push({
         name: t('concept_mapping.filter_unmapped'),
         value: unmappedCount,
-        color: '#e5e7eb',
+        color: '#e2e8f0',
       })
     }
   }

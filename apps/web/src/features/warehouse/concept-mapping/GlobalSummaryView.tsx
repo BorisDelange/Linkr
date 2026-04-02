@@ -47,7 +47,7 @@ import {
   exportUnmappedToStcm,
   downloadFile,
 } from '@/lib/concept-mapping/export'
-import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
+import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -60,21 +60,21 @@ interface GlobalSummaryViewProps {
 }
 
 const STATUS_COLORS: Record<MappingStatus, string> = {
-  unchecked: '#9ca3af',
+  unchecked: '#94a3b8',
   approved: '#34d399',
   rejected: '#ef4444',
   flagged: '#fb923c',
   invalid: '#f87171',
-  ignored: '#d1d5db',
+  ignored: '#a78bfa',
 }
 
 const STATUS_BAR_COLORS: Record<string, string> = {
   approved: '#34d399',
   flagged: '#fb923c',
   rejected: '#ef4444',
-  unchecked: '#9ca3af',
-  ignored: '#d1d5db',
-  unmapped: '#e5e7eb',
+  ignored: '#a78bfa',  // violet — voluntarily ignored
+  unchecked: '#94a3b8', // slate — not yet reviewed
+  unmapped: '#e2e8f0',  // very light — not yet touched
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -82,7 +82,7 @@ const STATUS_BADGE: Record<string, string> = {
   approved: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
   rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
   flagged: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-  ignored: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+  ignored: 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
 }
 
 const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
@@ -130,6 +130,7 @@ function computeGroupStats(
   mappings: ConceptMapping[],
   projects: MappingProject[],
   groupMode: 'project' | 'badge',
+  dbProjectTotals: Map<string, number>,
 ): Map<string, GroupStat> {
   const raw = new Map<string, GroupStat>()
 
@@ -179,10 +180,9 @@ function computeGroupStats(
       const statKey = `${key}__${m.projectId}`
       if (!projectStatsCounted.has(statKey)) {
         projectStatsCounted.add(statKey)
-        // File projects: use rows.length (accurate); DB projects: stats is 0 (needs DuckDB query)
         const projectTotal = p?.sourceType === 'file'
           ? (p.fileSourceData?.rows.length ?? 0)
-          : (p?.stats?.totalSourceConcepts ?? 0)
+          : (dbProjectTotals.get(p?.id ?? '') ?? 0)
         g.totalSourceConceptsFromStats += projectTotal
       }
     }
@@ -312,10 +312,19 @@ function MultiSelectFilter({
   )
 }
 
-// Row for project/status mode: one row per mapping
+/// Raw source concept row loaded from DuckDB or file
+interface SourceConceptRaw {
+  concept_id: number
+  concept_name: string
+  concept_code: string
+  vocabulary_id: string
+}
+
+// Row for project/status mode: one row per mapping (or unmapped source concept)
 interface GlobalMappingRow extends ConceptMapping {
   projectName: string
   resolvedSourceConceptId: number | undefined
+  isUnmapped?: boolean
 }
 
 // Row for badge mode: deduplicated by (sourceConceptCode, targetConceptId), votes aggregated
@@ -336,8 +345,10 @@ interface DeduplicatedMappingRow {
 }
 
 interface GlobalTableFilters {
+  statusFilter?: Set<string>  // multi-select: statuses + 'unmapped'
   groupLabels?: Set<string>  // multi-select: badge labels, project names, or statuses
   sourceVocabularyId?: string | null
+  sourceConceptId?: string
   sourceConceptCode?: string
   sourceConceptName?: string
   targetVocabularyId?: string | null
@@ -355,6 +366,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   const [allMappings, setAllMappings] = useState<ConceptMapping[]>([])
   const [loadingMappings, setLoadingMappings] = useState(true)
+  const [dbProjectTotals, setDbProjectTotals] = useState<Map<string, number>>(new Map())
+  // All source concepts per project: projectId → SourceConceptRaw[]
+  const [allSourceConceptsByProject, setAllSourceConceptsByProject] = useState<Map<string, SourceConceptRaw[]>>(new Map())
   const [registryEntries, setRegistryEntries] = useState<SourceConceptIdEntry[]>([])
   const [groupMode, setGroupMode] = useState<'project' | 'badge'>('project')
   const [activeTab, setActiveTab] = useState('summary')
@@ -387,8 +401,60 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       results.push(...ms)
     }
     setAllMappings(results)
+
+    // For DB projects, query DuckDB to get total source concepts count + all source concept rows
+    const totalsMap = new Map<string, number>()
+    const sourceConceptsMap = new Map<string, SourceConceptRaw[]>()
+    for (const p of projects) {
+      const isFile = p.sourceType === 'file' || !!p.fileSourceData
+      if (isFile) {
+        // File project: build source concepts from rows
+        const rows = p.fileSourceData?.rows ?? []
+        const colMapping = p.fileSourceData?.columnMapping
+        const codeCol = colMapping?.conceptCodeColumn
+        const nameCol = colMapping?.conceptNameColumn
+        const vocabCol = colMapping?.terminologyColumn
+        const idCol = colMapping?.conceptIdColumn
+        const seen = new Map<string, SourceConceptRaw>()
+        for (const row of rows) {
+          const code = codeCol ? String(row[codeCol] ?? '') : ''
+          const name = nameCol ? String(row[nameCol] ?? '') : code
+          const vocab = vocabCol ? String(row[vocabCol] ?? '') : p.name
+          const id = idCol ? Number(row[idCol] ?? 0) : 0
+          const key = `${vocab}__${code}`
+          if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
+        }
+        sourceConceptsMap.set(p.id, Array.from(seen.values()))
+        continue
+      }
+      const ds = dataSources.find((d) => d.id === p.dataSourceId)
+      if (!ds?.schemaMapping) continue
+      try {
+        await ensureMounted(ds.id)
+        const countSql = buildSourceConceptsCountQuery(ds.schemaMapping, {})
+        if (countSql) {
+          const [row] = await queryDataSource(ds.id, countSql)
+          totalsMap.set(p.id, Number(row?.total ?? 0))
+        }
+        const allSql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+        if (allSql) {
+          const rows = await queryDataSource(ds.id, allSql)
+          sourceConceptsMap.set(p.id, rows.map((row) => ({
+            concept_id: Number(row.concept_id ?? 0),
+            concept_name: String(row.concept_name ?? ''),
+            concept_code: String(row.concept_code || row.concept_id || ''),
+            vocabulary_id: String(row.vocabulary_id ?? ds.id),
+          })))
+        }
+      } catch {
+        // If DuckDB unavailable, fall back to empty
+      }
+    }
+    setDbProjectTotals(totalsMap)
+    setAllSourceConceptsByProject(sourceConceptsMap)
+
     setLoadingMappings(false)
-  }, [projects])
+  }, [projects, dataSources, ensureMounted])
 
   // Load registry entries for this workspace (used in table + export)
   const loadRegistry = useCallback(async () => {
@@ -403,10 +469,14 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   useEffect(() => { loadAllMappings() }, [loadAllMappings])
   useEffect(() => { loadRegistry() }, [loadRegistry])
+  // Re-load registry when switching to table or export tab (entries may have been assigned meanwhile)
+  useEffect(() => {
+    if (activeTab === 'table' || activeTab === 'export') loadRegistry()
+  }, [activeTab, loadRegistry])
 
   const groupStats = useMemo(
-    () => computeGroupStats(allMappings, projects, groupMode),
-    [allMappings, projects, groupMode],
+    () => computeGroupStats(allMappings, projects, groupMode, dbProjectTotals),
+    [allMappings, projects, groupMode, dbProjectTotals],
   )
 
   const groupNames = useMemo(() => {
@@ -431,19 +501,19 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       unchecked += g.unchecked
       ignored += g.ignored
     }
-    // Total source concepts: file projects → rows.length; DB projects → not available without query
+    // Total source concepts: file → rows.length; DB → DuckDB count query result
     let totalSourceConcepts = 0
     for (const p of projects) {
       if (p.sourceType === 'file') {
         totalSourceConcepts += p.fileSourceData?.rows.length ?? 0
+      } else {
+        totalSourceConcepts += dbProjectTotals.get(p.id) ?? 0
       }
-      // DB projects: stats.totalSourceConcepts is always 0 (needs live DuckDB query)
-      // We'll fall back to 0, meaning no % will be shown for DB-only workspaces
     }
     const uniqueMapped = allSourceKeys.size
     const unmapped = totalSourceConcepts > 0 ? Math.max(0, totalSourceConcepts - uniqueMapped) : 0
     return { total: totalSourceConcepts || uniqueMapped, totalSourceConcepts, uniqueMapped, approved, flagged, rejected, unchecked, ignored, unmapped }
-  }, [groupStats, projects])
+  }, [groupStats, projects, dbProjectTotals])
 
   const chartData = useMemo(() => groupNames.map((name) => {
     const g = groupStats.get(name)!
@@ -511,11 +581,18 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     [registryEntries],
   )
 
-  // project mode: one row per mapping, with registry-resolved sourceConceptId
-  // resolvedSourceConceptId is undefined when there's no registry entry (artificial ID, not yet assigned)
+  // project mode: one row per mapping + unmapped source concepts
   const flatRows = useMemo<GlobalMappingRow[]>(() => {
     if (groupMode === 'badge') return []
-    return allMappings.map((m) => {
+
+    // Build set of mapped source concept keys (vocab__code) per project
+    const mappedKeys = new Map<string, Set<string>>() // projectId → Set<vocab__code>
+    for (const m of allMappings) {
+      if (!mappedKeys.has(m.projectId)) mappedKeys.set(m.projectId, new Set())
+      mappedKeys.get(m.projectId)!.add(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
+    }
+
+    const rows: GlobalMappingRow[] = allMappings.map((m) => {
       const proj = tableProjectMap.get(m.projectId)
       const isArtificialId = proj?.sourceType === 'database'
         || (proj?.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
@@ -528,7 +605,43 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         projectName: tableProjectMap.get(m.projectId)?.name ?? m.projectId,
       }
     })
-  }, [allMappings, tableProjectMap, groupMode, registryMap])
+
+    // Add unmapped source concepts as synthetic rows
+    for (const [projectId, sourceConcepts] of allSourceConceptsByProject) {
+      const proj = tableProjectMap.get(projectId)
+      if (!proj) continue
+      const mapped = mappedKeys.get(projectId) ?? new Set()
+      const isArtificialId = proj.sourceType === 'database'
+        || (proj.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
+      for (const sc of sourceConcepts) {
+        const key = `${sc.vocabulary_id}__${sc.concept_code}`
+        if (mapped.has(key)) continue
+        const resolvedSourceConceptId = isArtificialId
+          ? registryMap.get(key)
+          : (sc.concept_id || undefined)
+        rows.push({
+          id: `unmapped__${projectId}__${key}`,
+          projectId,
+          projectName: proj.name,
+          sourceConceptId: sc.concept_id,
+          sourceConceptName: sc.concept_name,
+          sourceConceptCode: sc.concept_code,
+          sourceVocabularyId: sc.vocabulary_id,
+          targetConceptId: 0,
+          targetConceptName: '',
+          targetVocabularyId: '',
+          status: 'unchecked' as MappingStatus,
+          mappedBy: '',
+          createdAt: '',
+          updatedAt: '',
+          resolvedSourceConceptId,
+          isUnmapped: true,
+        })
+      }
+    }
+
+    return rows
+  }, [allMappings, tableProjectMap, groupMode, registryMap, allSourceConceptsByProject])
 
   const allEquivs = useMemo(() => {
     const vals = groupMode === 'badge'
@@ -576,8 +689,14 @@ const allBadgeLabels = useMemo(() => {
   const filteredFlat = useMemo(() => {
     const f = colFilters
     return flatRows.filter((r) => {
+      // Status filter (empty set = all)
+      if (f.statusFilter?.size) {
+        const rowStatus = r.isUnmapped ? 'unmapped' : effectiveStatus(r)
+        if (!f.statusFilter.has(rowStatus)) return false
+      }
       if (f.groupLabels?.size && !f.groupLabels.has(r.projectName)) return false
       if (f.sourceVocabularyId && r.sourceVocabularyId !== f.sourceVocabularyId) return false
+      if (f.sourceConceptId && !String(r.resolvedSourceConceptId ?? '').includes(f.sourceConceptId)) return false
       if (f.sourceConceptCode && !(r.sourceConceptCode ?? '').toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
       if (f.sourceConceptName && !r.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
       if (f.equivalence && r.equivalence !== f.equivalence) return false
@@ -754,12 +873,11 @@ const allBadgeLabels = useMemo(() => {
   }
 
   const handleSort = (columnId: string) => {
-    if (sorting?.columnId === columnId) {
-      if (sorting.desc) setSorting({ columnId, desc: false })
-      else setSorting(null)
-    } else {
-      setSorting({ columnId, desc: true })
-    }
+    setSorting((prev) =>
+      prev?.columnId === columnId
+        ? { columnId, desc: !prev.desc }
+        : { columnId, desc: false },
+    )
     setPage(0)
   }
 
@@ -887,18 +1005,29 @@ const allBadgeLabels = useMemo(() => {
   // ── Project/status mode columns ──
   const flatColumns = useMemo<ColumnDef<GlobalMappingRow>[]>(() => [
     {
+      id: 'status',
+      header: () => t('concept_mapping.col_status'),
+      accessorFn: (r) => r.isUnmapped ? 'unmapped' : effectiveStatus(r),
+      cell: ({ row }) => {
+        if (row.original.isUnmapped) {
+          return <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_BAR_COLORS.unmapped }} />
+            {t('concept_mapping.filter_unmapped')}
+          </span>
+        }
+        const eff = effectiveStatus(row.original)
+        return <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${STATUS_BADGE[eff] ?? ''}`}>
+          <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[eff] }} />
+          {t(`concept_mapping.status_${eff}`)}
+        </span>
+      },
+      size: 90,
+    },
+    {
       id: 'groupLabel',
       header: () => t('concept_mapping.global_project_col'),
       accessorFn: (r) => r.projectName,
-      cell: ({ row }) => {
-        const eff = effectiveStatus(row.original)
-        return groupMode === 'project'
-          ? <span className="truncate text-muted-foreground">{row.original.projectName}</span>
-          : <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-medium ${STATUS_BADGE[eff] ?? ''}`}>
-              <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: STATUS_COLORS[eff] }} />
-              {t(`concept_mapping.status_${eff}`)}
-            </span>
-      },
+      cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.projectName}</span>,
       size: 130,
     },
     {
@@ -912,6 +1041,7 @@ const allBadgeLabels = useMemo(() => {
       id: 'sourceConceptId',
       header: () => t('concept_mapping.col_source_concept_id'),
       accessorFn: (r) => r.resolvedSourceConceptId,
+      sortingFn: 'basic',
       cell: ({ row }) => row.original.resolvedSourceConceptId != null
         ? <span className="font-mono text-xs text-muted-foreground">{row.original.resolvedSourceConceptId}</span>
         : <span className="text-xs text-muted-foreground/30">—</span>,
@@ -1008,8 +1138,10 @@ const allBadgeLabels = useMemo(() => {
     const { columnId, desc } = sorting
     const dir = desc ? -1 : 1
     return [...activeRows].sort((a, b) => {
-      const av = (a as Record<string, unknown>)[columnId]
-      const bv = (b as Record<string, unknown>)[columnId]
+      // sourceConceptId column uses resolvedSourceConceptId accessor
+      const key = columnId === 'sourceConceptId' ? 'resolvedSourceConceptId' : columnId
+      const av = (a as Record<string, unknown>)[key]
+      const bv = (b as Record<string, unknown>)[key]
       if (av == null && bv == null) return 0
       if (av == null) return 1
       if (bv == null) return -1
@@ -1026,6 +1158,15 @@ const allBadgeLabels = useMemo(() => {
   const activeColumns = groupMode === 'badge' ? dedupedColumns : flatColumns
 
   const renderColFilter = (columnId: string) => {
+    if (columnId === 'status') {
+      const allStatuses = (['approved', 'flagged', 'rejected', 'unchecked', 'ignored', 'invalid', 'unmapped'] as const)
+        .filter((s) => flatRows.some((r) => (r.isUnmapped ? 'unmapped' : effectiveStatus(r)) === s))
+      const opts = allStatuses.map((s) => ({
+        value: s,
+        label: s === 'unmapped' ? t('concept_mapping.filter_unmapped') : t(`concept_mapping.status_${s}`),
+      }))
+      return <MultiSelectFilter selected={colFilters.statusFilter ?? new Set()} options={opts} onChange={(v) => updateFilter('statusFilter', v)} />
+    }
     if (columnId === 'groupLabel' || columnId === 'badgeLabels') {
       const selected = colFilters.groupLabels ?? new Set<string>()
       if (groupMode === 'badge') {
@@ -1044,6 +1185,7 @@ const allBadgeLabels = useMemo(() => {
       const opts = allSourceVocabs.map((v) => ({ value: v, label: v }))
       return <ColFilterSelect value={colFilters.sourceVocabularyId ?? null} options={opts} placeholder="..." onChange={(v) => updateFilter('sourceVocabularyId', v)} />
     }
+    if (columnId === 'sourceConceptId') return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptId ?? ''} onChange={(e) => updateFilter('sourceConceptId', e.target.value || null)} />
     if (columnId === 'sourceConceptCode') return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="..." value={colFilters.sourceConceptCode ?? ''} onChange={(e) => updateFilter('sourceConceptCode', e.target.value || null)} />
     if (columnId === 'sourceConceptName') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
     if (columnId === 'equivalence' && allEquivs.length > 0) {
@@ -1197,7 +1339,7 @@ const allBadgeLabels = useMemo(() => {
                         cursor={{ fill: 'var(--color-accent)' }}
                       />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
-                      {(['approved', 'unchecked', 'flagged', 'rejected', 'ignored', 'unmapped'] as const).map((s) => (
+                      {(['approved', 'flagged', 'rejected', 'ignored', 'unchecked', 'unmapped'] as const).map((s) => (
                         <Bar
                           key={s}
                           dataKey={s}
@@ -1348,10 +1490,6 @@ const allBadgeLabels = useMemo(() => {
                 ))}
               </DropdownMenuContent>
             </DropdownMenu>
-
-            <span className="ml-3 text-xs text-muted-foreground">
-              {sortedRows.length.toLocaleString()} {t('concept_mapping.global_mappings')}
-            </span>
 
             <div className="ml-auto flex items-center gap-1">
               <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>

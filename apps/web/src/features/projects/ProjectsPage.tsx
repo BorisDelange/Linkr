@@ -333,7 +333,7 @@ export function ProjectsPage() {
                               onClick={(e) => { e.stopPropagation(); setDeleteTarget({ uid: project.uid, name: project.name }) }}
                               className="text-destructive focus:text-destructive"
                             >
-                              <Trash2 size={14} />
+                              <Trash2 size={14} className="text-destructive" />
                               {t('common.delete')}
                             </DropdownMenuItem>
                           </DropdownMenuContent>

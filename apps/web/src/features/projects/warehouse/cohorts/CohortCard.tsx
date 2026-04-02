@@ -130,7 +130,7 @@ export function CohortCard({
                 onClick={(e) => { e.stopPropagation(); onRemove() }}
                 className="text-destructive focus:text-destructive"
               >
-                <Trash2 size={14} />
+                <Trash2 size={14} className="text-destructive" />
                 {t('cohorts.remove')}
               </DropdownMenuItem>
             </DropdownMenuContent>

@@ -525,10 +525,12 @@ export async function seedDemoMappingProject(): Promise<void> {
       workspaceId: DEMO_WORKSPACE_ID,
       name: 'MIMIC-IV → OMOP CDM',
       description: 'Concept mapping from MIMIC-IV native source data to OMOP CDM standard concepts using the bundled OMOP vocabulary.',
+      sourceType: 'database',
       dataSourceId: DEMO_RAW_DATASOURCE_ID,
       vocabularyDataSourceId: DEMO_VOCAB_DATASOURCE_ID,
       conceptSetIds: [],
       status: 'in_progress',
+      badges: [{ id: 'demo-badge-mimic', label: 'MIMIC-IV', color: 'blue' }],
       createdAt: now,
       updatedAt: now,
     }

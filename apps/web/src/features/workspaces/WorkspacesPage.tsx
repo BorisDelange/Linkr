@@ -522,7 +522,7 @@ export function WorkspacesPage() {
                             onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: ws.id, name: ws.name }) }}
                             className="text-destructive focus:text-destructive"
                           >
-                            <Trash2 size={14} />
+                            <Trash2 size={14} className="text-destructive" />
                             {t('common.delete')}
                           </DropdownMenuItem>
                         </DropdownMenuContent>

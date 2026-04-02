@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, RefreshCw, Hash } from 'lucide-react'
+import { Plus, Trash2, RefreshCw, Hash, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -173,7 +173,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       const pairsToAssign = new Set<string>()
 
       for (const proj of projectsWithBadge) {
-        if (proj.sourceType === 'file') {
+        const isFile = proj.sourceType === 'file' || !!proj.fileSourceData
+        if (isFile) {
           // File project with real concept IDs: skip (real IDs are used directly)
           if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
           // File project without concept ID: collect from imported rows
@@ -196,7 +197,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             if (!sql) continue
             const rows = await queryDataSource(ds.id, sql)
             for (const row of rows) {
-              const code = String(row.concept_code ?? '')
+              const code = String(row.concept_code || row.concept_id || '')
               const vocab = String(row.vocabulary_id ?? ds.id)
               if (code) pairsToAssign.add(`${vocab}__${code}`)
             }
@@ -278,12 +279,21 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       <div className="mx-auto max-w-3xl space-y-5">
 
         {/* Header info */}
-        <div className="flex items-center gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
-          <Hash size={12} className="shrink-0" />
-          <span>{t('concept_mapping.source_id_info')}</span>
-          <span className="ml-auto shrink-0 font-mono text-[10px]">
-            {formatNumber(OMOP_CUSTOM_MIN)}–{formatNumber(OMOP_CUSTOM_MAX)}
-          </span>
+        <div className="flex gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300">
+          <Info size={15} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 space-y-1 text-xs leading-relaxed">
+            <p>{t('concept_mapping.source_id_info')}</p>
+            <p>
+              <span className="text-blue-600 dark:text-blue-400">{t('concept_mapping.source_id_range_label')}</span>
+              {' '}
+              <span className="font-mono font-medium">
+                {formatNumber(OMOP_CUSTOM_MIN)}–{formatNumber(OMOP_CUSTOM_MAX)}
+              </span>
+              <span className="ml-1 text-blue-600/70 dark:text-blue-400/70">
+                {t('concept_mapping.source_id_range_hint')}
+              </span>
+            </p>
+          </div>
         </div>
 
         {/* Badge ranges */}
@@ -302,7 +312,11 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             <div className="py-8 text-center text-xs text-muted-foreground">{t('common.loading')}</div>
           ) : ranges.length === 0 ? (
             <Card>
-              <div className="py-8 text-center text-xs text-muted-foreground">{t('concept_mapping.source_id_empty')}</div>
+              <div className="py-8 text-center text-xs text-muted-foreground">
+                {allBadgeLabels.length === 0
+                  ? t('concept_mapping.source_id_empty_no_badges')
+                  : t('concept_mapping.source_id_empty')}
+              </div>
             </Card>
           ) : (
             <div className="space-y-2">
