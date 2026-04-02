@@ -73,7 +73,7 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
 
   setRemoteConfig: (config) => set({ remoteConfig: config }),
   clearRemoteConfig: () => set({ remoteConfig: null }),
-  exportZip: async (workspaceId: string, options?: BuildWorkspaceZipOptions) => {
+  exportZip: async (workspaceId: string, options: BuildWorkspaceZipOptions = {}) => {
     set({ loading: true })
     try {
       const result = await buildWorkspaceZip(workspaceId, getStorage(), options)

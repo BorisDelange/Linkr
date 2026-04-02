@@ -184,6 +184,64 @@ export function WorkspacesPage() {
       }
     }
 
+    // --- Import lightweight project entries (catalog-only) ---
+    for (const entry of parsed.projectEntries) {
+      const { project } = entry
+      if (!project?.uid) continue
+      const uid = duplicate ? crypto.randomUUID() : project.uid
+      const existing = await storage.projects.getById(uid)
+      if (existing && !duplicate) {
+        // Update metadata + readme only
+        await storage.projects.update(uid, {
+          ...project, uid, workspaceId: targetWsId, readme: entry.readme ?? existing.readme, updatedAt: now,
+        })
+      } else {
+        await storage.projects.create({
+          ...project, uid, workspaceId: targetWsId,
+          name: duplicate
+            ? (typeof project.name === 'string'
+              ? `${project.name} (copy)` as unknown as Project['name']
+              : Object.fromEntries(Object.entries(project.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as Project['name'])
+            : project.name,
+          readme: entry.readme ?? '',
+          updatedAt: now,
+          ...(duplicate ? { createdAt: now } : {}),
+        })
+      }
+    }
+
+    // --- Import schema presets ---
+    for (const sp of parsed.schemas) {
+      const id = duplicate ? crypto.randomUUID() : sp.id
+      if (!duplicate) await storage.schemaPresets.delete(sp.id).catch(() => {})
+      await storage.schemaPresets.save({ ...sp, id, workspaceId: targetWsId })
+    }
+
+    // --- Import databases (metadata only, no credentials/files) ---
+    for (const ds of parsed.databases) {
+      if (!ds.id) continue
+      const id = duplicate ? crypto.randomUUID() : ds.id
+      if (!duplicate) {
+        const existing = await storage.dataSources.getById(ds.id)
+        if (existing) {
+          // Update metadata only, keep existing credentials and file refs
+          await storage.dataSources.update(ds.id, {
+            name: ds.name, description: ds.description, alias: ds.alias,
+            schemaMapping: ds.schemaMapping, updatedAt: now,
+          })
+          continue
+        }
+      }
+      await storage.dataSources.create({
+        ...ds,
+        id,
+        workspaceId: targetWsId,
+        status: 'disconnected',
+        createdAt: now,
+        updatedAt: now,
+      } as import('@/types').DataSource)
+    }
+
     // --- Import wiki pages ---
     if (parsed.wikiPages.length > 0) {
       if (!duplicate) {

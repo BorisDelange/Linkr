@@ -14,6 +14,7 @@ import type {
   DqRuleSet, DqCustomCheck,
   ConceptSet, MappingProject, ConceptMapping,
   DataCatalog, ServiceMapping, UserPlugin,
+  DataSource, CustomSchemaPreset,
 } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -493,6 +494,21 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
 
 export interface BuildWorkspaceZipOptions {
   includeDataFiles?: boolean
+  /** Per-section toggles (all true by default for backwards compat) */
+  sections?: {
+    projects?: boolean
+    wiki?: boolean
+    plugins?: boolean
+    schemas?: boolean
+    databases?: boolean
+    conceptMapping?: boolean
+    sqlScripts?: boolean
+    etl?: boolean
+    dataQuality?: boolean
+    catalogs?: boolean
+  }
+  /** Include connection credentials (host, port, database, schema, username) in database export. Passwords are never included. */
+  includeCredentials?: boolean
 }
 
 function resolveWorkspaceName(ws: Workspace): string {
@@ -515,7 +531,23 @@ function buildTreePath(file: { id: string; name: string; parentId: string | null
 }
 
 /**
+ * Strip sensitive fields from a DatabaseConnectionConfig.
+ * - Always removes: password, tokens, local file refs (fileId, fileIds, fileNames, fileHandleIds).
+ * - When `keepCredentials` is false, also removes: host, port, database, schema, username.
+ *   Only `engine` is kept so the data source entry remains useful as a reference.
+ */
+function sanitizeConnectionConfig(config: Record<string, unknown>, keepCredentials: boolean): Record<string, unknown> {
+  // Always strip password, tokens and local file references
+  const { password: _, token: _tk, fileId: _f, fileIds: _fi, fileNames: _fn, fileHandleIds: _fh, ...rest } = config
+  if (keepCredentials) return rest
+  // Strip connection details too — keep only engine
+  const { host: _h, port: _p, database: _d, schema: _s, username: _u, baseUrl: _bu, authType: _at, ...minimal } = rest
+  return minimal
+}
+
+/**
  * Build a ZIP blob containing all workspace data.
+ * Sections can be toggled individually via `options.sections`.
  * Reuses `buildProjectZip` for each project to avoid code duplication.
  */
 export async function buildWorkspaceZip(
@@ -526,125 +558,162 @@ export async function buildWorkspaceZip(
   const workspace = await storage.workspaces.getById(workspaceId)
   if (!workspace) return null
 
+  // Section toggles (default: all enabled for backwards compat)
+  const sec = options.sections ?? {}
+  const on = (key: string) => (sec as Record<string, boolean | undefined>)[key] !== false
+
   const zip = new JSZip()
 
   // --- workspace.json ---
   zip.file('workspace.json', json({ ...workspace, appVersion: APP_VERSION }))
 
-  // --- projects/ (reuse buildProjectZip for each) ---
-  const allProjects = await storage.projects.getAll()
-  const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
-  for (const project of wsProjects) {
-    const projectResult = await buildProjectZip(project.uid, storage, options)
-    if (!projectResult) continue
-    const projectSlug = slugify(resolveProjectName(project))
-    // Unpack the project ZIP into projects/{slug}/
-    const projectZipData = await JSZip.loadAsync(projectResult.blob)
-    for (const [path, entry] of Object.entries(projectZipData.files)) {
-      if (entry.dir) continue
-      const content = await entry.async('arraybuffer')
-      zip.file(`projects/${projectSlug}/${path}`, content)
-    }
-  }
-
-  // --- wiki/ ---
-  const wikiPages = await storage.wikiPages.getByWorkspace(workspaceId)
-  if (wikiPages.length > 0) {
-    // _tree.json: page metadata (without content — content goes in .md files)
-    const treeMeta = wikiPages.map(({ content: _, history: _h, ...meta }) => meta)
-    zip.file('wiki/_tree.json', json(treeMeta))
-
-    for (const page of wikiPages) {
-      const pageSlug = slugify(page.title || page.id)
-      zip.file(`wiki/${pageSlug}--${page.id}.md`, page.content || '')
-    }
-
-    // Wiki attachments
-    const wikiAttachments = await storage.wikiAttachments.getByWorkspace(workspaceId)
-    if (wikiAttachments.length > 0) {
-      const meta = wikiAttachments.map(({ data: _, ...rest }) => rest)
-      zip.file('wiki/_attachments/_meta.json', json(meta))
-      for (const att of wikiAttachments) {
-        zip.file(`wiki/_attachments/${att.id}-${att.fileName}`, att.data)
+  // --- projects/ (lightweight: metadata + README only, no full content) ---
+  if (on('projects')) {
+    const allProjects = await storage.projects.getAll()
+    const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
+    for (const project of wsProjects) {
+      const projectSlug = slugify(resolveProjectName(project))
+      // Export only catalog-relevant metadata (not full project content)
+      const { todos: _t, notes: _n, readmeHistory: _rh, ...projectMeta } = project
+      zip.file(`projects/${projectSlug}/project.json`, json({ ...projectMeta, appVersion: APP_VERSION }))
+      if (project.readme) {
+        zip.file(`projects/${projectSlug}/README.md`, project.readme)
       }
     }
   }
 
+  // --- wiki/ ---
+  if (on('wiki')) {
+    const wikiPages = await storage.wikiPages.getByWorkspace(workspaceId)
+    if (wikiPages.length > 0) {
+      const treeMeta = wikiPages.map(({ content: _, history: _h, ...meta }) => meta)
+      zip.file('wiki/_tree.json', json(treeMeta))
+
+      for (const page of wikiPages) {
+        const pageSlug = slugify(page.title || page.id)
+        zip.file(`wiki/${pageSlug}--${page.id}.md`, page.content || '')
+      }
+
+      const wikiAttachments = await storage.wikiAttachments.getByWorkspace(workspaceId)
+      if (wikiAttachments.length > 0) {
+        const meta = wikiAttachments.map(({ data: _, ...rest }) => rest)
+        zip.file('wiki/_attachments/_meta.json', json(meta))
+        for (const att of wikiAttachments) {
+          zip.file(`wiki/_attachments/${att.id}-${att.fileName}`, att.data)
+        }
+      }
+    }
+  }
+
+  // --- schemas/ ---
+  if (on('schemas')) {
+    const schemas = await storage.schemaPresets.getByWorkspace(workspaceId)
+    for (const sp of schemas) {
+      zip.file(`schemas/${slugify(sp.id)}.json`, json(sp))
+    }
+  }
+
+  // --- databases/ (always exported when section enabled; credentials opt-in, passwords never) ---
+  if (on('databases')) {
+    const keepCreds = options.includeCredentials === true
+    const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
+    for (const ds of dataSources) {
+      const { connectionConfig, ...rest } = ds as Record<string, unknown>
+      const safeDsJson = {
+        ...rest,
+        connectionConfig: connectionConfig
+          ? sanitizeConnectionConfig(connectionConfig as Record<string, unknown>, keepCreds)
+          : undefined,
+      }
+      zip.file(`databases/${slugify((ds as { name?: string }).name || (ds as { id: string }).id)}.json`, json(safeDsJson))
+    }
+  }
+
   // --- sql-scripts/ ---
-  const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(workspaceId)
-  for (const collection of sqlCollections) {
-    const collSlug = slugify(collection.name || collection.id)
-    const files = await storage.sqlScriptFiles.getByCollection(collection.id)
-    const byId = new Map(files.map(f => [f.id, f]))
+  if (on('sqlScripts')) {
+    const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(workspaceId)
+    for (const collection of sqlCollections) {
+      const collSlug = slugify(collection.name || collection.id)
+      const files = await storage.sqlScriptFiles.getByCollection(collection.id)
+      const byId = new Map(files.map(f => [f.id, f]))
 
-    zip.file(`sql-scripts/${collSlug}/_collection.json`, json(collection))
-    zip.file(`sql-scripts/${collSlug}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+      zip.file(`sql-scripts/${collSlug}/_collection.json`, json(collection))
+      zip.file(`sql-scripts/${collSlug}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
 
-    for (const f of files) {
-      if (f.type === 'file' && f.content != null) {
-        zip.file(`sql-scripts/${collSlug}/${buildTreePath(f, byId)}`, f.content)
+      for (const f of files) {
+        if (f.type === 'file' && f.content != null) {
+          zip.file(`sql-scripts/${collSlug}/${buildTreePath(f, byId)}`, f.content)
+        }
       }
     }
   }
 
   // --- etl/ ---
-  const etlPipelines = await storage.etlPipelines.getByWorkspace(workspaceId)
-  for (const pipeline of etlPipelines) {
-    const pSlug = slugify(pipeline.name || pipeline.id)
-    const files = await storage.etlFiles.getByPipeline(pipeline.id)
-    const byId = new Map(files.map(f => [f.id, f]))
+  if (on('etl')) {
+    const etlPipelines = await storage.etlPipelines.getByWorkspace(workspaceId)
+    for (const pipeline of etlPipelines) {
+      const pSlug = slugify(pipeline.name || pipeline.id)
+      const files = await storage.etlFiles.getByPipeline(pipeline.id)
+      const byId = new Map(files.map(f => [f.id, f]))
 
-    zip.file(`etl/${pSlug}/_pipeline.json`, json(pipeline))
-    zip.file(`etl/${pSlug}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+      zip.file(`etl/${pSlug}/_pipeline.json`, json(pipeline))
+      zip.file(`etl/${pSlug}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
 
-    for (const f of files) {
-      if (f.type === 'file' && f.content != null) {
-        zip.file(`etl/${pSlug}/${buildTreePath(f, byId)}`, f.content)
+      for (const f of files) {
+        if (f.type === 'file' && f.content != null) {
+          zip.file(`etl/${pSlug}/${buildTreePath(f, byId)}`, f.content)
+        }
       }
     }
   }
 
   // --- dq/ ---
-  const dqRuleSets = await storage.dqRuleSets.getByWorkspace(workspaceId)
-  for (const rs of dqRuleSets) {
-    const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
-    zip.file(`dq/${slugify(rs.name || rs.id)}.json`, json({ ruleSet: rs, checks }))
+  if (on('dataQuality')) {
+    const dqRuleSets = await storage.dqRuleSets.getByWorkspace(workspaceId)
+    for (const rs of dqRuleSets) {
+      const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
+      zip.file(`dq/${slugify(rs.name || rs.id)}.json`, json({ ruleSet: rs, checks }))
+    }
   }
 
-  // --- concept-sets/ ---
-  const conceptSets = await storage.conceptSets.getByWorkspace(workspaceId)
-  for (const cs of conceptSets) {
-    zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(cs))
+  // --- concept-sets/ + mapping-projects/ ---
+  if (on('conceptMapping')) {
+    const conceptSets = await storage.conceptSets.getByWorkspace(workspaceId)
+    for (const cs of conceptSets) {
+      zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(cs))
+    }
+
+    const mappingProjects = await storage.mappingProjects.getByWorkspace(workspaceId)
+    for (const mp of mappingProjects) {
+      const mpSlug = slugify(mp.name || mp.id)
+      const mappings = await storage.conceptMappings.getByProject(mp.id)
+      zip.file(`mapping-projects/${mpSlug}/_project.json`, json(mp))
+      zip.file(`mapping-projects/${mpSlug}/mappings.json`, json(mappings))
+    }
   }
 
-  // --- mapping-projects/ ---
-  const mappingProjects = await storage.mappingProjects.getByWorkspace(workspaceId)
-  for (const mp of mappingProjects) {
-    const mpSlug = slugify(mp.name || mp.id)
-    const mappings = await storage.conceptMappings.getByProject(mp.id)
-    zip.file(`mapping-projects/${mpSlug}/_project.json`, json(mp))
-    zip.file(`mapping-projects/${mpSlug}/mappings.json`, json(mappings))
-  }
+  // --- catalogs/ + service-mappings/ ---
+  if (on('catalogs')) {
+    const catalogs = await storage.dataCatalogs.getByWorkspace(workspaceId)
+    for (const cat of catalogs) {
+      zip.file(`catalogs/${slugify(cat.name || cat.id)}.json`, json(cat))
+    }
 
-  // --- catalogs/ ---
-  const catalogs = await storage.dataCatalogs.getByWorkspace(workspaceId)
-  for (const cat of catalogs) {
-    zip.file(`catalogs/${slugify(cat.name || cat.id)}.json`, json(cat))
-  }
-
-  // --- service-mappings/ ---
-  const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
-  for (const sm of serviceMappings) {
-    zip.file(`service-mappings/${slugify(sm.name || sm.id)}.json`, json(sm))
+    const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
+    for (const sm of serviceMappings) {
+      zip.file(`service-mappings/${slugify(sm.name || sm.id)}.json`, json(sm))
+    }
   }
 
   // --- plugins/ ---
-  const plugins = await storage.userPlugins.getByWorkspace(workspaceId)
-  for (const plugin of plugins) {
-    const pSlug = slugify(plugin.id)
-    zip.file(`plugins/${pSlug}/_plugin.json`, json({ id: plugin.id, workspaceId: plugin.workspaceId, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))
-    for (const [filename, content] of Object.entries(plugin.files)) {
-      zip.file(`plugins/${pSlug}/${filename}`, content)
+  if (on('plugins')) {
+    const plugins = await storage.userPlugins.getByWorkspace(workspaceId)
+    for (const plugin of plugins) {
+      const pSlug = slugify(plugin.id)
+      zip.file(`plugins/${pSlug}/_plugin.json`, json({ id: plugin.id, workspaceId: plugin.workspaceId, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))
+      for (const [filename, content] of Object.entries(plugin.files)) {
+        zip.file(`plugins/${pSlug}/${filename}`, content)
+      }
     }
   }
 
@@ -656,9 +725,20 @@ export async function buildWorkspaceZip(
 // Parse workspace ZIP
 // ---------------------------------------------------------------------------
 
+/** Lightweight project entry (catalog-only: metadata + README). */
+export interface ParsedProjectEntry {
+  project: Project & { appVersion?: string }
+  readme?: string
+}
+
 export interface ParsedWorkspaceZip {
   workspace: Workspace & { appVersion?: string }
+  /** Full project data (legacy format: complete project ZIP inside workspace ZIP). */
   projects: Map<string, ParsedProjectZip>
+  /** Lightweight project entries (new format: metadata + README only). */
+  projectEntries: ParsedProjectEntry[]
+  schemas: CustomSchemaPreset[]
+  databases: Partial<DataSource>[]
   wikiPages: WikiPage[]
   wikiAttachmentsMeta: Omit<WikiAttachment, 'data'>[]
   wikiAttachmentBlobs: Map<string, ArrayBuffer>
@@ -681,8 +761,10 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace?.id) return null
 
-  // --- projects/ (rebuild each project sub-folder and parse with parseProjectZip) ---
+  // --- projects/ ---
+  // Detect format: lightweight (only project.json + README.md) vs full (has _pipeline/, _cohorts/, etc.)
   const projects = new Map<string, ParsedProjectZip>()
+  const projectEntries: ParsedProjectEntry[] = []
   const projectFolders = new Set<string>()
   for (const path of Object.keys(zipData.files)) {
     if (!path.startsWith('projects/')) continue
@@ -691,14 +773,43 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
   for (const folder of projectFolders) {
     const prefix = `projects/${folder}/`
-    const projectZip = new JSZip()
-    for (const [path, entry] of Object.entries(zipData.files)) {
-      if (!path.startsWith(prefix) || entry.dir) continue
-      projectZip.file(path.slice(prefix.length), await entry.async('arraybuffer'))
+    // Check if this is a lightweight entry (no _pipeline, _cohorts, _dashboards, etc.)
+    const hasFullContent = Object.keys(zipData.files).some(p =>
+      p.startsWith(prefix) && (p.includes('/_pipeline/') || p.includes('/_cohorts/') || p.includes('/_dashboards/') || p.includes('/_datasets/') || p.includes('/_ide_tree.json'))
+    )
+
+    if (hasFullContent) {
+      // Legacy full project ZIP
+      const projectZip = new JSZip()
+      for (const [path, entry] of Object.entries(zipData.files)) {
+        if (!path.startsWith(prefix) || entry.dir) continue
+        projectZip.file(path.slice(prefix.length), await entry.async('arraybuffer'))
+      }
+      const blob = await projectZip.generateAsync({ type: 'blob' })
+      const parsed = await parseProjectZip(new File([blob], `${folder}.zip`))
+      if (parsed) projects.set(folder, parsed)
+    } else {
+      // Lightweight entry (catalog-only)
+      const projectJson = await readJsonFile<Project & { appVersion?: string }>(zipData, `${prefix}project.json`)
+      if (!projectJson) continue
+      const readmeEntry = zipData.files[`${prefix}README.md`]
+      const readme = readmeEntry ? await readmeEntry.async('string') : undefined
+      projectEntries.push({ project: projectJson, readme })
     }
-    const blob = await projectZip.generateAsync({ type: 'blob' })
-    const parsed = await parseProjectZip(new File([blob], `${folder}.zip`))
-    if (parsed) projects.set(folder, parsed)
+  }
+
+  // --- schemas/ ---
+  const schemas: CustomSchemaPreset[] = []
+  for (const [path, entry] of Object.entries(zipData.files)) {
+    if (!path.startsWith('schemas/') || !path.endsWith('.json') || entry.dir) continue
+    schemas.push(JSON.parse(await entry.async('string')))
+  }
+
+  // --- databases/ (sanitized connection metadata) ---
+  const databases: Partial<DataSource>[] = []
+  for (const [path, entry] of Object.entries(zipData.files)) {
+    if (!path.startsWith('databases/') || !path.endsWith('.json') || entry.dir) continue
+    databases.push(JSON.parse(await entry.async('string')))
   }
 
   // --- wiki/ ---
@@ -846,7 +957,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   return {
-    workspace, projects, wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
+    workspace, projects, projectEntries, schemas, databases,
+    wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,
     mappingProjects, catalogs, serviceMappings, plugins,
   }
