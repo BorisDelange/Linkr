@@ -12,7 +12,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, User, LogOut } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, User, LogOut, Building2, FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -181,13 +181,14 @@ export function Header() {
               <Separator orientation="vertical" className="!h-4" />
               <Badge
                 variant="outline"
-                className="cursor-pointer text-[11px] transition-colors hover:bg-accent"
+                className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-amber-600 border-amber-200 bg-amber-50 transition-colors hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900"
                 onClick={() => {
                   if (activeProjectUid) closeProject()
                   const wsId = useWorkspaceStore.getState().activeWorkspaceId
                   if (wsId) navigate(`/workspaces/${wsId}/home`)
                 }}
               >
+                <Building2 size={10} />
                 {activeWorkspaceName}
               </Badge>
             </>
@@ -195,7 +196,17 @@ export function Header() {
           {activeProjectName && (
             <>
               <Separator orientation="vertical" className="!h-4" />
-              <Badge variant="secondary" className="text-[11px]">{activeProjectName}</Badge>
+              <Badge
+                variant="outline"
+                className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
+                onClick={() => {
+                  const wsId = useWorkspaceStore.getState().activeWorkspaceId
+                  if (wsId && activeProjectUid) navigate(`/workspaces/${wsId}/projects/${activeProjectUid}/summary`)
+                }}
+              >
+                <FolderOpen size={10} />
+                {activeProjectName}
+              </Badge>
             </>
           )}
         </div>
