@@ -16,6 +16,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { queryDataSource } from '@/lib/duckdb/engine'
+import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import type { MappingProject, SourceConceptIdRange } from '@/types'
 
 // OMOP convention: custom source concept IDs start at 2,000,000,001
@@ -27,7 +30,6 @@ const DEFAULT_RANGE_SIZE = 10_000_000
 interface SourceIdTabProps {
   workspaceId: string
   projects: MappingProject[]
-  allMappings: { sourceConceptCode: string; sourceVocabularyId: string; projectId: string }[]
 }
 
 interface RangeRow extends SourceConceptIdRange {
@@ -53,8 +55,10 @@ function rangeOverlaps(ranges: RangeRow[], exclude: string, start: number, end: 
   return false
 }
 
-export function SourceIdTab({ workspaceId, projects, allMappings }: SourceIdTabProps) {
+export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const { t } = useTranslation()
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [ranges, setRanges] = useState<RangeRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,20 +164,45 @@ export function SourceIdTab({ workspaceId, projects, allMappings }: SourceIdTabP
       if (!range) return
 
       // Gather all (vocabularyId, conceptCode) pairs from projects that have this badge
+      // — includes ALL source concepts, not just mapped ones
       const projectsWithBadge = projects.filter((p) =>
         (p.badges ?? []).some((b) => b.label === badgeLabel),
       )
-      const projectIds = new Set(projectsWithBadge.map((p) => p.id))
 
-      // Unique (vocabularyId, conceptCode) pairs — exclude file projects that already have a real conceptIdColumn
-      // Database projects and file projects without conceptIdColumn both get assigned custom IDs
+      // Unique (vocabularyId, conceptCode) pairs — exclude file projects with a real conceptIdColumn
       const pairsToAssign = new Set<string>()
-      for (const m of allMappings) {
-        if (!projectIds.has(m.projectId)) continue
-        const proj = projects.find((p) => p.id === m.projectId)
-        if (proj?.sourceType === 'file' && proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
-        if (m.sourceVocabularyId && m.sourceConceptCode) {
-          pairsToAssign.add(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
+
+      for (const proj of projectsWithBadge) {
+        if (proj.sourceType === 'file') {
+          // File project with real concept IDs: skip (real IDs are used directly)
+          if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
+          // File project without concept ID: collect from imported rows
+          const rows = proj.fileSourceData?.rows ?? []
+          const colMapping = proj.fileSourceData?.columnMapping
+          const codeCol = colMapping?.conceptCodeColumn
+          const vocabCol = colMapping?.terminologyColumn
+          for (const row of rows) {
+            const code = codeCol ? String(row[codeCol] ?? '') : ''
+            const vocab = vocabCol ? String(row[vocabCol] ?? '') : proj.name
+            if (code) pairsToAssign.add(`${vocab}__${code}`)
+          }
+        } else {
+          // Database project: query all source concepts
+          const ds = dataSources.find((s) => s.id === proj.dataSourceId)
+          if (!ds?.schemaMapping) continue
+          try {
+            await ensureMounted(ds.id)
+            const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+            if (!sql) continue
+            const rows = await queryDataSource(ds.id, sql)
+            for (const row of rows) {
+              const code = String(row.concept_code ?? '')
+              const vocab = String(row.vocabulary_id ?? ds.id)
+              if (code) pairsToAssign.add(`${vocab}__${code}`)
+            }
+          } catch {
+            // If DB unavailable, skip silently
+          }
         }
       }
 
@@ -189,7 +218,9 @@ export function SourceIdTab({ workspaceId, projects, allMappings }: SourceIdTabP
         if (existingMap.has(pairKey)) continue // already assigned
         if (nextId > range.rangeEnd) break // range exhausted
 
-        const [vocabularyId, conceptCode] = pairKey.split('__')
+        const sepIdx = pairKey.indexOf('__')
+        const vocabularyId = pairKey.slice(0, sepIdx)
+        const conceptCode = pairKey.slice(sepIdx + 2)
         const entryId = `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`
         await getStorage().sourceConceptIdEntries.save({
           id: entryId,

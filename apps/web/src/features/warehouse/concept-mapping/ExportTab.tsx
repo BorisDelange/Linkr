@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode, Loader2 } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -12,12 +12,12 @@ import {
   exportToSourceToConceptMap,
   exportToSssomTsv,
   exportSourceConceptsCsv,
+  exportUnmappedToStcm,
   buildSourceConceptsCsvFromRows,
   downloadFile,
 } from '@/lib/concept-mapping/export'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { getStorage } from '@/lib/storage'
-import { Table2 } from 'lucide-react'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
 interface ExportTabProps {
@@ -40,6 +40,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     new Set(['approved']),
   )
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
+  const [includeUnmapped, setIncludeUnmapped] = useState(false)
 
   const toggleStatus = (status: MappingStatus) => {
     setIncludedStatuses((prev) => {
@@ -133,7 +134,47 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           const flat = allEntries.flat()
           if (flat.length > 0) registryEntries = flat
         }
-        return exportToSourceToConceptMap(filteredMappings, project, registryEntries)
+        const mappedCsv = exportToSourceToConceptMap(filteredMappings, project, registryEntries)
+        if (!includeUnmapped) return mappedCsv
+
+        // Build set of already-mapped (vocabularyId, conceptCode) keys
+        const mappedKeys = new Set(filteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
+
+        // Collect ALL source concepts for this project
+        let allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
+        if (project.sourceType === 'file') {
+          const rows = project.fileSourceData?.rows ?? []
+          const colMapping = project.fileSourceData?.columnMapping
+          const codeCol = colMapping?.conceptCodeColumn
+          const vocabCol = colMapping?.terminologyColumn
+          const nameCol = colMapping?.conceptNameColumn
+          for (const row of rows) {
+            const code = codeCol ? String(row[codeCol] ?? '') : ''
+            const vocab = vocabCol ? String(row[vocabCol] ?? '') : project.name
+            const name = nameCol ? String(row[nameCol] ?? '') : code
+            if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+          }
+        } else if (dataSource?.schemaMapping) {
+          try {
+            await ensureMounted(dataSource.id)
+            const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
+            if (sql) {
+              const rows = await queryDataSource(dataSource.id, sql)
+              allSourceConcepts = rows.map((r) => ({
+                vocabularyId: String(r.vocabulary_id ?? dataSource.id),
+                conceptCode: String(r.concept_code ?? ''),
+                conceptName: String(r.concept_name ?? ''),
+              })).filter((c) => c.conceptCode)
+            }
+          } catch { /* skip if unavailable */ }
+        }
+
+        const unmappedCsv = exportUnmappedToStcm(allSourceConcepts, mappedKeys, registryEntries)
+        if (!mappedCsv) return unmappedCsv
+        if (!unmappedCsv) return mappedCsv
+        // Both have a header line — strip the header from unmapped and append
+        const unmappedRows = unmappedCsv.split('\n').slice(1).join('\n')
+        return unmappedRows ? `${mappedCsv}\n${unmappedRows}` : mappedCsv
       },
     },
     {
@@ -237,6 +278,24 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               )
             })}
 
+            {/* Unmapped (STCM only) */}
+            <div>
+              <label className="flex cursor-pointer items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={includeUnmapped}
+                  onChange={() => setIncludeUnmapped((v) => !v)}
+                  className="size-3.5 rounded border-gray-300 accent-primary"
+                />
+                <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
+                {project.stats && (
+                  <Badge variant="secondary" className="text-[10px]">
+                    {Math.max(0, project.stats.totalSourceConcepts - (project.stats.mappedCount ?? 0))}
+                  </Badge>
+                )}
+                <span className="text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</span>
+              </label>
+            </div>
           </div>
 
           <div className="mt-3 border-t pt-3">

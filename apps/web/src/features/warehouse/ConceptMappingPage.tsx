@@ -4,17 +4,29 @@ import { MappingProjectListPage } from './concept-mapping/MappingProjectListPage
 import { MappingProjectPage } from './concept-mapping/MappingProjectPage'
 import { GlobalSummaryView } from './concept-mapping/GlobalSummaryView'
 
+type View = 'home' | 'projects' | 'global'
+
 export function ConceptMappingPage() {
   const { mappingProjectId } = useParams()
-  const [showGlobal, setShowGlobal] = useState(false)
+  const [view, setView] = useState<View>('home')
 
   if (mappingProjectId) {
     return <MappingProjectPage projectId={mappingProjectId} />
   }
 
-  if (showGlobal) {
-    return <GlobalSummaryView onBack={() => setShowGlobal(false)} />
+  if (view === 'global') {
+    return <GlobalSummaryView onBack={() => setView('home')} />
   }
 
-  return <MappingProjectListPage onShowGlobal={() => setShowGlobal(true)} />
+  if (view === 'projects') {
+    return <MappingProjectListPage onBack={() => setView('home')} />
+  }
+
+  return (
+    <MappingProjectListPage
+      view="home"
+      onShowProjects={() => setView('projects')}
+      onShowGlobal={() => setView('global')}
+    />
+  )
 }

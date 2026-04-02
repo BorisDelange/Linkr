@@ -528,6 +528,7 @@ export async function seedDemoMappingProject(): Promise<void> {
       dataSourceId: DEMO_RAW_DATASOURCE_ID,
       vocabularyDataSourceId: DEMO_VOCAB_DATASOURCE_ID,
       conceptSetIds: [],
+      status: 'in_progress',
       createdAt: now,
       updatedAt: now,
     }

@@ -72,6 +72,8 @@ interface ListPageTemplateProps<T extends { id: string; name: string }> {
   renderEditDialog: (props: { item: T; onOpenChange: (open: boolean) => void }) => ReactNode
   /** Optional extra actions rendered before the Import/New buttons in the header */
   headerActions?: ReactNode
+  /** Optional back button/element rendered on the left of the header row */
+  backAction?: ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +99,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   renderCreateDialog,
   renderEditDialog,
   headerActions,
+  backAction,
 }: ListPageTemplateProps<T>) {
   const { t } = useTranslation()
 
@@ -124,6 +127,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
       <div className="mx-auto max-w-3xl px-6 py-10">
         {/* Header */}
         <div>
+          {backAction && <div className="mb-1">{backAction}</div>}
           <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
           <div className="mt-3 flex items-center justify-end gap-1">

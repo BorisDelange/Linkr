@@ -44,11 +44,14 @@ import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
+  exportUnmappedToStcm,
   downloadFile,
 } from '@/lib/concept-mapping/export'
-import { slugify } from '@/lib/entity-io'
+import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { queryDataSource } from '@/lib/duckdb/engine'
 import { SourceIdTab } from './SourceIdTab'
 import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
 
@@ -71,6 +74,7 @@ const STATUS_BAR_COLORS: Record<string, string> = {
   rejected: '#ef4444',
   unchecked: '#9ca3af',
   ignored: '#d1d5db',
+  unmapped: '#e5e7eb',
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -95,11 +99,16 @@ const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transpare
 
 interface GroupStat {
   totalMappings: number
+  /** Unique source concepts (by sourceConceptCode or sourceConceptId) */
+  uniqueSourceConcepts: number
+  uniqueSourceConceptKeys: Set<string>
   approved: number
   flagged: number
   rejected: number
   unchecked: number
   ignored: number
+  /** Total source concepts from project.stats (sum across projects in this group) */
+  totalSourceConceptsFromStats: number
   projectCount: number
   projectIds: Set<string>
 }
@@ -126,53 +135,84 @@ function computeGroupStats(
 
   const ensure = (name: string) => {
     if (!raw.has(name)) {
-      raw.set(name, { totalMappings: 0, approved: 0, flagged: 0, rejected: 0, unchecked: 0, ignored: 0, projectCount: 0, projectIds: new Set() })
+      raw.set(name, {
+        totalMappings: 0,
+        uniqueSourceConcepts: 0,
+        uniqueSourceConceptKeys: new Set(),
+        approved: 0, flagged: 0, rejected: 0, unchecked: 0, ignored: 0,
+        totalSourceConceptsFromStats: 0,
+        projectCount: 0, projectIds: new Set(),
+      })
     }
     return raw.get(name)!
   }
 
   const projectMap = new Map(projects.map((p) => [p.id, p]))
 
+  // Compute per-project total from stats for the group aggregation
+  // We count each project's stats once per group key it belongs to
+  const projectStatsCounted = new Set<string>() // `${groupKey}__${projectId}`
+
   for (const m of mappings) {
     const p = projectMap.get(m.projectId)
     let keys: string[]
     if (groupMode === 'project') {
       keys = p ? [p.name] : []
-    } else if (groupMode === 'badge') {
+    } else {
       const labels = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
       keys = labels.length > 0 ? labels : ['Other']
-    } else {
-      keys = []
     }
     const eff = effectiveStatus(m)
+    const sourceKey = m.sourceConceptCode ?? String(m.sourceConceptId)
     for (const key of keys) {
       const g = ensure(key)
       g.totalMappings++
       g.projectIds.add(m.projectId)
+      g.uniqueSourceConceptKeys.add(`${m.projectId}__${sourceKey}`)
       if (eff === 'approved') g.approved++
       else if (eff === 'flagged') g.flagged++
       else if (eff === 'rejected') g.rejected++
       else if (eff === 'ignored') g.ignored++
       else g.unchecked++
+
+      // Add project total once per (groupKey, projectId)
+      const statKey = `${key}__${m.projectId}`
+      if (!projectStatsCounted.has(statKey)) {
+        projectStatsCounted.add(statKey)
+        // File projects: use rows.length (accurate); DB projects: stats is 0 (needs DuckDB query)
+        const projectTotal = p?.sourceType === 'file'
+          ? (p.fileSourceData?.rows.length ?? 0)
+          : (p?.stats?.totalSourceConcepts ?? 0)
+        g.totalSourceConceptsFromStats += projectTotal
+      }
     }
   }
 
-  for (const [, g] of raw) g.projectCount = g.projectIds.size
+  for (const [, g] of raw) {
+    g.projectCount = g.projectIds.size
+    g.uniqueSourceConcepts = g.uniqueSourceConceptKeys.size
+  }
 
-  const sorted = Array.from(raw.entries()).sort((a, b) => b[1].totalMappings - a[1].totalMappings)
+  const sorted = Array.from(raw.entries()).sort((a, b) => b[1].uniqueSourceConcepts - a[1].uniqueSourceConcepts)
   if (sorted.length <= TOP_N) return raw
 
   const top = sorted.slice(0, TOP_N)
   const rest = sorted.slice(TOP_N)
 
-  const other: GroupStat = { totalMappings: 0, approved: 0, flagged: 0, rejected: 0, unchecked: 0, ignored: 0, projectCount: 0, projectIds: new Set() }
+  const other: GroupStat = {
+    totalMappings: 0, uniqueSourceConcepts: 0, uniqueSourceConceptKeys: new Set(),
+    approved: 0, flagged: 0, rejected: 0, unchecked: 0, ignored: 0,
+    totalSourceConceptsFromStats: 0, projectCount: 0, projectIds: new Set(),
+  }
   for (const [, g] of rest) {
     other.totalMappings += g.totalMappings
+    other.uniqueSourceConcepts += g.uniqueSourceConcepts
     other.approved += g.approved
     other.flagged += g.flagged
     other.rejected += g.rejected
     other.unchecked += g.unchecked
     other.ignored += g.ignored
+    other.totalSourceConceptsFromStats += g.totalSourceConceptsFromStats
     for (const id of g.projectIds) other.projectIds.add(id)
   }
   other.projectCount = other.projectIds.size
@@ -275,6 +315,7 @@ function MultiSelectFilter({
 // Row for project/status mode: one row per mapping
 interface GlobalMappingRow extends ConceptMapping {
   projectName: string
+  resolvedSourceConceptId: number | undefined
 }
 
 // Row for badge mode: deduplicated by (sourceConceptCode, targetConceptId), votes aggregated
@@ -309,6 +350,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [allMappings, setAllMappings] = useState<ConceptMapping[]>([])
   const [loadingMappings, setLoadingMappings] = useState(true)
@@ -324,6 +367,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [exportStatuses, setExportStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
   const [exportApprovalRule, setExportApprovalRule] = useState<'at_least_one' | 'majority' | 'no_rejections'>('at_least_one')
   const [exportGroupFilter, setExportGroupFilter] = useState<Set<string>>(new Set())
+  const [exportIncludeUnmapped, setExportIncludeUnmapped] = useState(false)
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -376,25 +420,41 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   }, [])
 
   const totals = useMemo(() => {
-    let total = 0, approved = 0, flagged = 0, rejected = 0, unchecked = 0, ignored = 0
+    // Count unique source concepts globally (across all groups, deduplicated)
+    const allSourceKeys = new Set<string>()
+    let approved = 0, flagged = 0, rejected = 0, unchecked = 0, ignored = 0
     for (const g of groupStats.values()) {
-      total += g.totalMappings
+      for (const k of g.uniqueSourceConceptKeys) allSourceKeys.add(k)
       approved += g.approved
       flagged += g.flagged
       rejected += g.rejected
       unchecked += g.unchecked
       ignored += g.ignored
     }
-    return { total, approved, flagged, rejected, unchecked, ignored }
-  }, [groupStats])
+    // Total source concepts: file projects → rows.length; DB projects → not available without query
+    let totalSourceConcepts = 0
+    for (const p of projects) {
+      if (p.sourceType === 'file') {
+        totalSourceConcepts += p.fileSourceData?.rows.length ?? 0
+      }
+      // DB projects: stats.totalSourceConcepts is always 0 (needs live DuckDB query)
+      // We'll fall back to 0, meaning no % will be shown for DB-only workspaces
+    }
+    const uniqueMapped = allSourceKeys.size
+    const unmapped = totalSourceConcepts > 0 ? Math.max(0, totalSourceConcepts - uniqueMapped) : 0
+    return { total: totalSourceConcepts || uniqueMapped, totalSourceConcepts, uniqueMapped, approved, flagged, rejected, unchecked, ignored, unmapped }
+  }, [groupStats, projects])
 
   const chartData = useMemo(() => groupNames.map((name) => {
     const g = groupStats.get(name)!
     const displayName = getDisplayName(name)
+    const unmapped = g.totalSourceConceptsFromStats > 0
+      ? Math.max(0, g.totalSourceConceptsFromStats - g.uniqueSourceConcepts)
+      : 0
     return {
       name: displayName.length > 20 ? displayName.slice(0, 18) + '…' : displayName,
       approved: g.approved, flagged: g.flagged, rejected: g.rejected,
-      unchecked: g.unchecked, ignored: g.ignored,
+      unchecked: g.unchecked, ignored: g.ignored, unmapped,
     }
   }), [groupNames, groupStats, getDisplayName])
 
@@ -452,18 +512,19 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   )
 
   // project mode: one row per mapping, with registry-resolved sourceConceptId
+  // resolvedSourceConceptId is undefined when there's no registry entry (artificial ID, not yet assigned)
   const flatRows = useMemo<GlobalMappingRow[]>(() => {
     if (groupMode === 'badge') return []
     return allMappings.map((m) => {
       const proj = tableProjectMap.get(m.projectId)
       const isArtificialId = proj?.sourceType === 'database'
         || (proj?.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
-      const resolvedId = isArtificialId && m.sourceVocabularyId && m.sourceConceptCode
-        ? (registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`) ?? m.sourceConceptId)
+      const resolvedSourceConceptId = isArtificialId
+        ? registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
         : m.sourceConceptId
       return {
         ...m,
-        sourceConceptId: resolvedId,
+        resolvedSourceConceptId,
         projectName: tableProjectMap.get(m.projectId)?.name ?? m.projectId,
       }
     })
@@ -618,13 +679,75 @@ const allBadgeLabels = useMemo(() => {
     return projects.map((p) => p.name).sort()
   }, [projects, groupMode])
 
-  const handleExportDownload = (format: 'sssom' | 'stcm' | 'usagi') => {
+  const handleExportDownload = async (format: 'sssom' | 'stcm' | 'usagi') => {
     if (format === 'sssom') {
       const virtualProject = { name: 'global', id: 'global' } as MappingProject
       downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
     } else if (format === 'stcm') {
       const entries = registryEntries.length > 0 ? registryEntries : undefined
-      downloadFile(exportToSourceToConceptMap(exportFilteredMappings, projects, entries), `global-source-to-concept-map.csv`, 'text/csv')
+      const mappedCsv = exportToSourceToConceptMap(exportFilteredMappings, projects, entries)
+
+      if (!exportIncludeUnmapped) {
+        downloadFile(mappedCsv, `global-source-to-concept-map.csv`, 'text/csv')
+        return
+      }
+
+      // Collect ALL source concepts across all filtered projects
+      const filteredProjectIds = exportGroupFilter.size > 0
+        ? new Set(projects.filter((p) => {
+            const labels = (p.badges ?? []).map((b) => b.label)
+            return groupMode === 'badge'
+              ? labels.some((l) => exportGroupFilter.has(l))
+              : exportGroupFilter.has(p.name)
+          }).map((p) => p.id))
+        : null
+
+      const filteredProjects = filteredProjectIds
+        ? projects.filter((p) => filteredProjectIds.has(p.id))
+        : projects
+
+      const allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
+      for (const proj of filteredProjects) {
+        if (proj.sourceType === 'file') {
+          if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
+          const rows = proj.fileSourceData?.rows ?? []
+          const colMapping = proj.fileSourceData?.columnMapping
+          const codeCol = colMapping?.conceptCodeColumn
+          const vocabCol = colMapping?.terminologyColumn
+          const nameCol = colMapping?.conceptNameColumn
+          for (const row of rows) {
+            const code = codeCol ? String(row[codeCol] ?? '') : ''
+            const vocab = vocabCol ? String(row[vocabCol] ?? '') : proj.name
+            const name = nameCol ? String(row[nameCol] ?? '') : code
+            if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+          }
+        } else {
+          const ds = dataSources.find((s) => s.id === proj.dataSourceId)
+          if (!ds?.schemaMapping) continue
+          try {
+            await ensureMounted(ds.id)
+            const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+            if (!sql) continue
+            const rows = await queryDataSource(ds.id, sql)
+            for (const r of rows) {
+              const code = String(r.concept_code ?? '')
+              const vocab = String(r.vocabulary_id ?? ds.id)
+              const name = String(r.concept_name ?? '')
+              if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+            }
+          } catch { /* skip if unavailable */ }
+        }
+      }
+
+      const mappedKeys = new Set(exportFilteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
+      const unmappedCsv = exportUnmappedToStcm(allSourceConcepts, mappedKeys, entries)
+
+      let finalCsv = mappedCsv
+      if (unmappedCsv) {
+        const unmappedRows = unmappedCsv.split('\n').slice(1).join('\n')
+        if (unmappedRows) finalCsv = mappedCsv ? `${mappedCsv}\n${unmappedRows}` : unmappedCsv
+      }
+      downloadFile(finalCsv, `global-source-to-concept-map.csv`, 'text/csv')
     } else {
       downloadFile(exportToUsagiCsv(exportFilteredMappings), `global-usagi.csv`, 'text/csv')
     }
@@ -788,8 +911,10 @@ const allBadgeLabels = useMemo(() => {
     {
       id: 'sourceConceptId',
       header: () => t('concept_mapping.col_source_concept_id'),
-      accessorFn: (r) => r.sourceConceptId,
-      cell: ({ row }) => <span className="font-mono text-xs text-muted-foreground">{row.original.sourceConceptId}</span>,
+      accessorFn: (r) => r.resolvedSourceConceptId,
+      cell: ({ row }) => row.original.resolvedSourceConceptId != null
+        ? <span className="font-mono text-xs text-muted-foreground">{row.original.resolvedSourceConceptId}</span>
+        : <span className="text-xs text-muted-foreground/30">—</span>,
       size: 90,
     },
     {
@@ -966,9 +1091,7 @@ const allBadgeLabels = useMemo(() => {
 
   const groupModeLabel = groupMode === 'project'
     ? t('concept_mapping.global_group_by_project')
-    : groupMode === 'badge'
-      ? t('concept_mapping.global_badge')
-      : t('concept_mapping.col_status')
+    : t('concept_mapping.global_badge')
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -983,7 +1106,7 @@ const allBadgeLabels = useMemo(() => {
           <span className="text-xs text-muted-foreground">{t('concept_mapping.global_group_by')}</span>
           <Select
             value={groupMode}
-            onValueChange={(v: 'project' | 'badge' | 'status') => {
+            onValueChange={(v: 'project' | 'badge') => {
               setGroupMode(v)
               setColFilters({})
               setPage(0)
@@ -999,7 +1122,7 @@ const allBadgeLabels = useMemo(() => {
           </Select>
         </div>
         <Badge variant="secondary" className="text-[10px] ml-auto">
-          {projects.length} {t('concept_mapping.global_projects')} · {totals.total.toLocaleString()} {t('concept_mapping.global_mappings')}
+          {projects.length} {t('concept_mapping.global_projects')} · {totals.total.toLocaleString()} {t('concept_mapping.prog_total_source_concepts')}
         </Badge>
       </div>
 
@@ -1021,20 +1144,42 @@ const allBadgeLabels = useMemo(() => {
             </div>
           ) : (
             <div className="mx-auto max-w-4xl space-y-6">
-              {/* Global big numbers */}
+              {/* Global big numbers — same style as ProgressTab */}
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-                {[
-                  { label: t('concept_mapping.global_total'), value: totals.total, color: '' },
-                  { label: t('concept_mapping.prog_approved'), value: totals.approved, color: 'text-green-600' },
-                  { label: t('concept_mapping.prog_flagged'), value: totals.flagged, color: 'text-orange-500' },
-                  { label: t('concept_mapping.status_rejected'), value: totals.rejected, color: 'text-red-500' },
-                  { label: t('concept_mapping.prog_ignored'), value: totals.ignored, color: 'text-gray-400' },
-                ].map(({ label, value, color }) => (
-                  <Card key={label} className="p-4 text-center">
-                    <p className={`text-2xl font-bold ${color}`}>{value.toLocaleString()}</p>
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                  </Card>
-                ))}
+                <Card className="p-4 text-center">
+                  <p className="text-2xl font-bold">{totals.total.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_total_source_concepts')}</p>
+                </Card>
+                <Card className="p-4 text-center">
+                  <p className="text-2xl font-bold text-blue-600">
+                    {totals.uniqueMapped.toLocaleString()}
+                    {totals.totalSourceConcepts > 0 && (
+                      <span className="ml-1 text-sm font-normal text-muted-foreground">
+                        ({Math.round((totals.uniqueMapped / totals.totalSourceConcepts) * 100)}%)
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_source_concepts')}</p>
+                </Card>
+                <Card className="p-4 text-center">
+                  <p className="text-2xl font-bold text-green-600">
+                    {totals.approved.toLocaleString()}
+                    {totals.totalSourceConcepts > 0 && (
+                      <span className="ml-1 text-sm font-normal text-muted-foreground">
+                        ({Math.round((totals.approved / totals.totalSourceConcepts) * 100)}%)
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_approved')}</p>
+                </Card>
+                <Card className="p-4 text-center">
+                  <p className="text-2xl font-bold text-orange-500">{totals.flagged.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_flagged')}</p>
+                </Card>
+                <Card className="p-4 text-center">
+                  <p className="text-2xl font-bold text-gray-500">{totals.ignored.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{t('concept_mapping.prog_ignored')}</p>
+                </Card>
               </div>
 
               {/* Stacked bar chart per group */}
@@ -1052,8 +1197,15 @@ const allBadgeLabels = useMemo(() => {
                         cursor={{ fill: 'var(--color-accent)' }}
                       />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
-                      {(['approved', 'unchecked', 'flagged', 'rejected', 'ignored'] as const).map((s) => (
-                        <Bar key={s} dataKey={s} stackId="a" fill={STATUS_BAR_COLORS[s]} name={t(`concept_mapping.status_${s}`)} radius={s === 'ignored' ? [0, 4, 4, 0] : undefined} />
+                      {(['approved', 'unchecked', 'flagged', 'rejected', 'ignored', 'unmapped'] as const).map((s) => (
+                        <Bar
+                          key={s}
+                          dataKey={s}
+                          stackId="a"
+                          fill={STATUS_BAR_COLORS[s]}
+                          name={s === 'unmapped' ? t('concept_mapping.filter_unmapped') : t(`concept_mapping.status_${s}`)}
+                          radius={s === 'unmapped' ? [0, 4, 4, 0] : undefined}
+                        />
                       ))}
                     </BarChart>
                   </ResponsiveContainer>
@@ -1067,7 +1219,7 @@ const allBadgeLabels = useMemo(() => {
                     <TableRow>
                       <TableHead className="text-xs">{groupModeLabel}</TableHead>
                       <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_projects')}</TableHead>
-                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_mappings')}</TableHead>
+                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.prog_source_concepts')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_approved')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_flagged')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.status_rejected')}</TableHead>
@@ -1077,12 +1229,13 @@ const allBadgeLabels = useMemo(() => {
                   <TableBody>
                     {groupNames.map((name) => {
                       const g = groupStats.get(name)!
-                      const pct = g.totalMappings > 0 ? Math.round((g.approved / g.totalMappings) * 100) : 0
+                      const denominator = g.totalSourceConceptsFromStats > 0 ? g.totalSourceConceptsFromStats : g.uniqueSourceConcepts
+                      const pct = denominator > 0 ? Math.round((g.approved / denominator) * 100) : 0
                       return (
                         <TableRow key={name} className="text-xs">
                           <TableCell className="font-medium">{getDisplayName(name)}</TableCell>
                           <TableCell className="text-right text-muted-foreground">{g.projectCount}</TableCell>
-                          <TableCell className="text-right">{g.totalMappings.toLocaleString()}</TableCell>
+                          <TableCell className="text-right">{g.uniqueSourceConcepts.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-green-600">{g.approved.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-orange-500">{g.flagged.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-red-500">{g.rejected.toLocaleString()}</TableCell>
@@ -1298,7 +1451,24 @@ const allBadgeLabels = useMemo(() => {
                     </div>
                   )
                 })}
+                {/* Unmapped (STCM only) */}
+                <div>
+                  <label className="flex cursor-pointer items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={exportIncludeUnmapped}
+                      onChange={() => setExportIncludeUnmapped((v) => !v)}
+                      className="size-3.5 rounded border-gray-300 accent-primary"
+                    />
+                    <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
+                    {totals.unmapped > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">{totals.unmapped}</Badge>
+                    )}
+                    <span className="text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</span>
+                  </label>
+                </div>
               </div>
+
               <div className="mt-3 border-t pt-3">
                 <p className="text-xs text-muted-foreground">
                   {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
@@ -1370,7 +1540,6 @@ const allBadgeLabels = useMemo(() => {
             <SourceIdTab
               workspaceId={activeWorkspaceId}
               projects={projects}
-              allMappings={allMappings}
             />
           )}
         </TabsContent>

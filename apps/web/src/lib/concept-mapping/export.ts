@@ -348,6 +348,56 @@ export function exportSourceConceptsCsv(
 }
 
 // ---------------------------------------------------------------------------
+// Source-to-concept-map rows for unmapped source concepts (target_concept_id = 0)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate STCM rows with target_concept_id = 0 for source concepts that have
+ * no approved mapping. Per OMOP ETL convention, these allow clinical tables to
+ * always JOIN source_to_concept_map.
+ *
+ * @param allSourceConcepts - All source concepts for the project(s)
+ * @param mappedSourceKeys - Set of "vocabularyId__conceptCode" strings already in the mapped export
+ * @param registryEntries - Optional registry for source_concept_id resolution
+ */
+export function exportUnmappedToStcm(
+  allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
+  mappedSourceKeys: Set<string>,
+  registryEntries?: SourceConceptIdEntry[],
+): string {
+  const registryMap = registryEntries
+    ? new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId]))
+    : null
+
+  const rows = allSourceConcepts
+    .filter((c) => !mappedSourceKeys.has(`${c.vocabularyId}__${c.conceptCode}`))
+    .map((c) => {
+      const sourceConceptId = registryMap?.get(`${c.vocabularyId}__${c.conceptCode}`) ?? 0
+      return [
+        csvEscape(c.conceptCode),
+        csvEscape(sourceConceptId),
+        csvEscape(c.vocabularyId),
+        csvEscape(c.conceptName),
+        csvEscape(0), // target_concept_id = 0
+        csvEscape(''),
+        csvEscape('1970-01-01'),
+        csvEscape('2099-12-31'),
+        csvEscape(''),
+      ].join(',')
+    })
+
+  if (rows.length === 0) return ''
+
+  const header = [
+    'source_code', 'source_concept_id', 'source_vocabulary_id',
+    'source_code_description', 'target_concept_id', 'target_vocabulary_id',
+    'valid_start_date', 'valid_end_date', 'invalid_reason',
+  ].join(',')
+
+  return [header, ...rows].join('\n')
+}
+
+// ---------------------------------------------------------------------------
 // Browser download helper
 // ---------------------------------------------------------------------------
 
