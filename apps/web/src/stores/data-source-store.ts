@@ -39,6 +39,8 @@ interface DataSourceState {
 
   loadDataSources: () => Promise<void>
 
+  /** Get data sources for a specific workspace. */
+  getWorkspaceSources: (workspaceId: string) => DataSource[]
   getProjectSources: (projectUid: string) => DataSource[]
   getFirstMappedSource: (projectUid: string) => DataSource | undefined
 
@@ -159,6 +161,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       }
     })()
     return loadingPromise
+  },
+
+  getWorkspaceSources: (workspaceId: string) => {
+    return get().dataSources.filter((ds) => ds.workspaceId === workspaceId)
   },
 
   getProjectSources: (projectUid: string) => {

@@ -112,40 +112,38 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }
       className="relative flex flex-col gap-2 rounded-lg border bg-card p-4 text-left transition-colors hover:bg-accent/50"
     >
       {/* Action menu — top-right */}
-      {!isSystem && (
-        <div className="absolute right-2 top-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
-                <MoreHorizontal size={14} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={(e) => onExport(plugin.id, e as unknown as React.MouseEvent)}>
-                <Download size={14} />
-                {t('common.export')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(plugin.id) }}>
-                <Copy size={14} />
-                {t('common.duplicate')}
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <History size={14} />
-                {t('common.history')}
-                <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={(e) => { e.stopPropagation(); onDelete(plugin.id) }}
-                className="text-destructive focus:text-destructive"
-              >
-                <Trash2 size={14} className="text-destructive" />
-                {t('common.delete')}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      )}
+      <div className="absolute right-2 top-2">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={(e) => e.stopPropagation()}>
+              <MoreHorizontal size={14} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={(e) => onExport(plugin.id, e as unknown as React.MouseEvent)}>
+              <Download size={14} />
+              {t('common.export')}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(plugin.id) }}>
+              <Copy size={14} />
+              {t('common.duplicate')}
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled>
+              <History size={14} />
+              {t('common.history')}
+              <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={(e) => { e.stopPropagation(); onDelete(plugin.id) }}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 size={14} className="text-destructive" />
+              {t('common.delete')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       <div className="flex items-center gap-2 pr-6">
         <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
         <span className="text-sm font-medium truncate">

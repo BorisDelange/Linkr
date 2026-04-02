@@ -406,8 +406,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const storage = getStorage()
     let projects = await storage.projects.getAll()
 
-    // Seed demo workspace + project on first launch
-    if (projects.length === 0 && !localStorage.getItem(SEED_KEY)) {
+    // Seed demo workspace + projects on first launch only (never re-seed)
+    const workspaces = await storage.workspaces.getAll()
+    if (projects.length === 0 && workspaces.length === 0 && !localStorage.getItem(SEED_KEY)) {
       try {
         const demoOrg = createDemoOrganization()
         await storage.organizations.create(demoOrg)
@@ -418,7 +419,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         const demoActivity = createDemoActivityProject()
         await storage.projects.create(demoActivity)
         projects = [demo, demoActivity]
-        // Reload org + workspace stores so they pick up the seeded data
         const { useOrganizationStore } = await import('./organization-store')
         useOrganizationStore.getState().loadOrganizations()
         const { useWorkspaceStore } = await import('./workspace-store')

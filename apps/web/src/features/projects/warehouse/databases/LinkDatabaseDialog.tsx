@@ -32,8 +32,9 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
   const linkDataSource = useAppStore((s) => s.linkDataSource)
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const projectWsId = useAppStore((s) => s._projectsRaw.find((p) => p.uid === projectUid)?.workspaceId)
 
-  const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id) && !ds.isVocabularyReference)
+  const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id) && !ds.isVocabularyReference && (!ds.workspaceId || ds.workspaceId === projectWsId))
 
   const handleLink = (dataSourceId: string) => {
     linkDataSource(projectUid, dataSourceId)

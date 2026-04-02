@@ -135,6 +135,19 @@ interface PluginEditorState {
 /** Set of built-in plugin IDs (populated on first list refresh). */
 const builtInIds = new Set<string>()
 
+/** Get the set of plugin IDs hidden by the user (per workspace). */
+function getHiddenPluginIds(): Set<string> {
+  const wsId = useWorkspaceStore.getState().activeWorkspaceId
+  const key = `linkr-hidden-plugins-${wsId ?? 'global'}`
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')) } catch { return new Set() }
+}
+
+function setHiddenPluginIds(ids: Set<string>): void {
+  const wsId = useWorkspaceStore.getState().activeWorkspaceId
+  const key = `linkr-hidden-plugins-${wsId ?? 'global'}`
+  localStorage.setItem(key, JSON.stringify([...ids]))
+}
+
 export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   // List
   pluginList: [],
@@ -164,9 +177,11 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }))
 
     const list: PluginListItem[] = []
-    // Add built-in plugins (those without workspaceId)
+    const hiddenIds = getHiddenPluginIds()
+    // Add built-in plugins (those without workspaceId, skip hidden)
     for (const p of registryPlugins) {
       if (p.workspaceId) continue // skip user plugins in registry — we add them from IDB below
+      if (hiddenIds.has(p.manifest.id)) continue
       list.push({
         id: p.manifest.id,
         manifest: p.manifest,
@@ -353,12 +368,19 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async deletePlugin(id: string) {
-    const storage = getStorage()
-    await storage.userPlugins.delete(id)
-    unregisterPlugin(id)
+    if (builtInIds.has(id)) {
+      // Built-in/system plugin: hide for this workspace only (don't remove from registry)
+      const hidden = getHiddenPluginIds()
+      hidden.add(id)
+      setHiddenPluginIds(hidden)
+    } else {
+      // User plugin: actually delete from IDB and unregister
+      const storage = getStorage()
+      await storage.userPlugins.delete(id)
+      unregisterPlugin(id)
+    }
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
-
   },
 
   async savePlugin() {

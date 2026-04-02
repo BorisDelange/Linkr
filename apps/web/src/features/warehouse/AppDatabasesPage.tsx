@@ -186,6 +186,7 @@ function CreateFromPresetDialog({
 
 export function AppDatabasesPage() {
   const { t } = useTranslation()
+  const { wsUid } = useParams<{ wsUid: string }>()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource } = useDataSourceStore()
   const projects = useAppStore((s) => s._projectsRaw)
@@ -199,8 +200,8 @@ export function AppDatabasesPage() {
   const [sourceToExport, setSourceToExport] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Hide vocabulary-only sources from the databases page
-  const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference)
+  // Show only databases for the current workspace, hide vocabulary-only sources
+  const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference && ds.workspaceId === wsUid)
 
   // Fuzzy search: every word in query must appear in name OR description (case-insensitive)
   const filteredSources = searchQuery.trim()

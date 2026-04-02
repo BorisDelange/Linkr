@@ -935,7 +935,7 @@ function SchemaCard({
               <>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={onDelete} className="text-destructive focus:text-destructive">
-                  <Trash2 size={14} />
+                  <Trash2 size={14} className="text-destructive" />
                   {t('common.delete')}
                 </DropdownMenuItem>
               </>
@@ -1089,12 +1089,10 @@ function SchemaDetailView({
                 <Download size={12} />
                 {t('settings.schema_preset_export')}
               </Button>
-              {!isBuiltin && (
-                <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
-                  <Trash2 size={12} />
-                  {t('common.delete')}
-                </Button>
-              )}
+              <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(true)} className="gap-1.5 text-xs text-destructive">
+                <Trash2 size={12} />
+                {t('common.delete')}
+              </Button>
             </>
           )}
         </div>
@@ -1251,10 +1249,17 @@ export function SchemaPresetsPage() {
   }, [loadCustomPresets])
 
   // Collect all schemas: built-in (possibly overridden by IDB) + custom-only
+  // Track hidden built-in schemas (user deleted them)
+  const hiddenKey = `linkr-hidden-schemas-${wsUid}`
+  const [hiddenBuiltins, setHiddenBuiltins] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem(hiddenKey) || '[]')) } catch { return new Set() }
+  })
+
   const allSchemas = useMemo(() => {
     const result: { id: string; mapping: SchemaMapping }[] = []
-    // Built-in presets (use IDB override if available)
+    // Built-in presets (use IDB override if available, skip hidden)
     for (const presetId of BUILTIN_PRESET_IDS) {
+      if (hiddenBuiltins.has(presetId)) continue
       const override = customPresets.find((p) => p.presetId === presetId)
       const mapping = override ? override.mapping : SCHEMA_PRESETS[presetId]
       if (mapping) result.push({ id: presetId, mapping })
@@ -1266,7 +1271,7 @@ export function SchemaPresetsPage() {
       }
     }
     return result
-  }, [customPresets])
+  }, [customPresets, hiddenBuiltins])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
@@ -1290,6 +1295,13 @@ export function SchemaPresetsPage() {
 
   const deletePreset = async (presetId: string) => {
     await getStorage().schemaPresets.delete(presetId)
+    // If it's a built-in, mark it as hidden so it doesn't reappear
+    if (BUILTIN_PRESET_IDS.includes(presetId)) {
+      const next = new Set(hiddenBuiltins)
+      next.add(presetId)
+      setHiddenBuiltins(next)
+      localStorage.setItem(hiddenKey, JSON.stringify([...next]))
+    }
     await loadCustomPresets()
   }
 
@@ -1458,7 +1470,6 @@ export function SchemaPresetsPage() {
           {/* All schemas — no built-in/custom distinction */}
           <div className="space-y-2">
             {allSchemas.map(({ id, mapping }) => {
-              const isBuiltinOnly = BUILTIN_PRESET_IDS.includes(id) && !customPresets.some((p) => p.presetId === id)
               return (
                 <SchemaCard
                   key={id}
@@ -1467,12 +1478,7 @@ export function SchemaPresetsPage() {
                   onEdit={() => openEditDialog(id, mapping.presetLabel)}
                   onDuplicate={() => duplicatePreset(mapping)}
                   onExport={() => exportPreset(mapping)}
-                  onDelete={
-                    // Can delete custom-only presets. Built-in can only be "reset" from detail view.
-                    !BUILTIN_PRESET_IDS.includes(id)
-                      ? () => setDeleteConfirmId(id)
-                      : isBuiltinOnly ? undefined : () => setDeleteConfirmId(id)
-                  }
+                  onDelete={() => setDeleteConfirmId(id)}
                 />
               )
             })}
