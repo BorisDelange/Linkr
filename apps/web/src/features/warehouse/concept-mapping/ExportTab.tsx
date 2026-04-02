@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Table2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,7 +16,7 @@ import {
   buildSourceConceptsCsvFromRows,
   downloadFile,
 } from '@/lib/concept-mapping/export'
-import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
+import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
@@ -41,6 +41,27 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   )
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [includeUnmapped, setIncludeUnmapped] = useState(false)
+  const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (project.sourceType === 'file') {
+      setTotalSourceConcepts(project.fileSourceData?.rows.length ?? 0)
+      return
+    }
+    if (!dataSource?.id || !dataSource.schemaMapping) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        await ensureMounted(dataSource.id)
+        const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
+        if (!sql) return
+        const [row] = await queryDataSource(dataSource.id, sql)
+        if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
+      } catch { /* silently fail */ }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [project.sourceType, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const toggleStatus = (status: MappingStatus) => {
     setIncludedStatuses((prev) => {
@@ -228,7 +249,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }
   }
 
-  const totalExportCount = filteredMappings.length
+  const mappedSourceIds = useMemo(() => new Set(mappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`)), [mappings])
+  const unmappedCount = totalSourceConcepts !== null ? Math.max(0, totalSourceConcepts - mappedSourceIds.size) : null
+  const totalExportCount = filteredMappings.length + (includeUnmapped && unmappedCount !== null ? unmappedCount : 0)
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -288,10 +311,8 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                   className="size-3.5 rounded border-gray-300 accent-primary"
                 />
                 <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
-                {project.stats && (
-                  <Badge variant="secondary" className="text-[10px]">
-                    {Math.max(0, project.stats.totalSourceConcepts - (project.stats.mappedCount ?? 0))}
-                  </Badge>
+                {unmappedCount !== null && unmappedCount > 0 && (
+                  <Badge variant="secondary" className="text-[10px]">{unmappedCount}</Badge>
                 )}
                 <span className="text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</span>
               </label>

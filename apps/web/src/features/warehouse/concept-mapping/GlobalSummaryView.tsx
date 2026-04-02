@@ -1684,7 +1684,7 @@ const allBadgeLabels = useMemo(() => {
 
               <div className="mt-3 border-t pt-3">
                 <p className="text-xs text-muted-foreground">
-                  {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length}</strong> {t('concept_mapping.export_mappings_count')}
+                  {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length + (exportIncludeUnmapped ? totals.unmapped : 0)}</strong> {t('concept_mapping.export_mappings_count')}
                 </p>
               </div>
             </Card>
