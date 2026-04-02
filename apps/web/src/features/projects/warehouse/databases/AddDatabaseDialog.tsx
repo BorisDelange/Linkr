@@ -517,15 +517,6 @@ export function AddDatabaseDialog({
                       <SelectItem value="__none__">
                         {t('databases.no_schema')}
                       </SelectItem>
-                      {BUILTIN_PRESET_IDS.map((id) => {
-                        const preset = SCHEMA_PRESETS[id]
-                        if (!preset) return null
-                        return (
-                          <SelectItem key={id} value={id}>
-                            {preset.presetLabel}
-                          </SelectItem>
-                        )
-                      })}
                       {customPresets.map((cp) => (
                         <SelectItem key={cp.presetId} value={cp.presetId}>
                           {cp.mapping.presetLabel}

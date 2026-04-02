@@ -19,8 +19,10 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  FileSpreadsheet,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -1249,29 +1251,10 @@ export function SchemaPresetsPage() {
   }, [loadCustomPresets])
 
   // Collect all schemas: built-in (possibly overridden by IDB) + custom-only
-  // Track hidden built-in schemas (user deleted them)
-  const hiddenKey = `linkr-hidden-schemas-${wsUid}`
-  const [hiddenBuiltins, setHiddenBuiltins] = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(hiddenKey) || '[]')) } catch { return new Set() }
-  })
-
   const allSchemas = useMemo(() => {
-    const result: { id: string; mapping: SchemaMapping }[] = []
-    // Built-in presets (use IDB override if available, skip hidden)
-    for (const presetId of BUILTIN_PRESET_IDS) {
-      if (hiddenBuiltins.has(presetId)) continue
-      const override = customPresets.find((p) => p.presetId === presetId)
-      const mapping = override ? override.mapping : SCHEMA_PRESETS[presetId]
-      if (mapping) result.push({ id: presetId, mapping })
-    }
-    // Custom-only presets (not overrides of built-in)
-    for (const cp of customPresets) {
-      if (!BUILTIN_PRESET_IDS.includes(cp.presetId)) {
-        result.push({ id: cp.presetId, mapping: cp.mapping })
-      }
-    }
-    return result
-  }, [customPresets, hiddenBuiltins])
+    // Only show schemas that exist in IDB (user-added or added from templates)
+    return customPresets.map(cp => ({ id: cp.presetId, mapping: cp.mapping }))
+  }, [customPresets])
 
   const duplicatePreset = async (sourceMapping: SchemaMapping) => {
     const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
@@ -1295,13 +1278,6 @@ export function SchemaPresetsPage() {
 
   const deletePreset = async (presetId: string) => {
     await getStorage().schemaPresets.delete(presetId)
-    // If it's a built-in, mark it as hidden so it doesn't reappear
-    if (BUILTIN_PRESET_IDS.includes(presetId)) {
-      const next = new Set(hiddenBuiltins)
-      next.add(presetId)
-      setHiddenBuiltins(next)
-      localStorage.setItem(hiddenKey, JSON.stringify([...next]))
-    }
     await loadCustomPresets()
   }
 
@@ -1371,20 +1347,30 @@ export function SchemaPresetsPage() {
     await loadCustomPresets()
   }, [wsUid, loadCustomPresets])
 
+  const [createTemplate, setCreateTemplate] = useState<string>('blank')
+
   const openCreateDialog = () => {
     setNewPresetName(t('settings.schema_preset_new_name'))
+    setCreateTemplate('blank')
     setShowCreateDialog(true)
   }
 
   const confirmCreatePreset = async () => {
     const name = newPresetName.trim()
     if (!name) return
-    const presetId = `custom-${crypto.randomUUID().slice(0, 8)}`
+
+    // If using a built-in template, copy its mapping
+    const templateMapping = createTemplate !== 'blank' && SCHEMA_PRESETS[createTemplate]
+      ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: name }
+      : undefined
+
+    const presetId = createTemplate !== 'blank' ? createTemplate : `custom-${crypto.randomUUID().slice(0, 8)}`
     const now = new Date().toISOString()
-    const newMapping: SchemaMapping = {
+    const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
       presetLabel: name,
     }
+    newMapping.presetId = presetId
     const preset: CustomSchemaPreset = {
       presetId,
       mapping: newMapping,
@@ -1467,7 +1453,17 @@ export function SchemaPresetsPage() {
             </div>
           </div>
 
-          {/* All schemas — no built-in/custom distinction */}
+          {allSchemas.length === 0 ? (
+            <Card className="mt-6">
+              <div className="flex flex-col items-center py-12">
+                <FileSpreadsheet size={40} className="text-muted-foreground" />
+                <p className="mt-4 text-sm font-medium text-foreground">{t('schemas.empty_title')}</p>
+                <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
+                  {t('schemas.empty_description')}
+                </p>
+              </div>
+            </Card>
+          ) : (
           <div className="space-y-2">
             {allSchemas.map(({ id, mapping }) => {
               return (
@@ -1483,6 +1479,7 @@ export function SchemaPresetsPage() {
               )
             })}
           </div>
+          )}
 
           {/* Create schema dialog */}
           <Dialog open={showCreateDialog} onOpenChange={(open) => { if (!open) setShowCreateDialog(false) }}>
@@ -1491,20 +1488,53 @@ export function SchemaPresetsPage() {
                 <DialogTitle>{t('schemas.new_schema')}</DialogTitle>
                 <DialogDescription>{t('settings.schema_preset_new_description')}</DialogDescription>
               </DialogHeader>
-              <div className="space-y-1.5">
-                <Input
-                  value={newPresetName}
-                  onChange={(e) => setNewPresetName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())) {
-                      confirmCreatePreset()
-                    }
-                  }}
-                  autoFocus
-                />
-                {newPresetName.trim() && customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase()) && (
-                  <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
-                )}
+              <div className="space-y-4">
+                {/* Template picker */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('schemas.template')}</Label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {[
+                      { id: 'blank', label: t('schemas.template_blank') },
+                      ...BUILTIN_PRESET_IDS
+                        .filter(pid => !customPresets.some(cp => cp.presetId === pid))
+                        .map(pid => ({ id: pid, label: SCHEMA_PRESETS[pid]?.presetLabel ?? pid })),
+                    ].map(tpl => (
+                      <button
+                        key={tpl.id}
+                        type="button"
+                        onClick={() => {
+                          setCreateTemplate(tpl.id)
+                          if (tpl.id !== 'blank') setNewPresetName(tpl.label)
+                        }}
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                          createTemplate === tpl.id
+                            ? 'border-primary bg-primary/5 text-primary'
+                            : 'border-border hover:bg-accent'
+                        }`}
+                      >
+                        <Database size={14} className="shrink-0 text-muted-foreground" />
+                        <span className="truncate">{tpl.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Name */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t('common.name')}</Label>
+                  <Input
+                    value={newPresetName}
+                    onChange={(e) => setNewPresetName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())) {
+                        confirmCreatePreset()
+                      }
+                    }}
+                    autoFocus
+                  />
+                  {newPresetName.trim() && customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase()) && (
+                    <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
+                  )}
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>

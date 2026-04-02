@@ -79,29 +79,29 @@ export function App() {
     i18n.changeLanguage(language)
   }, [language, i18n])
 
-  // Seed demo database on first launch, then reload stores
+  // Seed demo database on first launch — only if demo workspace exists
+  const demoWsExists = useWorkspaceStore((s) => s._workspacesRaw.some((ws) => ws.id === '00000000-0000-0000-0000-000000000010'))
   useEffect(() => {
-    if (projectsLoaded && dataSourcesLoaded) {
-      seedDemoDatabase()
-        .then(() => seedMimicIVRawDatabase())
-        .then(() => seedOmopVocabulary())
-        .then(() => seedEtlTargetDatabase())
-        .then(() => seedDemoMappingProject())
-        .then(() => seedDemoConceptMappings())
-        .then(() => seedDemoEtlPipeline())
-        .then(() => seedDemoEtlFiles())
-        .then(() => seedDemoDqRuleSet())
-        .then(() => seedDemoCatalog())
-        .then(() => seedActivityDataset())
-        .then(() => seedActivityDashboard())
-        .then(() => {
-          loadProjects()
-          loadDataSources()
-          loadCatalogs()
-        })
-    }
+    if (!projectsLoaded || !dataSourcesLoaded || !demoWsExists) return
+    seedDemoDatabase()
+      .then(() => seedMimicIVRawDatabase())
+      .then(() => seedOmopVocabulary())
+      .then(() => seedEtlTargetDatabase())
+      .then(() => seedDemoMappingProject())
+      .then(() => seedDemoConceptMappings())
+      .then(() => seedDemoEtlPipeline())
+      .then(() => seedDemoEtlFiles())
+      .then(() => seedDemoDqRuleSet())
+      .then(() => seedDemoCatalog())
+      .then(() => seedActivityDataset())
+      .then(() => seedActivityDashboard())
+      .then(() => {
+        loadProjects()
+        loadDataSources()
+        loadCatalogs()
+      })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectsLoaded, dataSourcesLoaded])
+  }, [projectsLoaded, dataSourcesLoaded, demoWsExists])
 
   // Auto-mount data sources when entering a project
   useEffect(() => {

@@ -242,10 +242,6 @@ export function WorkspaceHomePage() {
                     <p className="mt-1 text-xs text-muted-foreground/60">
                       {t('home.no_recent_projects_description')}
                     </p>
-                    <Button onClick={() => navigate(`/workspaces/${wsUid}/projects?create=true`)} className="mt-4 gap-2">
-                      <Plus size={16} />
-                      {t('home.create_project')}
-                    </Button>
                   </CardContent>
                 </Card>
               )}

@@ -474,10 +474,6 @@ export function WorkspacesPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('workspaces.no_workspaces_description')}
               </p>
-              <Button onClick={() => setDialogOpen(true)} className="mt-4 gap-2">
-                <Plus size={16} />
-                {t('workspaces.create')}
-              </Button>
             </div>
           </Card>
         ) : (

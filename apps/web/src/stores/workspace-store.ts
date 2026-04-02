@@ -145,7 +145,96 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
   },
 
   deleteWorkspace: async (id) => {
-    await getStorage().workspaces.delete(id)
+    const storage = getStorage()
+
+    // Cascade delete all workspace-scoped entities
+    const projects = (await storage.projects.getAll()).filter(p => p.workspaceId === id)
+    for (const p of projects) {
+      await storage.ideFiles.deleteByProject(p.uid).catch(() => {})
+      await storage.connections.deleteByProject(p.uid).catch(() => {})
+      await storage.readmeAttachments.deleteByProject(p.uid).catch(() => {})
+      await storage.datasetFiles.deleteByProject(p.uid).catch(() => {})
+      const dashboards = await storage.dashboards.getByProject(p.uid)
+      for (const d of dashboards) {
+        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
+        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
+        await storage.dashboardTabs.deleteByDashboard(d.id)
+        await storage.dashboards.delete(d.id)
+      }
+      const pipelines = await storage.pipelines.getByProject(p.uid)
+      for (const pl of pipelines) await storage.pipelines.delete(pl.id)
+      const cohorts = await storage.cohorts.getByProject(p.uid)
+      for (const c of cohorts) await storage.cohorts.delete(c.id)
+      const datasetFiles = await storage.datasetFiles.getByProject(p.uid)
+      for (const df of datasetFiles) {
+        if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
+      }
+      await storage.projects.delete(p.uid).catch(() => {})
+    }
+
+    // Data sources
+    const dataSources = await storage.dataSources.getByWorkspace(id)
+    for (const ds of dataSources) {
+      await storage.files.deleteByDataSource(ds.id).catch(() => {})
+      await storage.fileHandles.deleteByDataSource(ds.id).catch(() => {})
+      await storage.databaseStatsCache.delete(ds.id).catch(() => {})
+      await storage.dataSources.delete(ds.id).catch(() => {})
+    }
+
+    // Wiki
+    await storage.wikiAttachments.deleteByWorkspace(id).catch(() => {})
+    await storage.wikiPages.deleteByWorkspace(id).catch(() => {})
+
+    // SQL scripts
+    const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(id)
+    for (const c of sqlCollections) {
+      await storage.sqlScriptFiles.deleteByCollection(c.id).catch(() => {})
+      await storage.sqlScriptCollections.delete(c.id).catch(() => {})
+    }
+
+    // ETL
+    const etlPipelines = await storage.etlPipelines.getByWorkspace(id)
+    for (const p of etlPipelines) {
+      await storage.etlFiles.deleteByPipeline(p.id).catch(() => {})
+      await storage.etlPipelines.delete(p.id).catch(() => {})
+    }
+
+    // DQ
+    const dqRuleSets = await storage.dqRuleSets.getByWorkspace(id)
+    for (const rs of dqRuleSets) {
+      await storage.dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
+      await storage.dqRuleSets.delete(rs.id).catch(() => {})
+    }
+
+    // Concept mapping
+    const mappingProjects = await storage.mappingProjects.getByWorkspace(id)
+    for (const mp of mappingProjects) {
+      await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
+      await storage.mappingProjects.delete(mp.id).catch(() => {})
+    }
+    const conceptSets = await storage.conceptSets.getByWorkspace(id)
+    for (const cs of conceptSets) await storage.conceptSets.delete(cs.id).catch(() => {})
+
+    // Catalogs & service mappings
+    const catalogs = await storage.dataCatalogs.getByWorkspace(id)
+    for (const cat of catalogs) await storage.dataCatalogs.delete(cat.id).catch(() => {})
+    const serviceMappings = await storage.serviceMappings.getByWorkspace(id)
+    for (const sm of serviceMappings) await storage.serviceMappings.delete(sm.id).catch(() => {})
+
+    // Plugins
+    const plugins = await storage.userPlugins.getByWorkspace(id)
+    for (const p of plugins) await storage.userPlugins.delete(p.id).catch(() => {})
+
+    // Schema presets
+    const schemas = await storage.schemaPresets.getByWorkspace(id)
+    for (const sp of schemas) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
+
+    // Finally delete the workspace itself
+    await storage.workspaces.delete(id)
+
+    // Reload projects store since we deleted projects
+    await useAppStore.getState().loadProjects()
+
     set((s) => ({
       _workspacesRaw: s._workspacesRaw.filter((ws) => ws.id !== id),
       workspaces: s.workspaces.filter((ws) => ws.id !== id),

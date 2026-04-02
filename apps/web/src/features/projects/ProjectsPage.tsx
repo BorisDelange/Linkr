@@ -273,10 +273,6 @@ export function ProjectsPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('projects.no_projects_description')}
               </p>
-              <Button onClick={() => setDialogOpen(true)} className="mt-4 gap-2">
-                <Plus size={16} />
-                {t('projects.create')}
-              </Button>
             </div>
           </Card>
         ) : filteredProjects.length === 0 ? (

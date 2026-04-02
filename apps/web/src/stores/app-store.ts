@@ -1,7 +1,9 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { slugifyId } from '@/lib/slugify-id'
-import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
+import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { getAllPlugins } from '@/lib/plugins/registry'
+import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, CustomSchemaPreset, UserPlugin } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -419,6 +421,30 @@ export const useAppStore = create<AppState>((set, get) => ({
         const demoActivity = createDemoActivityProject()
         await storage.projects.create(demoActivity)
         projects = [demo, demoActivity]
+
+        // Seed built-in schemas for the demo workspace
+        const now = new Date().toISOString()
+        for (const presetId of BUILTIN_PRESET_IDS) {
+          const mapping = SCHEMA_PRESETS[presetId]
+          if (!mapping) continue
+          const preset: CustomSchemaPreset = { presetId, mapping, workspaceId: DEMO_WORKSPACE_ID, createdAt: now, updatedAt: now }
+          await storage.schemaPresets.save(preset).catch(() => {})
+        }
+
+        // Seed built-in plugins for the demo workspace
+        for (const p of getAllPlugins()) {
+          if (p.workspaceId) continue // skip non-built-in
+          const files: Record<string, string> = { 'plugin.json': JSON.stringify(p.manifest, null, 2) }
+          if (p.templates) {
+            for (const [lang, content] of Object.entries(p.templates)) {
+              const ext = lang === 'r' ? '.R.template' : '.py.template'
+              files[`analysis${ext}`] = content
+            }
+          }
+          const userPlugin: UserPlugin = { id: p.manifest.id, entityId: p.manifest.id, files, workspaceId: DEMO_WORKSPACE_ID, createdAt: now, updatedAt: now }
+          await storage.userPlugins.create(userPlugin).catch(() => {})
+        }
+
         const { useOrganizationStore } = await import('./organization-store')
         useOrganizationStore.getState().loadOrganizations()
         const { useWorkspaceStore } = await import('./workspace-store')

@@ -41,6 +41,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
+import { getAllPlugins } from '@/lib/plugins/registry'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -196,16 +197,27 @@ export function PluginsTab() {
     createPlugin,
     duplicatePlugin,
     deletePlugin,
+    addBuiltinPlugin,
     activePluginTab: activeTab,
     setActivePluginTab: setActiveTab,
   } = usePluginEditorStore()
 
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [showAddDefaultDialog, setShowAddDefaultDialog] = useState(false)
   const [newPluginName, setNewPluginName] = useState('')
   const [newPluginEntityId, setNewPluginEntityId] = useState('')
   const [createScope, setCreateScope] = useState<PluginScope>('lab')
   const existingPluginIds = pluginList.map(p => p.entityId).filter((id): id is string => !!id)
+
+  // Built-in plugins available to add (not already in this workspace)
+  const currentPluginManifestIds = new Set(pluginList.map(p => p.id))
+  const availableBuiltins = useMemo(() => {
+    return getAllPlugins()
+      .filter(p => !p.workspaceId && !currentPluginManifestIds.has(p.manifest.id))
+      .map(p => p.manifest)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPluginManifestIds.size])
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
 
@@ -352,6 +364,12 @@ export function PluginsTab() {
             className="hidden"
             onChange={handleImportFile}
           />
+          {availableBuiltins.length > 0 && (
+            <Button size="sm" variant="outline" onClick={() => setShowAddDefaultDialog(true)} className="gap-1 text-xs">
+              <Puzzle size={14} />
+              {t('plugins.add_default')}
+            </Button>
+          )}
           <Button size="sm" onClick={() => { setNewPluginName(''); setNewPluginEntityId(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
             <Plus size={14} />
             {t('plugins.new_plugin')}
@@ -440,6 +458,45 @@ export function PluginsTab() {
               {t('common.create')}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add default plugin dialog */}
+      <Dialog open={showAddDefaultDialog} onOpenChange={setShowAddDefaultDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('plugins.add_default')}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-1.5 overflow-auto py-2">
+            {availableBuiltins.map(manifest => {
+              const Icon = getIcon(manifest.icon)
+              return (
+                <button
+                  key={manifest.id}
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors hover:bg-accent"
+                  onClick={async () => {
+                    await addBuiltinPlugin(manifest.id)
+                    setShowAddDefaultDialog(false)
+                  }}
+                >
+                  <Icon size={18} className={cn('shrink-0', getIconColorProps(manifest.iconColor).className)} style={getIconColorProps(manifest.iconColor).style} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{manifest.name?.[lang] ?? manifest.name?.en ?? manifest.id}</p>
+                    {manifest.description && (
+                      <p className="text-xs text-muted-foreground line-clamp-1">{manifest.description?.[lang] ?? manifest.description?.en}</p>
+                    )}
+                  </div>
+                  <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                    {manifest.scope === 'warehouse' ? t('plugins.scope_warehouse') : t('plugins.scope_lab')}
+                  </span>
+                </button>
+              )
+            })}
+            {availableBuiltins.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">{t('plugins.no_defaults_available')}</p>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

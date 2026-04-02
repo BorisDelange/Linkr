@@ -98,6 +98,8 @@ interface PluginEditorState {
   openPlugin: (id: string) => Promise<void>
   closeEditor: () => void
   createPlugin: (name?: string, scope?: 'lab' | 'warehouse', entityId?: string) => Promise<string>
+  /** Copy a built-in plugin from the registry into IDB for the current workspace. */
+  addBuiltinPlugin: (pluginId: string) => Promise<string | null>
   duplicatePlugin: (sourceId: string) => Promise<string>
   deletePlugin: (id: string) => Promise<void>
   savePlugin: () => Promise<void>
@@ -135,18 +137,6 @@ interface PluginEditorState {
 /** Set of built-in plugin IDs (populated on first list refresh). */
 const builtInIds = new Set<string>()
 
-/** Get the set of plugin IDs hidden by the user (per workspace). */
-function getHiddenPluginIds(): Set<string> {
-  const wsId = useWorkspaceStore.getState().activeWorkspaceId
-  const key = `linkr-hidden-plugins-${wsId ?? 'global'}`
-  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')) } catch { return new Set() }
-}
-
-function setHiddenPluginIds(ids: Set<string>): void {
-  const wsId = useWorkspaceStore.getState().activeWorkspaceId
-  const key = `linkr-hidden-plugins-${wsId ?? 'global'}`
-  localStorage.setItem(key, JSON.stringify([...ids]))
-}
 
 export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   // List
@@ -155,52 +145,26 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   setActivePluginTab(tab) { set({ activePluginTab: tab }) },
 
   async refreshPluginList() {
-    // Built-in plugins from registry (no workspaceId = true built-in)
-    const registryPlugins = getAllPlugins()
+    // Populate builtInIds once for reference
     if (builtInIds.size === 0) {
-      for (const p of registryPlugins) {
+      for (const p of getAllPlugins()) {
         if (!p.workspaceId) builtInIds.add(p.manifest.id)
       }
     }
 
-    // User plugins from IDB — filtered by active workspace
+    // Only show plugins from IDB (user-added or added from defaults)
     const storage = getStorage()
     const wsId = useWorkspaceStore.getState().activeWorkspaceId
     const userPlugins = wsId
       ? await storage.userPlugins.getByWorkspace(wsId)
       : await storage.userPlugins.getAll()
-    const userIds = new Set(userPlugins.map(up => {
-      try {
-        const m = JSON.parse(up.files['plugin.json'] ?? '{}')
-        return m.id as string
-      } catch { return up.id }
-    }))
 
     const list: PluginListItem[] = []
-    const hiddenIds = getHiddenPluginIds()
-    // Add built-in plugins (those without workspaceId, skip hidden)
-    for (const p of registryPlugins) {
-      if (p.workspaceId) continue // skip user plugins in registry — we add them from IDB below
-      if (hiddenIds.has(p.manifest.id)) continue
-      list.push({
-        id: p.manifest.id,
-        manifest: p.manifest,
-        isBuiltIn: !userIds.has(p.manifest.id),
-        isSystemPlugin: SYSTEM_PLUGIN_IDS.has(p.manifest.id),
-      })
-    }
-    // Add user plugins from IDB (current workspace only)
     for (const up of userPlugins) {
       try {
         const manifest = JSON.parse(up.files['plugin.json'] ?? '{}') as PluginManifest
         const id = manifest.id ?? up.id
-        // If this user plugin overrides a built-in, replace the built-in entry
-        const existingIdx = list.findIndex(p => p.id === id)
-        if (existingIdx >= 0) {
-          list[existingIdx] = { id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id), entityId: up.entityId }
-        } else {
-          list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: false, entityId: up.entityId })
-        }
+        list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id), entityId: up.entityId })
       } catch { /* skip invalid */ }
     }
     set({ pluginList: list })
@@ -311,6 +275,28 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     return id
   },
 
+  async addBuiltinPlugin(pluginId: string) {
+    const plugin = getAllPlugins().find(p => p.manifest.id === pluginId)
+    if (!plugin) return null
+    const now = new Date().toISOString()
+    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    const files: Record<string, string> = {
+      'plugin.json': JSON.stringify(plugin.manifest, null, 2),
+    }
+    if (plugin.templates) {
+      for (const [lang, content] of Object.entries(plugin.templates)) {
+        const ext = lang === 'r' ? '.R.template' : '.py.template'
+        files[`analysis${ext}`] = content
+      }
+    }
+    const userPlugin: UserPlugin = { id: pluginId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
+    const storage = getStorage()
+    await storage.userPlugins.create(userPlugin)
+    registerPlugin(plugin)
+    await get().refreshPluginList()
+    return pluginId
+  },
+
   async duplicatePlugin(sourceId: string) {
     const state = get()
     // Load source files
@@ -368,17 +354,9 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   },
 
   async deletePlugin(id: string) {
-    if (builtInIds.has(id)) {
-      // Built-in/system plugin: hide for this workspace only (don't remove from registry)
-      const hidden = getHiddenPluginIds()
-      hidden.add(id)
-      setHiddenPluginIds(hidden)
-    } else {
-      // User plugin: actually delete from IDB and unregister
-      const storage = getStorage()
-      await storage.userPlugins.delete(id)
-      unregisterPlugin(id)
-    }
+    const storage = getStorage()
+    await storage.userPlugins.delete(id)
+    unregisterPlugin(id)
     if (get().editingPluginId === id) get().closeEditor()
     await get().refreshPluginList()
   },
