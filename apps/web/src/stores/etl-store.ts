@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { EtlPipeline, EtlFile, EtlRunLog } from '@/types'
 
 // --- Output tab types (mirrors useFileStore pattern) ---
@@ -90,7 +91,11 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   etlPipelinesLoaded: false,
 
   loadEtlPipelines: async () => {
-    const all = await getStorage().etlPipelines.getAll()
+    const storage = getStorage()
+    const all = await storage.etlPipelines.getAll()
+    for (const p of migrateEntityIds(all, e => e.name)) {
+      storage.etlPipelines.update(p.id, { entityId: p.entityId }).catch(() => {})
+    }
     set({ etlPipelines: all, etlPipelinesLoaded: true })
   },
 

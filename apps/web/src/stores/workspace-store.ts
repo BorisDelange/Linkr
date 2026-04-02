@@ -53,6 +53,7 @@ interface WorkspaceState {
   }) => Promise<string>
   updateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>
   updateWorkspaceBadges: (id: string, badges: ProjectBadge[]) => Promise<void>
+  updateWorkspaceReadme: (id: string, readme: string) => Promise<void>
   deleteWorkspace: (id: string) => Promise<void>
 
   // Navigation
@@ -132,6 +133,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
         workspaces: newRaw.map((ws) => workspaceToItem(ws, lang)),
       }
     })
+  },
+
+  updateWorkspaceReadme: async (id, readme) => {
+    await getStorage().workspaces.update(id, { readme, updatedAt: new Date().toISOString() })
+    set((s) => ({
+      _workspacesRaw: s._workspacesRaw.map((ws) =>
+        ws.id === id ? { ...ws, readme, updatedAt: new Date().toISOString() } : ws,
+      ),
+    }))
   },
 
   deleteWorkspace: async (id) => {

@@ -162,6 +162,15 @@ export function ProjectSettingsPage() {
                   <Label>{t('projects.field_name')}</Label>
                   <Input defaultValue={project?.name ?? ''} />
                 </div>
+                {projectRaw?.projectId && (
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5 text-muted-foreground">
+                      {t('entity_id.label')}
+                    </Label>
+                    <Input value={projectRaw.projectId} disabled className="font-mono text-sm opacity-70" />
+                    <p className="text-[11px] text-muted-foreground">{t('entity_id.hint')}</p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label>{t('projects.field_description')}</Label>
                   <Textarea defaultValue={project?.description ?? ''} rows={3} />

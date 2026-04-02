@@ -17,15 +17,8 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
 import { downloadBlob, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
-import {
-  exportToUsagiCsv,
-  exportToSourceToConceptMap,
-  exportToSssomTsv,
-  exportSourceConceptsCsv,
-  buildSourceConceptsCsvFromRows,
-} from '@/lib/concept-mapping/export'
+import { buildMappingProjectFolder } from '@/lib/concept-mapping/export'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
@@ -84,43 +77,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const [conflict, setConflict] = useState<{ name: string; pending: MappingProject; children: ImportChildren } | null>(null)
 
   const handleExport = useCallback(async (project: MappingProject) => {
-    const allSets = await getStorage().conceptSets.getAll()
-    const conceptSets = allSets.filter((cs) => project.conceptSetIds.includes(cs.id))
-    const mappings = await getStorage().conceptMappings.getByProject(project.id)
-
     const zip = new JSZip()
-    zip.file('project.json', JSON.stringify(project, null, 2))
-    zip.file('concept-sets.json', JSON.stringify(conceptSets, null, 2))
-    zip.file('mappings.json', JSON.stringify(mappings, null, 2))
-    zip.file(`${slugify(project.name)}-sssom.tsv`, exportToSssomTsv(mappings, project))
-    zip.file(`${slugify(project.name)}-source-to-concept-map.csv`, exportToSourceToConceptMap(mappings, project))
-    zip.file(`${slugify(project.name)}-usagi.csv`, exportToUsagiCsv(mappings))
-    if (project.sourceType === 'file' && project.fileSourceData) {
-      zip.file(
-        `${slugify(project.name)}-source-concepts.csv`,
-        exportSourceConceptsCsv(
-          project.fileSourceData.rows,
-          project.fileSourceData.columns,
-          project.fileSourceData.columnMapping,
-        ),
-      )
-    } else if (project.sourceType !== 'file' && project.dataSourceId) {
-      const dataSource = dataSources.find((ds) => ds.id === project.dataSourceId)
-      if (dataSource?.schemaMapping) {
-        try {
-          await ensureMounted(dataSource.id)
-          const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
-          if (sql) {
-            const rows = await queryDataSource(dataSource.id, sql)
-            if (rows.length > 0) {
-              zip.file(`${slugify(project.name)}-source-concepts.csv`, buildSourceConceptsCsvFromRows(rows))
-            }
-          }
-        } catch {
-          // Source concepts export failed — continue without it
-        }
-      }
-    }
+    await buildMappingProjectFolder(zip, '', project, getStorage(), {
+      queryDataSource,
+      ensureMounted,
+      dataSources,
+    })
     const blob = await zip.generateAsync({ type: 'blob' })
     downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
   }, [dataSources, ensureMounted])

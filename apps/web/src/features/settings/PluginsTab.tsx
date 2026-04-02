@@ -5,6 +5,7 @@ import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -204,7 +205,9 @@ export function PluginsTab() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [newPluginName, setNewPluginName] = useState('')
+  const [newPluginEntityId, setNewPluginEntityId] = useState('')
   const [createScope, setCreateScope] = useState<PluginScope>('lab')
+  const existingPluginIds = pluginList.map(p => p.entityId).filter((id): id is string => !!id)
   const importInputRef = useRef<HTMLInputElement>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; files: Record<string, string>; pluginId: string } | null>(null)
 
@@ -351,7 +354,7 @@ export function PluginsTab() {
             className="hidden"
             onChange={handleImportFile}
           />
-          <Button size="sm" onClick={() => { setNewPluginName(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
+          <Button size="sm" onClick={() => { setNewPluginName(''); setNewPluginEntityId(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
             <Plus size={14} />
             {t('plugins.new_plugin')}
           </Button>
@@ -413,26 +416,28 @@ export function PluginsTab() {
                 value={newPluginName}
                 onChange={(e) => setNewPluginName(e.target.value)}
                 placeholder={t('plugins.create_name_placeholder')}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && newPluginName.trim() && !pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase())) {
-                    createPlugin(newPluginName, createScope)
-                    setShowCreateDialog(false)
-                  }
-                }}
                 autoFocus
               />
               {newPluginName.trim() && pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase()) && (
                 <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
               )}
             </div>
+            <EntityIdField
+              name={newPluginName}
+              value={newPluginEntityId}
+              onChange={setNewPluginEntityId}
+              existingIds={existingPluginIds}
+              htmlId="plugin-entity-id"
+              placeholder="my-plugin"
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreateDialog(false)}>
               {t('common.cancel')}
             </Button>
             <Button
-              onClick={() => { createPlugin(newPluginName, createScope); setShowCreateDialog(false) }}
-              disabled={!newPluginName.trim() || pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase())}
+              onClick={() => { createPlugin(newPluginName, createScope, newPluginEntityId || undefined); setShowCreateDialog(false) }}
+              disabled={!newPluginName.trim() || !isEntityIdValid(newPluginEntityId, existingPluginIds) || pluginList.some(p => p.manifest.name.en.toLowerCase() === newPluginName.trim().toLowerCase())}
             >
               {t('common.create')}
             </Button>

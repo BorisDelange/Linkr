@@ -30,6 +30,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 
 interface CreateMappingProjectDialogProps {
@@ -70,6 +71,7 @@ export function CreateMappingProjectDialog({
 
   // --- Common fields ---
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus] = useState<MappingProjectStatus>('in_progress')
   const [badges, setBadges] = useState<ProjectBadge[]>([])
@@ -106,10 +108,13 @@ export function CreateMappingProjectDialog({
   const [page, setPage] = useState<'main' | 'import-settings'>('main')
 
   const isEdit = !!editingProject
+  const { mappingProjects } = useConceptMappingStore()
+  const existingIds = mappingProjects.map(p => p.entityId).filter((id): id is string => !!id)
 
   useEffect(() => {
     if (editingProject) {
       setName(editingProject.name)
+      setEntityId(editingProject.entityId ?? '')
       setDescription(editingProject.description)
       setStatus(editingProject.status ?? 'in_progress')
       setBadges(editingProject.badges ?? [])
@@ -120,6 +125,7 @@ export function CreateMappingProjectDialog({
       }
     } else if (open) {
       setName('')
+      setEntityId('')
       setDescription('')
       setStatus('in_progress')
       setBadges([])
@@ -348,7 +354,7 @@ export function CreateMappingProjectDialog({
     || (parsedColumns.length > 0 && parsedRows.length > 0 && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn))
   )
   const isDatabaseValid = sourceType === 'database' && !!dataSourceId
-  const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid)
+  const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid) && (isEdit || isEntityIdValid(entityId, existingIds))
 
   // --- Submit ---
   const handleSubmit = async () => {
@@ -388,6 +394,7 @@ export function CreateMappingProjectDialog({
       const now = new Date().toISOString()
       const project: MappingProject = {
         id,
+        entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
         name: name.trim(),
         description: description.trim(),
@@ -713,6 +720,16 @@ export function CreateMappingProjectDialog({
                   placeholder={t('concept_mapping.project_name_placeholder')}
                 />
               </div>
+              {!isEdit && (
+                <EntityIdField
+                  name={name}
+                  value={entityId}
+                  onChange={setEntityId}
+                  existingIds={existingIds}
+                  htmlId="mp-entity-id"
+                  placeholder="my-mapping-project"
+                />
+              )}
               <div className="grid gap-2">
                 <Label htmlFor="mp-desc">{t('common.description')}</Label>
                 <Textarea

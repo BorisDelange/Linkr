@@ -116,6 +116,7 @@ export function ProjectsPage() {
     const entity: Project = {
       ...project,
       uid,
+      projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
       workspaceId: wsUid ?? activeWorkspaceId ?? project.workspaceId,
       name: duplicate
         ? (typeof project.name === 'string'

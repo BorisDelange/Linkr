@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -38,18 +39,23 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
 
   const isEdit = !!editingCatalog
+  const { catalogs } = useCatalogStore()
+  const existingIds = catalogs.map(c => c.entityId).filter((id): id is string => !!id)
 
   useEffect(() => {
     if (editingCatalog) {
       setName(editingCatalog.name)
+      setEntityId(editingCatalog.entityId ?? '')
       setDescription(editingCatalog.description)
       setDataSourceId(editingCatalog.dataSourceId)
     } else {
       setName('')
+      setEntityId('')
       setDescription('')
       setDataSourceId('')
     }
@@ -66,6 +72,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
       const now = new Date().toISOString()
       await createCatalog({
         id,
+        entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
         name: name.trim(),
         description: description.trim(),
@@ -101,6 +108,16 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               autoFocus
             />
           </div>
+          {!isEdit && (
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="catalog-id"
+              placeholder="my-catalog"
+            />
+          )}
           <div>
             <Label className="text-xs">{t('data_catalog.database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
@@ -121,7 +138,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId}>
+          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
             {isEdit ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>

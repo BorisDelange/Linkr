@@ -19,6 +19,8 @@ export interface PluginListItem {
   isBuiltIn: boolean
   /** System plugins are built-in patient data widgets — metadata-only editing, no code. */
   isSystemPlugin: boolean
+  /** entityId from the UserPlugin record (only for user plugins). */
+  entityId?: string
 }
 
 const SCAFFOLD_MANIFEST_LAB = {
@@ -95,7 +97,7 @@ interface PluginEditorState {
   // Plugin actions
   openPlugin: (id: string) => Promise<void>
   closeEditor: () => void
-  createPlugin: (name?: string, scope?: 'lab' | 'warehouse') => Promise<string>
+  createPlugin: (name?: string, scope?: 'lab' | 'warehouse', entityId?: string) => Promise<string>
   duplicatePlugin: (sourceId: string) => Promise<string>
   deletePlugin: (id: string) => Promise<void>
   savePlugin: () => Promise<void>
@@ -180,9 +182,9 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         // If this user plugin overrides a built-in, replace the built-in entry
         const existingIdx = list.findIndex(p => p.id === id)
         if (existingIdx >= 0) {
-          list[existingIdx] = { id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id) }
+          list[existingIdx] = { id, manifest, isBuiltIn: false, isSystemPlugin: SYSTEM_PLUGIN_IDS.has(id), entityId: up.entityId }
         } else {
-          list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: false })
+          list.push({ id, manifest, isBuiltIn: false, isSystemPlugin: false, entityId: up.entityId })
         }
       } catch { /* skip invalid */ }
     }
@@ -260,7 +262,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     })
   },
 
-  async createPlugin(name?: string, scope?: 'lab' | 'warehouse') {
+  async createPlugin(name?: string, scope?: 'lab' | 'warehouse', entityId?: string) {
     const id = `user-plugin-${Date.now()}`
     const pluginName = name?.trim() || 'New Plugin'
     const isWarehouse = scope === 'warehouse'
@@ -273,7 +275,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     }
     const now = new Date().toISOString()
     const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    const userPlugin: UserPlugin = { id, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
+    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime

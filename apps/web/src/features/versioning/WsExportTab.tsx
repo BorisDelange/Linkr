@@ -55,22 +55,22 @@ interface ExportSection {
 }
 
 const exportSections: ExportSection[] = [
-  { key: 'projects', icon: FolderOpen, labelKey: 'app_versioning.export_section_projects', colorClass: 'text-amber-500' },
-  { key: 'wiki', icon: BookOpen, labelKey: 'app_versioning.export_section_wiki', colorClass: 'text-emerald-500' },
-  { key: 'plugins', icon: Puzzle, labelKey: 'app_versioning.export_section_plugins', colorClass: 'text-pink-500' },
+  { key: 'projects', icon: FolderOpen, labelKey: 'workspace_nav.projects', colorClass: 'text-blue-700' },
+  { key: 'wiki', icon: BookOpen, labelKey: 'workspace_nav.wiki', colorClass: 'text-emerald-500' },
+  { key: 'plugins', icon: Puzzle, labelKey: 'workspace_nav.plugins', colorClass: 'text-pink-500' },
   {
     key: 'warehouse',
     icon: Warehouse,
-    labelKey: 'app_versioning.export_section_warehouse',
+    labelKey: 'workspace_nav.warehouse',
     colorClass: 'text-teal-500',
     children: [
-      { key: 'schemas', icon: FileSpreadsheet, labelKey: 'app_versioning.export_section_schemas', colorClass: 'text-teal-500' },
-      { key: 'databases', icon: Database, labelKey: 'app_versioning.export_section_databases', colorClass: 'text-teal-500' },
-      { key: 'conceptMapping', icon: ArrowRightLeft, labelKey: 'app_versioning.export_section_concept_mapping', colorClass: 'text-teal-500' },
-      { key: 'sqlScripts', icon: SquareTerminal, labelKey: 'app_versioning.export_section_sql_scripts', colorClass: 'text-teal-500' },
-      { key: 'etl', icon: Workflow, labelKey: 'app_versioning.export_section_etl', colorClass: 'text-teal-500' },
-      { key: 'dataQuality', icon: ShieldCheck, labelKey: 'app_versioning.export_section_data_quality', colorClass: 'text-teal-500' },
-      { key: 'catalogs', icon: BookOpen, labelKey: 'app_versioning.export_section_catalogs', colorClass: 'text-teal-500' },
+      { key: 'schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', colorClass: 'text-teal-500' },
+      { key: 'databases', icon: Database, labelKey: 'app_warehouse.nav_databases', colorClass: 'text-teal-500' },
+      { key: 'conceptMapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', colorClass: 'text-teal-500' },
+      { key: 'sqlScripts', icon: SquareTerminal, labelKey: 'app_warehouse.nav_sql_scripts', colorClass: 'text-teal-500' },
+      { key: 'dataQuality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', colorClass: 'text-teal-500' },
+      { key: 'catalogs', icon: BookOpen, labelKey: 'app_warehouse.nav_catalog', colorClass: 'text-teal-500' },
+      { key: 'etl', icon: Workflow, labelKey: 'app_warehouse.nav_etl', colorClass: 'text-teal-500' },
     ],
   },
 ]
@@ -136,7 +136,7 @@ export function WsExportTab() {
         plugins: plugins.length,
         schemas: schemas.length,
         databases: dataSources.length,
-        conceptMapping: mappingProjects.length + conceptSets.length,
+        conceptMapping: mappingProjects.length,
         sqlScripts: sqlCollections.length,
         etl: etlPipelines.length,
         dataQuality: dqRuleSets.length,
@@ -286,6 +286,28 @@ export function WsExportTab() {
           <CardDescription>{t('app_versioning.export_description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Select all / none */}
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setSelected(new Set(ALL_KEYS))}
+            >
+              {t('common.select_all')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs"
+              onClick={() => setSelected(new Set())}
+            >
+              {t('common.select_none')}
+            </Button>
+          </div>
+
           {/* Section checkboxes */}
           <div className="space-y-1">
             {exportSections.map(s => renderSection(s))}

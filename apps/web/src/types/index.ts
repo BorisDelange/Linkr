@@ -89,6 +89,7 @@ export interface Workspace {
   /** @deprecated Kept for backward compat after v17 migration. Use organizationId instead. */
   organization?: OrganizationInfo
   badges?: ProjectBadge[]
+  readme?: string
   gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
@@ -98,6 +99,8 @@ export interface Workspace {
 
 export interface Project {
   uid: string
+  /** Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at creation, never changes. Used as folder name in exports/git. */
+  projectId?: string
   /** Workspace this project belongs to. Undefined = unassigned (legacy). */
   workspaceId?: string
   name: LocalizedString
@@ -300,6 +303,8 @@ export interface WikiSnapshot {
 
 export interface WikiPage {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. Used as folder name in exports/git. */
+  entityId?: string
   workspaceId: string
   parentId: string | null
   title: string
@@ -613,6 +618,8 @@ export type EtlPipelineStatus = 'draft' | 'ready' | 'running' | 'success' | 'err
 
 export interface EtlPipeline {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId: string
   name: string
   description: string
@@ -685,6 +692,8 @@ export interface EtlSourceProfile {
 
 export interface SqlScriptCollection {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId: string
   name: string
   description: string
@@ -711,6 +720,8 @@ export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error
 
 export interface DqRuleSet {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId: string
   name: string
   description: string
@@ -743,6 +754,8 @@ export interface DqCustomCheck {
 
 export interface UserPlugin {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId?: string
   files: Record<string, string>
   createdAt: string

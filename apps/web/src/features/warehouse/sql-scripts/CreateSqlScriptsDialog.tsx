@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
@@ -36,19 +37,24 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const { createCollection, updateCollection, createFile } = useSqlScriptsStore()
 
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
   const [defaultDbId, setDefaultDbId] = useState('')
   const [saving, setSaving] = useState(false)
 
   const isEditing = !!editingCollection
+  const { collections } = useSqlScriptsStore()
+  const existingIds = collections.map(c => c.entityId).filter((id): id is string => !!id)
 
   useEffect(() => {
     if (open && editingCollection) {
       setName(editingCollection.name)
+      setEntityId(editingCollection.entityId ?? '')
       setDescription(editingCollection.description)
       setDefaultDbId(editingCollection.defaultDataSourceId ?? '')
     } else if (open && !editingCollection) {
       setName('')
+      setEntityId('')
       setDescription('')
       setDefaultDbId('')
     }
@@ -71,6 +77,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
         const now = new Date().toISOString()
         const collection: SqlScriptCollection = {
           id: crypto.randomUUID(),
+          entityId: entityId || undefined,
           workspaceId: activeWorkspaceId,
           name: name.trim(),
           description: description.trim(),
@@ -123,6 +130,17 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
             />
           </div>
 
+          {!isEditing && (
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="sql-collection-id"
+              placeholder="my-collection"
+            />
+          )}
+
           <div className="space-y-2">
             <Label>{t('common.description')}</Label>
             <Input
@@ -157,7 +175,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!name.trim() || saving}
+            disabled={!name.trim() || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
           >
             {isEditing ? t('common.save') : t('common.create')}
           </Button>

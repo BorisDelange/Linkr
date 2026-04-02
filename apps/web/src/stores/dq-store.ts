@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { DqRuleSet, DqCustomCheck } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 
@@ -76,7 +77,11 @@ export const useDqStore = create<DqState>((set, get) => ({
   dqRuleSetsLoaded: false,
 
   loadDqRuleSets: async () => {
-    const all = await getStorage().dqRuleSets.getAll()
+    const storage = getStorage()
+    const all = await storage.dqRuleSets.getAll()
+    for (const r of migrateEntityIds(all, e => e.name)) {
+      storage.dqRuleSets.update(r.id, { entityId: r.entityId }).catch(() => {})
+    }
     set({ dqRuleSets: all, dqRuleSetsLoaded: true })
   },
 

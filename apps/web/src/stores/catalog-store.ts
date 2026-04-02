@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 
@@ -50,6 +51,10 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           c.status = newStatus
           await storage.dataCatalogs.update(c.id, { status: newStatus })
         }
+      }
+      // Migration: assign entityId to catalogs that don't have one
+      for (const c of migrateEntityIds(all, e => e.name)) {
+        storage.dataCatalogs.update(c.id, { entityId: c.entityId }).catch(() => {})
       }
       set({ catalogs: all, catalogsLoaded: true })
     } catch {

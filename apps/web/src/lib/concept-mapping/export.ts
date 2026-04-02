@@ -398,6 +398,79 @@ export function exportUnmappedToStcm(
 }
 
 // ---------------------------------------------------------------------------
+// Build mapping project ZIP folder
+// ---------------------------------------------------------------------------
+
+import type JSZip from 'jszip'
+import type { Storage } from '@/lib/storage'
+import { slugify } from '@/lib/entity-io'
+
+interface BuildMappingProjectFolderOptions {
+  /** DuckDB query function — needed for DB-based source concepts export. */
+  queryDataSource?: (dsId: string, sql: string) => Promise<Record<string, unknown>[]>
+  /** Ensure data source is mounted before querying. */
+  ensureMounted?: (dsId: string) => Promise<void>
+  /** Data sources list — needed to resolve the source DB schema. */
+  dataSources?: import('@/types').DataSource[]
+}
+
+/**
+ * Add all mapping project files to a JSZip folder.
+ * Reused by both individual project export and workspace export.
+ * Files: project.json, concept-sets.json, mappings.json, SSSOM, STCM, Usagi, source-concepts.
+ */
+export async function buildMappingProjectFolder(
+  zip: JSZip,
+  prefix: string,
+  project: MappingProject,
+  storage: Storage,
+  options: BuildMappingProjectFolderOptions = {},
+): Promise<void> {
+  const allSets = await storage.conceptSets.getAll()
+  const conceptSets = allSets.filter(cs => project.conceptSetIds.includes(cs.id))
+  const mappings = await storage.conceptMappings.getByProject(project.id)
+
+  // Core data files
+  zip.file(`${prefix}project.json`, JSON.stringify(project, null, 2))
+  zip.file(`${prefix}concept-sets.json`, JSON.stringify(conceptSets, null, 2))
+  zip.file(`${prefix}mappings.json`, JSON.stringify(mappings, null, 2))
+
+  // Formatted export files
+  zip.file(`${prefix}sssom.tsv`, exportToSssomTsv(mappings, project))
+  zip.file(`${prefix}source-to-concept-map.csv`, exportToSourceToConceptMap(mappings, project))
+  zip.file(`${prefix}usagi.csv`, exportToUsagiCsv(mappings))
+
+  // Source concepts (file-based or DB-based)
+  if (project.sourceType === 'file' && project.fileSourceData) {
+    zip.file(
+      `${prefix}source-concepts.csv`,
+      exportSourceConceptsCsv(
+        project.fileSourceData.rows,
+        project.fileSourceData.columns,
+        project.fileSourceData.columnMapping,
+      ),
+    )
+  } else if (project.sourceType !== 'file' && project.dataSourceId && options.queryDataSource) {
+    const ds = options.dataSources?.find(d => d.id === project.dataSourceId)
+    if (ds?.schemaMapping) {
+      try {
+        if (options.ensureMounted) await options.ensureMounted(ds.id)
+        const { buildSourceConceptsAllQuery } = await import('@/lib/concept-mapping/mapping-queries')
+        const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+        if (sql) {
+          const rows = await options.queryDataSource(ds.id, sql)
+          if (rows.length > 0) {
+            zip.file(`${prefix}source-concepts.csv`, buildSourceConceptsCsvFromRows(rows))
+          }
+        }
+      } catch {
+        // Source concepts export failed — continue without it
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Browser download helper
 // ---------------------------------------------------------------------------
 

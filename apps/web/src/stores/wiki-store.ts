@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { WikiPage, WikiSnapshot } from '@/types'
 
 export type WikiViewMode = 'view' | 'edit' | 'history'
@@ -25,6 +26,7 @@ interface WikiState {
     workspaceId: string
     parentId: string | null
     title: string
+    entityId?: string
     content?: string
     icon?: string
     template?: string
@@ -75,11 +77,16 @@ export const useWikiStore = create<WikiState>((set, get) => ({
   viewMode: 'view',
 
   loadPages: async (workspaceId) => {
-    const pages = await getStorage().wikiPages.getByWorkspace(workspaceId)
+    const storage = getStorage()
+    const pages = await storage.wikiPages.getByWorkspace(workspaceId)
+    // Migration: assign entityId to pages that don't have one
+    for (const p of migrateEntityIds(pages, e => e.title)) {
+      storage.wikiPages.update(p.id, { entityId: p.entityId }).catch(() => {})
+    }
     set({ pages, pagesLoaded: true, currentWorkspaceId: workspaceId })
   },
 
-  addPage: async ({ workspaceId, parentId, title, content, icon, template }) => {
+  addPage: async ({ workspaceId, parentId, title, entityId, content, icon, template }) => {
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
     const siblings = get().pages.filter((p) => p.parentId === parentId)
@@ -87,6 +94,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
 
     const page: WikiPage = {
       id,
+      entityId: entityId || undefined,
       workspaceId,
       parentId,
       title,

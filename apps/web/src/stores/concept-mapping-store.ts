@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
 
 interface ConceptMappingState {
@@ -97,7 +98,11 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   mappingProjectsLoaded: false,
 
   loadMappingProjects: async () => {
-    const all = await getStorage().mappingProjects.getAll()
+    const storage = getStorage()
+    const all = await storage.mappingProjects.getAll()
+    for (const p of migrateEntityIds(all, e => e.name)) {
+      storage.mappingProjects.update(p.id, { entityId: p.entityId }).catch(() => {})
+    }
     set({ mappingProjects: all, mappingProjectsLoaded: true })
   },
 

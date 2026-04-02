@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { IconPicker } from '@/components/ui/icon-picker'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useWikiStore } from '@/stores/wiki-store'
 
 interface CreateWikiPageDialogProps {
@@ -297,18 +298,22 @@ export function CreateWikiPageDialog({
   parentId,
 }: CreateWikiPageDialogProps) {
   const { t } = useTranslation()
-  const { addPage, setActivePage } = useWikiStore()
+  const { addPage, setActivePage, pages } = useWikiStore()
   const [title, setTitle] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [icon, setIcon] = useState('FileText')
   const [selectedTemplate, setSelectedTemplate] = useState('blank')
 
+  const existingIds = pages.map(p => p.entityId).filter((id): id is string => !!id)
+
   const handleCreate = async () => {
-    if (!title.trim()) return
+    if (!title.trim() || !isEntityIdValid(entityId, existingIds)) return
     const template = TEMPLATES.find((tpl) => tpl.id === selectedTemplate)
     const id = await addPage({
       workspaceId,
       parentId,
       title: title.trim(),
+      entityId: entityId || undefined,
       content: template?.content ?? '',
       icon: icon || undefined,
       template: selectedTemplate,
@@ -316,6 +321,7 @@ export function CreateWikiPageDialog({
     setActivePage(id)
     onOpenChange(false)
     setTitle('')
+    setEntityId('')
     setIcon('FileText')
     setSelectedTemplate('blank')
   }
@@ -343,6 +349,15 @@ export function CreateWikiPageDialog({
             </div>
           </div>
 
+          <EntityIdField
+            name={title}
+            value={entityId}
+            onChange={setEntityId}
+            existingIds={existingIds}
+            htmlId="wiki-page-id"
+            placeholder="my-wiki-page"
+          />
+
           <div>
             <Label className="text-xs">{t('wiki.template')}</Label>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
@@ -369,7 +384,7 @@ export function CreateWikiPageDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleCreate} disabled={!title.trim()}>
+          <Button onClick={handleCreate} disabled={!title.trim() || !isEntityIdValid(entityId, existingIds)}>
             {t('common.create')}
           </Button>
         </DialogFooter>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { migrateEntityIds } from '@/lib/slugify-id'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 // --- Output tab types ---
@@ -122,7 +123,11 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   collectionsLoaded: false,
 
   loadCollections: async () => {
-    const all = await getStorage().sqlScriptCollections.getAll()
+    const storage = getStorage()
+    const all = await storage.sqlScriptCollections.getAll()
+    for (const c of migrateEntityIds(all, e => e.name)) {
+      storage.sqlScriptCollections.update(c.id, { entityId: c.entityId }).catch(() => {})
+    }
     set({ collections: all, collectionsLoaded: true })
   },
 

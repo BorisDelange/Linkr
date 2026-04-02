@@ -136,13 +136,21 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         const all = await getStorage().dataSources.getAll()
         // Migrate: assign alias to data sources that don't have one yet
         const existingAliases = all.filter((ds) => ds.alias).map((ds) => ds.alias)
+        // Migrate: assign workspaceId to data sources that don't have one
+        const activeWsId = useWorkspaceStore.getState().activeWorkspaceId
         for (const ds of all) {
+          let dirty = false
           if (!ds.alias) {
             const base = generateAlias(ds.name)
             ds.alias = ensureUniqueAlias(base, existingAliases)
             existingAliases.push(ds.alias)
-            getStorage().dataSources.update(ds.id, { alias: ds.alias })
+            dirty = true
           }
+          if (!ds.workspaceId && activeWsId) {
+            ds.workspaceId = activeWsId
+            dirty = true
+          }
+          if (dirty) getStorage().dataSources.update(ds.id, { alias: ds.alias, workspaceId: ds.workspaceId })
           engine.registerAlias(ds.id, ds.alias)
         }
         set({ dataSources: all, dataSourcesLoaded: true })

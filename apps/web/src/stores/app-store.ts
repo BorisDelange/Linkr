@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { slugifyId } from '@/lib/slugify-id'
 import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
@@ -121,6 +122,7 @@ function createDemoWorkspace(): Workspace {
 function createDemoProject(): Project {
   return {
     uid: DEMO_UID,
+    projectId: 'icu-mortality-prediction',
     workspaceId: DEMO_WORKSPACE_ID,
     name: { en: 'ICU Mortality Prediction', fr: 'Prédiction de mortalité en réanimation' },
     description: {
@@ -231,6 +233,7 @@ The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (
 function createDemoActivityProject(): Project {
   return {
     uid: DEMO_ACTIVITY_UID,
+    projectId: 'icu-activity-dashboard',
     workspaceId: DEMO_WORKSPACE_ID,
     name: {
       en: 'ICU Activity Dashboard',
@@ -313,7 +316,7 @@ interface AppState {
   projects: ProjectItem[]
   projectsLoaded: boolean
   loadProjects: () => Promise<void>
-  addProject: (name: string, description: string, workspaceId?: string) => Promise<string>
+  addProject: (name: string, description: string, workspaceId?: string, projectId?: string) => Promise<string>
   updateProject: (uid: string, name: string, description: string) => Promise<void>
   updateProjectTodos: (uid: string, todos: TodoItem[]) => void
   updateProjectNotes: (uid: string, notes: string) => void
@@ -426,6 +429,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       localStorage.setItem(SEED_KEY, '1')
     }
 
+    // Migration: assign projectId to projects that don't have one
+    const usedIds = new Set(projects.filter(p => p.projectId).map(p => p.projectId!))
+    for (const p of projects) {
+      if (p.projectId) continue
+      const name = typeof p.name === 'string' ? p.name : (p.name.en || p.name.fr || Object.values(p.name)[0] || 'project')
+      let candidate = slugifyId(name) || 'project'
+      if (candidate.length < 2) candidate = `project-${candidate}`
+      let id = candidate
+      let suffix = 2
+      while (usedIds.has(id)) { id = `${candidate}-${suffix++}` }
+      p.projectId = id
+      usedIds.add(id)
+      storage.projects.update(p.uid, { projectId: id }).catch(() => {})
+    }
+
     const lang = get().language
     set({
       _projectsRaw: projects,
@@ -434,12 +452,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
-  addProject: async (name, description, workspaceId?) => {
+  addProject: async (name, description, workspaceId?, projectId?) => {
     const uid = crypto.randomUUID()
     const now = new Date().toISOString()
     const lang = get().language
     const project: Project = {
       uid,
+      projectId: projectId || undefined,
       workspaceId,
       name: { [lang]: name },
       description: { [lang]: description },

@@ -128,6 +128,8 @@ export interface CatalogPeriodRow {
 
 export interface DataCatalog {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId: string
   name: string
   description: string

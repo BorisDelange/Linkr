@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
@@ -38,20 +39,25 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const { createPipeline, updatePipeline } = useEtlStore()
 
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [sourceId, setSourceId] = useState('')
   const [targetId, setTargetId] = useState('')
   const [saving, setSaving] = useState(false)
 
   const isEditing = !!editingPipeline
+  const { etlPipelines } = useEtlStore()
+  const existingIds = etlPipelines.map(p => p.entityId).filter((id): id is string => !!id)
 
   // Populate fields when opening in edit mode
   useEffect(() => {
     if (open && editingPipeline) {
       setName(editingPipeline.name)
+      setEntityId(editingPipeline.entityId ?? '')
       setSourceId(editingPipeline.sourceDataSourceId)
       setTargetId(editingPipeline.targetDataSourceId ?? '')
     } else if (open && !editingPipeline) {
       setName('')
+      setEntityId('')
       setSourceId('')
       setTargetId('')
     }
@@ -74,6 +80,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
         const now = new Date().toISOString()
         const pipeline: EtlPipeline = {
           id: crypto.randomUUID(),
+          entityId: entityId || undefined,
           workspaceId: activeWorkspaceId,
           name: name.trim(),
           description: '',
@@ -115,6 +122,17 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               }}
             />
           </div>
+
+          {!isEditing && (
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="etl-pipeline-id"
+              placeholder="my-etl-pipeline"
+            />
+          )}
 
           <div className="space-y-2">
             <Label>{t('etl.source_database')}</Label>
@@ -159,7 +177,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!name.trim() || !sourceId || saving}
+            disabled={!name.trim() || !sourceId || saving || (!isEditing && !isEntityIdValid(entityId, existingIds))}
           >
             {isEditing ? t('common.save') : t('common.create')}
           </Button>

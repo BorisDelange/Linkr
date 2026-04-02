@@ -134,6 +134,8 @@ export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 /** A workspace-level mapping project linked to a database or file. */
 export interface MappingProject {
   id: string
+  /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
+  entityId?: string
   workspaceId: string
   name: string
   description: string

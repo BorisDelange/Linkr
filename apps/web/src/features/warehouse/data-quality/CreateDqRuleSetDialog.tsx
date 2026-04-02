@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -37,16 +38,21 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
 
   const isEdit = !!editingRuleSet
+  const { dqRuleSets } = useDqStore()
+  const existingIds = dqRuleSets.map(r => r.entityId).filter((id): id is string => !!id)
 
   useEffect(() => {
     if (editingRuleSet) {
       setName(editingRuleSet.name)
+      setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
     } else {
       setName('')
+      setEntityId('')
       setDataSourceId('')
     }
   }, [editingRuleSet, open])
@@ -62,6 +68,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       const now = new Date().toISOString()
       await createRuleSet({
         id,
+        entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
         name: name.trim(),
         description: '',
@@ -94,6 +101,16 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               autoFocus
             />
           </div>
+          {!isEdit && (
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="dq-ruleset-id"
+              placeholder="my-rule-set"
+            />
+          )}
           <div>
             <Label className="text-xs">{t('data_quality.rs_database')}</Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
@@ -114,7 +131,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId}>
+          <Button onClick={handleSubmit} disabled={!name.trim() || !dataSourceId || (!isEdit && !isEntityIdValid(entityId, existingIds))}>
             {isEdit ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/app-store'
 import { Button } from '@/components/ui/button'
@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 
 interface CreateProjectDialogProps {
   open: boolean
@@ -22,16 +23,31 @@ interface CreateProjectDialogProps {
 
 export function CreateProjectDialog({ open, onOpenChange, workspaceId }: CreateProjectDialogProps) {
   const { t } = useTranslation()
-  const { addProject } = useAppStore()
+  const { addProject, _projectsRaw } = useAppStore()
   const [name, setName] = useState('')
+  const [entityId, setEntityId] = useState('')
   const [description, setDescription] = useState('')
+
+  // Reset form when dialog opens
+  useEffect(() => {
+    if (open) {
+      setName('')
+      setEntityId('')
+      setDescription('')
+    }
+  }, [open])
+
+  const existingIds = _projectsRaw
+    .filter(p => p.workspaceId === workspaceId)
+    .map(p => p.projectId)
+    .filter((id): id is string => !!id)
+
+  const canSubmit = name.trim().length > 0 && isEntityIdValid(entityId, existingIds)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim()) return
-    await addProject(name.trim(), description.trim(), workspaceId)
-    setName('')
-    setDescription('')
+    if (!canSubmit) return
+    await addProject(name.trim(), description.trim(), workspaceId, entityId)
     onOpenChange(false)
   }
 
@@ -54,6 +70,14 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId }: CreateP
                 autoFocus
               />
             </div>
+            <EntityIdField
+              name={name}
+              value={entityId}
+              onChange={setEntityId}
+              existingIds={existingIds}
+              htmlId="project-id"
+              placeholder="my-project"
+            />
             <div className="space-y-2">
               <Label htmlFor="project-description">{t('projects.field_description')}</Label>
               <Textarea
@@ -69,7 +93,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId }: CreateP
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <Button type="submit" disabled={!canSubmit}>
               {t('common.create')}
             </Button>
           </DialogFooter>
