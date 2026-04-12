@@ -358,13 +358,13 @@ export function ProjectSettingsPage() {
                           <p>{t('project_settings.delete_confirm_description')}</p>
                           <p className="text-sm">
                             {t('project_settings.delete_confirm_type')}{' '}
-                            <span className="font-semibold text-foreground font-mono">{uid}</span>
+                            <span className="font-semibold text-foreground">{projectDisplayName}</span>
                           </p>
                           <Input
                             value={deleteConfirm}
                             onChange={(e) => setDeleteConfirm(e.target.value)}
-                            placeholder={uid}
-                            className="mt-2 font-mono text-sm"
+                            placeholder={projectDisplayName}
+                            className="mt-2"
                           />
                         </div>
                       </AlertDialogDescription>
@@ -374,7 +374,7 @@ export function ProjectSettingsPage() {
                         {t('common.cancel')}
                       </AlertDialogCancel>
                       <AlertDialogAction
-                        disabled={deleteConfirm !== uid}
+                        disabled={deleteConfirm !== projectDisplayName}
                         className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
                         onClick={handleDelete}
                       >

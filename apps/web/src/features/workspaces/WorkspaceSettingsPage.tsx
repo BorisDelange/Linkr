@@ -326,13 +326,13 @@ export function WorkspaceSettingsPage() {
                           <p>{t('workspaces.delete_workspace_description')}</p>
                           <p className="text-sm">
                             {t('workspaces.delete_workspace_confirm')}{' '}
-                            <span className="font-semibold text-foreground font-mono">{wsUid}</span>
+                            <span className="font-semibold text-foreground">{wsDisplayName}</span>
                           </p>
                           <Input
                             value={deleteConfirm}
                             onChange={(e) => setDeleteConfirm(e.target.value)}
-                            placeholder={wsUid}
-                            className="mt-2 font-mono text-sm"
+                            placeholder={wsDisplayName}
+                            className="mt-2"
                           />
                         </div>
                       </AlertDialogDescription>
@@ -343,7 +343,7 @@ export function WorkspaceSettingsPage() {
                       </AlertDialogCancel>
                       <AlertDialogAction
                         onClick={handleDelete}
-                        disabled={deleteConfirm !== wsUid}
+                        disabled={deleteConfirm !== wsDisplayName}
                         className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
                       >
                         {t('workspaces.delete_workspace')}

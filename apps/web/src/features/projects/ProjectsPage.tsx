@@ -191,8 +191,11 @@ export function ProjectsPage() {
     useDashboardStore.setState({ activeProjectUid: null, loaded: false })
     useDatasetStore.setState({ activeProjectUid: null })
     useFileStore.setState({ activeProjectUid: null })
-    usePipelineStore.setState({ pipelinesLoaded: false })
-    useCohortStore.setState({ cohortsLoaded: false })
+
+    // Reload global stores (pipelines, cohorts) instead of invalidating their loaded flags,
+    // because App.tsx gates rendering on those flags being true.
+    await usePipelineStore.getState().loadPipelines()
+    await useCohortStore.getState().loadCohorts()
 
     await loadProjects()
   }, [wsUid, activeWorkspaceId, loadProjects])
@@ -385,13 +388,13 @@ export function ProjectsPage() {
                 <p>{t('project_settings.delete_confirm_description')}</p>
                 <p className="text-sm">
                   {t('project_settings.delete_confirm_type')}{' '}
-                  <span className="font-semibold text-foreground font-mono">{deleteTarget?.uid}</span>
+                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
                 </p>
                 <Input
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.uid}
-                  className="mt-2 font-mono text-sm"
+                  placeholder={deleteTarget?.name}
+                  className="mt-2"
                 />
               </div>
             </AlertDialogDescription>
@@ -401,7 +404,7 @@ export function ProjectsPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.uid}
+              disabled={deleteConfirm !== deleteTarget?.name}
               className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={handleDelete}
             >

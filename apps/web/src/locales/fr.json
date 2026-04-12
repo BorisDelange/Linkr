@@ -79,7 +79,7 @@
     "tab_danger": "Zone de danger",
     "delete_workspace": "Supprimer l'espace de travail",
     "delete_workspace_description": "Cette action supprimera définitivement l'espace de travail et tous ses projets.",
-    "delete_workspace_confirm": "Pour confirmer, tapez l'ID de l'espace de travail :",
+    "delete_workspace_confirm": "Pour confirmer, tapez le nom de l'espace de travail :",
     "unassigned": "Personnel / Non assigné",
     "unassigned_description": "Projets non assignés à un espace de travail",
     "select_organization": "Sélectionner une organisation",
@@ -1420,7 +1420,7 @@
     "delete_project": "Supprimer le projet",
     "delete_confirm_title": "Supprimer ce projet ?",
     "delete_confirm_description": "Cette action supprimera définitivement le projet et toutes ses données.",
-    "delete_confirm_type": "Pour confirmer, tapez l'ID du projet :",
+    "delete_confirm_type": "Pour confirmer, tapez le nom du projet :",
     "publishing": "Publication"
   },
   "settings": {

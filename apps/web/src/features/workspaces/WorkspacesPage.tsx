@@ -575,13 +575,13 @@ export function WorkspacesPage() {
                 <p>{t('workspaces.delete_workspace_description')}</p>
                 <p className="text-sm">
                   {t('workspaces.delete_workspace_confirm')}{' '}
-                  <span className="font-semibold text-foreground font-mono">{deleteTarget?.id}</span>
+                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
                 </p>
                 <Input
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.id}
-                  className="mt-2 font-mono text-sm"
+                  placeholder={deleteTarget?.name}
+                  className="mt-2"
                 />
               </div>
             </AlertDialogDescription>
@@ -591,7 +591,7 @@ export function WorkspacesPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.id}
+              disabled={deleteConfirm !== deleteTarget?.name}
               className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={handleDelete}
             >

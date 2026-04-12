@@ -38,10 +38,10 @@ export function ImportConflictDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          <Button variant="outline" onClick={() => { onOpenChange(false); onDuplicate() }}>
+          <Button onClick={() => { onOpenChange(false); onDuplicate() }}>
             {t('common.import_duplicate')}
           </Button>
-          <Button onClick={() => { onOpenChange(false); onOverwrite() }}>
+          <Button variant="destructive" onClick={() => { onOpenChange(false); onOverwrite() }}>
             {t('common.import_overwrite')}
           </Button>
         </AlertDialogFooter>
