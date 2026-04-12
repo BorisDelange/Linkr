@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Table2 } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Archive } from 'lucide-react'
+import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -11,11 +12,11 @@ import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
   exportToSssomTsv,
-  exportSourceConceptsCsv,
   exportUnmappedToStcm,
-  buildSourceConceptsCsvFromRows,
   downloadFile,
+  buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
+import { downloadBlob, slugify, timestamp } from '@/lib/entity-io'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
@@ -32,8 +33,9 @@ const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked
 export function ExportTab({ project, dataSource }: ExportTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const [sourceExporting, setSourceExporting] = useState(false)
+  const [zipExporting, setZipExporting] = useState(false)
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(
@@ -209,23 +211,6 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       bg: 'bg-emerald-50 dark:bg-emerald-950/30',
       generate: () => exportToUsagiCsv(filteredMappings),
     },
-    // Source concepts CSV — file-based projects
-    ...(project.sourceType === 'file' && project.fileSourceData ? [{
-      id: 'source-concepts',
-      icon: Table2,
-      name: t('concept_mapping.export_source_csv'),
-      description: t('concept_mapping.export_source_csv_desc'),
-      ext: 'csv',
-      mime: 'text/csv',
-      color: 'text-amber-500',
-      bg: 'bg-amber-50 dark:bg-amber-950/30',
-      generate: () => exportSourceConceptsCsv(
-        project.fileSourceData!.rows,
-        project.fileSourceData!.columns,
-        project.fileSourceData!.columnMapping,
-      ),
-      alwaysEnabled: true,
-    }] : []),
   ]
 
   const handleDownload = async (format: (typeof formats)[number]) => {
@@ -234,20 +219,21 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     downloadFile(content, filename, format.mime)
   }
 
-  const handleExportSourceDb = async () => {
-    if (!dataSource?.id || !dataSource.schemaMapping) return
-    setSourceExporting(true)
+  const handleExportZip = useCallback(async () => {
+    setZipExporting(true)
     try {
-      await ensureMounted(dataSource.id)
-      const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
-      if (!sql) return
-      const rows = await queryDataSource(dataSource.id, sql)
-      if (rows.length === 0) return
-      downloadFile(buildSourceConceptsCsvFromRows(rows), `${slug}-source-concepts.csv`, 'text/csv')
+      const zip = new JSZip()
+      await buildMappingProjectFolder(zip, '', project, getStorage(), {
+        queryDataSource,
+        ensureMounted,
+        dataSources,
+      })
+      const blob = await zip.generateAsync({ type: 'blob' })
+      downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
     } finally {
-      setSourceExporting(false)
+      setZipExporting(false)
     }
-  }
+  }, [project, dataSources, ensureMounted])
 
   const mappedSourceIds = useMemo(() => new Set(mappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`)), [mappings])
   const unmappedCount = totalSourceConcepts !== null ? Math.max(0, totalSourceConcepts - mappedSourceIds.size) : null
@@ -328,6 +314,30 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
         {/* Format cards */}
         <div className="grid gap-3 sm:grid-cols-2">
+          {/* Linkr ZIP export — first position */}
+          <Card className="flex flex-col justify-between overflow-hidden p-0">
+            <div className="flex items-center gap-2.5 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+              <Archive size={16} className="shrink-0 text-amber-500" />
+              <span className="text-sm font-medium">{t('concept_mapping.export_linkr_zip')}</span>
+              <Badge variant="outline" className="ml-auto text-[10px]">.zip</Badge>
+            </div>
+            <div className="px-4 py-3">
+              <p className="text-xs text-muted-foreground">{t('concept_mapping.export_linkr_zip_desc')}</p>
+            </div>
+            <div className="px-4 pb-4">
+              <Button
+                className="w-full"
+                variant="outline"
+                size="sm"
+                onClick={handleExportZip}
+                disabled={zipExporting}
+              >
+                {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                {t('concept_mapping.export_download')}
+              </Button>
+            </div>
+          </Card>
+
           {formats.map((format) => (
             <Card key={format.id} className="flex flex-col justify-between overflow-hidden p-0">
               <div className={`flex items-center gap-2.5 px-4 py-3 ${format.bg}`}>
@@ -352,45 +362,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               </div>
             </Card>
           ))}
-
-          {/* Source concepts CSV — database projects */}
-          {project.sourceType !== 'file' && dataSource?.schemaMapping && (
-            <Card className="flex flex-col justify-between overflow-hidden p-0">
-              <div className="flex items-center gap-2.5 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
-                <Table2 size={16} className="shrink-0 text-amber-500" />
-                <span className="text-sm font-medium">{t('concept_mapping.export_source_csv')}</span>
-                <Badge variant="outline" className="ml-auto text-[10px]">.csv</Badge>
-              </div>
-              <div className="px-4 py-3">
-                <p className="text-xs text-muted-foreground">{t('concept_mapping.export_source_csv_db_desc')}</p>
-              </div>
-              <div className="px-4 pb-4">
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleExportSourceDb}
-                  disabled={sourceExporting}
-                >
-                  {sourceExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                  {t('concept_mapping.export_download')}
-                </Button>
-              </div>
-            </Card>
-          )}
         </div>
-
-        {/* Empty state */}
-        {mappings.length === 0 && (
-          <Card>
-            <div className="flex flex-col items-center py-10">
-              <Download size={32} className="text-muted-foreground" />
-              <p className="mt-3 text-sm text-muted-foreground">
-                {t('concept_mapping.export_empty')}
-              </p>
-            </div>
-          </Card>
-        )}
       </div>
     </div>
   )

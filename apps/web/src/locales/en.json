@@ -88,7 +88,9 @@
     "change_organization": "Change organization",
     "no_organization": "No organization",
     "tab_badges": "Badges",
-    "badges_description": "Add labels to categorize this workspace."
+    "badges_description": "Add labels to categorize this workspace.",
+    "import_invalid_zip": "Invalid ZIP file: no workspace.json found. Make sure you are importing a workspace export.",
+    "import_error": "Failed to import workspace: {{error}}"
   },
   "project_nav": {
     "summary": "Summary",
@@ -158,7 +160,9 @@
     "search_placeholder": "Search projects...",
     "no_results": "No projects matching your search",
     "delete_confirm_title": "Delete project",
-    "delete_confirm_description": "Are you sure you want to delete this project? This action cannot be undone."
+    "delete_confirm_description": "Are you sure you want to delete this project? This action cannot be undone.",
+    "import_invalid_zip": "This ZIP does not contain a valid project (missing project.json).",
+    "import_error": "Failed to import project: {{error}}"
   },
   "dashboard": {
     "add_widget": "Add widget",
@@ -1878,6 +1882,7 @@
     "import_duplicate": "Create copy",
     "import_overwrite": "Overwrite",
     "importing": "Importing…",
+    "import_error_title": "Import failed",
     "auto": "Auto",
     "validate": "Validate",
     "ok": "OK",
@@ -2397,7 +2402,8 @@
     "export_include_ignored_desc": "Adds ignored concepts as unmapped rows (SSSOM: NoTermFound, Usagi: IGNORED)",
     "export_unmapped": "Unmapped concepts (target = 0)",
     "export_unmapped_stcm_only": "STCM only",
-    "export_empty": "No mappings to export yet. Create some mappings first.",
+    "export_linkr_zip": "Linkr mapping project",
+    "export_linkr_zip_desc": "Complete ZIP archive with all mappings and export files. Can be re-imported into Linkr.",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible with OHDSI Usagi tool. Standard format for sharing concept mappings.",
     "export_stcm": "SOURCE_TO_CONCEPT_MAP",
@@ -2406,9 +2412,8 @@
     "export_sssom_desc": "Simple Standard for Sharing Ontological Mappings. Interoperable with other ontology tools.",
     "export_json": "Full JSON",
     "export_json_desc": "Complete export with all metadata. Use for backup, sharing, or re-import.",
-    "export_source_csv": "Source concepts",
-    "export_source_csv_desc": "Exported source concepts as imported (mapped columns only). Useful to share the concept dictionary alongside mappings.",
-    "export_source_csv_db_desc": "Export all source concepts from the connected database. Includes vocabulary ID, concept code, name, and optional category columns.",
+    "import_invalid_zip": "This ZIP does not contain a valid mapping project (missing project.json).",
+    "import_error": "Failed to import mapping project: {{error}}",
     "cs_select": "Select",
     "cs_edit": "Edit",
     "cs_exit_selection": "Cancel",

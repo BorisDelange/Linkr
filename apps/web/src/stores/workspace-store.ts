@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { deleteProjectData } from '@/lib/entity-io'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge } from '@/types'
 import { useAppStore, registerWorkspaceStore } from './app-store'
 import { useOrganizationStore } from './organization-store'
@@ -150,25 +151,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     // Cascade delete all workspace-scoped entities
     const projects = (await storage.projects.getAll()).filter(p => p.workspaceId === id)
     for (const p of projects) {
-      await storage.ideFiles.deleteByProject(p.uid).catch(() => {})
-      await storage.connections.deleteByProject(p.uid).catch(() => {})
-      await storage.readmeAttachments.deleteByProject(p.uid).catch(() => {})
-      await storage.datasetFiles.deleteByProject(p.uid).catch(() => {})
-      const dashboards = await storage.dashboards.getByProject(p.uid)
-      for (const d of dashboards) {
-        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
-        await storage.dashboardTabs.deleteByDashboard(d.id)
-        await storage.dashboards.delete(d.id)
-      }
-      const pipelines = await storage.pipelines.getByProject(p.uid)
-      for (const pl of pipelines) await storage.pipelines.delete(pl.id)
-      const cohorts = await storage.cohorts.getByProject(p.uid)
-      for (const c of cohorts) await storage.cohorts.delete(c.id)
-      const datasetFiles = await storage.datasetFiles.getByProject(p.uid)
-      for (const df of datasetFiles) {
-        if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
-      }
+      await deleteProjectData(storage, p.uid)
       await storage.projects.delete(p.uid).catch(() => {})
     }
 

@@ -59,6 +59,7 @@ export function WorkspacesPage() {
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const handleOpenWorkspace = (id: string, name: string) => {
     openWorkspace(id, name)
@@ -411,17 +412,24 @@ export function WorkspacesPage() {
     if (!file) return
     e.target.value = ''
 
-    const parsed = await parseWorkspaceZip(file)
-    if (!parsed) return
+    try {
+      const parsed = await parseWorkspaceZip(file)
+      if (!parsed) {
+        setImportError(t('workspaces.import_invalid_zip'))
+        return
+      }
 
-    const existingWs = await getStorage().workspaces.getById(parsed.workspace.id)
-    if (existingWs) {
-      const name = typeof existingWs.name === 'string' ? existingWs.name : (existingWs.name.en || Object.values(existingWs.name)[0] || '')
-      setImportConflict({ name, pending: parsed })
-    } else {
-      await doImport(parsed, false)
+      const existingWs = await getStorage().workspaces.getById(parsed.workspace.id)
+      if (existingWs) {
+        const name = typeof existingWs.name === 'string' ? existingWs.name : (existingWs.name.en || Object.values(existingWs.name)[0] || '')
+        setImportConflict({ name, pending: parsed })
+      } else {
+        await doImport(parsed, false)
+      }
+    } catch (err) {
+      setImportError(t('workspaces.import_error', { error: err instanceof Error ? err.message : String(err) }))
     }
-  }, [doImport])
+  }, [doImport, t])
 
   return (
     <div className="h-full overflow-auto">
@@ -596,6 +604,21 @@ export function WorkspacesPage() {
               onClick={handleDelete}
             >
               {t('workspaces.delete_workspace')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Import error dialog */}
+      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{importError}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setImportError(null)}>
+              {t('common.ok')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

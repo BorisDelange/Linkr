@@ -88,7 +88,9 @@
     "change_organization": "Changer d'organisation",
     "no_organization": "Aucune organisation",
     "tab_badges": "Badges",
-    "badges_description": "Ajoutez des labels pour catégoriser cet espace de travail."
+    "badges_description": "Ajoutez des labels pour catégoriser cet espace de travail.",
+    "import_invalid_zip": "Fichier ZIP invalide : aucun workspace.json trouvé. Vérifiez que vous importez bien un export de workspace.",
+    "import_error": "Échec de l'import du workspace : {{error}}"
   },
   "project_nav": {
     "summary": "Résumé",
@@ -158,7 +160,9 @@
     "search_placeholder": "Rechercher des projets...",
     "no_results": "Aucun projet ne correspond à votre recherche",
     "delete_confirm_title": "Supprimer le projet",
-    "delete_confirm_description": "Êtes-vous sûr de vouloir supprimer ce projet ? Cette action est irréversible."
+    "delete_confirm_description": "Êtes-vous sûr de vouloir supprimer ce projet ? Cette action est irréversible.",
+    "import_invalid_zip": "Ce ZIP ne contient pas de projet valide (project.json manquant).",
+    "import_error": "Échec de l'import du projet : {{error}}"
   },
   "dashboard": {
     "add_widget": "Ajouter un widget",
@@ -1879,6 +1883,7 @@
     "import_duplicate": "Créer une copie",
     "import_overwrite": "Écraser",
     "importing": "Import en cours…",
+    "import_error_title": "Échec de l'import",
     "auto": "Auto",
     "validate": "Valider",
     "ok": "OK",
@@ -2398,7 +2403,8 @@
     "export_include_ignored_desc": "Ajoute les concepts ignorés comme lignes sans mapping (SSSOM : NoTermFound, Usagi : IGNORED)",
     "export_unmapped": "Concepts non mappés (target = 0)",
     "export_unmapped_stcm_only": "STCM uniquement",
-    "export_empty": "Aucun mapping à exporter. Créez d'abord des mappings.",
+    "export_linkr_zip": "Projet de mapping Linkr",
+    "export_linkr_zip_desc": "Archive ZIP complète avec tous les mappings et fichiers d'export. Peut être ré-importée dans Linkr.",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible avec l'outil OHDSI Usagi. Format standard pour le partage de mappings de concepts.",
     "export_stcm": "SOURCE_TO_CONCEPT_MAP",
@@ -2407,9 +2413,8 @@
     "export_sssom_desc": "Standard simple pour le partage de mappings ontologiques. Interopérable avec d'autres outils d'ontologie.",
     "export_json": "JSON complet",
     "export_json_desc": "Export complet avec toutes les métadonnées. Pour sauvegarde, partage ou ré-import.",
-    "export_source_csv": "Concepts source",
-    "export_source_csv_desc": "Concepts source tels qu'importés (uniquement les colonnes mappées). Utile pour partager le dictionnaire de concepts avec les mappings.",
-    "export_source_csv_db_desc": "Exporte tous les concepts source depuis la base de données connectée. Inclut l'ID de vocabulaire, le code, le nom et les colonnes de catégorie.",
+    "import_invalid_zip": "Ce ZIP ne contient pas de mapping project valide (project.json manquant).",
+    "import_error": "Échec de l'import du mapping project : {{error}}",
     "cs_select": "Sélectionner",
     "cs_edit": "Éditer",
     "cs_exit_selection": "Annuler",

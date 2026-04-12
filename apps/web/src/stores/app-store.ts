@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getAllPlugins } from '@/lib/plugins/registry'
@@ -598,7 +599,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteProject: async (uid) => {
-    await getStorage().projects.delete(uid)
+    const storage = getStorage()
+    await deleteProjectData(storage, uid)
+    await storage.projects.delete(uid)
     set((s) => ({
       _projectsRaw: s._projectsRaw.filter((p) => p.uid !== uid),
       projects: s.projects.filter((p) => p.uid !== uid),

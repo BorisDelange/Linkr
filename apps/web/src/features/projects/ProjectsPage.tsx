@@ -58,6 +58,7 @@ export function ProjectsPage() {
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   useEffect(() => {
     if (searchParams.get('create') === 'true') {
@@ -205,17 +206,24 @@ export function ProjectsPage() {
     if (!file) return
     e.target.value = ''
 
-    const parsed = await parseProjectZip(file)
-    if (!parsed) return
+    try {
+      const parsed = await parseProjectZip(file)
+      if (!parsed) {
+        setImportError(t('projects.import_invalid_zip'))
+        return
+      }
 
-    const existing = await getStorage().projects.getById(parsed.project.uid)
-    if (existing) {
-      const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
-      setImportConflict({ name: existingName, pending: parsed })
-    } else {
-      await doImport(parsed, false)
+      const existing = await getStorage().projects.getById(parsed.project.uid)
+      if (existing) {
+        const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
+        setImportConflict({ name: existingName, pending: parsed })
+      } else {
+        await doImport(parsed, false)
+      }
+    } catch (err) {
+      setImportError(t('projects.import_error', { error: err instanceof Error ? err.message : String(err) }))
     }
-  }, [doImport])
+  }, [doImport, t])
 
   return (
     <div className="h-full overflow-auto">
@@ -409,6 +417,21 @@ export function ProjectsPage() {
               onClick={handleDelete}
             >
               {t('project_settings.delete_project')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Import error dialog */}
+      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{importError}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setImportError(null)}>
+              {t('common.ok')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

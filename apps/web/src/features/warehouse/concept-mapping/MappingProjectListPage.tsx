@@ -86,6 +86,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
 
   const handleExport = useCallback(async (project: MappingProject) => {
     const zip = new JSZip()
@@ -99,21 +100,28 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   }, [dataSources, ensureMounted])
 
   const handleImport = useCallback(async (file: File) => {
-    const parsed = await parseImportZip(file)
-    const project = parsed['project.json'] as MappingProject | undefined
-    if (!project?.id) return
-    const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
-    // Check for conflict by entityId or name within the current workspace
-    const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
-    const existing = wsProjects.find(p =>
-      (project.entityId && p.entityId === project.entityId) || p.name === project.name
-    )
-    if (existing) {
-      setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
-    } else {
-      await doImport(project, { mappings }, false)
+    try {
+      const parsed = await parseImportZip(file)
+      const project = parsed['project.json'] as MappingProject | undefined
+      if (!project?.id) {
+        setImportError(t('concept_mapping.import_invalid_zip'))
+        return
+      }
+      const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+      // Check for conflict by entityId or name within the current workspace
+      const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
+      const existing = wsProjects.find(p =>
+        (project.entityId && p.entityId === project.entityId) || p.name === project.name
+      )
+      if (existing) {
+        setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
+      } else {
+        await doImport(project, { mappings }, false)
+      }
+    } catch (err) {
+      setImportError(t('concept_mapping.import_error', { error: err instanceof Error ? err.message : String(err) }))
     }
-  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId, t]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
     const now = new Date().toISOString()
@@ -354,6 +362,21 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           <CreateMappingProjectDialog open onOpenChange={onOpenChange} editingProject={item} />
         )}
       />
+
+      {/* Import error dialog */}
+      <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
+            <AlertDialogDescription>{importError}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => setImportError(null)}>
+              {t('common.ok')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

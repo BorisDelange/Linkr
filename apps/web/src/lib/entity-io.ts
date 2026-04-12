@@ -123,12 +123,48 @@ export async function exportEntityZip(
 // ---------------------------------------------------------------------------
 
 /**
+ * If all entries in a JSZip share a single root folder prefix, strip it so
+ * that paths like `my-folder/workspace.json` become `workspace.json`.
+ * This handles ZIPs created by macOS Finder, GitHub "Download ZIP", etc.
+ * Also filters out __MACOSX resource fork entries.
+ */
+function stripRootFolder(zip: JSZip): JSZip {
+  // Filter out macOS resource forks
+  const paths = Object.keys(zip.files).filter(p => !p.startsWith('__MACOSX/') && !p.startsWith('._'))
+  if (paths.length === 0) return zip
+
+  // Check if all paths share a common root folder
+  const firstSlash = paths[0].indexOf('/')
+  if (firstSlash < 0) return zip
+  const prefix = paths[0].slice(0, firstSlash + 1)
+  if (!paths.every(p => p.startsWith(prefix))) return zip
+  // Ensure we're not stripping a meaningful folder (there must be a directory entry or multiple levels)
+  if (!zip.files[prefix]?.dir && paths.length === 1) return zip
+
+  // Rebuild the zip with stripped paths
+  const stripped = new JSZip()
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (path.startsWith('__MACOSX/') || path.startsWith('._')) continue
+    if (!path.startsWith(prefix)) continue
+    const newPath = path.slice(prefix.length)
+    if (!newPath) continue
+    if (entry.dir) {
+      stripped.folder(newPath)
+    } else {
+      stripped.file(newPath, entry.async('arraybuffer'))
+    }
+  }
+  return stripped
+}
+
+/**
  * Parse a ZIP file and return all JSON files as parsed objects.
  */
 export async function parseImportZip(
   file: File,
 ): Promise<Record<string, unknown>> {
-  const zip = await JSZip.loadAsync(file)
+  let zip = await JSZip.loadAsync(file)
+  zip = stripRootFolder(zip)
   const result: Record<string, unknown> = {}
   for (const [path, entry] of Object.entries(zip.files)) {
     if (entry.dir) continue
@@ -366,7 +402,7 @@ export interface ParsedProjectZip {
 }
 
 export async function parseProjectZip(file: File): Promise<ParsedProjectZip | null> {
-  const zipData = await JSZip.loadAsync(file)
+  const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // Detect layout:
   // - legacy: flat JSON files (ide-files.json, cohorts.json, etc.)
@@ -923,7 +959,7 @@ export interface ParsedWorkspaceZip {
 }
 
 export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip | null> {
-  const zipData = await JSZip.loadAsync(file)
+  const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
   // --- workspace.json ---
   const wsFile = zipData.files['workspace.json']
