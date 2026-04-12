@@ -1,5 +1,5 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
-import { registerPlugin } from './registry'
+import { registerPlugin, getPlugin } from './registry'
 import { registerComponent } from './component-registry'
 import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
@@ -339,6 +339,9 @@ export async function registerUserPlugins() {
         }
         const plugin = buildPlugin(rawManifest, Object.keys(templates).length > 0 ? templates : null)
         plugin.workspaceId = up.workspaceId
+        // Don't overwrite built-in component plugins with IDB copies that lack componentId
+        const existing = getPlugin(plugin.manifest.id)
+        if (existing?.componentId && !plugin.componentId) continue
         registerPlugin(plugin)
       } catch {
         // Skip plugins with invalid plugin.json
