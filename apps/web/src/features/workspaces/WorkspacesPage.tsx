@@ -11,6 +11,7 @@ import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
+import { formatDate } from '@/lib/format-helpers'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -42,7 +43,7 @@ import { getStorage } from '@/lib/storage'
 import type { Project, ReadmeAttachment, WikiAttachment } from '@/types'
 
 export function WorkspacesPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
@@ -496,9 +497,11 @@ export function WorkspacesPage() {
                           <span className="block truncate text-sm font-medium text-card-foreground">
                             {ws.name}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {ws.organizationName}
-                          </span>
+                          {ws.organizationName && (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {ws.organizationName}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <DropdownMenu>
@@ -545,7 +548,7 @@ export function WorkspacesPage() {
                       <span>
                         {projectCount} {projectCount === 1 ? t('workspaces.project_count_one') : t('workspaces.project_count_other')}
                       </span>
-                      <span>{ws.createdAt}</span>
+                      <span>{formatDate(ws.createdAt, i18n.language)}</span>
                     </div>
                   </div>
                 </Card>

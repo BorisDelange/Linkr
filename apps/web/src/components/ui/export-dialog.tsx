@@ -4,14 +4,13 @@ import { Download } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 
 interface ExportDialogProps {
@@ -31,14 +30,14 @@ export function ExportDialog({ open, onOpenChange, onExport }: ExportDialogProps
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setIncludeData(false) }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('versioning.export_title')}</AlertDialogTitle>
-          <AlertDialogDescription>
+    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setIncludeData(false) }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t('versioning.export_title')}</DialogTitle>
+          <DialogDescription>
             {t('versioning.export_description')}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="space-y-3 py-2">
           <div className="flex items-center gap-2">
@@ -56,14 +55,16 @@ export function ExportDialog({ open, onOpenChange, onExport }: ExportDialogProps
           </p>
         </div>
 
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {t('common.cancel')}
+          </Button>
           <Button onClick={handleExport} className="gap-1.5">
             <Download size={14} />
             {t('versioning.export_download')}
           </Button>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }

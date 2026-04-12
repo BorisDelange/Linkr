@@ -26,7 +26,7 @@ linkr/
 │   │   ├── src/
 │   │   │   ├── app/              # App entry (App.tsx: routing, providers, WorkspaceGuard)
 │   │   │   ├── components/
-│   │   │   │   ├── ui/           # shadcn/ui components (27 files)
+│   │   │   │   ├── ui/           # shadcn/ui components (30 files)
 │   │   │   │   ├── layout/       # Sidebar, Header, StatusBar
 │   │   │   │   ├── editor/       # CodeEditor, MarkdownRenderer, MarkdownToolbar, CellOutput, monaco-themes
 │   │   │   │   └── terminal/     # TerminalPanel (xterm.js)
@@ -294,7 +294,7 @@ const { t } = useTranslation()
 - **Database tables**: snake_case (`widget_configs`)
 
 ### Component Organization
-- **components/ui/**: Generic, reusable UI components (shadcn/ui, 28 files)
+- **components/ui/**: Generic, reusable UI components (shadcn/ui, 30 files)
 - **components/layout/**: App shell components (Sidebar, Header, StatusBar)
 - **components/editor/**: CodeEditor (Monaco), MarkdownRenderer, MarkdownToolbar, CellOutput, monaco-themes
 - **components/terminal/**: TerminalPanel (xterm.js)
@@ -360,7 +360,7 @@ Currently installed components are in `apps/web/src/components/ui/`. To add a ne
 ### Path Aliases
 Use `@/` prefix for imports from `src/`:
 ```tsx
-import { cn } from '@/lib/cn'
+import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 ```
 
