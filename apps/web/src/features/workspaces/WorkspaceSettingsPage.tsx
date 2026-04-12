@@ -5,7 +5,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import type { BadgeColor, ProjectBadge, PresetBadgeColor } from '@/types'
-import { Building2, MapPin, Globe, Mail, Info, Plus, X } from 'lucide-react'
+import { Building2, MapPin, Globe, Mail, Info, Plus, X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -301,9 +301,9 @@ export function WorkspaceSettingsPage() {
 
           {/* Danger zone */}
           <TabsContent value="danger" className="mt-4">
-            <Card className="border-destructive/30">
+            <Card className="border-destructive/50">
               <CardHeader>
-                <CardTitle className="text-base text-destructive">
+                <CardTitle className="text-sm text-destructive">
                   {t('workspaces.delete_workspace')}
                 </CardTitle>
                 <CardDescription>
@@ -313,29 +313,38 @@ export function WorkspaceSettingsPage() {
               <CardContent>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
-                    <Button variant="destructive">{t('workspaces.delete_workspace')}</Button>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 size={14} />
+                      {t('workspaces.delete_workspace')}
+                    </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>{t('workspaces.delete_workspace')}</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        {t('workspaces.delete_workspace_description')}
+                      <AlertDialogDescription asChild>
+                        <div className="space-y-3">
+                          <p>{t('workspaces.delete_workspace_description')}</p>
+                          <p className="text-sm">
+                            {t('workspaces.delete_workspace_confirm')}{' '}
+                            <span className="font-semibold text-foreground font-mono">{wsUid}</span>
+                          </p>
+                          <Input
+                            value={deleteConfirm}
+                            onChange={(e) => setDeleteConfirm(e.target.value)}
+                            placeholder={wsUid}
+                            className="mt-2 font-mono text-sm"
+                          />
+                        </div>
                       </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="space-y-2 py-2">
-                      <Label>{t('workspaces.delete_workspace_confirm')}</Label>
-                      <Input
-                        value={deleteConfirm}
-                        onChange={(e) => setDeleteConfirm(e.target.value)}
-                        placeholder={wsDisplayName}
-                      />
-                    </div>
                     <AlertDialogFooter>
-                      <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                      <AlertDialogCancel onClick={() => setDeleteConfirm('')}>
+                        {t('common.cancel')}
+                      </AlertDialogCancel>
                       <AlertDialogAction
                         onClick={handleDelete}
-                        disabled={deleteConfirm !== wsDisplayName}
-                        className="bg-destructive text-white hover:bg-destructive/90"
+                        disabled={deleteConfirm !== wsUid}
+                        className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
                       >
                         {t('workspaces.delete_workspace')}
                       </AlertDialogAction>

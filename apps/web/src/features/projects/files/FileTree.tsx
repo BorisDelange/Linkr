@@ -13,14 +13,13 @@ const ROOT_ORDER: Record<string, number> = {
   'README.md': 1,
   'tasks.json': 2,
   '.gitignore': 3,
-  'databases': 4,
-  'cohorts': 5,
-  'pipeline': 6,
-  'scripts': 7,
+  'scripts': 4,
+  'pipeline': 5,
+  'databases': 6,
+  'cohorts': 7,
   'dashboards': 8,
-  'data': 9,
-  'datasets_analyses': 10,
-  'attachments': 11,
+  'datasets': 9,
+  'attachments': 10,
 }
 
 function sortNodes(a: TreeNode, b: TreeNode): number {

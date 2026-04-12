@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useFileStore, buildFolderTree } from '@/stores/file-store'
+import { useFileStore, buildScriptsFolderTree, getScriptsFolderId } from '@/stores/file-store'
 import {
   FileText,
   FileCode,
@@ -122,10 +122,11 @@ export function CreateFileDialog({
   )
 
   const selectedType = fileTypes.find((ft) => ft.id === fileType)!
-  const folderTree = useMemo(() => buildFolderTree(files), [files])
+  const folderTree = useMemo(() => buildScriptsFolderTree(files), [files])
+  const scriptsFolderId = useMemo(() => getScriptsFolderId(files), [files])
 
   const finalName = name.includes('.') ? name.trim() : `${name.trim()}${selectedType.ext}`
-  const actualParentId = selectedParentId === '__root__' ? null : selectedParentId
+  const actualParentId = selectedParentId === '__root__' ? scriptsFolderId : selectedParentId
   const isDuplicate = finalName.length > 0 && files.some(
     (f) => f.name === finalName && f.parentId === actualParentId
   )
@@ -237,7 +238,7 @@ export function CreateFileDialog({
                   <SelectItem value="__root__">
                     <div className="flex items-center gap-2">
                       <FolderOpen size={14} className="text-muted-foreground" />
-                      <span>{t('files.root')}</span>
+                      <span>scripts</span>
                     </div>
                   </SelectItem>
                   {folderTree.map((folder) => (

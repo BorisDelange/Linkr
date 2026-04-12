@@ -7,8 +7,8 @@ export type FileNode = IdeFile
 
 /** Folder names reserved for structured export — cannot be created/renamed to at IDE root level. */
 export const RESERVED_ROOT_FOLDERS = new Set([
-  '_pipeline', '_cohorts', '_databases', '_dashboards',
-  '_datasets', '_data', '_attachments',
+  'pipeline', 'cohorts', 'databases', 'dashboards',
+  'datasets', 'attachments', 'data', '.cache',
 ])
 
 export interface OutputTab {
@@ -550,6 +550,20 @@ export function buildFolderTree(
   return result
 }
 
+/** Build a folder tree limited to the scripts/ folder and its descendants. */
+export function buildScriptsFolderTree(
+  files: FileNode[],
+): { id: string; name: string; depth: number }[] {
+  const scriptsFolder = files.find((f) => f.type === 'folder' && f.name === 'scripts' && f.parentId === null)
+  if (!scriptsFolder) return []
+  return buildFolderTree(files, scriptsFolder.id, 0)
+}
+
+/** Find the scripts folder ID, or null if it doesn't exist. */
+export function getScriptsFolderId(files: FileNode[]): string | null {
+  return files.find((f) => f.type === 'folder' && f.name === 'scripts' && f.parentId === null)?.id ?? null
+}
+
 function getAllDescendants(files: FileNode[], parentId: string): string[] {
   const children = files.filter((f) => f.parentId === parentId)
   const ids: string[] = []
@@ -651,6 +665,21 @@ export const useFileStore = create<FileState>((set, get) => ({
           localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
         }
 
+        // Ensure scripts/ folder exists — create if missing (migration for existing projects)
+        let scriptsFolder = stored.find((f) => f.type === 'folder' && f.name === 'scripts' && f.parentId === null)
+        if (!scriptsFolder) {
+          scriptsFolder = {
+            id: newFileId('folder'),
+            projectUid,
+            name: 'scripts',
+            type: 'folder',
+            parentId: null,
+            createdAt: new Date().toISOString().split('T')[0],
+          }
+          stored.push(scriptsFolder)
+          storage.ideFiles.create(scriptsFolder).catch((e) => console.warn('[file-store] persist error:', e))
+        }
+
         // Populate saved content snapshots
         for (const f of stored) {
           if (f.type === 'file' && f.content !== undefined) {
@@ -701,15 +730,24 @@ export const useFileStore = create<FileState>((set, get) => ({
         const versionKey = `${DEMO_FILES_VERSION_KEY}:${projectUid}`
         localStorage.setItem(versionKey, String(DEMO_FILES_VERSION))
       } else {
-        // New project — start with an empty file tree
+        // New project — start with a scripts/ folder
+        const scriptsFolder: FileNode = {
+          id: newFileId('folder'),
+          projectUid,
+          name: 'scripts',
+          type: 'folder',
+          parentId: null,
+          createdAt: new Date().toISOString().split('T')[0],
+        }
         set({
-          files: [],
+          files: [scriptsFolder],
           activeProjectUid: projectUid,
           selectedFileId: null,
           openFileIds: [],
-          expandedFolders: [],
+          expandedFolders: [scriptsFolder.id],
           _dirtyVersion: 0,
         })
+        storage.ideFiles.create(scriptsFolder).catch((e) => console.warn('[file-store] persist error:', e))
       }
     } catch {
       // Storage not ready — start empty

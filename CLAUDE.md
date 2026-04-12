@@ -381,14 +381,21 @@ The legacy R/Shiny code is in `v1/` for reference. Key files:
 
 ## Project File Structure (Canonical)
 
-Each project follows this canonical file structure. This structure is used for git versioning (server mode only), export/import ZIP, and separation of config (versioned) vs data (gitignored).
+Each project follows a unified file structure: **IDE view = Export ZIP = Git repo**. The same structure is visible in the IDE (via toggle), exported in ZIP archives, and committed to git.
 
 ```
 my-project/
 ├── project.json              # Project metadata (name, description, status, badges)
 ├── README.md                 # Markdown documentation
 ├── tasks.json                # Todos + notes
-├── .gitignore                # Excludes data/ and .cache/
+├── .gitignore                # Dynamic: excludes datasets/**/*.csv + .cache/ by default
+│
+├── scripts/                  # User code — ONLY editable folder in IDE
+│   ├── analysis.py
+│   └── exploration.Rmd
+│
+├── pipeline/
+│   └── pipeline.json         # Full DAG (nodes + edges) — single file
 │
 ├── databases/                # One JSON per database (connection config + schema mapping)
 │   ├── mimic-iv.json
@@ -398,48 +405,37 @@ my-project/
 │   ├── icu-patients.json
 │   └── sepsis-cohort.json
 │
-├── pipeline/
-│   └── pipeline.json         # Full DAG (nodes + edges) — single file
-│
-├── scripts/                  # User code (Python, R, SQL)
-│   ├── clean_data.py
-│   └── analysis.R
-│
 ├── dashboards/               # One JSON per dashboard (tabs + widgets + layouts)
 │   ├── overview.json
 │   └── demographics.json
 │
-├── attachments/              # Images/files for README (versioned in git)
-│   └── screenshot.png
-│
-├── datasets_analyses/        # VERSIONED — analysis configs linked to datasets
-│   ├── patients/             # folder name = dataset name (sans extension)
+├── datasets/                 # Analysis configs (versioned) + data files (gitignored by default)
+│   ├── _tree.json            # Dataset tree metadata
+│   ├── patients/
 │   │   ├── _columns.json     # Column metadata
 │   │   ├── table1.json       # Analysis config
-│   │   └── age_dist.json
+│   │   └── patients.csv      # Data file (gitignored by default)
 │   └── labs/
 │       └── summary.json
 │
-├── data/                     # ⚠️ GITIGNORED — all binary/data files
-│   ├── databases/            # Imported databases (DuckDB files, Parquet folders)
-│   │   ├── mimic-iv.duckdb
-│   │   └── eicu/
-│   └── datasets/             # All datasets (imported CSV/Parquet + script-generated)
-│       ├── patients.csv
-│       └── mortality_dataset.csv
+├── attachments/              # Images/files for README (versioned in git)
+│   ├── _meta.json            # Attachment metadata
+│   └── screenshot.png
 │
-└── .cache/                   # ⚠️ GITIGNORED — temporary caches (stats, etc.)
+└── .cache/                   # ⚠️ GITIGNORED
 ```
 
 ### Key design decisions
+- **IDE = Export = Git**: unified structure, no translation between formats
+- **`scripts/`** is the only folder where users can create/edit files in the IDE; all other folders are managed by their respective feature pages (Datasets, Dashboards, etc.)
+- **System folders** (pipeline, databases, cohorts, dashboards, datasets, attachments) are read-only in the IDE, hidden by default (toggle to show)
 - **Todos/notes** in `tasks.json` (separate from `project.json` to keep git history clean)
 - **Pipeline** as single `pipeline.json` (DAG is a connected graph, splitting makes no sense)
 - **Cohorts/databases/dashboards**: one file each (independent evolution, cleaner git history)
-- **Datasets**: data files in `data/datasets/` (gitignored), analysis configs in `datasets_analyses/` (versioned). Linked by naming convention: `data/datasets/foo.csv` → `datasets_analyses/foo/`
-- **Databases**: config JSON in `databases/`, binary data in `data/databases/` (gitignored)
+- **Datasets**: unified folder — analysis configs and data files live together in `datasets/{name}/`. Data files (CSV/Parquet) are gitignored by default; the export dialog lets users opt-in to include them
 - **Attachments** in `attachments/` (versioned, part of documentation)
-- **IDE visibility**: entire project tree visible, with deletion warnings on structural files (`project.json`, `README.md`, `tasks.json`, `pipeline/pipeline.json`, `.gitignore`)
 - **README attachments** use standard markdown paths: `![alt](attachments/filename.png)` — resolved to blob URLs at render time in local mode
+- **Runtime `data/datasets/`**: the WASM runtime (Pyodide/webR) uses an in-memory `data/datasets/` path for script-generated CSV files — this is separate from the export structure
 
 ### Summary page features
 - **Tabs**: Overview (entity counts), Readme (markdown editor + toolbar), Tasks (todos + notes)

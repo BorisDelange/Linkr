@@ -137,12 +137,8 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
 
     // --- .gitignore ---
     virtual.push(
-      vFile('virtual:.gitignore', '.gitignore', null, 'data/\n.cache/\n', 'plaintext'),
+      vFile('virtual:.gitignore', '.gitignore', null, 'datasets/**/*.csv\ndatasets/**/*.parquet\n.cache/\n', 'plaintext'),
     )
-
-    // --- data/ (gitignored — databases + datasets) ---
-    const dataFolderId = 'virtual:data'
-    virtual.push(vFolder(dataFolderId, 'data', null))
 
     // --- databases/ ---
     const linkedIds = project?.linkedDataSourceIds ?? []
@@ -168,10 +164,10 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       virtual.push(vFolder(cohortFolderId, 'cohorts', null))
       for (const c of projectCohorts) {
         const slug = slugify(c.name)
-        const { id, name, description, level, criteria, resultCount, createdAt, updatedAt } = c
+        const { id, name, description, level, criteriaTree, customSql, resultCount, attrition, schemaVersion, createdAt, updatedAt } = c
         virtual.push(
           vFile(`virtual:cohorts/${c.id}`, `${slug}.json`, cohortFolderId,
-            JSON.stringify({ id, name, description, level, criteria, resultCount, createdAt, updatedAt }, null, 2)),
+            JSON.stringify({ id, name, description, level, criteriaTree, customSql, resultCount, attrition, schemaVersion, createdAt, updatedAt }, null, 2)),
         )
       }
     }
@@ -208,12 +204,9 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
-    // --- data/databases/ (virtual mirror of imported database files) ---
-    virtual.push(vFolder('virtual:data/databases', 'databases', dataFolderId))
-
-    // --- data/datasets/ (bridge nodes — editable, delegates CRUD to dataset-store) ---
-    const datasetsFolderId = 'virtual:data/datasets'
-    virtual.push(vFolder(datasetsFolderId, 'datasets', dataFolderId))
+    // --- datasets/ (bridge nodes — editable, delegates CRUD to dataset-store) ---
+    const datasetsFolderId = 'virtual:datasets'
+    virtual.push(vFolder(datasetsFolderId, 'datasets', null))
 
     const bridgeNodes: DatasetBridgeNode[] = []
     if (datasetFiles.length > 0) {
@@ -236,9 +229,37 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
           )
         }
       }
+
+      // --- analyses (virtual, nested inside dataset bridge folders) ---
+      if (datasetAnalyses.length > 0) {
+        const byDataset = new Map<string, typeof datasetAnalyses>()
+        for (const a of datasetAnalyses) {
+          const list = byDataset.get(a.datasetFileId) ?? []
+          list.push(a)
+          byDataset.set(a.datasetFileId, list)
+        }
+
+        for (const [datasetFileId, fileAnalyses] of byDataset) {
+          const dataset = datasetFiles.find((f) => f.id === datasetFileId)
+          // Place analyses inside the dataset's bridge folder (named after dataset sans extension)
+          const folderName = dataset
+            ? dataset.name.replace(/\.[^.]+$/, '')
+            : datasetFileId
+          const subFolderId = `virtual:datasets/${datasetFileId}`
+          virtual.push(vFolder(subFolderId, folderName, datasetsFolderId))
+
+          for (const a of fileAnalyses) {
+            const { id, name, type, config, createdAt, updatedAt } = a
+            virtual.push(
+              vFile(`virtual:datasets/${a.id}`, `${slugify(name)}.json`, subFolderId,
+                JSON.stringify({ id, name, type, config, createdAt, updatedAt }, null, 2)),
+            )
+          }
+        }
+      }
     }
 
-    // --- data/datasets/ — files from script execution (shared-fs) ---
+    // --- datasets/ — files from script execution (shared-fs) ---
     for (const fullPath of sharedFsFileNames) {
       const fileName = fullPath.substring(fullPath.lastIndexOf('/') + 1)
       // Avoid duplicates with dataset store files
@@ -247,39 +268,6 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
         virtual.push(
           vFile(`virtual:shared-fs/${fullPath}`, fileName, datasetsFolderId, '', 'plaintext'),
         )
-      }
-    }
-
-    // --- datasets_analyses/ — update IDs to use bridge node references ---
-
-    // --- datasets_analyses/ (virtual read-only mirror of analysis configs) ---
-    if (datasetAnalyses.length > 0) {
-      const analysesFolderId = 'virtual:datasets_analyses'
-      virtual.push(vFolder(analysesFolderId, 'datasets_analyses', null))
-
-      // Group analyses by dataset, create one subfolder per dataset
-      const byDataset = new Map<string, typeof datasetAnalyses>()
-      for (const a of datasetAnalyses) {
-        const list = byDataset.get(a.datasetFileId) ?? []
-        list.push(a)
-        byDataset.set(a.datasetFileId, list)
-      }
-
-      for (const [datasetFileId, fileAnalyses] of byDataset) {
-        const dataset = datasetFiles.find((f) => f.id === datasetFileId)
-        const folderName = dataset
-          ? dataset.name.replace(/\.[^.]+$/, '')
-          : datasetFileId
-        const subFolderId = `virtual:datasets_analyses/${datasetFileId}`
-        virtual.push(vFolder(subFolderId, folderName, analysesFolderId))
-
-        for (const a of fileAnalyses) {
-          const { id, name, type, config, createdAt, updatedAt } = a
-          virtual.push(
-            vFile(`virtual:datasets_analyses/${a.id}`, `${slugify(name)}.json`, subFolderId,
-              JSON.stringify({ id, name, type, config, createdAt, updatedAt }, null, 2)),
-          )
-        }
       }
     }
 

@@ -342,7 +342,7 @@ export function ProjectSettingsPage() {
                   {t('project_settings.danger_zone_description')}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent>
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
                     <Button variant="destructive" size="sm">
@@ -358,13 +358,13 @@ export function ProjectSettingsPage() {
                           <p>{t('project_settings.delete_confirm_description')}</p>
                           <p className="text-sm">
                             {t('project_settings.delete_confirm_type')}{' '}
-                            <span className="font-semibold text-foreground">{projectDisplayName}</span>
+                            <span className="font-semibold text-foreground font-mono">{uid}</span>
                           </p>
                           <Input
                             value={deleteConfirm}
                             onChange={(e) => setDeleteConfirm(e.target.value)}
-                            placeholder={projectDisplayName}
-                            className="mt-2"
+                            placeholder={uid}
+                            className="mt-2 font-mono text-sm"
                           />
                         </div>
                       </AlertDialogDescription>
@@ -374,7 +374,7 @@ export function ProjectSettingsPage() {
                         {t('common.cancel')}
                       </AlertDialogCancel>
                       <AlertDialogAction
-                        disabled={deleteConfirm !== projectDisplayName}
+                        disabled={deleteConfirm !== uid}
                         className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
                         onClick={handleDelete}
                       >

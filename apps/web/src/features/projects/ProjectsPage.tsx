@@ -6,8 +6,10 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useFileStore } from '@/stores/file-store'
+import { usePipelineStore } from '@/stores/pipeline-store'
+import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
-import { buildProjectZip, parseProjectZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, downloadBlob, slugify, timestamp, deleteProjectData } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,6 +33,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ExportDialog } from '@/components/ui/export-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import type { Project, ReadmeAttachment } from '@/types'
@@ -49,6 +52,9 @@ export function ProjectsPage() {
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+
+  // Export dialog state
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip } | null>(null)
@@ -89,11 +95,12 @@ export function ProjectsPage() {
   }
 
   // --- Export a single project ---
-  const handleExportProject = useCallback(async (projectUid: string) => {
-    const result = await buildProjectZip(projectUid, getStorage())
+  const handleExportProject = useCallback(async (options: { includeDataFiles: boolean }) => {
+    if (!exportTarget) return
+    const result = await buildProjectZip(exportTarget, getStorage(), options)
     if (!result) return
     downloadBlob(result.blob, `${slugify(result.projectName)}-${timestamp()}.zip`)
-  }, [])
+  }, [exportTarget])
 
   // --- Duplicate a project (export then re-import as copy) ---
   const handleDuplicateProject = useCallback(async (projectUid: string) => {
@@ -128,25 +135,7 @@ export function ProjectsPage() {
     }
 
     // Always clean up existing data for the target uid to avoid IDB constraint errors
-    await storage.ideFiles.deleteByProject(uid).catch(() => {})
-    await storage.connections.deleteByProject(uid).catch(() => {})
-    await storage.readmeAttachments.deleteByProject(uid).catch(() => {})
-    await storage.datasetFiles.deleteByProject(uid).catch(() => {})
-    const oldDashboards = await storage.dashboards.getByProject(uid)
-    for (const d of oldDashboards) {
-      const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-      for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
-      await storage.dashboardTabs.deleteByDashboard(d.id)
-      await storage.dashboards.delete(d.id)
-    }
-    const oldPipelines = await storage.pipelines.getByProject(uid)
-    for (const p of oldPipelines) await storage.pipelines.delete(p.id)
-    const oldCohorts = await storage.cohorts.getByProject(uid)
-    for (const c of oldCohorts) await storage.cohorts.delete(c.id)
-    const oldDatasetFiles = await storage.datasetFiles.getByProject(uid)
-    for (const df of oldDatasetFiles) {
-      if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
-    }
+    await deleteProjectData(storage, uid)
     await storage.projects.delete(uid).catch(() => {})
 
     await storage.projects.create(entity)
@@ -186,6 +175,9 @@ export function ProjectsPage() {
     for (const a of parsed.datasetAnalyses) {
       await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
     }
+    for (const dd of parsed.datasetData) {
+      await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
+    }
     for (const meta of parsed.attachmentsMeta) {
       const blobData = parsed.attachmentBlobs.get(meta.id)
       if (blobData) {
@@ -199,6 +191,8 @@ export function ProjectsPage() {
     useDashboardStore.setState({ activeProjectUid: null, loaded: false })
     useDatasetStore.setState({ activeProjectUid: null })
     useFileStore.setState({ activeProjectUid: null })
+    usePipelineStore.setState({ pipelinesLoaded: false })
+    useCohortStore.setState({ cohortsLoaded: false })
 
     await loadProjects()
   }, [wsUid, activeWorkspaceId, loadProjects])
@@ -312,7 +306,7 @@ export function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleExportProject(project.uid) }}>
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setExportTarget(project.uid) }}>
                               <Download size={14} />
                               {t('common.export')}
                             </DropdownMenuItem>
@@ -365,6 +359,13 @@ export function ProjectsPage() {
 
       <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
 
+      {/* Export project dialog */}
+      <ExportDialog
+        open={exportTarget !== null}
+        onOpenChange={(open) => { if (!open) setExportTarget(null) }}
+        onExport={handleExportProject}
+      />
+
       {/* Import conflict dialog */}
       <ImportConflictDialog
         open={!!importConflict}
@@ -384,13 +385,13 @@ export function ProjectsPage() {
                 <p>{t('project_settings.delete_confirm_description')}</p>
                 <p className="text-sm">
                   {t('project_settings.delete_confirm_type')}{' '}
-                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
+                  <span className="font-semibold text-foreground font-mono">{deleteTarget?.uid}</span>
                 </p>
                 <Input
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.name}
-                  className="mt-2"
+                  placeholder={deleteTarget?.uid}
+                  className="mt-2 font-mono text-sm"
                 />
               </div>
             </AlertDialogDescription>
@@ -400,7 +401,7 @@ export function ProjectsPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.name}
+              disabled={deleteConfirm !== deleteTarget?.uid}
               className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={handleDelete}
             >

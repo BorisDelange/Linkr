@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useFileStore, buildFolderTree, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
+import { useFileStore, buildScriptsFolderTree, getScriptsFolderId, RESERVED_ROOT_FOLDERS } from '@/stores/file-store'
 import { FolderOpen } from 'lucide-react'
 import {
   Dialog,
@@ -39,10 +39,11 @@ export function CreateFolderDialog({
     parentId ?? '__root__'
   )
 
-  const folderTree = useMemo(() => buildFolderTree(files), [files])
+  const folderTree = useMemo(() => buildScriptsFolderTree(files), [files])
+  const scriptsFolderId = useMemo(() => getScriptsFolderId(files), [files])
 
   const trimmedName = name.trim()
-  const actualParentId = selectedParentId === '__root__' ? null : selectedParentId
+  const actualParentId = selectedParentId === '__root__' ? scriptsFolderId : selectedParentId
   const isDuplicate = trimmedName.length > 0 && files.some(
     (f) => f.name === trimmedName && f.parentId === actualParentId
   )
@@ -80,7 +81,7 @@ export function CreateFolderDialog({
                   <SelectItem value="__root__">
                     <div className="flex items-center gap-2">
                       <FolderOpen size={14} className="text-muted-foreground" />
-                      <span>{t('files.root')}</span>
+                      <span>scripts</span>
                     </div>
                   </SelectItem>
                   {folderTree.map((folder) => (

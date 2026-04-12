@@ -33,9 +33,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ExportDialog } from '@/components/ui/export-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import { parseWorkspaceZip } from '@/lib/entity-io'
+import { parseWorkspaceZip, deleteProjectData } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 import type { Project, ReadmeAttachment, WikiAttachment } from '@/types'
@@ -53,6 +54,9 @@ export function WorkspacesPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
+  // Export dialog state
+  const [exportTarget, setExportTarget] = useState<string | null>(null)
+
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
 
@@ -68,9 +72,10 @@ export function WorkspacesPage() {
     setDeleteConfirm('')
   }
 
-  const handleExportWorkspace = useCallback(async (workspaceId: string) => {
-    await exportZip(workspaceId)
-  }, [exportZip])
+  const handleExportWorkspace = useCallback(async (options: { includeDataFiles: boolean }) => {
+    if (!exportTarget) return
+    await exportZip(exportTarget, { includeDataFiles: options.includeDataFiles })
+  }, [exportZip, exportTarget])
 
   // --- Import logic ---
   const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
@@ -118,25 +123,7 @@ export function WorkspacesPage() {
       }
 
       // Clean up existing data
-      await storage.ideFiles.deleteByProject(uid).catch(() => {})
-      await storage.connections.deleteByProject(uid).catch(() => {})
-      await storage.readmeAttachments.deleteByProject(uid).catch(() => {})
-      await storage.datasetFiles.deleteByProject(uid).catch(() => {})
-      const oldDashboards = await storage.dashboards.getByProject(uid)
-      for (const d of oldDashboards) {
-        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
-        await storage.dashboardTabs.deleteByDashboard(d.id)
-        await storage.dashboards.delete(d.id)
-      }
-      const oldPipelines = await storage.pipelines.getByProject(uid)
-      for (const p of oldPipelines) await storage.pipelines.delete(p.id)
-      const oldCohorts = await storage.cohorts.getByProject(uid)
-      for (const c of oldCohorts) await storage.cohorts.delete(c.id)
-      const oldDatasetFiles = await storage.datasetFiles.getByProject(uid)
-      for (const df of oldDatasetFiles) {
-        if (df.type === 'file') await storage.datasetAnalyses.deleteByDataset(df.id).catch(() => {})
-      }
+      await deleteProjectData(storage, uid)
       await storage.projects.delete(uid).catch(() => {})
 
       await storage.projects.create(entity)
@@ -174,6 +161,9 @@ export function WorkspacesPage() {
       }
       for (const a of parsedProject.datasetAnalyses) {
         await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
+      }
+      for (const dd of parsedProject.datasetData) {
+        await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
       }
       for (const meta of parsedProject.attachmentsMeta) {
         const blobData = parsedProject.attachmentBlobs.get(meta.id)
@@ -510,7 +500,7 @@ export function WorkspacesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleExportWorkspace(ws.id) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setExportTarget(ws.id) }}>
                             <Download size={14} />
                             {t('common.export')}
                           </DropdownMenuItem>
@@ -559,6 +549,13 @@ export function WorkspacesPage() {
 
       <CreateWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
+      {/* Export workspace dialog */}
+      <ExportDialog
+        open={exportTarget !== null}
+        onOpenChange={(open) => { if (!open) setExportTarget(null) }}
+        onExport={handleExportWorkspace}
+      />
+
       {/* Import conflict dialog */}
       <ImportConflictDialog
         open={!!importConflict}
@@ -578,13 +575,13 @@ export function WorkspacesPage() {
                 <p>{t('workspaces.delete_workspace_description')}</p>
                 <p className="text-sm">
                   {t('workspaces.delete_workspace_confirm')}{' '}
-                  <span className="font-semibold text-foreground">{deleteTarget?.name}</span>
+                  <span className="font-semibold text-foreground font-mono">{deleteTarget?.id}</span>
                 </p>
                 <Input
                   value={deleteConfirm}
                   onChange={(e) => setDeleteConfirm(e.target.value)}
-                  placeholder={deleteTarget?.name}
-                  className="mt-2"
+                  placeholder={deleteTarget?.id}
+                  className="mt-2 font-mono text-sm"
                 />
               </div>
             </AlertDialogDescription>
@@ -594,7 +591,7 @@ export function WorkspacesPage() {
               {t('common.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
-              disabled={deleteConfirm !== deleteTarget?.name}
+              disabled={deleteConfirm !== deleteTarget?.id}
               className="!bg-destructive !text-white hover:!bg-destructive/90 disabled:!opacity-50"
               onClick={handleDelete}
             >

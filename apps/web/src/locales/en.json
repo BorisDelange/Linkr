@@ -79,7 +79,7 @@
     "tab_danger": "Danger Zone",
     "delete_workspace": "Delete workspace",
     "delete_workspace_description": "This will permanently delete the workspace. Projects will become unassigned.",
-    "delete_workspace_confirm": "Type the workspace name to confirm",
+    "delete_workspace_confirm": "To confirm, type the workspace ID:",
     "unassigned": "Personal / Unassigned",
     "unassigned_description": "Projects not assigned to any workspace",
     "select_organization": "Select an organization",
@@ -1419,7 +1419,7 @@
     "delete_project": "Delete project",
     "delete_confirm_title": "Delete this project?",
     "delete_confirm_description": "This action cannot be undone. All project data, files, dashboards, and datasets will be permanently deleted.",
-    "delete_confirm_type": "To confirm, type the project name:",
+    "delete_confirm_type": "To confirm, type the project ID:",
     "publishing": "Publishing"
   },
   "settings": {
