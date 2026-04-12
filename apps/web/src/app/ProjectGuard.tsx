@@ -33,5 +33,11 @@ export function ProjectGuard({ children }: { children: React.ReactNode }) {
     }
   }, [uid, activeProjectUid, projectsLoaded, projects, openProject])
 
+  // Block rendering until the project context is synced to avoid
+  // a flash of the workspace sidebar on direct URL load.
+  if (uid && uid !== activeProjectUid) {
+    return null
+  }
+
   return <>{children}</>
 }

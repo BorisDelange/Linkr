@@ -36,5 +36,10 @@ export function WorkspaceGuard({ children }: { children: React.ReactNode }) {
     }
   }, [wsUid, activeWorkspaceId, workspacesLoaded, _workspacesRaw, language, openWorkspace])
 
+  // Block rendering until the workspace context is synced
+  if (wsUid && wsUid !== activeWorkspaceId) {
+    return null
+  }
+
   return <>{children}</>
 }
