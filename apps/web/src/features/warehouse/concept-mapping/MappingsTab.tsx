@@ -13,6 +13,7 @@ import {
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import {
   Select,
@@ -885,65 +886,85 @@ export function MappingsTab({ project }: MappingsTabProps) {
           const m = row.original
           return (
             <span className="flex items-center justify-end gap-1">
-              <Button
-                variant="outline"
-                size="icon-sm"
-                className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                title={t('concept_mapping.comments')}
-                onClick={(e) => { e.stopPropagation(); setCommentsMappingId(m.id) }}
-              >
-                <MessageSquare size={12} />
-                {(m.comments ?? []).length > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-                    {(m.comments ?? []).length}
-                  </span>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="icon-sm"
-                className={`relative size-6 ${(m.reviews ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                title={t('concept_mapping.reviews_title')}
-                onClick={(e) => { e.stopPropagation(); setReviewsMappingId(m.id) }}
-              >
-                <Users size={12} />
-                {(m.reviews ?? []).length > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-                    {(m.reviews ?? []).length}
-                  </span>
-                )}
-              </Button>
+              <Tooltip delayDuration={700}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setCommentsMappingId(m.id) }}
+                  >
+                    <MessageSquare size={12} />
+                    {(m.comments ?? []).length > 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                        {(m.comments ?? []).length}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('concept_mapping.comments')}</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={700}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className={`relative size-6 ${(m.reviews ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
+                    onClick={(e) => { e.stopPropagation(); setReviewsMappingId(m.id) }}
+                  >
+                    <Users size={12} />
+                    {(m.reviews ?? []).length > 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                        {(m.reviews ?? []).length}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('concept_mapping.reviews_title')}</TooltipContent>
+              </Tooltip>
               {(() => {
                 const myReview = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
                 return (
                   <>
-                    <Button
-                      variant={myReview === 'approved' ? 'default' : 'outline'}
-                      size="icon-sm"
-                      className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
-                      title={t('concept_mapping.approve')}
-                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'approved') }}
-                    >
-                      <Check size={13} />
-                    </Button>
-                    <Button
-                      variant={myReview === 'rejected' ? 'default' : 'outline'}
-                      size="icon-sm"
-                      className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
-                      title={t('concept_mapping.reject')}
-                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'rejected') }}
-                    >
-                      <X size={13} />
-                    </Button>
-                    <Button
-                      variant={myReview === 'flagged' ? 'default' : 'outline'}
-                      size="icon-sm"
-                      className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
-                      title={t('concept_mapping.flag')}
-                      onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'flagged') }}
-                    >
-                      <Flag size={13} />
-                    </Button>
+                    <Tooltip delayDuration={700}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={myReview === 'approved' ? 'default' : 'outline'}
+                          size="icon-sm"
+                          className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'approved') }}
+                        >
+                          <Check size={13} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.approve')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip delayDuration={700}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={myReview === 'rejected' ? 'default' : 'outline'}
+                          size="icon-sm"
+                          className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'rejected') }}
+                        >
+                          <X size={13} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.reject')}</TooltipContent>
+                    </Tooltip>
+                    <Tooltip delayDuration={700}>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={myReview === 'flagged' ? 'default' : 'outline'}
+                          size="icon-sm"
+                          className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'flagged') }}
+                        >
+                          <Flag size={13} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.flag')}</TooltipContent>
+                    </Tooltip>
                   </>
                 )
               })()}
@@ -999,15 +1020,20 @@ export function MappingsTab({ project }: MappingsTabProps) {
           )}
           {/* Filter popover */}
           <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                variant={includedStatuses.size < FILTER_STATUSES.length ? 'default' : 'outline'}
-                size="icon-sm"
-                className="h-7 w-7"
-              >
-                <Filter size={12} />
-              </Button>
-            </PopoverTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant={includedStatuses.size < FILTER_STATUSES.length ? 'default' : 'outline'}
+                    size="icon-sm"
+                    className="h-7 w-7"
+                  >
+                    <Filter size={12} />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.table_filter_title')}</TooltipContent>
+            </Tooltip>
             <PopoverContent align="end" className="w-64 p-3" onClick={(e) => e.stopPropagation()}>
               <p className="mb-2 text-xs font-medium">{t('concept_mapping.table_filter_title')}</p>
               <div className="space-y-2">
@@ -1189,11 +1215,16 @@ export function MappingsTab({ project }: MappingsTabProps) {
       <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
         <div className="flex items-center gap-2">
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                    <Settings2 size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
               <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />

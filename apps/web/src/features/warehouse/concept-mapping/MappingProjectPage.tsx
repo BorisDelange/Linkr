@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, FileSpreadsheet, Database, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -99,9 +100,14 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           </span>
         )}
         <div className="flex-1" />
-        <Button variant="ghost" size="icon-sm" onClick={() => setEditDialogOpen(true)} title={t('concept_mapping.edit_project')}>
-          <Settings2 size={15} />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon-sm" onClick={() => setEditDialogOpen(true)}>
+              <Settings2 size={15} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.edit_project')}</TooltipContent>
+        </Tooltip>
       </div>
 
       {/* Tabs — centered */}

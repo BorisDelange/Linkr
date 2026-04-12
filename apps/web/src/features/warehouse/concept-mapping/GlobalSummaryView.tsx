@@ -12,6 +12,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -1543,11 +1544,16 @@ const allBadgeLabels = useMemo(() => {
           {/* Footer: settings + pagination */}
           <div className="flex items-center border-t px-4 py-1.5">
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                  <Settings2 size={12} />
-                </Button>
-              </DropdownMenuTrigger>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                      <Settings2 size={12} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+              </UiTooltip>
               <DropdownMenuContent align="start">
                 <DropdownMenuLabel className="text-xs">{t('common.columns')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />

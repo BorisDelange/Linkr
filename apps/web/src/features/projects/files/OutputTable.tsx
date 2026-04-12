@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -254,11 +255,16 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
           </span>
           {!compact && (
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
-                  <Settings2 size={12} />
-                </Button>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-6 w-6">
+                      <Settings2 size={12} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent align="start" className="max-h-[300px] w-[180px] overflow-y-auto">
                 <DropdownMenuLabel className="text-xs">
                   {t('files.columns', 'Columns')}

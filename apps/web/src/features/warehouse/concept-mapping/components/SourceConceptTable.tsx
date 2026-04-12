@@ -13,17 +13,11 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  SlidersHorizontal,
   Settings2,
   BarChart3,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -179,11 +173,8 @@ export function SourceConceptTable({
   onShowDetail,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
-  const [filterOpen, setFilterOpen] = useState(false)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
-
-  const activePopoverFilterCount = [mappingStatusFilter !== 'all'].filter(Boolean).length
 
   const handleSort = (columnId: string) => {
     if (sorting?.columnId === columnId) {
@@ -218,6 +209,38 @@ export function SourceConceptTable({
 
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
+    if (columnId === '_status') {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="flex h-6 w-full items-center justify-center rounded border border-dashed hover:bg-accent">
+              {mappingStatusFilter === 'all' ? (
+                <span className="text-[10px] text-muted-foreground">●</span>
+              ) : (
+                <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[mappingStatusFilter] ?? STATUS_COLORS.unmapped}`} />
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-36">
+            {MAPPING_STATUS_OPTIONS.map((opt) => (
+              <DropdownMenuCheckboxItem
+                key={opt}
+                checked={mappingStatusFilter === opt}
+                onCheckedChange={() => onMappingStatusFilterChange(opt)}
+                className="text-xs"
+              >
+                <span className="flex items-center gap-2">
+                  {opt !== 'all' && (
+                    <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[opt] ?? STATUS_COLORS.unmapped}`} />
+                  )}
+                  {t(`concept_mapping.filter_${opt}`)}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
     if (columnId === 'concept_id') {
       return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchId: e.target.value || undefined })} />
     }
@@ -558,43 +581,17 @@ export function SourceConceptTable({
           <span className="text-[10px] text-muted-foreground">
             {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
           </span>
-          {/* Mapping status filter popover */}
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="relative h-6 w-6">
-                <SlidersHorizontal size={12} />
-                {activePopoverFilterCount > 0 && (
-                  <Badge variant="default" className="absolute -right-1 -top-1 flex size-3.5 items-center justify-center rounded-full p-0 text-[7px]">
-                    {activePopoverFilterCount}
-                  </Badge>
-                )}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" className="w-56 p-3">
-              <p className="mb-2 text-xs font-medium">{t('concept_mapping.col_status')}</p>
-              <Select
-                value={mappingStatusFilter}
-                onValueChange={(v) => onMappingStatusFilterChange(v as MappingStatusFilter)}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {MAPPING_STATUS_OPTIONS.map((opt) => (
-                    <SelectItem key={opt} value={opt} className="text-xs">
-                      {t(`concept_mapping.filter_${opt}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </PopoverContent>
-          </Popover>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                    <Settings2 size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
               <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />

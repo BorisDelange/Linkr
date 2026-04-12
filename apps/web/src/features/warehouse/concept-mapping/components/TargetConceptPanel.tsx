@@ -9,6 +9,7 @@ import {
 } from '@tanstack/react-table'
 import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
@@ -839,11 +840,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {csSortedRows.length} concept sets
           </span>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                    <Settings2 size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
               <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -1008,11 +1014,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {filteredResolved.length} {t('concept_mapping.cs_concepts')}
           </span>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                    <Settings2 size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start" className="text-xs">
               <DropdownMenuLabel className="text-[10px]">{t('concept_mapping.col_visibility')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -1429,11 +1440,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               {filteredSearchResults.length} / {searchResults.length} {t('common.results').toLowerCase()}
             </span>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                  <Settings2 size={12} />
-                </Button>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                      <Settings2 size={12} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent align="start" className="w-[180px]">
                 <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
                 <DropdownMenuSeparator />

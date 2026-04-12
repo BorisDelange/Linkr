@@ -35,6 +35,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -506,11 +507,16 @@ export function ConceptTable({
             {t('concepts.pagination_total', { count: totalCount })}
           </span>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-6 w-6">
-                <Settings2 size={12} />
-              </Button>
-            </DropdownMenuTrigger>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-6 w-6">
+                    <Settings2 size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+            </Tooltip>
             <DropdownMenuContent align="start" className="w-[180px]">
               <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
