@@ -121,19 +121,19 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="progress" className="flex-1 overflow-hidden">
+        <TabsContent value="progress" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <ProgressTab project={project} dataSource={dataSource} />
         </TabsContent>
-        <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
+        <TabsContent value="concept-sets" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <ConceptSetsTab project={project} dataSource={dataSource} />
         </TabsContent>
-        <TabsContent value="editor" className="flex-1 overflow-hidden">
+        <TabsContent value="editor" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
         </TabsContent>
-        <TabsContent value="mappings" className="flex-1 overflow-hidden">
+        <TabsContent value="mappings" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <MappingsTab project={project} />
         </TabsContent>
-        <TabsContent value="export" className="flex-1 overflow-hidden">
+        <TabsContent value="export" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <ExportTab project={project} dataSource={dataSource} />
         </TabsContent>
       </Tabs>

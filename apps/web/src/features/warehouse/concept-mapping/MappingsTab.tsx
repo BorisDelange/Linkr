@@ -15,13 +15,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+// Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
   TableBody,
@@ -34,6 +28,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -125,27 +120,51 @@ function ColumnFilterSelect({
   onChange: (v: string | null) => void
 }) {
   const { t } = useTranslation()
+  const [search, setSearch] = useState('')
   const normalized = options.map((o) =>
     typeof o === 'string' ? { value: o, label: o } : o,
   )
   const selectedLabel = normalized.find((o) => o.value === value)?.label ?? value
+  const filtered = search
+    ? normalized.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
+    : normalized
   return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder}>
-          {value ? selectedLabel : undefined}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {normalized.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value} className="text-xs">{opt.label}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <DropdownMenu onOpenChange={() => setSearch('')}>
+      <DropdownMenuTrigger asChild>
+        <button className={`${FILTER_INPUT_CLASS} flex items-center truncate ${value ? 'border-primary text-foreground' : ''}`}>
+          <span className="truncate">{value ? selectedLabel : placeholder}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <div className="px-2 pb-1.5">
+          <input
+            className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </div>
+        <DropdownMenuSeparator />
+        <div className="max-h-44 overflow-auto">
+          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
+            {t('concepts.filter_all')}
+          </DropdownMenuItem>
+          {filtered.map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              className={`text-xs ${value === opt.value ? 'bg-accent font-medium' : ''}`}
+              onSelect={() => onChange(opt.value)}
+            >
+              {opt.label}
+            </DropdownMenuItem>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -345,6 +364,8 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
 
   if (!mapping) return null
 
+  const isOwnMapping = mapping.mappedBy === currentUser
+
   const handleReview = (status: MappingStatus) => {
     const newStatus = myReview?.status === status ? 'unchecked' : status
     const newReviews: MappingReview[] = [
@@ -371,7 +392,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="flex w-[480px] flex-col gap-0 p-0 sm:max-w-[480px]">
+      <SheetContent side="right" className="flex w-[540px] flex-col gap-0 p-0 sm:max-w-[540px]">
         <SheetHeader className="border-b px-4 py-3">
           <SheetTitle className="text-sm">{t('concept_mapping.reviews_title')}</SheetTitle>
           <p className="text-xs text-muted-foreground truncate">{mapping.sourceConceptName} → {mapping.targetConceptName}</p>
@@ -400,6 +421,9 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
           {/* My review form */}
           <div className="rounded-lg border bg-card p-3 space-y-2">
             <p className="text-xs font-medium">{t('concept_mapping.my_review')} <span className="font-normal text-muted-foreground">({currentUser})</span></p>
+            {isOwnMapping && (
+              <p className="text-xs text-muted-foreground italic">{t('concept_mapping.cannot_review_own')}</p>
+            )}
             <Textarea
               className="text-xs"
               rows={2}
@@ -413,6 +437,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 className={`h-8 text-xs gap-1 ${myReview?.status === 'approved' ? 'bg-green-600 hover:bg-green-700 text-white' : ''}`}
                 variant={myReview?.status === 'approved' ? 'default' : 'outline'}
                 onClick={() => handleReview('approved')}
+                disabled={isOwnMapping}
               >
                 <Check size={12} />
                 {t('concept_mapping.approve')}
@@ -422,6 +447,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 className={`h-8 text-xs gap-1 ${myReview?.status === 'rejected' ? 'bg-red-600 hover:bg-red-700 text-white' : ''}`}
                 variant={myReview?.status === 'rejected' ? 'default' : 'outline'}
                 onClick={() => handleReview('rejected')}
+                disabled={isOwnMapping}
               >
                 <X size={12} />
                 {t('concept_mapping.reject')}
@@ -466,6 +492,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
     sourceSubcategoryId: false,
     targetConceptClassId: false,
     targetDomainId: false,
+    targetStandardConcept: false,
   })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
@@ -800,6 +827,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
       },
       // Hidden by default: target OMOP-specific columns
       {
+        id: 'targetDomainId',
+        header: () => t('concept_mapping.col_domain_id'),
+        accessorFn: (row) => row.targetDomainId,
+        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.targetDomainId ?? ''}</span>,
+        size: 90,
+        minSize: 50,
+      },
+      {
         id: 'targetConceptClassId',
         header: () => t('concept_mapping.col_concept_class_id'),
         accessorFn: (row) => row.targetConceptClassId,
@@ -808,12 +843,17 @@ export function MappingsTab({ project }: MappingsTabProps) {
         minSize: 60,
       },
       {
-        id: 'targetDomainId',
-        header: () => t('concept_mapping.col_domain_id'),
-        accessorFn: (row) => row.targetDomainId,
-        cell: ({ row }) => <span className="text-[10px] text-muted-foreground">{row.original.targetDomainId ?? ''}</span>,
-        size: 90,
-        minSize: 50,
+        id: 'targetStandardConcept',
+        header: () => t('concept_mapping.col_std'),
+        accessorFn: (row) => row.targetStandardConcept,
+        cell: ({ row }) => {
+          const sc = row.original.targetStandardConcept
+          if (sc === 'S') return <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge>
+          if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
+          return null
+        },
+        size: 40,
+        minSize: 30,
       },
       // ── Provenance ──────────────────────────────────────────────────
       {
@@ -924,6 +964,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               </Tooltip>
               {(() => {
                 const myReview = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
+                const isOwn = m.mappedBy === currentUser
                 return (
                   <>
                     <Tooltip delayDuration={700}>
@@ -933,11 +974,12 @@ export function MappingsTab({ project }: MappingsTabProps) {
                           size="icon-sm"
                           className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
                           onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'approved') }}
+                          disabled={isOwn}
                         >
                           <Check size={13} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.approve')}</TooltipContent>
+                      <TooltipContent side="top" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
                     </Tooltip>
                     <Tooltip delayDuration={700}>
                       <TooltipTrigger asChild>
@@ -946,11 +988,12 @@ export function MappingsTab({ project }: MappingsTabProps) {
                           size="icon-sm"
                           className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
                           onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'rejected') }}
+                          disabled={isOwn}
                         >
                           <X size={13} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.reject')}</TooltipContent>
+                      <TooltipContent side="top" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
                     </Tooltip>
                     <Tooltip delayDuration={700}>
                       <TooltipTrigger asChild>
@@ -1269,7 +1312,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-white hover:bg-destructive/90"
               onClick={handleDeleteSelected}
             >
               {t('common.delete')}

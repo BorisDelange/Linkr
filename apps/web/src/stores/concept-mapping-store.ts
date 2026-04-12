@@ -41,6 +41,12 @@ interface ConceptMappingState {
   // --- Stats ---
   recomputeProjectStats: (projectId: string) => Promise<MappingProjectStats>
 
+  // --- Cross-project "mapped elsewhere" ---
+  /** Set of `vocabulary:code` keys mapped in other projects. */
+  otherProjectsMappedKeys: Set<string>
+  /** Load mapped keys from all other projects in the same workspace. */
+  loadOtherProjectsMappedKeys: (currentProjectId: string, workspaceId: string) => Promise<void>
+
   // --- UI State ---
   selectedSourceConceptId: number | null
   setSelectedSourceConcept: (id: number | null) => void
@@ -280,6 +286,23 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     }))
 
     return stats
+  },
+
+  // --- Cross-project "mapped elsewhere" ---
+  otherProjectsMappedKeys: new Set(),
+  loadOtherProjectsMappedKeys: async (currentProjectId, workspaceId) => {
+    const storage = getStorage()
+    const projects = get().mappingProjects.filter((p) => p.workspaceId === workspaceId && p.id !== currentProjectId)
+    const keys = new Set<string>()
+    for (const p of projects) {
+      const mappings = await storage.conceptMappings.getByProject(p.id)
+      for (const m of mappings) {
+        if (m.status === 'ignored' || m.targetConceptId === 0) continue
+        const key = `${m.sourceVocabularyId}:${m.sourceConceptCode}`
+        keys.add(key)
+      }
+    }
+    set({ otherProjectsMappedKeys: keys })
   },
 
   // --- UI State ---

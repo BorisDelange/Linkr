@@ -234,6 +234,8 @@ export interface ConceptMapping {
   targetConceptCode: string
   /** Target concept class (e.g. concept_class_id in OMOP vocabulary). */
   targetConceptClassId?: string
+  /** Target standard concept flag ('S' = Standard, 'C' = Classification). */
+  targetStandardConcept?: string
   // Mapping metadata
   conceptSetId?: string
   /** @deprecated Not used in UI or exports. Kept for data compatibility. */

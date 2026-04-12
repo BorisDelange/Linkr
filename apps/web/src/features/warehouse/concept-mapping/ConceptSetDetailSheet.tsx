@@ -249,7 +249,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
                           <TableCell className="text-xs">{c.vocabularyId}</TableCell>
                           <TableCell className="text-xs">{c.domainId}</TableCell>
                           <TableCell className="text-xs">{c.conceptClassId}</TableCell>
-                          <TableCell className="text-center text-xs">{c.standardConcept === 'S' ? '✓' : ''}</TableCell>
+                          <TableCell className="text-center text-xs">{c.standardConcept === 'S' ? <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge> : c.standardConcept === 'C' ? <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge> : null}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
