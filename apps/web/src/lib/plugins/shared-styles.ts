@@ -7,17 +7,24 @@ import { Puzzle } from 'lucide-react'
 
 export const COLOR_MAP: Record<string, { text: string; bg: string; accent: string; hex: string }> = {
   none: { text: 'text-foreground', bg: '', accent: 'border-border', hex: '#000000' },
+  slate: { text: 'text-slate-600', bg: 'bg-slate-50 dark:bg-slate-950/30', accent: 'border-slate-200 dark:border-slate-800', hex: '#475569' },
   red: { text: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950/30', accent: 'border-red-200 dark:border-red-800', hex: '#dc2626' },
   rose: { text: 'text-rose-600', bg: 'bg-rose-50 dark:bg-rose-950/30', accent: 'border-rose-200 dark:border-rose-800', hex: '#e11d48' },
+  pink: { text: 'text-pink-600', bg: 'bg-pink-50 dark:bg-pink-950/30', accent: 'border-pink-200 dark:border-pink-800', hex: '#db2777' },
+  fuchsia: { text: 'text-fuchsia-600', bg: 'bg-fuchsia-50 dark:bg-fuchsia-950/30', accent: 'border-fuchsia-200 dark:border-fuchsia-800', hex: '#c026d3' },
   orange: { text: 'text-orange-600', bg: 'bg-orange-50 dark:bg-orange-950/30', accent: 'border-orange-200 dark:border-orange-800', hex: '#ea580c' },
   amber: { text: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/30', accent: 'border-amber-200 dark:border-amber-800', hex: '#d97706' },
+  yellow: { text: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-950/30', accent: 'border-yellow-200 dark:border-yellow-800', hex: '#ca8a04' },
+  lime: { text: 'text-lime-600', bg: 'bg-lime-50 dark:bg-lime-950/30', accent: 'border-lime-200 dark:border-lime-800', hex: '#65a30d' },
   green: { text: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950/30', accent: 'border-green-200 dark:border-green-800', hex: '#16a34a' },
   emerald: { text: 'text-emerald-600', bg: 'bg-emerald-50 dark:bg-emerald-950/30', accent: 'border-emerald-200 dark:border-emerald-800', hex: '#059669' },
+  teal: { text: 'text-teal-600', bg: 'bg-teal-50 dark:bg-teal-950/30', accent: 'border-teal-200 dark:border-teal-800', hex: '#0d9488' },
   cyan: { text: 'text-cyan-600', bg: 'bg-cyan-50 dark:bg-cyan-950/30', accent: 'border-cyan-200 dark:border-cyan-800', hex: '#0891b2' },
+  sky: { text: 'text-sky-600', bg: 'bg-sky-50 dark:bg-sky-950/30', accent: 'border-sky-200 dark:border-sky-800', hex: '#0284c7' },
   blue: { text: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/30', accent: 'border-blue-200 dark:border-blue-800', hex: '#2563eb' },
   indigo: { text: 'text-indigo-600', bg: 'bg-indigo-50 dark:bg-indigo-950/30', accent: 'border-indigo-200 dark:border-indigo-800', hex: '#4f46e5' },
   violet: { text: 'text-violet-600', bg: 'bg-violet-50 dark:bg-violet-950/30', accent: 'border-violet-200 dark:border-violet-800', hex: '#7c3aed' },
-  slate: { text: 'text-slate-600', bg: 'bg-slate-50 dark:bg-slate-950/30', accent: 'border-slate-200 dark:border-slate-800', hex: '#475569' },
+  purple: { text: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950/30', accent: 'border-purple-200 dark:border-purple-800', hex: '#9333ea' },
 }
 
 export const DEFAULT_COLOR = COLOR_MAP.blue

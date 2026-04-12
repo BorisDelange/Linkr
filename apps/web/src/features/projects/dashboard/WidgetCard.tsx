@@ -16,16 +16,19 @@ interface WidgetCardProps {
   onRemove: () => void
   onEdit?: () => void
   onRename?: (name: string) => void
+  /** Existing widget names in the same tab (for uniqueness validation) */
+  siblingNames?: Set<string>
   editMode: boolean
   hideTitleBar?: boolean
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTitleBar, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, siblingNames, editMode, hideTitleBar, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState(title)
+  const [renameError, setRenameError] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
   // When true, the dropdown close should NOT restore focus to its trigger
   // (because we want focus to go to the rename input instead).
@@ -34,6 +37,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
   useEffect(() => {
     if (renaming) {
       setRenameValue(title)
+      setRenameError('')
       requestAnimationFrame(() => {
         const el = inputRef.current
         if (el) {
@@ -46,6 +50,14 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
 
   const confirmRename = () => {
     const trimmed = renameValue.trim()
+    if (!trimmed) {
+      setRenameError(t('dashboard.widget_name_required'))
+      return
+    }
+    if (trimmed !== title && siblingNames?.has(trimmed.toLowerCase())) {
+      setRenameError(t('dashboard.widget_name_taken'))
+      return
+    }
     if (trimmed && trimmed !== title && onRename) {
       onRename(trimmed)
     }
@@ -57,19 +69,24 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, editMode, hideTi
       {showTitleBar && (
         <div className="flex items-center justify-between border-b px-3 py-2">
           {renaming ? (
-            <Input
-              ref={inputRef}
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onBlur={confirmRename}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') confirmRename()
-                if (e.key === 'Escape') setRenaming(false)
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-              className="h-5 text-xs font-semibold px-1 py-0 border-none shadow-none focus-visible:ring-1"
-            />
+            <div className="flex-1 min-w-0">
+              <Input
+                ref={inputRef}
+                value={renameValue}
+                onChange={(e) => { setRenameValue(e.target.value); setRenameError('') }}
+                onBlur={confirmRename}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') confirmRename()
+                  if (e.key === 'Escape') setRenaming(false)
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                className={`h-5 text-xs font-semibold px-1 py-0 border-none shadow-none focus-visible:ring-1 ${renameError ? 'text-destructive' : ''}`}
+              />
+              {renameError && (
+                <p className="text-[9px] text-destructive mt-0.5 px-1">{renameError}</p>
+              )}
+            </div>
           ) : (
             <h3 className="text-xs font-semibold text-card-foreground truncate">
               {title}

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Code2, ArrowLeft, Database } from 'lucide-react'
+import { Code2, ArrowLeft, Database, TriangleAlert } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -49,8 +50,14 @@ interface AddWidgetDialogProps {
 
 export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWidgetDialogProps) {
   const { t, i18n } = useTranslation()
-  const { addWidget } = useDashboardStore()
+  const { addWidget, widgets } = useDashboardStore()
   const { files: datasetFiles } = useDatasetStore()
+
+  // Existing widget names in this tab (for uniqueness check)
+  const tabWidgetNames = useMemo(
+    () => new Set(widgets.filter(w => w.tabId === tabId).map(w => w.name.toLowerCase())),
+    [widgets, tabId]
+  )
   const [activeTab, setActiveTab] = useState('plugin')
   const lang = i18n.language as 'en' | 'fr'
 
@@ -122,6 +129,14 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     onOpenChange(false)
   }
 
+  // Generate a unique name by appending a number if needed
+  const makeUniqueName = (base: string): string => {
+    if (!tabWidgetNames.has(base.toLowerCase())) return base
+    let i = 2
+    while (tabWidgetNames.has(`${base} ${i}`.toLowerCase())) i++
+    return `${base} ${i}`
+  }
+
   const doSelectPlugin = (plugin: Plugin) => {
     setSelectedPluginId(plugin.manifest.id)
     const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
@@ -130,7 +145,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     // Default language for this plugin
     const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
 
-    const defaultName = plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id
+    const defaultName = makeUniqueName(plugin.manifest.name[lang] ?? plugin.manifest.name.en ?? plugin.manifest.id)
     setWidgetName(defaultName)
 
     if (hasConfig || hasBothLangs) {
@@ -145,7 +160,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
         language: defaultLang,
         config: {},
       }
-      addWidget(tabId, source, widgetName.trim() || defaultName, datasetFileId)
+      addWidget(tabId, source, defaultName, datasetFileId)
       resetAndClose()
     }
   }
@@ -178,7 +193,8 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
       code: `# ${language} code here\n`,
       config: {},
     }
-    addWidget(tabId, source, widgetName.trim() || `Custom ${language}`, datasetFileId)
+    const name = widgetName.trim() || makeUniqueName(`Custom ${language}`)
+    addWidget(tabId, source, name, datasetFileId)
     resetAndClose()
   }
 
@@ -190,16 +206,31 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     }
   }
 
+  const nameError = useMemo(() => {
+    const trimmed = widgetName.trim()
+    if (!trimmed) return null // will be caught by required check
+    if (tabWidgetNames.has(trimmed.toLowerCase())) return t('dashboard.widget_name_taken')
+    return null
+  }, [widgetName, tabWidgetNames, t])
+
+  const isNameValid = widgetName.trim().length > 0 && !nameError
+
   // Widget name input shared between views
   const nameInput = (
     <div className="space-y-1">
-      <Label className="text-xs">{t('dashboard.widget_name')}</Label>
+      <Label className="text-xs">{t('dashboard.widget_name')} *</Label>
       <Input
         value={widgetName}
         onChange={(e) => setWidgetName(e.target.value)}
         placeholder={t('dashboard.widget_name_placeholder')}
-        className="h-8 text-sm"
+        className={cn('h-8 text-sm', nameError && 'border-destructive')}
       />
+      {nameError && (
+        <p className="text-[10px] text-destructive flex items-center gap-1">
+          <TriangleAlert size={10} />
+          {nameError}
+        </p>
+      )}
     </div>
   )
 
@@ -287,7 +318,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
             <Button variant="outline" size="sm" onClick={() => setConfigPlugin(null)}>
               {t('common.back')}
             </Button>
-            <Button size="sm" onClick={handleConfirmPlugin}>
+            <Button size="sm" onClick={handleConfirmPlugin} disabled={!isNameValid}>
               {t('dashboard.add_widget')}
             </Button>
           </DialogFooter>

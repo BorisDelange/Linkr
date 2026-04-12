@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ResponsiveContainer,
@@ -128,9 +128,13 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const sizePct = (config.size as number | undefined) ?? 100
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
+  const bgColorName = (config.bgColor as string) ?? 'auto'
+  const titleColorName = (config.titleColor as string) ?? 'auto'
+  const borderColorName = (config.borderColor as string) ?? 'auto'
   const chartType = (config.chartType as string) ?? 'none'
   const chartBins = (config.chartBins as number) ?? 15
   const showXAxis = (config.showXAxis as boolean) ?? false
+  const xAxisLabel = (config.xAxisLabel as string | undefined) ?? ''
   const chartPosition = (config.chartPosition as string) ?? 'below'
   const chartColors = (config.chartColors as string) ?? 'mono'
   const decimals = (config.decimals as number | undefined) ?? 1
@@ -142,6 +146,11 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const column = columns.find(c => c.id === columnId)
   const color = resolveColor(colorName)
   const Icon = getLucideIcon(iconName)
+
+  // Resolve detailed colors
+  const bgColor = bgColorName === 'auto' ? color : bgColorName === 'none' ? null : resolveColor(bgColorName)
+  const titleColor = titleColorName === 'auto' ? null : resolveColor(titleColorName)
+  const borderColor = borderColorName === 'auto' ? color : borderColorName === 'none' ? null : resolveColor(borderColorName)
 
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
@@ -273,7 +282,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       {/* Icon + title */}
       <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
         <Icon size={iconSize} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
-        <span className="font-medium text-muted-foreground truncate" style={{ fontSize: titleSize }}>{title}</span>
+        <span
+          className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}
+          style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
+        >
+          {title}
+        </span>
       </div>
 
       {/* Big number + unit */}
@@ -303,6 +317,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             chartType={chartType}
             bins={chartBins}
             showXAxis={showXAxis}
+            xAxisLabel={xAxisLabel}
             hexColor={color.hex}
             colorMode={chartColors as 'mono' | 'multi'}
             column={column}
@@ -322,6 +337,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           chartType={chartType}
           bins={chartBins}
           showXAxis={showXAxis}
+          xAxisLabel={xAxisLabel}
           hexColor={color.hex}
           colorMode={chartColors as 'mono' | 'multi'}
           column={column}
@@ -331,10 +347,28 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     </div>
   ) : kpiContent
 
+  // Resolve background and border styles
+  const bgStyle: React.CSSProperties = {}
+  let bgClasses = ''
+  if (bgColor) {
+    if (bgColor.isCustom) bgStyle.backgroundColor = `${bgColor.hex}10`
+    else bgClasses = bgColor.bg
+  }
+
+  const borderStyle: React.CSSProperties = {}
+  let borderClasses = 'border'
+  if (borderColor === null) {
+    borderClasses = ''
+  } else if (borderColor.isCustom) {
+    borderStyle.borderColor = `${borderColor.hex}30`
+  } else {
+    borderClasses = `border ${borderColor.accent}`
+  }
+
   // Compact mode: fill entire widget, no inner card border
   if (compact) {
     return (
-      <div className={cn('flex h-full flex-col justify-center p-4', color.bg)} style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}>
+      <div className={cn('flex h-full flex-col justify-center p-4', bgClasses)} style={bgStyle}>
         {content}
       </div>
     )
@@ -343,7 +377,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Standard mode (analysis panel): centered card with border
   return (
     <div className="flex h-full flex-col items-center justify-center p-6">
-      <div className={cn('w-full max-w-sm rounded-xl border p-6', color.bg, color.accent)} style={color.isCustom ? { backgroundColor: `${color.hex}10`, borderColor: `${color.hex}30` } : undefined}>
+      <div className={cn('w-full max-w-sm rounded-xl p-6', bgClasses, borderClasses)} style={{ ...bgStyle, ...borderStyle }}>
         {content}
       </div>
     </div>
@@ -359,6 +393,7 @@ interface MiniChartProps {
   chartType: string
   bins: number
   showXAxis?: boolean
+  xAxisLabel?: string
   hexColor: string
   colorMode?: 'mono' | 'multi'
   column: { id: string; name: string; type: string }
@@ -367,7 +402,7 @@ interface MiniChartProps {
 
 const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
   const data = useMemo(() => {
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins)
@@ -389,12 +424,39 @@ function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = '
     return []
   }, [values, chartType, bins, column.id, rows])
 
+  // Total count for proportion calculation in tooltips
+  const totalCount = useMemo(() => {
+    if (chartType === 'histogram') return values.length
+    return (data as { value?: number }[]).reduce((s, d) => s + (d.value ?? 0), 0)
+  }, [data, values.length, chartType])
+
+  // Custom tooltip content for clean display
+  const renderTooltip = useCallback(({ active, payload }: { active?: boolean; payload?: { payload: Record<string, unknown> }[] }) => {
+    if (!active || !payload?.[0]) return null
+    const d = payload[0].payload
+    const isHist = chartType === 'histogram'
+    const val = isHist ? (d.label as string) : (d.name as string)
+    const count = (isHist ? d.count : d.value) as number
+    const pct = totalCount > 0 ? ((count / totalCount) * 100).toFixed(1) : '0'
+
+    return (
+      <div style={{ fontSize: 10, padding: '6px 10px', background: 'rgba(0,0,0,.85)', borderRadius: 4, color: '#fff', lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 600, marginBottom: 2 }}>{val}</div>
+        <div>{isHist ? 'Count' : 'Count'}: {count.toLocaleString()}</div>
+        <div>Proportion: {pct}%</div>
+      </div>
+    )
+  }, [chartType, totalCount])
+
   if (data.length === 0) return null
+
+  const hasXLabel = !!xAxisLabel
+  const bottomMargin = (showXAxis ? 4 : 0) + (hasXLabel ? 16 : 0)
 
   if (chartType === 'histogram') {
     return (
-      <ResponsiveContainer width="100%" height={showXAxis ? 120 : 100}>
-        <BarChart data={data} margin={{ top: 0, right: 4, left: 4, bottom: showXAxis ? 4 : 0 }}>
+      <ResponsiveContainer width="100%" height={(showXAxis ? 120 : 100) + (hasXLabel ? 16 : 0)}>
+        <BarChart data={data} margin={{ top: 0, right: 4, left: 4, bottom: bottomMargin }}>
           {showXAxis && (
             <XAxis
               dataKey="label"
@@ -402,10 +464,20 @@ function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = '
               interval="preserveStartEnd"
               tickLine={false}
               axisLine={false}
+              label={hasXLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -4, fontSize: 9, fill: '#888' } : undefined}
+            />
+          )}
+          {!showXAxis && hasXLabel && (
+            <XAxis
+              dataKey="label"
+              tick={false}
+              tickLine={false}
+              axisLine={false}
+              label={{ value: xAxisLabel, position: 'insideBottom', offset: -4, fontSize: 9, fill: '#888' }}
             />
           )}
           <Bar dataKey="count" fill={hexColor} opacity={0.7} radius={[2, 2, 0, 0]} />
-          <Tooltip {...TOOLTIP_STYLE} />
+          <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
         </BarChart>
       </ResponsiveContainer>
     )
@@ -414,16 +486,23 @@ function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = '
   if (chartType === 'bar') {
     const useMulti = colorMode === 'multi'
     return (
-      <ResponsiveContainer width="100%" height={Math.max(80, data.length * 22)}>
-        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-          <XAxis type="number" hide />
+      <ResponsiveContainer width="100%" height={Math.max(80, data.length * 22) + (hasXLabel ? 16 : 0)}>
+        <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: hasXLabel ? 16 : 0 }}>
+          <XAxis
+            type="number"
+            hide={!hasXLabel}
+            tick={false}
+            tickLine={false}
+            axisLine={false}
+            label={hasXLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -4, fontSize: 9, fill: '#888' } : undefined}
+          />
           <YAxis type="category" dataKey="name" width={60} tick={{ fontSize: 9 }} />
           <Bar dataKey="value" fill={useMulti ? undefined : hexColor} opacity={0.7} radius={[0, 2, 2, 0]}>
             {useMulti && data.map((_, i) => (
               <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
             ))}
           </Bar>
-          <Tooltip {...TOOLTIP_STYLE} />
+          <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
         </BarChart>
       </ResponsiveContainer>
     )
@@ -449,7 +528,7 @@ function MiniChart({ values, chartType, bins, showXAxis, hexColor, colorMode = '
               <Cell key={i} fill={useMono ? hexColor : PIE_COLORS[i % PIE_COLORS.length]} opacity={useMono ? 0.5 + (i / data.length) * 0.5 : 1} />
             ))}
           </Pie>
-          <Tooltip {...TOOLTIP_STYLE} />
+          <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
         </PieChart>
       </ResponsiveContainer>
     )
