@@ -98,7 +98,7 @@ let undoCounter = 0
 
 /** Generate a unique ID for files and folders. */
 function newFileId(type: 'file' | 'folder'): string {
-  return `${type}-${crypto.randomUUID().slice(0, 8)}`
+  return `${type}-${crypto.randomUUID()}`
 }
 
 function getLanguageForFile(name: string): string {

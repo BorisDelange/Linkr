@@ -46,30 +46,7 @@ interface DashboardState {
   clearAllFilters: () => void
 }
 
-let dashboardCounter = 10
-let tabCounter = 10
-let widgetCounter = 10
-
-function initCounters(dashboards: Dashboard[], tabs: DashboardTab[], widgets: DashboardWidget[]) {
-  let maxD = 10
-  let maxT = 10
-  let maxW = 10
-  for (const d of dashboards) {
-    const m = d.id.match(/^dashboard-(\d+)$/)
-    if (m) { const n = parseInt(m[1], 10); if (n >= maxD) maxD = n + 1 }
-  }
-  for (const t of tabs) {
-    const m = t.id.match(/^dtab-(\d+)$/)
-    if (m) { const n = parseInt(m[1], 10); if (n >= maxT) maxT = n + 1 }
-  }
-  for (const w of widgets) {
-    const m = w.id.match(/^dw-(\d+)$/)
-    if (m) { const n = parseInt(m[1], 10); if (n >= maxW) maxW = n + 1 }
-  }
-  dashboardCounter = maxD
-  tabCounter = maxT
-  widgetCounter = maxW
-}
+const uid = () => crypto.randomUUID()
 
 function getDefaultLayout(_source: DashboardWidgetSource): { w: number; h: number } {
   return { w: 12, h: 6 }
@@ -104,8 +81,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         }
       }
 
-      initCounters(dashboards, allTabs, allWidgets)
-
       set({
         dashboards,
         tabs: allTabs,
@@ -131,7 +106,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   createDashboard: async (projectUid, name) => {
-    const id = `dashboard-${dashboardCounter++}`
+    const id = uid()
     const now = new Date().toISOString()
     const dashboard: Dashboard = {
       id,
@@ -143,7 +118,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     }
 
     // Create a default first tab
-    const tabId = `dtab-${tabCounter++}`
+    const tabId = uid()
     const tab: DashboardTab = {
       id: tabId,
       dashboardId: id,
@@ -199,7 +174,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   // --- Tab CRUD ---
 
   addTab: (dashboardId) => {
-    const id = `dtab-${tabCounter++}`
+    const id = uid()
     const tab: DashboardTab = (() => {
       const existing = get().tabs.filter((t) => t.dashboardId === dashboardId)
       return {
@@ -272,7 +247,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   // --- Widget CRUD ---
 
   addWidget: (tabId, source, name, datasetFileId) => {
-    const id = `dw-${widgetCounter++}`
+    const id = uid()
     const layout = { x: 0, y: Infinity, ...getDefaultLayout(source) }
     const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source }
 

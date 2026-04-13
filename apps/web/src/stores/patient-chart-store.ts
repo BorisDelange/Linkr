@@ -134,8 +134,6 @@ interface PersistedState {
   activeTabId: Record<string, string>
   showWidgetTitles: Record<string, boolean>
   allowWidgetScroll: Record<string, boolean>
-  tabCounter: number
-  widgetCounter: number
 }
 
 function loadPersistedState(): Partial<PersistedState> {
@@ -150,12 +148,7 @@ function loadPersistedState(): Partial<PersistedState> {
 
 const persisted = loadPersistedState()
 
-// ---------------------------------------------------------------------------
-// Counters
-// ---------------------------------------------------------------------------
-
-let tabCounter = persisted.tabCounter ?? 10
-let widgetCounter = persisted.widgetCounter ?? 10
+const uid = () => crypto.randomUUID()
 
 // ---------------------------------------------------------------------------
 // Store
@@ -204,7 +197,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   // --- Tab CRUD ---
 
   addTab: (projectUid) => {
-    const id = `pctab-${tabCounter++}`
+    const id = uid()
     set((s) => {
       const existing = s.tabs.filter((t) => t.projectUid === projectUid)
       const newTab: PatientChartTab = {
@@ -275,7 +268,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   // --- Widget CRUD ---
 
   addWidget: (tabId, type, name, initialConfig?) => {
-    const id = `pcw-${widgetCounter++}`
+    const id = uid()
     const defaultLayout = defaultWidgetLayouts[type] ?? { w: 16, h: 10 }
     set((s) => ({
       widgets: [
@@ -322,8 +315,8 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
     set((s) => {
       if (s.tabs.some((t) => t.projectUid === projectUid)) return s
 
-      const summaryTabId = `pctab-${tabCounter++}`
-      const haemoTabId = `pctab-${tabCounter++}`
+      const summaryTabId = uid()
+      const haemoTabId = uid()
 
       const newTabs: PatientChartTab[] = [
         { id: summaryTabId, projectUid, name: 'Summary', displayOrder: 0 },
@@ -332,7 +325,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
 
       const newWidgets: PatientChartWidget[] = [
         {
-          id: `pcw-${widgetCounter++}`,
+          id: uid(),
           tabId: summaryTabId,
           type: 'patient_summary',
           name: 'Patient Summary',
@@ -340,7 +333,7 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
           config: {},
         },
         {
-          id: `pcw-${widgetCounter++}`,
+          id: uid(),
           tabId: haemoTabId,
           type: 'timeline',
           name: 'Timeline',
@@ -366,8 +359,6 @@ usePatientChartStore.subscribe((state) => {
       activeTabId: state.activeTabId,
       showWidgetTitles: state.showWidgetTitles,
       allowWidgetScroll: state.allowWidgetScroll,
-      tabCounter,
-      widgetCounter,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch {
