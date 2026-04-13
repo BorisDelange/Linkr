@@ -266,8 +266,8 @@ export function SourceConceptTable({
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
 
   // Determine which optional columns are available based on the schema dicts
-  const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
-  const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn)
+  const hasCategory = conceptDicts.some((d) => !!d.categoryColumn) || (isFileSource && (filterOptions.category?.length ?? 0) > 0)
+  const hasSubcategory = conceptDicts.some((d) => !!d.subcategoryColumn) || (isFileSource && (filterOptions.subcategory?.length ?? 0) > 0)
   const hasExtraColumns = conceptDicts.some((d) => d.extraColumns && Object.keys(d.extraColumns).length > 0)
   // For file sources, check if terminology/domain/class columns exist in data
   const fileHasTerminology = isFileSource && filterOptions.terminology_name?.length > 0

@@ -322,6 +322,13 @@ export function buildStandardConceptSearchQuery(
   const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}`
 
   const term = searchTerm.trim()
+
+  // Empty search term: return first N rows matching filters only
+  if (!term) {
+    const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
+    return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} ORDER BY d.${idCol} LIMIT ${limit}`
+  }
+
   const escaped = esc(term)
   const isNumeric = /^\d+$/.test(term)
 
