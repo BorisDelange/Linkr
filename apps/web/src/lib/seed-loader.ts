@@ -121,7 +121,7 @@ export interface SeedManifest {
 // ---------------------------------------------------------------------------
 
 const SEED_KEY = 'linkr-seeded'
-const SEED_BASE = '/data/seed'
+const SEED_BASE = `${import.meta.env.BASE_URL}data/seed`.replace(/\/\//g, '/')
 
 // ---------------------------------------------------------------------------
 // Helpers
