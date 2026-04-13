@@ -141,10 +141,12 @@ export function ProjectsPage() {
 
     await storage.projects.create(entity)
 
-    // Helper to remap IDs when duplicating
+    // Always remap sub-entity IDs to fresh UUIDs.  Even when not duplicating
+    // the *project* uid, the child IDs (dashboards, tabs, widgets, datasets…)
+    // may collide with existing records from other projects — especially when
+    // the ZIP was exported from a different instance that used sequential IDs.
     const idMap = new Map<string, string>()
     const mapId = (oldId: string): string => {
-      if (!duplicate) return oldId
       if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
       return idMap.get(oldId)!
     }
@@ -162,13 +164,31 @@ export function ProjectsPage() {
       await storage.connections.create({ ...c, id: mapId(c.id), projectUid: uid })
     }
     for (const d of parsed.dashboards) {
-      await storage.dashboards.create({ ...d, id: mapId(d.id), projectUid: uid })
+      const filterConfig = (d.filterConfig ?? []).map(f => ({
+        ...f,
+        id: mapId(f.id),
+        datasetFileId: mapId(f.datasetFileId),
+        ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
+        ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
+      }))
+      await storage.dashboards.create({
+        ...d,
+        id: mapId(d.id),
+        projectUid: uid,
+        filterConfig,
+        defaultDatasetFileId: d.defaultDatasetFileId ? mapId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
+      })
     }
     for (const tab of parsed.dashboardTabs) {
       await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
     }
     for (const w of parsed.dashboardWidgets) {
-      await storage.dashboardWidgets.create({ ...w, id: mapId(w.id), tabId: mapId(w.tabId) })
+      await storage.dashboardWidgets.create({
+        ...w,
+        id: mapId(w.id),
+        tabId: mapId(w.tabId),
+        datasetFileId: w.datasetFileId ? mapId(w.datasetFileId) : w.datasetFileId,
+      })
     }
     for (const df of parsed.datasetFiles) {
       await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid: uid, parentId: df.parentId ? mapId(df.parentId) : null })

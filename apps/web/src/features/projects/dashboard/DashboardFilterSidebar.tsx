@@ -32,7 +32,6 @@ interface DashboardFilterSidebarProps {
   onClose: () => void
 }
 
-let filterIdCounter = 0
 
 export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onClose }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
@@ -93,7 +92,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     const { type } = detectDefaults(newFilterColumnId)
 
     const newFilter: DashboardFilter = {
-      id: `df-${Date.now()}-${filterIdCounter++}`,
+      id: crypto.randomUUID(),
       datasetFileId: newFilterDatasetId,
       columnId: newFilterColumnId,
       columnName: col.name,

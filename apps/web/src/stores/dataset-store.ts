@@ -71,7 +71,7 @@ interface DatasetState {
   peekUndo: () => UndoAction | undefined
 }
 
-let fileCounter = 10
+const uid = () => crypto.randomUUID()
 let undoCounter = 0
 
 const _loadedData = new Map<string, Record<string, unknown>[]>()
@@ -92,26 +92,6 @@ function getAllDescendants(files: DatasetFile[], parentId: string): string[] {
   return ids
 }
 
-function initFileCounter(files: DatasetFile[], analyses?: DatasetAnalysis[]) {
-  let max = 10
-  for (const f of files) {
-    const match = f.id.match(/^(?:file|folder)-(\d+)$/)
-    if (match) {
-      const n = parseInt(match[1], 10)
-      if (n >= max) max = n + 1
-    }
-  }
-  if (analyses) {
-    for (const a of analyses) {
-      const match = a.id.match(/^analysis-(\d+)$/)
-      if (match) {
-        const n = parseInt(match[1], 10)
-        if (n >= max) max = n + 1
-      }
-    }
-  }
-  fileCounter = max
-}
 
 const MAX_UNDO = 50
 
@@ -160,7 +140,6 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       _savedAnalysisSnapshot.clear()
 
       if (stored.length > 0) {
-        initFileCounter(stored)
         const rootFolders = stored
           .filter((f) => f.type === 'folder' && f.parentId === null)
           .map((f) => f.id)
@@ -204,7 +183,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   createFile: (name, parentId) => {
     const projectUid = get().activeProjectUid ?? ''
-    const id = `file-${fileCounter++}`
+    const id = uid()
     const node: DatasetFile = {
       id,
       projectUid,
@@ -244,7 +223,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   createFolder: (name, parentId) => {
     const projectUid = get().activeProjectUid ?? ''
-    const id = `folder-${fileCounter++}`
+    const id = uid()
     const node: DatasetFile = {
       id,
       projectUid,
@@ -421,7 +400,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const state = get()
     const original = state.files.find((f) => f.id === id)
     if (!original || original.type !== 'file') return
-    const newId = `file-${fileCounter++}`
+    const newId = uid()
     const nameParts = original.name.split('.')
     const ext = nameParts.length > 1 ? `.${nameParts.pop()}` : ''
     const baseName = nameParts.join('.')
@@ -674,7 +653,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   createFileWithData: async (name, parentId, columns, rows, parseOptions, rawFile) => {
     const projectUid = get().activeProjectUid ?? ''
-    const id = `file-${fileCounter++}`
+    const id = uid()
     const now = new Date().toISOString()
     const node: DatasetFile = {
       id,
@@ -786,7 +765,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   createAnalysis: (datasetFileId, name, type, initialConfig) => {
-    const id = `analysis-${fileCounter++}`
+    const id = uid()
     const analysis: DatasetAnalysis = {
       id,
       datasetFileId,
