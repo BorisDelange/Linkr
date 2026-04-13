@@ -44,6 +44,7 @@ interface MappingEditorTabProps {
 }
 
 const PAGE_SIZE = 50
+const EMPTY_CONCEPT_DICTS: import('@/types/schema-mapping').ConceptDictionary[] = []
 
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
@@ -61,6 +62,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [rows, setRows] = useState<SourceConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
+  const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [queryError, setQueryError] = useState<string | null>(null)
   const [filters, setFilters] = useState<SourceConceptFilters>({})
@@ -112,15 +114,24 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     if (!isFileSource || !fileSourceReady) return
     const dsId = fileSourceDataSourceId(project.id)
     const loadOptions = async () => {
+      // First: get actual columns in the table to avoid querying non-existent columns
+      let availableCols: Set<string> = new Set()
+      try {
+        const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`)
+        availableCols = new Set(colRows.map((r: Record<string, unknown>) => String(r.column_name ?? '')))
+      } catch {
+        return
+      }
       const opts: Record<string, string[]> = {}
       for (const col of ['vocabulary_id', 'terminology_name', 'domain_id', 'concept_class_id', 'category', 'subcategory']) {
+        if (!availableCols.has(col)) continue
         try {
           const sql = buildFileSourceFilterOptionsQuery(col)
           const result = await queryDataSource(dsId, sql)
           const values = result.map((r: Record<string, unknown>) => String(r.val ?? ''))
           if (values.length > 0) opts[col] = values
         } catch {
-          // Column might not exist in the table
+          // ignore
         }
       }
       setFilterOptions(opts)
@@ -189,7 +200,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   }, [isFileSource, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   // Load source concepts (unified: both file and database mode use DuckDB)
-  const loadConcepts = useCallback(async () => {
+  const loadConcepts = useCallback(async (pageToLoad: number) => {
     if (isFileSource && !fileSourceReady) return
     if (!isFileSource && (!dataSource?.id || !dataSource.schemaMapping)) return
     if (loadingRef.current) return
@@ -206,30 +217,31 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       const isSortingByCount = !isFileSource && (sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count')
       const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
 
-      // Count
-      const countSql = isFileSource
-        ? buildFileSourceConceptsCountQuery(filters)
-        : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filters)
-      if (!countSql) { setLoading(false); loadingRef.current = false; return }
-
-      const [countResult] = await queryDataSource(effectiveDsId, countSql)
-      const total = Number(countResult?.total ?? 0)
-      setTotalCount(total)
+      // Count (only on first page load)
+      if (pageToLoad === 0) {
+        const countSql = isFileSource
+          ? buildFileSourceConceptsCountQuery(filters)
+          : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filters)
+        if (!countSql) { setLoading(false); loadingRef.current = false; return }
+        const [countResult] = await queryDataSource(effectiveDsId, countSql)
+        const total = Number(countResult?.total ?? 0)
+        setTotalCount(total)
+      }
 
       // Data
       let dataSql: string
       if (isFileSource) {
         if (needAllRows) {
-          dataSql = buildFileSourceConceptsQuery(filters, sorting, total, 0)
+          dataSql = buildFileSourceConceptsQuery(filters, sorting, 10000, 0)
         } else {
-          dataSql = buildFileSourceConceptsQuery(filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
+          dataSql = buildFileSourceConceptsQuery(filters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
         }
       } else {
         const mapping = dataSource!.schemaMapping!
         if (needAllRows) {
-          dataSql = buildSourceConceptsQuery(mapping, filters, isSortingByCount ? null : sorting, total, 0)
+          dataSql = buildSourceConceptsQuery(mapping, filters, isSortingByCount ? null : sorting, 10000, 0)
         } else {
-          dataSql = buildSourceConceptsQuery(mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
+          dataSql = buildSourceConceptsQuery(mapping, filters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
         }
       }
 
@@ -239,33 +251,56 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       const parsedRows: SourceConceptRow[] = (result as unknown as SourceConceptRow[]).map((row) => {
         if (isFileSource && row.info_json && typeof row.info_json === 'string') {
           try {
-            return { ...row, info_json: JSON.parse(row.info_json as unknown as string) }
+            const parsed = JSON.parse(row.info_json as unknown as string)
+            const isObj = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            return { ...row, info_json: isObj ? parsed : undefined }
           } catch {
-            return row
+            return { ...row, info_json: undefined }
           }
         }
         return row
       })
 
-      setRows(parsedRows)
+      if (needAllRows) {
+        setRows(parsedRows)
+        setHasMore(false)
+      } else {
+        setRows((prev) => pageToLoad === 0 ? parsedRows : [...prev, ...parsedRows])
+        setHasMore(parsedRows.length === PAGE_SIZE)
+      }
     } catch (err) {
       console.error('Failed to load source concepts:', err)
       setQueryError(err instanceof Error ? err.message : String(err))
-      setRows([])
+      if (pageToLoad === 0) setRows([])
     } finally {
       setLoading(false)
       loadingRef.current = false
     }
-  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, mappingStatusFilter, ensureMounted, project.id])
+  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter, ensureMounted, project.id])
 
-  useEffect(() => {
-    loadConcepts()
-  }, [loadConcepts])
+  const loadConceptsRef = useRef(loadConcepts)
+  loadConceptsRef.current = loadConcepts
 
-  // Reset page when filters change
+  // Single reset+load effect — triggers when anything that should reset the list changes
   useEffect(() => {
+    if (isFileSource && !fileSourceReady) return
     setPage(0)
-  }, [filters, sorting])
+    setRows([])
+    setHasMore(false)
+    loadConceptsRef.current(0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter])
+
+  // Load more when page increments (scroll infinite)
+  useEffect(() => {
+    if (page === 0) return
+    loadConceptsRef.current(page)
+  }, [page])
+
+  const handleLoadMore = useCallback(() => {
+    if (loading || !hasMore) return
+    setPage((p) => p + 1)
+  }, [loading, hasMore])
 
   // --- Validation for database mode ---
   if (!isFileSource) {
@@ -315,24 +350,21 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
 
   // Sort client-side when sorting by counts (database mode only — file mode sorts via SQL)
   const isSortingByCount = !isFileSource && (sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count')
-  let sortedRows = rowsWithCounts
+  let finalRows = rowsWithCounts
   if (isSortingByCount && countsReady) {
     const col = sorting!.columnId as 'record_count' | 'patient_count'
     const dir = sorting!.desc ? -1 : 1
-    sortedRows = [...rowsWithCounts].sort((a, b) => dir * (a[col] - b[col]))
+    finalRows = [...rowsWithCounts].sort((a, b) => dir * (a[col] - b[col]))
   }
-
-  // Apply pagination client-side when all rows were loaded (status filter or count sorting)
-  const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
-  const paginatedRows = needAllRows
-    ? sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-    : sortedRows
 
   // Compute mapping status for each source concept (simplified: mapped or not)
-  const mappingStatusMap = new Map<number, 'mapped'>()
-  for (const m of mappings) {
-    if (m.status !== 'ignored') mappingStatusMap.set(m.sourceConceptId, 'mapped')
-  }
+  const mappingStatusMap = useMemo(() => {
+    const map = new Map<number, 'mapped'>()
+    for (const m of mappings) {
+      if (m.status !== 'ignored') map.set(m.sourceConceptId, 'mapped')
+    }
+    return map
+  }, [mappings])
 
   // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
   const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
@@ -347,27 +379,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     return result
   }, [otherProjectMappings, rows, mappingStatusMap])
 
-  // Client-side filtering by mapping status
-  const statusFilteredRows = mappingStatusFilter === 'all'
-    ? sortedRows
-    : sortedRows.filter((row) => {
-        const isMapped = mappingStatusMap.has(row.concept_id)
-        if (mappingStatusFilter === 'mapped') return isMapped
-        if (mappingStatusFilter === 'unmapped') return !isMapped && !ignoredConceptIds.has(row.concept_id) && !mappedElsewhereIds.has(row.concept_id)
-        if (mappingStatusFilter === 'mapped_elsewhere') return !isMapped && mappedElsewhereIds.has(row.concept_id)
-        return true
-      })
+  const filteredTotalCount = totalCount
 
-  const finalRows = mappingStatusFilter === 'all'
-    ? paginatedRows
-    : statusFilteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
-
-  const filteredTotalCount = mappingStatusFilter === 'all'
-    ? (isFileSource ? sortedRows.length : totalCount)
-    : statusFilteredRows.length
-
-  const selectedRow = (mappingStatusFilter === 'all' ? paginatedRows : finalRows)
-    .find((r) => r.concept_id === selectedSourceConceptId)
+  const selectedRow = finalRows.find((r) => r.concept_id === selectedSourceConceptId)
 
   // Check if any row has info_json (for showing the chart icon column)
   const hasInfoJson = isFileSource && !!project.fileSourceData?.columnMapping.infoJsonColumn
@@ -385,14 +399,13 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
           <SourceConceptTable
             rows={finalRows}
             totalCount={filteredTotalCount}
-            page={page}
-            pageSize={PAGE_SIZE}
+            hasMore={hasMore}
             loading={loading}
             queryError={queryError}
             filters={filters}
             sorting={sorting}
             filterOptions={filterOptions}
-            conceptDicts={isFileSource ? [] : (dataSource?.schemaMapping?.conceptTables ?? [])}
+            conceptDicts={isFileSource ? EMPTY_CONCEPT_DICTS : (dataSource?.schemaMapping?.conceptTables ?? EMPTY_CONCEPT_DICTS)}
             mappingStatusMap={mappingStatusMap}
             mappedElsewhereIds={mappedElsewhereIds}
             mappingStatusFilter={mappingStatusFilter}
@@ -402,7 +415,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             hasPatientCount={isFileSource && !!project.fileSourceData?.columnMapping.patientCountColumn}
             hasInfoJson={hasInfoJson}
             ignoredConceptIds={ignoredConceptIds}
-            onPageChange={setPage}
+            onLoadMore={handleLoadMore}
             onFiltersChange={setFilters}
             onSortingChange={setSorting}
             onMappingStatusFilterChange={setMappingStatusFilter}

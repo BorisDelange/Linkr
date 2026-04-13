@@ -8,13 +8,12 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  ChevronLeft,
-  ChevronRight,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Settings2,
   BarChart3,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -46,8 +45,7 @@ export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewh
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
   totalCount: number
-  page: number
-  pageSize: number
+  hasMore: boolean
   loading: boolean
   queryError?: string | null
   filters: SourceConceptFilters
@@ -67,7 +65,7 @@ interface SourceConceptTableProps {
   hasPatientCount?: boolean
   /** True when at least one row has info_json data. */
   hasInfoJson?: boolean
-  onPageChange: (page: number) => void
+  onLoadMore: () => void
   onFiltersChange: (filters: SourceConceptFilters) => void
   onSortingChange: (sorting: SourceConceptSorting | null) => void
   onMappingStatusFilterChange: (filter: MappingStatusFilter) => void
@@ -93,7 +91,7 @@ function DebouncedInput({
   placeholder?: string
 }) {
   const [localValue, setLocalValue] = useState(externalValue)
-  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+  const timerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Sync from external when it changes (e.g. filters reset)
   useEffect(() => {
@@ -207,8 +205,7 @@ function SortIndicator({ columnId, sorting }: { columnId: string; sorting: Sourc
 export function SourceConceptTable({
   rows,
   totalCount,
-  page,
-  pageSize,
+  hasMore,
   loading,
   queryError,
   filters,
@@ -223,7 +220,7 @@ export function SourceConceptTable({
   hasRecordCount,
   hasPatientCount,
   hasInfoJson,
-  onPageChange,
+  onLoadMore,
   onFiltersChange,
   onSortingChange,
   onMappingStatusFilterChange,
@@ -233,9 +230,31 @@ export function SourceConceptTable({
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+
+  // Infinite scroll via scroll event on the container
+  const onLoadMoreRef = useRef(onLoadMore)
+  onLoadMoreRef.current = onLoadMore
+  const hasMoreRef = useRef(hasMore)
+  hasMoreRef.current = hasMore
+  const loadingRef2 = useRef(loading)
+  loadingRef2.current = loading
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const onScroll = () => {
+      if (!hasMoreRef.current || loadingRef2.current) return
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        onLoadMoreRef.current()
+      }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   const handleSort = (columnId: string) => {
+    if (columnId === '_info') return
     if (sorting?.columnId === columnId) {
       if (sorting.desc) onSortingChange({ columnId, desc: false })
       else onSortingChange(null)
@@ -497,6 +516,7 @@ export function SourceConceptTable({
         size: 28,
         minSize: 28,
         enableResizing: false,
+        enableSorting: false,
       })
     }
 
@@ -511,16 +531,14 @@ export function SourceConceptTable({
     onColumnSizingChange: setColumnSizing,
     columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
     manualFiltering: true,
     manualSorting: true,
-    pageCount: totalPages,
   })
 
   return (
     <div className="flex h-full flex-col border-r overflow-hidden">
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             {/* Column titles */}
@@ -529,13 +547,14 @@ export function SourceConceptTable({
                 headerGroup.headers.map((header) => {
                   const colId = header.column.id
                   const isStatusCol = colId === '_status'
+                  const isUnsortable = colId === '_info'
                   return (
                     <TableHead
                       key={header.id}
                       className="relative select-none text-xs"
                       style={{ width: header.getSize() }}
                     >
-                      {isStatusCol ? null : (
+                      {isStatusCol || isUnsortable ? null : (
                         <button
                           type="button"
                           className="flex min-w-0 items-center gap-1 hover:text-foreground"
@@ -583,7 +602,7 @@ export function SourceConceptTable({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading ? (
+            {loading && rows.length === 0 ? (
               Array.from({ length: 10 }).map((_, i) => (
                 <TableRow key={i}>
                   {table.getVisibleLeafColumns().map((col) => (
@@ -635,13 +654,19 @@ export function SourceConceptTable({
             )}
           </TableBody>
         </Table>
+        {/* Loading indicator when fetching next page */}
+        {loading && hasMore && (
+          <div className="flex h-8 items-center justify-center">
+            <Loader2 size={12} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
       </div>
 
-      {/* Pagination + column visibility */}
+      {/* Footer: count + column visibility */}
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <div className="flex items-center gap-1">
           <span className="text-[10px] text-muted-foreground">
-            {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
+            {rows.length.toLocaleString()}{hasMore ? '+' : ''} / {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
           </span>
           <DropdownMenu>
             <Tooltip>
@@ -672,17 +697,6 @@ export function SourceConceptTable({
                 ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => onPageChange(page - 1)}>
-            <ChevronLeft size={14} />
-          </Button>
-          <span className="text-[10px] text-muted-foreground">
-            {page + 1} / {totalPages}
-          </span>
-          <Button variant="ghost" size="icon-sm" disabled={page >= totalPages - 1} onClick={() => onPageChange(page + 1)}>
-            <ChevronRight size={14} />
-          </Button>
         </div>
       </div>
     </div>
