@@ -1,14 +1,19 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
 import { Code2, ArrowLeft, Database, TriangleAlert } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getLabPlugins } from '@/lib/plugins/registry'
+import { getComponent } from '@/lib/plugins/component-registry'
 import type { Plugin } from '@/types/plugin'
+import type { PluginConfigField } from '@/types/plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginPicker } from '@/components/PluginPicker'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -46,12 +51,13 @@ interface AddWidgetDialogProps {
   onOpenChange: (open: boolean) => void
   tabId: string
   projectUid: string
+  defaultDatasetFileId?: string | null
 }
 
-export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWidgetDialogProps) {
+export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, defaultDatasetFileId }: AddWidgetDialogProps) {
   const { t, i18n } = useTranslation()
   const { addWidget, widgets } = useDashboardStore()
-  const { files: datasetFiles } = useDatasetStore()
+  const { files: datasetFiles, getFileRows } = useDatasetStore()
 
   // Existing widget names in this tab (for uniqueness check)
   const tabWidgetNames = useMemo(
@@ -68,9 +74,15 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
   )
 
-  // When dialog opens, restore last-used dataset (if it still exists)
+  // When dialog opens, restore dataset: dashboard default > last-used > null
   useEffect(() => {
     if (open) {
+      // Priority 1: dashboard default dataset
+      if (defaultDatasetFileId && projectDatasetFiles.some(f => f.id === defaultDatasetFileId)) {
+        setDatasetFileId(defaultDatasetFileId)
+        return
+      }
+      // Priority 2: last-used from localStorage
       try {
         const stored = localStorage.getItem(LAST_DATASET_KEY)
         if (stored) {
@@ -260,68 +272,99 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid }: AddWi
     </div>
   )
 
-  // Plugin config step view
+  // Debounced config for preview — avoids re-rendering chart on every keystroke
+  const [debouncedConfig, setDebouncedConfig] = useState(pluginConfig)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => setDebouncedConfig(pluginConfig), 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [pluginConfig])
+
+  // Plugin config step view — with live preview for component plugins
   if (configPlugin) {
     const pluginName = configPlugin.manifest.name[lang] ?? configPlugin.manifest.name.en ?? configPlugin.manifest.id
     const configHasBothLangs = !!(configPlugin.templates?.python && configPlugin.templates?.r)
     const hasConfigSchema = configPlugin.manifest.configSchema && Object.keys(configPlugin.manifest.configSchema).length > 0
+    const isComponentPlugin = !!(configPlugin.componentId && configPlugin.manifest.runtime.includes('component'))
+    const PreviewComponent = isComponentPlugin && configPlugin.componentId ? getComponent(configPlugin.componentId) : null
+    const rows = datasetFileId ? getFileRows(datasetFileId) : []
+
     return (
       <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-        <DialogContent className="sm:max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => setConfigPlugin(null)}
-              >
-                <ArrowLeft size={14} />
-              </Button>
-              {pluginName}
-            </DialogTitle>
-            <DialogDescription>
-              {t('dashboard.plugin_configure_description')}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 flex-1 min-h-0 overflow-y-auto">
-            {nameInput}
-
-            {configHasBothLangs && (
-              <div className="space-y-1">
-                <Label className="text-xs">{t('common.language')}</Label>
-                <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
-                  <SelectTrigger className="h-8 w-40 text-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent position="popper" sideOffset={4}>
-                    <SelectItem value="python">Python</SelectItem>
-                    <SelectItem value="r">R</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-
-            {hasConfigSchema && (
-              <div>
-                <GenericConfigPanel
-                  schema={configPlugin.manifest.configSchema!}
-                  config={pluginConfig}
-                  columns={columns}
-                  onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
-                />
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
+        <DialogContent className="sm:max-w-6xl h-[80vh] max-h-[80vh] overflow-hidden flex flex-col p-0 gap-0">
+          {/* Header */}
+          <div className="flex items-center gap-2 border-b px-4 py-3 shrink-0">
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={() => setConfigPlugin(null)}
+            >
+              <ArrowLeft size={14} />
+            </Button>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-sm font-semibold truncate">{pluginName}</h2>
+              <p className="text-xs text-muted-foreground">{t('dashboard.plugin_configure_description')}</p>
+            </div>
             <Button variant="outline" size="sm" onClick={() => setConfigPlugin(null)}>
               {t('common.back')}
             </Button>
             <Button size="sm" onClick={handleConfirmPlugin} disabled={!isNameValid}>
               {t('dashboard.add_widget')}
             </Button>
-          </DialogFooter>
+          </div>
+
+          {/* Split: config (left) + preview (right) */}
+          <div className="flex-1 min-h-0">
+            <Allotment proportionalLayout={false}>
+              {/* Left: config panel */}
+              <Allotment.Pane preferredSize="45%" minSize={280}>
+                <ScrollArea className="h-full">
+                  <div className="space-y-4 p-4">
+                    {nameInput}
+                    {datasetSelector}
+
+                    {configHasBothLangs && (
+                      <div className="space-y-1">
+                        <Label className="text-xs">{t('common.language')}</Label>
+                        <Select value={pluginLanguage} onValueChange={(v) => setPluginLanguage(v as 'python' | 'r')}>
+                          <SelectTrigger className="h-8 w-40 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent position="popper" sideOffset={4}>
+                            <SelectItem value="python">Python</SelectItem>
+                            <SelectItem value="r">R</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {hasConfigSchema && (
+                      <GenericConfigPanel
+                        schema={configPlugin.manifest.configSchema as Record<string, PluginConfigField>}
+                        config={pluginConfig}
+                        columns={columns}
+                        onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
+                        rows={rows}
+                      />
+                    )}
+                  </div>
+                </ScrollArea>
+              </Allotment.Pane>
+
+              {/* Right: live preview */}
+              <Allotment.Pane minSize={200}>
+                <div className="h-full overflow-auto border-l bg-muted/30">
+                  {PreviewComponent ? (
+                    <PreviewComponent config={debouncedConfig} columns={columns} rows={rows} />
+                  ) : (
+                    <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
+                      {t('dashboard.preview_not_available')}
+                    </div>
+                  )}
+                </div>
+              </Allotment.Pane>
+            </Allotment>
+          </div>
         </DialogContent>
       </Dialog>
     )

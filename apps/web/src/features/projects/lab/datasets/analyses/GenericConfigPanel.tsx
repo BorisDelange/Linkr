@@ -26,6 +26,7 @@ import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
+import { PaletteEditor } from '@/components/ui/palette-editor'
 import type { DatasetColumn } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 
@@ -375,6 +376,18 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           onConfigChange={onConfigChange}
         />
       )
+    case 'palette-editor': {
+      const paletteLabel = typeof field.label === 'object' ? (field.label[lang] ?? field.label.en ?? '') : field.label ?? ''
+      return (
+        <div className="space-y-1.5">
+          <span className="text-xs text-muted-foreground">{paletteLabel}</span>
+          <PaletteEditor
+            value={(value as string) ?? (field.default as string) ?? ''}
+            onChange={(v) => onConfigChange({ [fieldKey]: v })}
+          />
+        </div>
+      )
+    }
     default:
       return null
   }

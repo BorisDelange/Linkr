@@ -91,19 +91,39 @@ const AGG_LABELS: Record<string, { en: string; fr: string }> = {
 // Histogram helper
 // ---------------------------------------------------------------------------
 
-function buildHistogramData(values: number[], bins: number) {
+/** Compute a "nice" step size for histogram bins (1, 2, 5 × 10^n). */
+function niceStep(rawStep: number): number {
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)))
+  const residual = rawStep / magnitude
+  if (residual <= 1) return magnitude
+  if (residual <= 2) return 2 * magnitude
+  if (residual <= 5) return 5 * magnitude
+  return 10 * magnitude
+}
+
+function buildHistogramData(values: number[], bins: number, startAtZero = false, decimals = 1) {
   if (values.length === 0) return []
-  const min = Math.min(...values)
+  let min = Math.min(...values)
   const max = Math.max(...values)
-  if (min === max) return [{ label: formatNumber(min), count: values.length }]
-  const binWidth = (max - min) / bins
-  const buckets = Array.from({ length: bins }, (_, i) => ({
-    label: formatNumber(min + i * binWidth),
+  if (min === max) return [{ label: formatNumber(min, decimals), count: values.length }]
+
+  if (startAtZero && min > 0) min = 0
+
+  // Compute nice bin boundaries
+  const rawStep = (max - min) / bins
+  const step = niceStep(rawStep)
+  const niceMin = Math.floor(min / step) * step
+  const niceMax = Math.ceil(max / step) * step
+  const nBins = Math.round((niceMax - niceMin) / step)
+
+  const buckets = Array.from({ length: nBins }, (_, i) => ({
+    label: formatNumber(niceMin + i * step, decimals),
     count: 0,
   }))
   for (const v of values) {
-    let idx = Math.floor((v - min) / binWidth)
-    if (idx >= bins) idx = bins - 1
+    let idx = Math.floor((v - niceMin) / step)
+    if (idx >= nBins) idx = nBins - 1
+    if (idx < 0) idx = 0
     buckets[idx].count++
   }
   return buckets
@@ -128,13 +148,13 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const sizePct = (config.size as number | undefined) ?? 100
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
-  const bgColorName = (config.bgColor as string) ?? 'auto'
+  const bgColorName = (config.bgColor as string) ?? 'none'
   const titleColorName = (config.titleColor as string) ?? 'auto'
-  const borderColorName = (config.borderColor as string) ?? 'auto'
   const chartType = (config.chartType as string) ?? 'none'
   const chartBins = (config.chartBins as number) ?? 15
   const showXAxis = (config.showXAxis as boolean) ?? false
   const xAxisLabel = (config.xAxisLabel as string | undefined) ?? ''
+  const xAxisStartZero = (config.xAxisStartZero as boolean) ?? false
   const chartPosition = (config.chartPosition as string) ?? 'below'
   const chartColors = (config.chartColors as string) ?? 'mono'
   const decimals = (config.decimals as number | undefined) ?? 1
@@ -150,7 +170,6 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Resolve detailed colors
   const bgColor = bgColorName === 'auto' ? color : bgColorName === 'none' ? null : resolveColor(bgColorName)
   const titleColor = titleColorName === 'auto' ? null : resolveColor(titleColorName)
-  const borderColor = borderColorName === 'auto' ? color : borderColorName === 'none' ? null : resolveColor(borderColorName)
 
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
@@ -318,6 +337,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             bins={chartBins}
             showXAxis={showXAxis}
             xAxisLabel={xAxisLabel}
+            xAxisStartZero={xAxisStartZero}
+            decimals={decimals}
             hexColor={color.hex}
             colorMode={chartColors as 'mono' | 'multi'}
             column={column}
@@ -347,22 +368,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     </div>
   ) : kpiContent
 
-  // Resolve background and border styles
+  // Resolve background styles
   const bgStyle: React.CSSProperties = {}
   let bgClasses = ''
   if (bgColor) {
     if (bgColor.isCustom) bgStyle.backgroundColor = `${bgColor.hex}10`
     else bgClasses = bgColor.bg
-  }
-
-  const borderStyle: React.CSSProperties = {}
-  let borderClasses = 'border'
-  if (borderColor === null) {
-    borderClasses = ''
-  } else if (borderColor.isCustom) {
-    borderStyle.borderColor = `${borderColor.hex}30`
-  } else {
-    borderClasses = `border ${borderColor.accent}`
   }
 
   // Compact mode: fill entire widget, no inner card border
@@ -374,10 +385,10 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     )
   }
 
-  // Standard mode (analysis panel): centered card with border
+  // Standard mode (analysis panel): card with same border+shadow as dashboard widget
   return (
     <div className="flex h-full flex-col items-center justify-center p-6">
-      <div className={cn('w-full max-w-sm rounded-xl p-6', bgClasses, borderClasses)} style={{ ...bgStyle, ...borderStyle }}>
+      <div className={cn('w-full max-w-sm rounded-lg border bg-card shadow-sm p-6', bgClasses)} style={bgStyle}>
         {content}
       </div>
     </div>
@@ -394,6 +405,8 @@ interface MiniChartProps {
   bins: number
   showXAxis?: boolean
   xAxisLabel?: string
+  xAxisStartZero?: boolean
+  decimals?: number
   hexColor: string
   colorMode?: 'mono' | 'multi'
   column: { id: string; name: string; type: string }
@@ -402,10 +415,10 @@ interface MiniChartProps {
 
 const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
   const data = useMemo(() => {
     if (chartType === 'histogram') {
-      return buildHistogramData(values, bins)
+      return buildHistogramData(values, bins, xAxisStartZero, decimals)
     }
     if (chartType === 'bar' || chartType === 'pie') {
       // Frequency counts of raw values (top 10)
@@ -422,7 +435,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, hexColor, c
         .map(([name, value]) => ({ name, value }))
     }
     return []
-  }, [values, chartType, bins, column.id, rows])
+  }, [values, chartType, bins, xAxisStartZero, decimals, column.id, rows])
 
   // Total count for proportion calculation in tooltips
   const totalCount = useMemo(() => {

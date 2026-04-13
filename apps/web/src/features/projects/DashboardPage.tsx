@@ -202,12 +202,15 @@ export function DashboardPage() {
         onOpenChange={setAddWidgetOpen}
         tabId={currentTabId ?? ''}
         projectUid={projectUid}
+        defaultDatasetFileId={dashboard.defaultDatasetFileId}
       />
 
       <DashboardSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         dashboard={dashboard}
+        projectUid={projectUid}
+        currentTabId={currentTabId}
       />
     </div>
   )

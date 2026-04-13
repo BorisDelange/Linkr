@@ -11,6 +11,10 @@ import {
 // Shared color palette — exported so other components can reuse it
 // ---------------------------------------------------------------------------
 
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
 // 19 presets + 1 custom picker = 20 items → 5 columns × 4 rows (perfect rectangle)
 export const COLOR_PALETTE = [
   // Row 1: neutral + warm reds
@@ -110,7 +114,7 @@ export function ColorPickerPopover({
               style={triggerStyle}
             />
             <span className="truncate text-muted-foreground">
-              {specialLabel ?? (isCustomHex ? value : (paletteEntry?.name ?? value))}
+              {specialLabel ?? (isCustomHex ? value : capitalize(paletteEntry?.name ?? value))}
             </span>
           </button>
         </PopoverTrigger>

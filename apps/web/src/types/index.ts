@@ -364,6 +364,7 @@ export interface Dashboard {
   name: string
   filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
+  defaultDatasetFileId?: string | null
   createdAt: string
   updatedAt: string
 }
