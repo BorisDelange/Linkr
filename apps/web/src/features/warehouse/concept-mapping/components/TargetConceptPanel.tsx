@@ -489,7 +489,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [resolvedSearch, resolvedFilters])
 
   const handleSearch = useCallback(async () => {
-    if (!searchTerm.trim()) return
     const vocabDs = project.vocabularyDataSourceId
       ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
       : null

@@ -113,7 +113,11 @@ export interface FileColumnMapping {
 export interface FileSourceData {
   /** Original filename. */
   fileName: string
-  /** All rows from the parsed file. */
+  /**
+   * All rows from the parsed file.
+   * @deprecated Kept for backward compatibility with existing projects.
+   * New projects store a raw file buffer instead and load via DuckDB.
+   */
   rows: Record<string, unknown>[]
   /** Column names from the file. */
   columns: string[]
@@ -127,6 +131,14 @@ export interface FileSourceData {
     hasHeader?: boolean
     sheet?: string
   }
+  /**
+   * Raw file content stored as Uint8Array (IDB-cloneable).
+   * When present, DuckDB loads directly from this via read_csv_auto instead
+   * of from the parsed `rows` array — much faster and uses less memory.
+   */
+  rawFileBuffer?: Uint8Array
+  /** Total row count (known without parsing all rows when rawFileBuffer is used). */
+  totalRowCount?: number
 }
 
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'

@@ -2430,6 +2430,7 @@
     "export_unmapped_stcm_only": "STCM uniquement",
     "export_linkr_zip": "Projet de mapping Linkr",
     "export_linkr_zip_desc": "Archive ZIP complète avec tous les mappings et fichiers d'export. Peut être ré-importée dans Linkr.",
+    "source_csv_too_large": "Le fichier CSV source est trop volumineux pour être téléchargé dans le navigateur. Ajoutez-le manuellement à votre dépôt git aux côtés du contenu du ZIP.",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible avec l'outil OHDSI Usagi. Format standard pour le partage de mappings de concepts.",
     "export_stcm": "SOURCE_TO_CONCEPT_MAP",

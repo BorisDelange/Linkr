@@ -29,7 +29,8 @@ const TOOLTIP_STYLE = {
 
 export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
   const { t } = useTranslation()
-  const info = concept.info_json
+  const rawInfo = concept.info_json
+  const info = (rawInfo && typeof rawInfo === 'object' && !Array.isArray(rawInfo)) ? rawInfo : null
   const [jsonModalOpen, setJsonModalOpen] = useState(false)
 
   const sections = info ? extractSections(info, t) : []
@@ -234,6 +235,17 @@ function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'bar' && section.data.length > 0) {
     const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
     const bottomMargin = longLabels ? 70 : 25
+    // Detect numeric labels (histogram bins) to apply rounding
+    const numericLabels = section.data.every((d) => d.label !== '' && !isNaN(Number(d.label)))
+    const formatXTick = numericLabels
+      ? (val: string) => {
+          const n = Number(val)
+          if (Math.abs(n) >= 1000) return String(Math.round(n / 100) * 100)
+          if (Math.abs(n) >= 100) return String(Math.round(n / 10) * 10)
+          if (Math.abs(n) >= 10) return String(Math.round(n))
+          return String(parseFloat(n.toPrecision(2)))
+        }
+      : undefined
     return (
       <Card className="p-3">
         <p className="mb-2 text-xs font-medium">{section.title}</p>
@@ -244,12 +256,13 @@ function SectionRenderer({ section }: { section: Section }) {
               tick={longLabels
                 ? <TruncatedTick maxLength={12} />
                 : { fontSize: 10 }}
+              tickFormatter={!longLabels ? formatXTick : undefined}
               interval={section.data.length > 20 ? 'preserveStartEnd' : 0}
               angle={longLabels ? -40 : 0}
               textAnchor={longLabels ? 'end' : 'middle'}
               height={bottomMargin}
             />
-            <YAxis tick={{ fontSize: 10 }} width={45} />
+            <YAxis tick={{ fontSize: 10 }} width={45} domain={numericLabels ? [0, 'auto'] : undefined} />
             <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} />
             <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
           </BarChart>
@@ -403,6 +416,7 @@ const PERCENT_KEYS = new Set([
 
 /** Detect whether info uses the normalized format (metadata/statistics/distributions/properties). */
 function isNormalizedFormat(info: Record<string, unknown>): boolean {
+  if (typeof info !== 'object' || info === null || Array.isArray(info)) return false
   return (
     ('metadata' in info && typeof info.metadata === 'object' && info.metadata !== null) ||
     ('statistics' in info && typeof info.statistics === 'object' && info.statistics !== null) ||

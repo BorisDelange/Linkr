@@ -1,6 +1,6 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
-import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping } from '@/types'
+import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 // DuckDB WASM assets are served from public/duckdb/ to avoid Vite @fs blocking.
 // After `npm install`, run: cp node_modules/@duckdb/duckdb-wasm/dist/{duckdb-mvp.wasm,duckdb-eh.wasm,duckdb-browser-mvp.worker.js,duckdb-browser-eh.worker.js} public/duckdb/
@@ -675,4 +675,234 @@ export async function mountDataSourceFromHandles(
   } finally {
     await conn.close()
   }
+}
+
+// --- File source → DuckDB in-memory table ---
+
+/** Track mounted file source projects so we skip re-mounting. */
+const mountedFileSources = new Set<string>()
+
+/** In-flight mount promises to prevent concurrent mounts for the same project. */
+const mountingPromises = new Map<string, Promise<void>>()
+
+/** Check if a file source project is already mounted in DuckDB. */
+export function isFileSourceMounted(projectId: string): boolean {
+  return mountedFileSources.has(projectId)
+}
+
+/** Get the virtual data source ID used for a file source project. */
+export function fileSourceDataSourceId(projectId: string): string {
+  return `filesrc_${projectId}`
+}
+
+/**
+ * Load file source data into a DuckDB in-memory view so that SQL queries
+ * (filter, sort, paginate, count, distinct) can run against it instead of
+ * iterating a JS array.
+ *
+ * Creates schema `ds_filesrc_<projectId>` with a single view `source_concepts`.
+ *
+ * Two loading paths:
+ * - **rawFileBuffer** (fast): registers the raw CSV in DuckDB and creates a
+ *   view with `read_csv_auto`, renaming columns per the column mapping.
+ * - **rows** (legacy fallback): inserts parsed JS rows in batches.
+ */
+export function mountFileSourceIntoDuckDB(
+  projectId: string,
+  rows: Record<string, unknown>[],
+  columnMapping: FileColumnMapping,
+  rawFileBuffer?: Uint8Array | ArrayBuffer,
+): Promise<void> {
+  // If already mounted, skip
+  if (mountedFileSources.has(projectId)) return Promise.resolve()
+  // If a mount is already in flight for this project, return the same promise
+  const existing = mountingPromises.get(projectId)
+  if (existing) return existing
+
+  const promise = doMountFileSource(projectId, rows, columnMapping, rawFileBuffer)
+    .finally(() => mountingPromises.delete(projectId))
+  mountingPromises.set(projectId, promise)
+  return promise
+}
+
+async function doMountFileSource(
+  projectId: string,
+  rows: Record<string, unknown>[],
+  columnMapping: FileColumnMapping,
+  rawFileBuffer?: Uint8Array | ArrayBuffer,
+): Promise<void> {
+  const db = await getDuckDB()
+  const conn = await db.connect()
+  const dsId = fileSourceDataSourceId(projectId)
+  const schema = schemaName(dsId)
+
+  try {
+    // Always clean up any leftover schema (may exist from a previous mount in the same session).
+    try { await conn.query(`DROP VIEW IF EXISTS "${schema}"."source_concepts"`) } catch { /* ignore */ }
+    try { await conn.query(`DROP TABLE IF EXISTS "${schema}"."source_concepts"`) } catch { /* ignore */ }
+    try { await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`) } catch { /* ignore */ }
+
+    await conn.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`)
+
+    if (rawFileBuffer && rawFileBuffer.byteLength > 0) {
+      // --- Fast path: read_csv_auto from raw file buffer ---
+      const fileName = `filesrc_${projectId}.csv`
+      await db.registerFileBuffer(fileName, new Uint8Array(rawFileBuffer))
+
+      // Build column aliases: rename file columns to normalized names
+      const selectCols: string[] = []
+
+      // concept_id: from mapped column or row number
+      if (columnMapping.conceptIdColumn) {
+        selectCols.push(`COALESCE(TRY_CAST("${esc(columnMapping.conceptIdColumn)}" AS INTEGER), row_number() OVER ()) AS concept_id`)
+      } else {
+        selectCols.push('row_number() OVER () AS concept_id')
+      }
+
+      if (columnMapping.conceptNameColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.conceptNameColumn)}" AS VARCHAR) AS concept_name`)
+      } else {
+        selectCols.push("'' AS concept_name")
+      }
+
+      if (columnMapping.conceptCodeColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.conceptCodeColumn)}" AS VARCHAR) AS concept_code`)
+      } else {
+        selectCols.push("'' AS concept_code")
+      }
+
+      if (columnMapping.terminologyColumn) {
+        const col = esc(columnMapping.terminologyColumn)
+        selectCols.push(`CAST("${col}" AS VARCHAR) AS vocabulary_id`)
+        selectCols.push(`CAST("${col}" AS VARCHAR) AS terminology_name`)
+      }
+      if (columnMapping.domainColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.domainColumn)}" AS VARCHAR) AS domain_id`)
+      }
+      if (columnMapping.conceptClassColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.conceptClassColumn)}" AS VARCHAR) AS concept_class_id`)
+      }
+      if (columnMapping.categoryColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.categoryColumn)}" AS VARCHAR) AS category`)
+      }
+      if (columnMapping.subcategoryColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.subcategoryColumn)}" AS VARCHAR) AS subcategory`)
+      }
+      if (columnMapping.recordCountColumn) {
+        selectCols.push(`COALESCE(TRY_CAST("${esc(columnMapping.recordCountColumn)}" AS INTEGER), 0) AS record_count`)
+      }
+      if (columnMapping.patientCountColumn) {
+        selectCols.push(`COALESCE(TRY_CAST("${esc(columnMapping.patientCountColumn)}" AS INTEGER), 0) AS patient_count`)
+      }
+      if (columnMapping.infoJsonColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.infoJsonColumn)}" AS VARCHAR) AS info_json`)
+      }
+
+      await conn.query(
+        `CREATE VIEW "${schema}"."source_concepts" AS SELECT ${selectCols.join(', ')} FROM read_csv_auto('${fileName}')`,
+      )
+    } else {
+      // --- Legacy fallback: insert parsed rows ---
+      const colDefs: string[] = [
+        'concept_id INTEGER',
+        'concept_name VARCHAR',
+        'concept_code VARCHAR',
+      ]
+      const hasVocab = !!columnMapping.terminologyColumn
+      const hasDomain = !!columnMapping.domainColumn
+      const hasClass = !!columnMapping.conceptClassColumn
+      const hasCategory = !!columnMapping.categoryColumn
+      const hasSubcategory = !!columnMapping.subcategoryColumn
+      const hasRecordCount = !!columnMapping.recordCountColumn
+      const hasPatientCount = !!columnMapping.patientCountColumn
+      const hasInfoJson = !!columnMapping.infoJsonColumn
+
+      if (hasVocab) { colDefs.push('vocabulary_id VARCHAR'); colDefs.push('terminology_name VARCHAR') }
+      if (hasDomain) colDefs.push('domain_id VARCHAR')
+      if (hasClass) colDefs.push('concept_class_id VARCHAR')
+      if (hasCategory) colDefs.push('category VARCHAR')
+      if (hasSubcategory) colDefs.push('subcategory VARCHAR')
+      if (hasRecordCount) colDefs.push('record_count INTEGER')
+      if (hasPatientCount) colDefs.push('patient_count INTEGER')
+      if (hasInfoJson) colDefs.push('info_json VARCHAR')
+
+      await conn.query(`CREATE TABLE "${schema}"."source_concepts" (${colDefs.join(', ')})`)
+
+      const BATCH = 5000
+      for (let i = 0; i < rows.length; i += BATCH) {
+        const batch = rows.slice(i, i + BATCH)
+        const valueParts: string[] = []
+
+        for (let j = 0; j < batch.length; j++) {
+          const row = batch[j]
+          const globalIdx = i + j
+          const conceptId = columnMapping.conceptIdColumn
+            ? (Number(row[columnMapping.conceptIdColumn]) || globalIdx + 1)
+            : globalIdx + 1
+          const conceptName = columnMapping.conceptNameColumn
+            ? String(row[columnMapping.conceptNameColumn] ?? '')
+            : ''
+          const conceptCode = columnMapping.conceptCodeColumn
+            ? String(row[columnMapping.conceptCodeColumn] ?? '')
+            : ''
+
+          const vals: string[] = [
+            String(conceptId),
+            `'${esc(conceptName)}'`,
+            `'${esc(conceptCode)}'`,
+          ]
+
+          if (hasVocab) {
+            const v = String(row[columnMapping.terminologyColumn!] ?? '')
+            vals.push(`'${esc(v)}'`)
+            vals.push(`'${esc(v)}'`)
+          }
+          if (hasDomain) vals.push(`'${esc(String(row[columnMapping.domainColumn!] ?? ''))}'`)
+          if (hasClass) vals.push(`'${esc(String(row[columnMapping.conceptClassColumn!] ?? ''))}'`)
+          if (hasCategory) vals.push(`'${esc(String(row[columnMapping.categoryColumn!] ?? ''))}'`)
+          if (hasSubcategory) vals.push(`'${esc(String(row[columnMapping.subcategoryColumn!] ?? ''))}'`)
+          if (hasRecordCount) vals.push(String(Number(row[columnMapping.recordCountColumn!]) || 0))
+          if (hasPatientCount) vals.push(String(Number(row[columnMapping.patientCountColumn!]) || 0))
+          if (hasInfoJson) {
+            const raw = row[columnMapping.infoJsonColumn!]
+            const jsonStr = raw ? (typeof raw === 'string' ? raw : JSON.stringify(raw)) : ''
+            vals.push(`'${esc(jsonStr)}'`)
+          }
+
+          valueParts.push(`(${vals.join(', ')})`)
+        }
+
+        await conn.query(`INSERT INTO "${schema}"."source_concepts" VALUES ${valueParts.join(', ')}`)
+      }
+    }
+
+    mountedFileSources.add(projectId)
+  } catch (err) {
+    // Clean up on failure
+    try { await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`) } catch { /* ignore */ }
+    throw err
+  } finally {
+    await conn.close()
+  }
+}
+
+/** Unmount a file source project from DuckDB. */
+export async function unmountFileSource(projectId: string): Promise<void> {
+  if (!mountedFileSources.has(projectId)) return
+  const db = await getDuckDB()
+  const conn = await db.connect()
+  const dsId = fileSourceDataSourceId(projectId)
+  const schema = schemaName(dsId)
+  try {
+    await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)
+  } catch { /* ignore */ }
+  finally {
+    mountedFileSources.delete(projectId)
+    await conn.close()
+  }
+}
+
+/** SQL-escape a string value (single quotes). */
+function esc(s: string): string {
+  return s.replace(/'/g, "''")
 }

@@ -217,6 +217,49 @@ function buildWhereClause(filters: SourceConceptFilters): string {
 }
 
 // ---------------------------------------------------------------------------
+// File source queries (single table: source_concepts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a SQL query to load file source concepts with filters, sorting, and pagination.
+ * The table is a flat `source_concepts` table created by mountFileSourceIntoDuckDB().
+ */
+export function buildFileSourceConceptsQuery(
+  filters: SourceConceptFilters,
+  sorting: SourceConceptSorting | null,
+  limit: number,
+  offset: number,
+): string {
+  let sql = 'SELECT * FROM source_concepts'
+  sql += buildWhereClause(filters)
+
+  if (sorting) {
+    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
+  } else {
+    sql += ' ORDER BY concept_name ASC'
+  }
+
+  sql += ` LIMIT ${limit} OFFSET ${offset}`
+  return sql
+}
+
+/** Count query for file source concepts with filters. */
+export function buildFileSourceConceptsCountQuery(
+  filters: SourceConceptFilters,
+): string {
+  let sql = 'SELECT COUNT(*) AS total FROM source_concepts'
+  sql += buildWhereClause(filters)
+  return sql
+}
+
+/** Distinct values for a column in the file source table (for filter dropdowns). */
+export function buildFileSourceFilterOptionsQuery(
+  columnName: string,
+): string {
+  return `SELECT DISTINCT ${columnName} AS val FROM source_concepts WHERE ${columnName} IS NOT NULL AND ${columnName} != '' ORDER BY val`
+}
+
+// ---------------------------------------------------------------------------
 // Standard concept search (target selection)
 // ---------------------------------------------------------------------------
 
@@ -279,6 +322,13 @@ export function buildStandardConceptSearchQuery(
   const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}`
 
   const term = searchTerm.trim()
+
+  // Empty search term: return first N rows matching filters only
+  if (!term) {
+    const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
+    return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} ORDER BY d.${idCol} LIMIT ${limit}`
+  }
+
   const escaped = esc(term)
   const isNumeric = /^\d+$/.test(term)
 

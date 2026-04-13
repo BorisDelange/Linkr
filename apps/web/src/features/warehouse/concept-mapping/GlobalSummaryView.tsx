@@ -182,7 +182,7 @@ function computeGroupStats(
       if (!projectStatsCounted.has(statKey)) {
         projectStatsCounted.add(statKey)
         const projectTotal = p?.sourceType === 'file'
-          ? (p.fileSourceData?.rows.length ?? 0)
+          ? (p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0)
           : (dbProjectTotals.get(p?.id ?? '') ?? 0)
         g.totalSourceConceptsFromStats += projectTotal
       }
@@ -508,7 +508,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     let totalSourceConcepts = 0
     for (const p of projects) {
       if (p.sourceType === 'file') {
-        totalSourceConcepts += p.fileSourceData?.rows.length ?? 0
+        totalSourceConcepts += p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0
       } else {
         totalSourceConcepts += dbProjectTotals.get(p.id) ?? 0
       }
