@@ -222,82 +222,101 @@ function buildWhereClause(filters: SourceConceptFilters): string {
 
 /** Filters for the standard concept search query. */
 export interface StandardConceptSearchFilters {
-  domainId?: string
-  vocabularyId?: string
-  conceptClassId?: string
-  standardConcept?: string
+  domainIds?: string[]
+  vocabularyIds?: string[]
+  conceptClassIds?: string[]
+  standardConcepts?: string[]
   validConcept?: string
 }
 
 /**
- * Search standard concepts in a data source for mapping target selection.
- * Uses fuzzy matching: each word of the search term must appear (in any order)
- * in the concept name, concept code, or vocabulary ID.
+ * Search OMOP concepts in a data source for mapping target selection.
+ *
+ * Search strategy (priority order):
+ * 1. Exact match on concept_id (if search term is numeric)
+ * 2. Exact match on concept_code
+ * 3. Fuzzy match on concept_name (each word must appear as substring)
+ *
+ * Results are ordered: exact ID matches first, then exact code matches, then name matches.
  */
 export function buildStandardConceptSearchQuery(
   mapping: SchemaMapping,
   searchTerm: string,
   filters?: StandardConceptSearchFilters,
-  limit = 200,
+  limit = 1000,
 ): string {
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
 
-  // Use the first concept dictionary that has standard_concept
   const dict = dicts[0]
   const idCol = dict.idColumn ?? 'concept_id'
   const nameCol = dict.nameColumn ?? 'concept_name'
   const codeCol = dict.codeColumn ?? 'concept_code'
   const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
+  const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
+  const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
+  const stdCol = dict.extraColumns?.standard_concept
 
-  const conditions: string[] = []
+  // Build shared filter conditions (vocabulary, domain, class, standard)
+  const filterConds: string[] = []
+  if (filters?.vocabularyIds?.length) {
+    filterConds.push(`d.${vocabCol} IN (${filters.vocabularyIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.domainIds?.length && domainCol) {
+    filterConds.push(`d.${domainCol} IN (${filters.domainIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.conceptClassIds?.length && classCol) {
+    filterConds.push(`d.${classCol} IN (${filters.conceptClassIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.standardConcepts?.length && stdCol) {
+    filterConds.push(`d.${stdCol} IN (${filters.standardConcepts.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
+    filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
+  }
+  const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
 
-  // Fuzzy matching: split search into words, each must appear in name OR code OR vocabulary
-  const words = searchTerm.trim().split(/\s+/).filter(Boolean)
-  for (const word of words) {
-    const w = esc(word)
-    conditions.push(
-      `(LOWER(d.${nameCol}) LIKE LOWER('%${w}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${w}%') OR LOWER(d.${vocabCol}) LIKE LOWER('%${w}%'))`,
-    )
+  const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}`
+
+  const term = searchTerm.trim()
+  const escaped = esc(term)
+  const isNumeric = /^\d+$/.test(term)
+
+  // Build UNION of exact ID match, exact code match, substring name match, and fuzzy name match
+  const parts: string[] = []
+  const groupCols = `concept_id, concept_name, concept_code, vocabulary_id${domainCol ? ', domain_id' : ''}${classCol ? ', concept_class_id' : ''}${stdCol ? ', standard_concept' : ''}`
+
+  // Similarity expression: used for ranking across all match tiers
+  const simExpr = `GREATEST(jaro_winkler_similarity(LOWER(d.${nameCol}), LOWER('${escaped}')), jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${escaped}')))`
+
+  // 1. Exact match on concept_id (if numeric) — tier 0
+  if (isNumeric) {
+    parts.push(`SELECT ${selectCols}, 0.0 AS _rank FROM ${dict.table} d WHERE d.${idCol} = ${escaped}${filterClause}`)
   }
 
-  // Filter for standard concepts if the column exists (default behavior when no filter override)
-  if (dict.extraColumns?.standard_concept) {
-    if (filters?.standardConcept) {
-      conditions.push(`d.${dict.extraColumns.standard_concept} = '${esc(filters.standardConcept)}'`)
-    }
-  }
-  if (filters?.domainId) {
-    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-    if (domainCol) conditions.push(`d.${domainCol} = '${esc(filters.domainId)}'`)
-  }
-  if (filters?.vocabularyId) {
-    conditions.push(`d.${vocabCol} = '${esc(filters.vocabularyId)}'`)
-  }
-  if (filters?.conceptClassId) {
-    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-    if (classCol) conditions.push(`d.${classCol} = '${esc(filters.conceptClassId)}'`)
-  }
-  if (filters?.validConcept && dict.extraColumns?.valid_start_date) {
-    // valid_end_date > current_date means the concept is still valid
-    if (filters.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
-      conditions.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
-    }
+  // 2. Substring match on concept_code or concept_name — tier 1, sorted by similarity
+  const words = term.split(/\s+/).filter(Boolean)
+  const substringConds = words.map((w) => {
+    const we = esc(w)
+    return `(LOWER(d.${nameCol}) LIKE LOWER('%${we}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${we}%'))`
+  }).join(' AND ')
+  if (substringConds) {
+    parts.push(`SELECT ${selectCols}, (2.0 - ${simExpr}) AS _rank FROM ${dict.table} d WHERE ${substringConds}${filterClause}`)
   }
 
-  if (conditions.length === 0) conditions.push('TRUE')
+  // 3. Fuzzy match via jaro_winkler_similarity on name and code (score > 0.8) — tier 2
+  const fuzzyPerWord = words.map((w) => {
+    const we = esc(w)
+    return `(EXISTS (SELECT 1 FROM unnest(string_split(LOWER(d.${nameCol}), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8) OR jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${we}')) > 0.8)`
+  })
+  if (fuzzyPerWord.length > 0) {
+    parts.push(`SELECT ${selectCols}, (3.0 - ${simExpr}) AS _rank FROM ${dict.table} d WHERE ${fuzzyPerWord.join(' AND ')}${filterClause}`)
+  }
 
-  return `SELECT
-    d.${idCol} AS concept_id,
-    d.${nameCol} AS concept_name,
-    d.${codeCol} AS concept_code,
-    d.${vocabCol} AS vocabulary_id
-    ${(dict.extraColumns?.domain_id ?? dict.categoryColumn) ? `, d.${dict.extraColumns?.domain_id ?? dict.categoryColumn} AS domain_id` : ''}
-    ${(dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn) ? `, d.${dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn} AS concept_class_id` : ''}
-    ${dict.extraColumns?.standard_concept ? `, d.${dict.extraColumns.standard_concept} AS standard_concept` : ''}
-  FROM ${dict.table} d
-  WHERE ${conditions.join(' AND ')}
-  ORDER BY d.${nameCol}
+  return `SELECT ${groupCols}
+  FROM (${parts.join(' UNION ALL ')}) sub
+  GROUP BY ${groupCols}
+  ORDER BY MIN(_rank)
   LIMIT ${limit}`
 }
 
