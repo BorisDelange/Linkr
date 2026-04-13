@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
-import { buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import { queryDataSource, isFileSourceMounted, fileSourceDataSourceId, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
+import { buildSourceConceptsCountQuery, buildFileSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import type { MappingProject, MappingStatus, DataSource, ConceptMapping } from '@/types'
 
 interface ProgressTabProps {
@@ -37,29 +37,35 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
   useEffect(() => {
-    // File source: count from stored rows
-    if (isFileSource) {
-      setTotalSourceConcepts(project.fileSourceData?.rows.length ?? 0)
-      return
-    }
-
-    if (!dataSource?.id || !dataSource.schemaMapping) return
     let cancelled = false
 
     const load = async () => {
       try {
-        await ensureMounted(dataSource.id)
-        const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
-        if (!sql) return
-        const [row] = await queryDataSource(dataSource.id, sql)
-        if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
+        if (isFileSource) {
+          // File source: count via DuckDB
+          if (!project.fileSourceData) return
+          if (!isFileSourceMounted(project.id)) {
+            await mountFileSourceIntoDuckDB(project.id, project.fileSourceData.rows, project.fileSourceData.columnMapping, project.fileSourceData.rawFileBuffer)
+          }
+          const dsId = fileSourceDataSourceId(project.id)
+          const sql = buildFileSourceConceptsCountQuery({})
+          const [row] = await queryDataSource(dsId, sql)
+          if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
+        } else {
+          if (!dataSource?.id || !dataSource.schemaMapping) return
+          await ensureMounted(dataSource.id)
+          const sql = buildSourceConceptsCountQuery(dataSource.schemaMapping!, {})
+          if (!sql) return
+          const [row] = await queryDataSource(dataSource.id, sql)
+          if (!cancelled) setTotalSourceConcepts(Number(row?.total ?? 0))
+        }
       } catch {
         // silently fail
       }
     }
     load()
     return () => { cancelled = true }
-  }, [isFileSource, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
+  }, [isFileSource, project.id, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
     // Effective status per mapping (reviews majority vote, fallback to m.status)

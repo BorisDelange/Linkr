@@ -410,6 +410,11 @@ interface BuildMappingProjectFolderOptions {
   ensureMounted?: (dsId: string) => Promise<void>
   /** Data sources list — needed to resolve the source DB schema. */
   dataSources?: import('@/types').DataSource[]
+  /**
+   * Skip adding source-concepts.csv to the ZIP.
+   * Use when the caller will download it separately (e.g. large file-based sources).
+   */
+  skipSourceConcepts?: boolean
 }
 
 /**
@@ -427,8 +432,19 @@ export async function buildMappingProjectFolder(
   const mappings = await storage.conceptMappings.getByProject(project.id)
 
   // Core data files (concept sets and import history excluded — reimportable from ATHENA)
-  const { conceptSetIds: _, importBatches: _ib, ...projectClean } = project
-  zip.file(`${prefix}project.json`, JSON.stringify(projectClean, null, 2))
+  // rawFileBuffer excluded — binary data, not JSON-serializable, exported separately as source-concepts.csv
+  const { conceptSetIds: _, importBatches: _ib, fileSourceData, ...projectClean } = project
+  const projectJson = {
+    ...projectClean,
+    ...(fileSourceData ? {
+      fileSourceData: {
+        ...fileSourceData,
+        rawFileBuffer: undefined,
+        rows: [],  // Don't serialize rows either (legacy)
+      },
+    } : {}),
+  }
+  zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
   zip.file(`${prefix}mappings.json`, JSON.stringify(mappings, null, 2))
 
   // Formatted export files
@@ -437,16 +453,26 @@ export async function buildMappingProjectFolder(
   zip.file(`${prefix}usagi.csv`, exportToUsagiCsv(mappings))
 
   // Source concepts (file-based or DB-based)
-  if (project.sourceType === 'file' && project.fileSourceData) {
-    zip.file(
-      `${prefix}source-concepts.csv`,
-      exportSourceConceptsCsv(
-        project.fileSourceData.rows,
-        project.fileSourceData.columns,
-        project.fileSourceData.columnMapping,
-      ),
-    )
-  } else if (project.sourceType !== 'file' && project.dataSourceId && options.queryDataSource) {
+  if (!options.skipSourceConcepts && project.sourceType === 'file' && project.fileSourceData) {
+    if (project.fileSourceData.rawFileBuffer && project.fileSourceData.rawFileBuffer.byteLength > 0) {
+      // Pass the raw buffer directly without compression (avoids memory overflow on large files)
+      const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
+        ? project.fileSourceData.rawFileBuffer
+        : new Uint8Array(project.fileSourceData.rawFileBuffer)
+      zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+    } else if (project.fileSourceData.rows.length > 0) {
+      // Legacy format: export from parsed rows
+      zip.file(
+        `${prefix}source-concepts.csv`,
+        exportSourceConceptsCsv(
+          project.fileSourceData.rows,
+          project.fileSourceData.columns,
+          project.fileSourceData.columnMapping,
+        ),
+      )
+    }
+  }
+  if (!options.skipSourceConcepts && project.sourceType !== 'file' && project.dataSourceId && options.queryDataSource) {
     const ds = options.dataSources?.find(d => d.id === project.dataSourceId)
     if (ds?.schemaMapping) {
       try {

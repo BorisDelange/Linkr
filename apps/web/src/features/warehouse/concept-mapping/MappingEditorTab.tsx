@@ -1,13 +1,16 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, mountFileSourceIntoDuckDB, isFileSourceMounted, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import {
   buildSourceConceptsQuery,
   buildSourceConceptsCountQuery,
   buildFilterOptionsQuery,
   buildAllConceptCountsQuery,
+  buildFileSourceConceptsQuery,
+  buildFileSourceConceptsCountQuery,
+  buildFileSourceFilterOptionsQuery,
   type SourceConceptFilters,
   type SourceConceptSorting,
 } from '@/lib/concept-mapping/mapping-queries'
@@ -15,7 +18,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import { ConceptDetailView } from './components/ConceptDetailView'
-import type { MappingProject, DataSource, FileColumnMapping } from '@/types'
+import type { MappingProject, DataSource } from '@/types'
 
 export interface SourceConceptRow {
   concept_id: number
@@ -42,48 +45,6 @@ interface MappingEditorTabProps {
 
 const PAGE_SIZE = 50
 
-/** Convert file rows to SourceConceptRow[] using column mapping. */
-function fileRowsToSourceRows(
-  rows: Record<string, unknown>[],
-  mapping: FileColumnMapping,
-): SourceConceptRow[] {
-  return rows.map((row, index) => {
-    const conceptId = mapping.conceptIdColumn
-      ? Number(row[mapping.conceptIdColumn]) || index + 1
-      : index + 1
-    const conceptName = mapping.conceptNameColumn
-      ? String(row[mapping.conceptNameColumn] ?? '')
-      : ''
-    const conceptCode = mapping.conceptCodeColumn
-      ? String(row[mapping.conceptCodeColumn] ?? '')
-      : ''
-
-    let infoJson: Record<string, unknown> | undefined
-    if (mapping.infoJsonColumn && row[mapping.infoJsonColumn]) {
-      try {
-        const raw = row[mapping.infoJsonColumn]
-        infoJson = typeof raw === 'string' ? JSON.parse(raw) : (raw as Record<string, unknown>)
-      } catch {
-        // Invalid JSON, ignore
-      }
-    }
-
-    return {
-      concept_id: conceptId,
-      concept_name: conceptName,
-      concept_code: conceptCode,
-      vocabulary_id: mapping.terminologyColumn ? String(row[mapping.terminologyColumn] ?? '') : undefined,
-      terminology_name: mapping.terminologyColumn ? String(row[mapping.terminologyColumn] ?? '') : undefined,
-      domain_id: mapping.domainColumn ? String(row[mapping.domainColumn] ?? '') : undefined,
-      concept_class_id: mapping.conceptClassColumn ? String(row[mapping.conceptClassColumn] ?? '') : undefined,
-      category: mapping.categoryColumn ? String(row[mapping.categoryColumn] ?? '') : undefined,
-      subcategory: mapping.subcategoryColumn ? String(row[mapping.subcategoryColumn] ?? '') : undefined,
-      record_count: mapping.recordCountColumn ? (Number(row[mapping.recordCountColumn]) || 0) : 0,
-      patient_count: mapping.patientCountColumn ? (Number(row[mapping.patientCountColumn]) || 0) : 0,
-      info_json: infoJson,
-    }
-  })
-}
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
@@ -110,6 +71,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>('all')
   const [countsReady, setCountsReady] = useState(isFileSource)
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
+  const [fileSourceReady, setFileSourceReady] = useState(false)
 
   const loadingRef = useRef(false)
 
@@ -123,70 +85,48 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
   const countsCacheForDs = useRef<string | null>(null)
 
-  // --- FILE SOURCE: convert file data to rows ---
-  const allFileRows = useMemo(() => {
-    if (!isFileSource || !project.fileSourceData) return []
-    return fileRowsToSourceRows(project.fileSourceData.rows, project.fileSourceData.columnMapping)
-  }, [isFileSource, project.fileSourceData])
-
-  // File source: compute filter options from data
+  // --- FILE SOURCE: mount into DuckDB ---
   useEffect(() => {
-    if (!isFileSource || allFileRows.length === 0) return
-    const opts: Record<string, string[]> = {}
-    const sets: Record<string, Set<string>> = {}
-    for (const row of allFileRows) {
-      for (const col of ['vocabulary_id', 'terminology_name', 'domain_id', 'concept_class_id'] as const) {
-        const val = row[col]
-        if (val) {
-          if (!sets[col]) sets[col] = new Set()
-          sets[col].add(String(val))
-        }
+    if (!isFileSource || !project.fileSourceData) return
+    let cancelled = false
+    const mount = async () => {
+      try {
+        await mountFileSourceIntoDuckDB(
+          project.id,
+          project.fileSourceData!.rows,
+          project.fileSourceData!.columnMapping,
+          project.fileSourceData!.rawFileBuffer,
+        )
+        if (!cancelled) setFileSourceReady(true)
+      } catch (err) {
+        console.error('Failed to mount file source into DuckDB:', err)
+        if (!cancelled) setQueryError(err instanceof Error ? err.message : String(err))
       }
     }
-    for (const [col, set] of Object.entries(sets)) {
-      opts[col] = [...set].sort()
-    }
-    setFilterOptions(opts)
-  }, [isFileSource, allFileRows])
+    mount()
+    return () => { cancelled = true }
+  }, [isFileSource, project.id, project.fileSourceData])
 
-  // File source: apply filters + sorting + pagination client-side
+  // File source: load filter options via DuckDB DISTINCT queries
   useEffect(() => {
-    if (!isFileSource) return
-    let filtered = allFileRows
-
-    // Apply text filters
-    if (filters.searchText) {
-      const q = filters.searchText.toLowerCase()
-      filtered = filtered.filter((r) =>
-        r.concept_name.toLowerCase().includes(q) ||
-        (r.concept_code && r.concept_code.toLowerCase().includes(q)),
-      )
+    if (!isFileSource || !fileSourceReady) return
+    const dsId = fileSourceDataSourceId(project.id)
+    const loadOptions = async () => {
+      const opts: Record<string, string[]> = {}
+      for (const col of ['vocabulary_id', 'terminology_name', 'domain_id', 'concept_class_id', 'category', 'subcategory']) {
+        try {
+          const sql = buildFileSourceFilterOptionsQuery(col)
+          const result = await queryDataSource(dsId, sql)
+          const values = result.map((r: Record<string, unknown>) => String(r.val ?? ''))
+          if (values.length > 0) opts[col] = values
+        } catch {
+          // Column might not exist in the table
+        }
+      }
+      setFilterOptions(opts)
     }
-    if (filters.searchId) {
-      const q = filters.searchId
-      filtered = filtered.filter((r) => String(r.concept_id).includes(q))
-    }
-    if (filters.searchCode) {
-      const q = filters.searchCode.toLowerCase()
-      filtered = filtered.filter((r) => r.concept_code?.toLowerCase().includes(q))
-    }
-    if (filters.vocabularyId) {
-      filtered = filtered.filter((r) => r.vocabulary_id === filters.vocabularyId)
-    }
-    if (filters.terminologyName) {
-      filtered = filtered.filter((r) => r.terminology_name === filters.terminologyName)
-    }
-    if (filters.domainId) {
-      filtered = filtered.filter((r) => r.domain_id === filters.domainId)
-    }
-    if (filters.conceptClassId) {
-      filtered = filtered.filter((r) => r.concept_class_id === filters.conceptClassId)
-    }
-
-    setTotalCount(filtered.length)
-    setRows(filtered)
-    setLoading(false)
-  }, [isFileSource, allFileRows, filters])
+    loadOptions()
+  }, [isFileSource, fileSourceReady, project.id])
 
   // --- DATABASE SOURCE ---
   // Load concept counts once per data source
@@ -248,37 +188,66 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     loadOptions()
   }, [isFileSource, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
-  // Load source concepts (database mode)
+  // Load source concepts (unified: both file and database mode use DuckDB)
   const loadConcepts = useCallback(async () => {
-    if (isFileSource) return
-    if (!dataSource?.id || !dataSource.schemaMapping || loadingRef.current) return
+    if (isFileSource && !fileSourceReady) return
+    if (!isFileSource && (!dataSource?.id || !dataSource.schemaMapping)) return
+    if (loadingRef.current) return
     loadingRef.current = true
     setLoading(true)
 
     try {
       setQueryError(null)
-      await ensureMounted(dataSource.id)
-      const mapping = dataSource.schemaMapping
 
-      const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+      const effectiveDsId = isFileSource ? fileSourceDataSourceId(project.id) : dataSource!.id
+
+      if (!isFileSource) await ensureMounted(dataSource!.id)
+
+      const isSortingByCount = !isFileSource && (sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count')
       const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
 
-      const countSql = buildSourceConceptsCountQuery(mapping, filters)
+      // Count
+      const countSql = isFileSource
+        ? buildFileSourceConceptsCountQuery(filters)
+        : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filters)
       if (!countSql) { setLoading(false); loadingRef.current = false; return }
 
-      const [countResult] = await queryDataSource(dataSource.id, countSql)
+      const [countResult] = await queryDataSource(effectiveDsId, countSql)
       const total = Number(countResult?.total ?? 0)
       setTotalCount(total)
 
-      if (needAllRows) {
-        const dataSql = buildSourceConceptsQuery(mapping, filters, isSortingByCount ? null : sorting, total, 0)
-        const result = await queryDataSource(dataSource.id, dataSql)
-        setRows(result as unknown as SourceConceptRow[])
+      // Data
+      let dataSql: string
+      if (isFileSource) {
+        if (needAllRows) {
+          dataSql = buildFileSourceConceptsQuery(filters, sorting, total, 0)
+        } else {
+          dataSql = buildFileSourceConceptsQuery(filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
+        }
       } else {
-        const dataSql = buildSourceConceptsQuery(mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
-        const result = await queryDataSource(dataSource.id, dataSql)
-        setRows(result as unknown as SourceConceptRow[])
+        const mapping = dataSource!.schemaMapping!
+        if (needAllRows) {
+          dataSql = buildSourceConceptsQuery(mapping, filters, isSortingByCount ? null : sorting, total, 0)
+        } else {
+          dataSql = buildSourceConceptsQuery(mapping, filters, sorting, PAGE_SIZE, page * PAGE_SIZE)
+        }
       }
+
+      const result = await queryDataSource(effectiveDsId, dataSql)
+
+      // Parse info_json strings back to objects for file source
+      const parsedRows: SourceConceptRow[] = (result as unknown as SourceConceptRow[]).map((row) => {
+        if (isFileSource && row.info_json && typeof row.info_json === 'string') {
+          try {
+            return { ...row, info_json: JSON.parse(row.info_json as unknown as string) }
+          } catch {
+            return row
+          }
+        }
+        return row
+      })
+
+      setRows(parsedRows)
     } catch (err) {
       console.error('Failed to load source concepts:', err)
       setQueryError(err instanceof Error ? err.message : String(err))
@@ -287,11 +256,11 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       setLoading(false)
       loadingRef.current = false
     }
-  }, [isFileSource, dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, mappingStatusFilter, ensureMounted])
+  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, page, mappingStatusFilter, ensureMounted, project.id])
 
   useEffect(() => {
-    if (!isFileSource) loadConcepts()
-  }, [loadConcepts, isFileSource])
+    loadConcepts()
+  }, [loadConcepts])
 
   // Reset page when filters change
   useEffect(() => {
@@ -344,26 +313,17 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         }
       })
 
-  // Sort client-side when sorting by counts (database) or always for file
-  const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+  // Sort client-side when sorting by counts (database mode only — file mode sorts via SQL)
+  const isSortingByCount = !isFileSource && (sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count')
   let sortedRows = rowsWithCounts
-  if (isFileSource && sorting) {
-    const col = sorting.columnId as keyof SourceConceptRow
-    const dir = sorting.desc ? -1 : 1
-    sortedRows = [...rowsWithCounts].sort((a, b) => {
-      const va = a[col] ?? ''
-      const vb = b[col] ?? ''
-      if (typeof va === 'number' && typeof vb === 'number') return dir * (va - vb)
-      return dir * String(va).localeCompare(String(vb))
-    })
-  } else if (isSortingByCount && countsReady) {
+  if (isSortingByCount && countsReady) {
     const col = sorting!.columnId as 'record_count' | 'patient_count'
     const dir = sorting!.desc ? -1 : 1
     sortedRows = [...rowsWithCounts].sort((a, b) => dir * (a[col] - b[col]))
   }
 
-  // Apply pagination client-side when all rows were loaded
-  const needAllRows = isFileSource || isSortingByCount || mappingStatusFilter !== 'all'
+  // Apply pagination client-side when all rows were loaded (status filter or count sorting)
+  const needAllRows = isSortingByCount || mappingStatusFilter !== 'all'
   const paginatedRows = needAllRows
     ? sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
     : sortedRows
@@ -379,14 +339,13 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const mappedElsewhereIds = useMemo(() => {
     const result = new Set<number>()
     if (!otherProjectMappings || otherProjectMappings.size === 0) return result
-    const allRows = isFileSource ? allFileRows : rows
-    for (const row of allRows) {
+    for (const row of rows) {
       if (mappingStatusMap.has(row.concept_id)) continue // already mapped in this project
       const key = `${row.vocabulary_id ?? ''}:${row.concept_code ?? ''}`
       if (otherProjectMappings.has(key)) result.add(row.concept_id)
     }
     return result
-  }, [otherProjectMappings, isFileSource, allFileRows, rows, mappingStatusMap])
+  }, [otherProjectMappings, rows, mappingStatusMap])
 
   // Client-side filtering by mapping status
   const statusFilteredRows = mappingStatusFilter === 'all'
@@ -411,7 +370,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     .find((r) => r.concept_id === selectedSourceConceptId)
 
   // Check if any row has info_json (for showing the chart icon column)
-  const hasInfoJson = isFileSource && allFileRows.some((r) => r.info_json)
+  const hasInfoJson = isFileSource && !!project.fileSourceData?.columnMapping.infoJsonColumn
 
   return (
     <div className="h-full">

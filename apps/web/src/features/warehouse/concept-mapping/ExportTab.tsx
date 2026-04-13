@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Archive } from 'lucide-react'
+import { Download, FileText, FileSpreadsheet, FileCode, Loader2, Archive, AlertTriangle } from 'lucide-react'
 import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -36,6 +36,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const [zipExporting, setZipExporting] = useState(false)
+  const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(
@@ -47,7 +48,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
   useEffect(() => {
     if (project.sourceType === 'file') {
-      setTotalSourceConcepts(project.fileSourceData?.rows.length ?? 0)
+      setTotalSourceConcepts(project.fileSourceData?.totalRowCount ?? project.fileSourceData?.rows.length ?? 0)
       return
     }
     if (!dataSource?.id || !dataSource.schemaMapping) return
@@ -221,6 +222,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
   const handleExportZip = useCallback(async () => {
     setZipExporting(true)
+    setSourceCsvTooLarge(false)
     try {
       const zip = new JSZip()
       await buildMappingProjectFolder(zip, '', project, getStorage(), {
@@ -230,6 +232,36 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       })
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
+    } catch {
+      // ZIP generation failed (likely memory overflow on very large source CSV)
+      // Fall back: download ZIP without source CSV + source CSV separately
+      try {
+        const zip = new JSZip()
+        await buildMappingProjectFolder(zip, '', project, getStorage(), {
+          queryDataSource,
+          ensureMounted,
+          dataSources,
+          skipSourceConcepts: true,
+        })
+        const blob = await zip.generateAsync({ type: 'blob' })
+        downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
+
+        if (project.sourceType === 'file' && project.fileSourceData?.rawFileBuffer?.byteLength) {
+          try {
+            const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
+              ? project.fileSourceData.rawFileBuffer
+              : new Uint8Array(project.fileSourceData.rawFileBuffer)
+            const csvBlob = new Blob([buf], { type: 'text/csv' })
+            downloadBlob(csvBlob, `${slugify(project.name)}-source-concepts.csv`)
+          } catch {
+            setSourceCsvTooLarge(true)
+          }
+        } else {
+          setSourceCsvTooLarge(true)
+        }
+      } catch {
+        setSourceCsvTooLarge(true)
+      }
     } finally {
       setZipExporting(false)
     }
@@ -324,17 +356,25 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             <div className="px-4 py-3">
               <p className="text-xs text-muted-foreground">{t('concept_mapping.export_linkr_zip_desc')}</p>
             </div>
-            <div className="px-4 pb-4">
+            <div className="space-y-2 px-4 pb-4">
               <Button
                 className="w-full"
                 variant="outline"
                 size="sm"
-                onClick={handleExportZip}
+                onClick={() => { setSourceCsvTooLarge(false); handleExportZip() }}
                 disabled={zipExporting}
               >
                 {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 {t('concept_mapping.export_download')}
               </Button>
+              {sourceCsvTooLarge && (
+                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-900 dark:bg-amber-950">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600" />
+                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
+                    {t('concept_mapping.source_csv_too_large')}
+                  </p>
+                </div>
+              )}
             </div>
           </Card>
 

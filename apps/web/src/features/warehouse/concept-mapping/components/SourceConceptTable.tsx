@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -79,6 +79,45 @@ interface SourceConceptTableProps {
 }
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
+
+/** Text input that debounces onChange by 300ms. */
+function DebouncedInput({
+  value: externalValue,
+  onChange,
+  className,
+  placeholder,
+}: {
+  value: string
+  onChange: (v: string) => void
+  className?: string
+  placeholder?: string
+}) {
+  const [localValue, setLocalValue] = useState(externalValue)
+  const timerRef = useRef<ReturnType<typeof setTimeout>>()
+
+  // Sync from external when it changes (e.g. filters reset)
+  useEffect(() => {
+    setLocalValue(externalValue)
+  }, [externalValue])
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setLocalValue(v)
+    clearTimeout(timerRef.current)
+    timerRef.current = setTimeout(() => onChange(v), 300)
+  }
+
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  return (
+    <input
+      className={className}
+      placeholder={placeholder}
+      value={localValue}
+      onChange={handleChange}
+    />
+  )
+}
 
 /** Small dropdown for categorical column filters with search. */
 function ColumnFilterSelect({
@@ -262,13 +301,13 @@ export function SourceConceptTable({
       )
     }
     if (columnId === 'concept_id') {
-      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchId: e.target.value || undefined })} />
+      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchId: v || undefined })} />
     }
     if (columnId === 'concept_code') {
-      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={filters.searchCode ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchCode: e.target.value || undefined })} />
+      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={filters.searchCode ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchCode: v || undefined })} />
     }
     if (columnId === 'concept_name') {
-      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(e) => onFiltersChange({ ...filters, searchText: e.target.value || undefined })} />
+      return <DebouncedInput className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchText: v || undefined })} />
     }
     if (columnId === 'terminology_name') {
       const termOpts = filterOptions.terminology_name?.length ? filterOptions.terminology_name : filterOptions.vocabulary_id

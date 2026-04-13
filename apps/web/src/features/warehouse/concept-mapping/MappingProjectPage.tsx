@@ -89,7 +89,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <FileSpreadsheet size={12} />
             {project.fileSourceData.fileName}
             <span className="text-[10px]">
-              ({project.fileSourceData.rows.length.toLocaleString()} {t('concept_mapping.file_rows')})
+              ({(project.fileSourceData.totalRowCount ?? project.fileSourceData.rows.length).toLocaleString()} {t('concept_mapping.file_rows')})
             </span>
           </span>
         )}

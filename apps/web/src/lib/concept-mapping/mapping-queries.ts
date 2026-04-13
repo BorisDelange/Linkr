@@ -217,6 +217,49 @@ function buildWhereClause(filters: SourceConceptFilters): string {
 }
 
 // ---------------------------------------------------------------------------
+// File source queries (single table: source_concepts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a SQL query to load file source concepts with filters, sorting, and pagination.
+ * The table is a flat `source_concepts` table created by mountFileSourceIntoDuckDB().
+ */
+export function buildFileSourceConceptsQuery(
+  filters: SourceConceptFilters,
+  sorting: SourceConceptSorting | null,
+  limit: number,
+  offset: number,
+): string {
+  let sql = 'SELECT * FROM source_concepts'
+  sql += buildWhereClause(filters)
+
+  if (sorting) {
+    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
+  } else {
+    sql += ' ORDER BY concept_name ASC'
+  }
+
+  sql += ` LIMIT ${limit} OFFSET ${offset}`
+  return sql
+}
+
+/** Count query for file source concepts with filters. */
+export function buildFileSourceConceptsCountQuery(
+  filters: SourceConceptFilters,
+): string {
+  let sql = 'SELECT COUNT(*) AS total FROM source_concepts'
+  sql += buildWhereClause(filters)
+  return sql
+}
+
+/** Distinct values for a column in the file source table (for filter dropdowns). */
+export function buildFileSourceFilterOptionsQuery(
+  columnName: string,
+): string {
+  return `SELECT DISTINCT ${columnName} AS val FROM source_concepts WHERE ${columnName} IS NOT NULL AND ${columnName} != '' ORDER BY val`
+}
+
+// ---------------------------------------------------------------------------
 // Standard concept search (target selection)
 // ---------------------------------------------------------------------------
 

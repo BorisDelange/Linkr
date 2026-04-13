@@ -84,6 +84,7 @@ export function CreateMappingProjectDialog({
 
   // --- File source ---
   const [file, setFile] = useState<File | null>(null)
+  const [rawFileBuffer, setRawFileBuffer] = useState<Uint8Array | null>(null)
   const [parsedColumns, setParsedColumns] = useState<string[]>([])
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([])
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([])
@@ -203,28 +204,37 @@ export function CreateMappingProjectDialog({
   }, [])
 
   const parseCSV = useCallback((f: File) => {
+    // Parse only a preview (first rows) for column detection and auto-mapping.
+    // The full data will be loaded via DuckDB read_csv_auto from the raw file buffer.
+    const PREVIEW_ROWS = 20
+    let rowCount = 0
+    let headers: string[] = []
+    const previewData: Record<string, unknown>[] = []
+    let headersDone = false
+
     const papaConfig: Papa.ParseLocalConfig<Record<string, unknown>, File> = {
       header: hasHeader,
       skipEmptyLines: true,
       dynamicTyping: true,
       encoding,
-      complete: (result: Papa.ParseResult<Record<string, unknown>>) => {
-        try {
-          let dataRows = result.data as Record<string, unknown>[]
-          if (skipRows > 0) dataRows = dataRows.slice(skipRows)
-          const headers = hasHeader
+      step: (result: Papa.ParseStepResult<Record<string, unknown>>, parser) => {
+        rowCount++
+        if (skipRows > 0 && rowCount <= skipRows) return
+        if (!headersDone) {
+          headers = hasHeader
             ? (result.meta.fields ?? [])
-            : Object.keys(dataRows[0] || {})
-          if (headers.length === 0) {
-            setFileError(t('datasets.upload_no_columns'))
-            setFileLoading(false)
-            return
-          }
-          applyParsedData(headers, dataRows)
-        } catch {
-          setFileError(t('datasets.upload_parse_error'))
+            : Object.keys(result.data || {})
+          headersDone = true
         }
-        setFileLoading(false)
+        if (previewData.length < PREVIEW_ROWS) {
+          previewData.push(result.data)
+        } else {
+          // Stop parsing — we have enough preview rows
+          parser.abort()
+        }
+      },
+      complete: async () => {
+        await finishCSVParse(f, headers, previewData, rowCount)
       },
       error: () => {
         setFileError(t('datasets.upload_parse_error'))
@@ -233,7 +243,48 @@ export function CreateMappingProjectDialog({
     }
     if (delimiter !== 'auto') papaConfig.delimiter = delimiter
     Papa.parse(f, papaConfig)
-  }, [delimiter, skipRows, encoding, hasHeader, t, applyParsedData])
+  }, [delimiter, skipRows, encoding, hasHeader, t, applyParsedData]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Shared finish logic for CSV parsing (called after preview rows are collected)
+  const finishCSVParse = useCallback(async (
+    f: File,
+    headers: string[],
+    previewData: Record<string, unknown>[],
+    _rowCount: number,
+  ) => {
+    try {
+      if (headers.length === 0) {
+        setFileError(t('datasets.upload_no_columns'))
+        setFileLoading(false)
+        return
+      }
+      // Store preview rows (not the full dataset)
+      applyParsedData(headers, previewData)
+
+      // Read raw file buffer for DuckDB and get total count
+      const buffer = new Uint8Array(await f.arrayBuffer())
+      setRawFileBuffer(buffer)
+
+      // Use DuckDB to count total rows quickly
+      try {
+        const { getDuckDB } = await import('@/lib/duckdb/engine')
+        const db = await getDuckDB()
+        const conn = await db.connect()
+        const tmpName = `__preview_${Date.now()}.csv`
+        await db.registerFileBuffer(tmpName, new Uint8Array(buffer))
+        const countResult = await conn.query(`SELECT COUNT(*) AS total FROM read_csv_auto('${tmpName}')`)
+        const total = Number(countResult.toArray()[0]?.total ?? previewData.length)
+        setTotalRows(total)
+        await conn.close()
+      } catch {
+        // Fallback: estimate from file size / avg row size
+        setTotalRows(_rowCount)
+      }
+    } catch {
+      setFileError(t('datasets.upload_parse_error'))
+    }
+    setFileLoading(false)
+  }, [t, applyParsedData])
 
   const parseExcel = useCallback((f: File) => {
     const reader = new FileReader()
@@ -335,6 +386,7 @@ export function CreateMappingProjectDialog({
 
   const handleClearFile = useCallback(() => {
     setFile(null)
+    setRawFileBuffer(null)
     setParsedColumns([])
     setParsedRows([])
     setPreviewRows([])
@@ -348,7 +400,7 @@ export function CreateMappingProjectDialog({
 
   // --- Validation ---
   // In edit mode with a file source and no new file uploaded, the existing fileSourceData is sufficient
-  const hasExistingFileData = isEdit && sourceType === 'file' && !!editingProject?.fileSourceData?.rows.length
+  const hasExistingFileData = isEdit && sourceType === 'file' && !!(editingProject?.fileSourceData?.rawFileBuffer || editingProject?.fileSourceData?.rows.length)
   const isFileValid = sourceType === 'file' && (
     hasExistingFileData && parsedRows.length === 0  // no new file → existing data is valid
     || (parsedColumns.length > 0 && parsedRows.length > 0 && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn))
@@ -374,10 +426,12 @@ export function CreateMappingProjectDialog({
       } else {
         const newFileData = {
           fileName: file?.name ?? editingProject.fileSourceData?.fileName ?? '',
-          rows: parsedRows.length > 0 ? parsedRows : editingProject.fileSourceData?.rows ?? [],
+          rows: file ? [] : (editingProject.fileSourceData?.rows ?? []),  // Keep legacy rows only if no new file
           columns: parsedColumns.length > 0 ? parsedColumns : editingProject.fileSourceData?.columns ?? [],
           columnMapping,
           parseOptions: buildParseOptions(),
+          rawFileBuffer: rawFileBuffer ?? editingProject.fileSourceData?.rawFileBuffer,
+          totalRowCount: file ? totalRows : (editingProject.fileSourceData?.totalRowCount ?? editingProject.fileSourceData?.rows.length),
         }
         changes.dataSourceId = ''
         changes.fileSourceData = newFileData
@@ -409,10 +463,12 @@ export function CreateMappingProjectDialog({
       if (sourceType === 'file') {
         project.fileSourceData = {
           fileName: file?.name ?? '',
-          rows: parsedRows,
+          rows: [],  // No longer store full rows — DuckDB loads from rawFileBuffer
           columns: parsedColumns,
           columnMapping,
           parseOptions: buildParseOptions(),
+          rawFileBuffer: rawFileBuffer ?? undefined,
+          totalRowCount: totalRows,
         }
       }
       await createMappingProject(project)
