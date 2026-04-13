@@ -108,7 +108,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
 
       {/* JSON modal */}
       <Dialog open={jsonModalOpen} onOpenChange={setJsonModalOpen}>
-        <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col">
+        <DialogContent className="flex max-h-[90vh] w-[90vw] sm:max-w-5xl flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-sm">
               <Code2 size={14} />
@@ -119,7 +119,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto">
-            <pre className="rounded-md bg-muted/50 p-4 text-[11px] leading-relaxed">
+            <pre className="overflow-x-auto whitespace-pre rounded-md bg-muted/50 p-4 text-[11px] leading-relaxed">
               {JSON.stringify(info, null, 2)}
             </pre>
           </div>
