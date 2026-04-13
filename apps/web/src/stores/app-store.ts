@@ -2,9 +2,8 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
-import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
-import { getAllPlugins } from '@/lib/plugins/registry'
-import type { Project, Workspace, Organization, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, CustomSchemaPreset, UserPlugin } from '@/types'
+import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
+import type { Project, Workspace, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -86,222 +85,7 @@ function projectToItem(project: Project, lang: string): ProjectItem {
   }
 }
 
-// --- Demo seed ---
-
-const SEED_KEY = 'linkr-seeded'
-const DEMO_UID = '00000000-0000-0000-0000-000000000001'
-const DEMO_ACTIVITY_UID = '00000000-0000-0000-0000-000000000005'
-const DEMO_WORKSPACE_ID = '00000000-0000-0000-0000-000000000010'
-const DEMO_ORG_ID = '00000000-0000-0000-0000-000000000020'
-const DEMO_DATASOURCE_ID = '00000000-0000-0000-0000-000000000002'
-
-function createDemoOrganization(): Organization {
-  return {
-    id: DEMO_ORG_ID,
-    name: 'Demo Hospital',
-    type: 'hospital',
-    createdAt: '2026-02-10T00:00:00.000Z',
-    updatedAt: '2026-02-10T00:00:00.000Z',
-  }
-}
-
-function createDemoWorkspace(): Workspace {
-  return {
-    id: DEMO_WORKSPACE_ID,
-    name: {
-      en: 'Demo ICU Research',
-      fr: 'Recherche Réanimation Demo',
-    },
-    description: {
-      en: 'Retrospective studies on ICU patient outcomes using the MIMIC-IV demo dataset.',
-      fr: 'Études rétrospectives sur le devenir des patients de réanimation à partir du jeu de données MIMIC-IV demo.',
-    },
-    organizationId: DEMO_ORG_ID,
-    createdAt: '2026-02-10T00:00:00.000Z',
-    updatedAt: '2026-02-10T00:00:00.000Z',
-  }
-}
-
-function createDemoProject(): Project {
-  return {
-    uid: DEMO_UID,
-    projectId: 'icu-mortality-prediction',
-    workspaceId: DEMO_WORKSPACE_ID,
-    name: { en: 'ICU Mortality Prediction', fr: 'Prédiction de mortalité en réanimation' },
-    description: {
-      en: 'Predict in-hospital mortality from the first 24 hours of ICU stay using MIMIC-IV demo data (100 patients, OMOP CDM).',
-      fr: 'Prédire la mortalité hospitalière à partir des 24 premières heures de séjour en réanimation avec les données MIMIC-IV demo (100 patients, OMOP CDM).',
-    },
-    shortDescription: {},
-    config: {},
-    ownerId: 1,
-    status: 'active',
-    badges: [
-      { id: 'b1', label: 'ICU', color: 'red' },
-    ],
-    todos: [],
-    notes: '',
-    readme: `# Early Prediction of In-Hospital Mortality in the ICU Using First-24-Hour Data
-
-## Background
-
-Mortality prediction in the intensive care unit (ICU) is central to clinical decision-making, resource allocation, and benchmarking of care quality. Established severity scores — APACHE II, SAPS II, SOFA — have been widely adopted but present well-known limitations: they were developed on historical cohorts, rely on fixed variable sets, and use pre-defined weighting schemes that do not adapt to local case-mix. Several studies have shown that logistic regression and machine learning models trained on routinely collected electronic health record (EHR) data can match or outperform these traditional scores.
-
-This project explores whether predictive models fitted on variables available within the **first 24 hours** of ICU admission can effectively discriminate between survivors and non-survivors — using only data from the OMOP Common Data Model.
-
-## Objective
-
-Develop and evaluate predictive models for **in-hospital mortality** among ICU patients, using demographics and physiological measurements collected during the first 24 hours of stay (H0–H24).
-
-## Data
-
-The dataset is the **MIMIC-IV demo** (version 2.2), a freely available subset of the MIMIC-IV clinical database, mapped to the **OMOP CDM v5.4** format. It contains 100 unique patients with ICU stays at Beth Israel Deaconess Medical Center (Boston, USA).
-
-After applying inclusion criteria (hospital stay $\\geq$ 24 h, at least one measurement in H0–H24), the final cohort comprises **242 ICU visits** from 100 patients, with **13 deaths** (5.4% mortality rate).
-
-## Scripts
-
-The project contains two **self-contained study notebooks** and three **example scripts** (one per file type).
-
-### 1. Exploratory Data Analysis (\`01_eda_mortality.ipynb\`)
-
-**Self-contained** Jupyter notebook performing the full EDA pipeline:
-
-- OMOP concept exploration (domains, vocabularies, available measurements)
-- Cohort extraction via SQL (eligible visits $\\geq$ 24h, mortality flag, demographics)
-- Feature engineering (H0–H24 measurements: vitals mean/min/max, labs first value, GCS worst)
-- Wide-format dataset export (one row per visit, ~45 features)
-- Cohort overview: demographics, age/sex distributions, admission timeline
-- Feature distributions by outcome (vitals, labs, GCS)
-- Missing data analysis and patterns by outcome
-- Correlation matrix and multicollinearity detection
-- Table 1 with descriptive statistics
-- Univariate associations (point-biserial correlation)
-- Outlier detection with clinical plausibility ranges
-
-### 2. Machine Learning Pipeline (\`02_ml_mortality.qmd\`)
-
-**Self-contained** Quarto R report with full ML pipeline:
-
-- Cohort extraction & feature engineering (same as notebook 1)
-- Data preparation: feature selection, median imputation
-- Train/test split (75/25 stratified)
-- Logistic regression (baseline) with odds ratios
-- Decision tree (rpart)
-- Model comparison: ROC curves, confusion matrix
-- Calibration analysis
-- Feature importance (standardized coefficients + tree importance)
-- Threshold analysis (sensitivity/specificity/F1 trade-offs)
-
-### 3–5. Example scripts
-
-Standalone examples demonstrating each file type (each can be run independently):
-
-| Script | Language | Description |
-|---|---|---|
-| \`03_example.sql\` | SQL | Cohort extraction from OMOP CDM tables |
-| \`04_example.py\` | Python | Cohort + feature engineering + CSV export (\`sql_query()\` + pandas) |
-| \`05_example.R\` | R | Cohort + feature engineering + statistics + logistic regression (\`sql_query()\`) |
-
-## Features extracted
-
-| Category | Variables | Aggregation |
-|---|---|---|
-| **Vital signs** (7) | Heart rate, SBP, DBP, MBP, respiratory rate, SpO$_2$, temperature | Mean, min, max |
-| **Laboratory** (15) | Hemoglobin, hematocrit, platelets, WBC, Na, K, Cl, HCO$_3$, creatinine, BUN, glucose, anion gap, Ca, Mg, phosphate | First value |
-| **Neurological** (3) | GCS eye, verbal, motor | Minimum |
-
-The OMOP long-format data is pivoted into a **one-row-per-visit wide dataset** (242 rows $\\times$ ~45 columns).
-
-## Limitations
-
-- **Small sample size**: 100 patients / 13 deaths limits statistical power and generalizability
-- **Demo dataset**: MIMIC-IV demo is a convenience sample
-- **Single-center data**: Beth Israel Deaconess Medical Center only
-- **H0–H24 only**: no time-series modeling, no features after 24h
-- **Median imputation**: simple approach, no multiple imputation
-- **No external validation**: single-center, no temporal split
-
-## References
-
-1. Johnson, A. et al. *MIMIC-IV, a freely accessible electronic health record dataset.* Sci Data 10, 1 (2023).
-2. Knaus, W.A. et al. *APACHE II: a severity of disease classification system.* Crit Care Med 13, 818–829 (1985).
-3. Le Gall, J.R. et al. *A new Simplified Acute Physiology Score (SAPS II).* JAMA 270, 2957–2963 (1993).
-`,
-    createdAt: '2026-02-10T00:00:00.000Z',
-    updatedAt: '2026-02-10T00:00:00.000Z',
-  }
-}
-
-function createDemoActivityProject(): Project {
-  return {
-    uid: DEMO_ACTIVITY_UID,
-    projectId: 'icu-activity-dashboard',
-    workspaceId: DEMO_WORKSPACE_ID,
-    name: {
-      en: 'ICU Activity Dashboard',
-      fr: 'Tableau de bord d\'activité de réanimation',
-    },
-    description: {
-      en: 'ICU activity indicators extracted from MIMIC-IV demo data: demographics, admissions, mechanical ventilation, infections, and procedures.',
-      fr: 'Indicateurs d\'activité de réanimation extraits des données MIMIC-IV demo : démographie, admissions, ventilation mécanique, infections et procédures.',
-    },
-    shortDescription: {},
-    config: {},
-    ownerId: 1,
-    status: 'active',
-    badges: [
-      { id: 'b1', label: 'ICU', color: 'red' },
-      { id: 'b2', label: 'Dashboard', color: 'blue' },
-    ],
-    todos: [],
-    notes: '',
-    linkedDataSourceIds: [DEMO_DATASOURCE_ID],
-    readme: `# ICU Activity Dashboard
-
-## Overview
-
-This project provides an **ICU activity monitoring dashboard** built from the MIMIC-IV demo database (100 patients, OMOP CDM format). It extracts key clinical indicators from routine electronic health record data and presents them as a set of interactive visualizations.
-
-## Data
-
-The dataset is extracted from the **MIMIC-IV Demo** mapped to **OMOP CDM v5.4**. The extraction pipeline:
-
-1. **Identifies ICU stays** from \`visit_detail\` + \`care_site\` (172 stays across 7 ICU units)
-2. **Joins demographics** (age, sex, race) from \`person\`
-3. **Extracts measurements** (vitals, labs, ventilation parameters) from \`measurement\`
-4. **Detects events**: mechanical ventilation, infections, procedures from OMOP clinical tables
-5. **Outputs a long-typed CSV** with stay-level and event-level rows
-
-## Indicator Domains
-
-| Domain | Key Indicators |
-|---|---|
-| **Demographics** | Age distribution, sex ratio, mortality rate (ICU / hospital) |
-| **Admissions & Flow** | Admission timeline, length of stay, ICU unit distribution, readmissions <48h |
-| **Mechanical Ventilation** | Ventilation rate, duration, tidal volume/PBW, PEEP, FiO₂ |
-| **Infections** | Infection types (sepsis, pneumonia, UTI), pathogen distribution |
-| **Procedures** | CVC, PICC, arterial lines, tracheostomy, extubation |
-
-## Scripts
-
-| Script | Description |
-|---|---|
-| \`01_extract_icu_data.sql\` | SQL queries to identify ICU stays and extract clinical data from OMOP tables |
-| \`02_build_dataset.py\` | Python pipeline to build the wide-format analytical dataset |
-
-## Key Figures (MIMIC-IV Demo)
-
-- **172 ICU stays** from **100 patients**
-- **7 ICU units**: MICU, SICU, CVICU, CCU, TSICU, MICU/SICU, Neuro SICU
-- **43% mechanically ventilated** (median 25.4h)
-- **7.6% ICU mortality**, 13.4% hospital mortality
-- **23% readmissions** within 48h
-`,
-    createdAt: '2026-02-10T00:00:00.000Z',
-    updatedAt: '2026-02-10T00:00:00.000Z',
-  }
-}
+// --- Seed ---
 
 // --- Store ---
 
@@ -409,51 +193,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     const storage = getStorage()
     let projects = await storage.projects.getAll()
 
-    // Seed demo workspace + projects on first launch only (never re-seed)
+    // Seed workspaces from public/data/seed/ on first launch only (never re-seed)
     const workspaces = await storage.workspaces.getAll()
-    if (projects.length === 0 && workspaces.length === 0 && !localStorage.getItem(SEED_KEY)) {
+    if (projects.length === 0 && workspaces.length === 0 && !isSeeded()) {
       try {
-        const demoOrg = createDemoOrganization()
-        await storage.organizations.create(demoOrg)
-        const demoWs = createDemoWorkspace()
-        await storage.workspaces.create(demoWs)
-        const demo = createDemoProject()
-        await storage.projects.create(demo)
-        const demoActivity = createDemoActivityProject()
-        await storage.projects.create(demoActivity)
-        projects = [demo, demoActivity]
-
-        // Seed built-in schemas for the demo workspace
-        const now = new Date().toISOString()
-        for (const presetId of BUILTIN_PRESET_IDS) {
-          const mapping = SCHEMA_PRESETS[presetId]
-          if (!mapping) continue
-          const preset: CustomSchemaPreset = { presetId, mapping, workspaceId: DEMO_WORKSPACE_ID, createdAt: now, updatedAt: now }
-          await storage.schemaPresets.save(preset).catch(() => {})
-        }
-
-        // Seed built-in plugins for the demo workspace
-        for (const p of getAllPlugins()) {
-          if (p.workspaceId) continue // skip non-built-in
-          const files: Record<string, string> = { 'plugin.json': JSON.stringify(p.manifest, null, 2) }
-          if (p.templates) {
-            for (const [lang, content] of Object.entries(p.templates)) {
-              const ext = lang === 'r' ? '.R.template' : '.py.template'
-              files[`analysis${ext}`] = content
-            }
-          }
-          const userPlugin: UserPlugin = { id: p.manifest.id, entityId: p.manifest.id, files, workspaceId: DEMO_WORKSPACE_ID, createdAt: now, updatedAt: now }
-          await storage.userPlugins.create(userPlugin).catch(() => {})
-        }
+        await seedWorkspaces()
+        projects = await storage.projects.getAll()
 
         const { useOrganizationStore } = await import('./organization-store')
         useOrganizationStore.getState().loadOrganizations()
         const { useWorkspaceStore } = await import('./workspace-store')
         useWorkspaceStore.getState().loadWorkspaces()
       } catch {
-        // Demo data may already exist in IndexedDB from a previous session
+        // Seed data may already exist in IndexedDB from a previous session
       }
-      localStorage.setItem(SEED_KEY, '1')
     }
 
     // Migration: assign projectId to projects that don't have one

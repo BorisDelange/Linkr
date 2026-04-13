@@ -1,0 +1,11 @@
+{
+  "id": "00000000-0000-0000-0000-000000000007",
+  "workspaceId": "00000000-0000-0000-0000-000000000010",
+  "name": "MIMIC-IV \u2192 OMOP CDM",
+  "description": "ETL pipeline transforming MIMIC-IV native source data into OMOP CDM 5.4 format. Based on OHDSI mimic-iv-demo-omop ETL scripts (Apache 2.0).",
+  "sourceDataSourceId": "00000000-0000-0000-0000-000000000003",
+  "targetDataSourceId": "00000000-0000-0000-0000-000000000009",
+  "status": "draft",
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "updatedAt": "2026-02-10T00:00:00.000Z"
+}

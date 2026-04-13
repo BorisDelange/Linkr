@@ -1,0 +1,14 @@
+{
+  "id": "00000000-0000-0000-0000-000000000010",
+  "name": {
+    "en": "Demo ICU Research",
+    "fr": "Recherche Réanimation Demo"
+  },
+  "description": {
+    "en": "Retrospective studies on ICU patient outcomes using the MIMIC-IV demo dataset.",
+    "fr": "Études rétrospectives sur le devenir des patients de réanimation à partir du jeu de données MIMIC-IV demo."
+  },
+  "organizationId": "00000000-0000-0000-0000-000000000020",
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "updatedAt": "2026-02-10T00:00:00.000Z"
+}

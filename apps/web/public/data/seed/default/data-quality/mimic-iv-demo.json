@@ -1,0 +1,13 @@
+{
+  "ruleSet": {
+    "id": "00000000-0000-0000-0000-000000000006",
+    "workspaceId": "00000000-0000-0000-0000-000000000010",
+    "name": "MIMIC-IV Demo \u2014 Data Quality",
+    "description": "Built-in and schema-aware quality checks for the MIMIC-IV Demo source dataset (100 patients, native format).",
+    "dataSourceId": "00000000-0000-0000-0000-000000000003",
+    "status": "ready",
+    "createdAt": "2026-02-10T00:00:00.000Z",
+    "updatedAt": "2026-02-10T00:00:00.000Z"
+  },
+  "checks": []
+}

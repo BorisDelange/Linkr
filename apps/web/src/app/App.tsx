@@ -8,7 +8,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { seedDemoDatabase, seedMimicIVRawDatabase, seedOmopVocabulary, seedEtlTargetDatabase, seedDemoMappingProject, seedDemoConceptMappings, seedDemoEtlPipeline, seedDemoEtlFiles, seedDemoDqRuleSet, seedDemoCatalog, seedActivityDataset, seedActivityDashboard } from '@/lib/demo-seed'
+import { seedDatabases } from '@/lib/seed-loader'
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
@@ -79,29 +79,19 @@ export function App() {
     i18n.changeLanguage(language)
   }, [language, i18n])
 
-  // Seed demo database on first launch — only if demo workspace exists
-  const demoWsExists = useWorkspaceStore((s) => s._workspacesRaw.some((ws) => ws.id === '00000000-0000-0000-0000-000000000010'))
+  // Seed databases (Parquet files, concept mappings, ETL, datasets, dashboards)
+  // from public/data/seed/seed.json after stores are loaded.
+  const hasWorkspaces = useWorkspaceStore((s) => s._workspacesRaw.length > 0)
   useEffect(() => {
-    if (!projectsLoaded || !dataSourcesLoaded || !demoWsExists) return
-    seedDemoDatabase()
-      .then(() => seedMimicIVRawDatabase())
-      .then(() => seedOmopVocabulary())
-      .then(() => seedEtlTargetDatabase())
-      .then(() => seedDemoMappingProject())
-      .then(() => seedDemoConceptMappings())
-      .then(() => seedDemoEtlPipeline())
-      .then(() => seedDemoEtlFiles())
-      .then(() => seedDemoDqRuleSet())
-      .then(() => seedDemoCatalog())
-      .then(() => seedActivityDataset())
-      .then(() => seedActivityDashboard())
+    if (!projectsLoaded || !dataSourcesLoaded || !hasWorkspaces) return
+    seedDatabases()
       .then(() => {
         loadProjects()
         loadDataSources()
         loadCatalogs()
       })
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectsLoaded, dataSourcesLoaded, demoWsExists])
+  }, [projectsLoaded, dataSourcesLoaded, hasWorkspaces])
 
   // Auto-mount data sources when entering a project
   useEffect(() => {

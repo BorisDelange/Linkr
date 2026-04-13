@@ -1,0 +1,24 @@
+{
+  "uid": "00000000-0000-0000-0000-000000000001",
+  "projectId": "icu-mortality-prediction",
+  "workspaceId": "00000000-0000-0000-0000-000000000010",
+  "name": {
+    "en": "ICU Mortality Prediction",
+    "fr": "Prédiction de mortalité en réanimation"
+  },
+  "description": {
+    "en": "Predict in-hospital mortality from the first 24 hours of ICU stay using MIMIC-IV demo data (100 patients, OMOP CDM).",
+    "fr": "Prédire la mortalité hospitalière à partir des 24 premières heures de séjour en réanimation avec les données MIMIC-IV demo (100 patients, OMOP CDM)."
+  },
+  "shortDescription": {},
+  "config": {},
+  "ownerId": 1,
+  "status": "active",
+  "badges": [
+    { "id": "b1", "label": "ICU", "color": "red" }
+  ],
+  "todos": [],
+  "notes": "",
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "updatedAt": "2026-02-10T00:00:00.000Z"
+}

@@ -1,0 +1,18 @@
+{
+  "projects": [
+    "icu-mortality-prediction",
+    "icu-activity-dashboard"
+  ],
+  "mappingProjects": [
+    "mimic-iv-to-omop"
+  ],
+  "etlPipelines": [
+    "mimic-iv-to-omop"
+  ],
+  "dqRuleSets": [
+    "data-quality/mimic-iv-demo.json"
+  ],
+  "catalogs": [
+    "catalogs/mimic-iv-demo.json"
+  ]
+}

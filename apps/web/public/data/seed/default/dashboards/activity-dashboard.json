@@ -1,0 +1,183 @@
+{
+  "dashboard": {
+    "id": "dashboard-activity-1",
+    "projectUid": "00000000-0000-0000-0000-000000000005",
+    "name": "ICU Activity",
+    "filterConfig": [],
+    "showWidgetTitles": false,
+    "createdAt": "2026-02-10T00:00:00.000Z",
+    "updatedAt": "2026-02-10T00:00:00.000Z"
+  },
+  "tabs": [
+    {
+      "id": "dtab-activity-1",
+      "dashboardId": "dashboard-activity-1",
+      "name": "D\u00e9mographie",
+      "displayOrder": 0
+    }
+  ],
+  "widgets": [
+    {
+      "id": "dw-activity-1",
+      "tabId": "dtab-activity-1",
+      "name": "Unique patients",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-key-indicator",
+        "config": {
+          "column": "col-0",
+          "uniquePer": "col-0",
+          "uniqueAggregation": "first",
+          "aggregate": "count",
+          "title": "Unique patients",
+          "centerTitle": true,
+          "icon": "Users",
+          "color": "blue",
+          "decimals": 0,
+          "size": 120,
+          "centerContent": true,
+          "chartType": "none",
+          "subtitleStats": ["n"]
+        }
+      }
+    },
+    {
+      "id": "dw-activity-2",
+      "tabId": "dtab-activity-1",
+      "name": "ICU stays",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-key-indicator",
+        "config": {
+          "column": "col-2",
+          "uniquePer": "col-2",
+          "uniqueAggregation": "first",
+          "aggregate": "count",
+          "title": "ICU stays",
+          "centerTitle": true,
+          "icon": "BedDouble",
+          "color": "orange",
+          "decimals": 0,
+          "size": 120,
+          "centerContent": true,
+          "chartType": "none",
+          "subtitleStats": ["n"]
+        }
+      }
+    },
+    {
+      "id": "dw-activity-3",
+      "tabId": "dtab-activity-1",
+      "name": "Mean age",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 12, "y": 0, "w": 6, "h": 5 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-key-indicator",
+        "config": {
+          "column": "col-4",
+          "uniquePer": "col-2",
+          "uniqueAggregation": "first",
+          "aggregate": "mean",
+          "title": "Mean age",
+          "icon": "Calendar",
+          "color": "green",
+          "decimals": 1,
+          "unit": "years",
+          "chartType": "histogram",
+          "chartBins": 15,
+          "chartPosition": "below",
+          "subtitleStats": ["median", "min", "max"]
+        }
+      }
+    },
+    {
+      "id": "dw-activity-4",
+      "tabId": "dtab-activity-1",
+      "name": "ICU mortality",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 18, "y": 0, "w": 6, "h": 5 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-key-indicator",
+        "config": {
+          "column": "col-14",
+          "uniquePer": "col-2",
+          "uniqueAggregation": "first",
+          "aggregate": "proportion",
+          "targetValue": "1",
+          "title": "ICU mortality",
+          "centerTitle": true,
+          "icon": "HeartPulse",
+          "color": "red",
+          "decimals": 1,
+          "centerContent": true,
+          "chartType": "pie",
+          "chartPosition": "side",
+          "subtitleStats": ["n", "count"]
+        }
+      }
+    },
+    {
+      "id": "dw-activity-5",
+      "tabId": "dtab-activity-1",
+      "name": "Age distribution",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 0, "y": 5, "w": 12, "h": 8 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-plot-builder",
+        "config": {
+          "plotType": "histogram",
+          "xColumn": "col-4",
+          "uniquePer": "col-2",
+          "uniqueAggregation": "first",
+          "groupColumn": "col-3",
+          "binMode": "width",
+          "binWidth": 5,
+          "opacity": 70,
+          "colorPalette": "default",
+          "title": "Age distribution by sex",
+          "centerTitle": true,
+          "cardColor": "slate",
+          "showGrid": true,
+          "showLegend": true,
+          "legendPosition": "top-right",
+          "xLabel": "Age",
+          "yLabel": "Count",
+          "barMode": "stacked",
+          "excludeNA": true
+        }
+      }
+    },
+    {
+      "id": "dw-activity-6",
+      "tabId": "dtab-activity-1",
+      "name": "Stays per unit",
+      "datasetFileId": "demo-activity-dataset-1",
+      "layout": { "x": 12, "y": 5, "w": 12, "h": 8 },
+      "source": {
+        "type": "plugin",
+        "pluginId": "linkr-analysis-plot-builder",
+        "config": {
+          "plotType": "bar",
+          "xColumn": "col-5",
+          "uniquePer": "col-2",
+          "uniqueAggregation": "first",
+          "title": "Stays per ICU unit",
+          "centerTitle": true,
+          "cardColor": "none",
+          "showGrid": true,
+          "showLegend": false,
+          "colorPalette": "default",
+          "opacity": 80,
+          "excludeNA": true
+        }
+      }
+    }
+  ]
+}
