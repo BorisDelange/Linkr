@@ -7,12 +7,13 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info } from 'lucide-react'
+import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Dialog,
   DialogContent,
@@ -83,34 +84,60 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 const CS_PAGE_SIZE = 50
 const RESOLVED_PAGE_SIZE = 50
 
-/** Small dropdown for categorical column filters. */
+/** Small dropdown for categorical column filters with search. */
 function ColumnFilterSelect({
   value,
   options,
   placeholder,
   onChange,
+  triggerClass,
 }: {
   value: string | null
   options: string[]
   placeholder: string
   onChange: (v: string | null) => void
+  triggerClass?: string
 }) {
   const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
   return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <DropdownMenu onOpenChange={() => setSearch('')}>
+      <DropdownMenuTrigger asChild>
+        <button className={triggerClass ?? 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-left text-[10px] outline-none truncate focus:border-primary'}>
+          <span className={`truncate ${value ? 'text-foreground' : 'text-muted-foreground'}`}>{value ?? placeholder}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <div className="px-2 pb-1.5">
+          <input
+            className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </div>
+        <DropdownMenuSeparator />
+        <div className="max-h-44 overflow-auto">
+          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
+            {t('concepts.filter_all')}
+          </DropdownMenuItem>
+          {filtered.map((opt) => (
+            <DropdownMenuItem
+              key={opt}
+              className={`text-xs ${value === opt ? 'bg-accent font-medium' : ''}`}
+              onSelect={() => onChange(opt)}
+            >
+              {opt}
+            </DropdownMenuItem>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -121,36 +148,86 @@ function ResolvedMultiSelect({
   options,
   selected,
   onChange,
+  triggerClass,
 }: {
   options: string[]
   selected?: Set<string>
   onChange: (v: Set<string>) => void
+  triggerClass?: string
 }) {
+  const { t } = useTranslation()
+  const [search, setSearch] = useState('')
   if (options.length === 0) return <span />
   const count = selected?.size ?? 0
+  const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={() => setSearch('')}>
       <DropdownMenuTrigger asChild>
-        <button className={`${RESOLVED_FILTER_INPUT} flex items-center justify-between truncate ${count > 0 ? 'border-primary text-foreground' : ''}`}>
+        <button className={`${triggerClass ?? RESOLVED_FILTER_INPUT} flex items-center justify-between truncate ${count > 0 ? 'border-primary text-foreground' : ''}`}>
           <span className="truncate">{count > 0 ? `(${count})` : '...'}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-52 overflow-auto">
-        {options.map((opt) => (
-          <DropdownMenuCheckboxItem
-            key={opt}
-            checked={selected?.has(opt) ?? false}
-            onCheckedChange={(v) => {
-              const next = new Set(selected)
-              if (v) next.add(opt); else next.delete(opt)
-              onChange(next)
-            }}
-            onSelect={(e) => e.preventDefault()}
-            className="text-xs"
-          >
-            {opt}
-          </DropdownMenuCheckboxItem>
-        ))}
+      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <div className="flex items-center gap-1 px-2 pb-1.5">
+          <input
+            className="h-6 min-w-0 flex-1 rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                onMouseDown={(e) => { e.preventDefault(); onChange(new Set(filtered)) }}
+              >
+                <CheckCheck size={13} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">{t('common.select_all')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  if (!selected) { onChange(new Set()); return }
+                  const next = new Set(selected)
+                  for (const o of filtered) next.delete(o)
+                  onChange(next)
+                }}
+              >
+                <XSquare size={13} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="text-xs">{t('common.deselect_all')}</TooltipContent>
+          </Tooltip>
+        </div>
+        <DropdownMenuSeparator />
+        <div className="max-h-44 overflow-auto">
+          {filtered.map((opt) => (
+            <DropdownMenuCheckboxItem
+              key={opt}
+              checked={selected?.has(opt) ?? false}
+              onCheckedChange={(v) => {
+                const next = new Set(selected)
+                if (v) next.add(opt); else next.delete(opt)
+                onChange(next)
+              }}
+              onSelect={(e) => e.preventDefault()}
+              className="text-xs"
+            >
+              {opt}
+            </DropdownMenuCheckboxItem>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+          )}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -184,6 +261,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [searching, setSearching] = useState(false)
 
+  // Search pre-filters (applied server-side in the SQL query)
+  const [searchFilterVocabs, setSearchFilterVocabs] = useState<Set<string>>(new Set())
+  const [searchFilterDomains, setSearchFilterDomains] = useState<Set<string>>(new Set())
+  const [searchFilterClasses, setSearchFilterClasses] = useState<Set<string>>(new Set())
+  const [searchFilterStandard, setSearchFilterStandard] = useState<Set<string>>(new Set())
+  const [searchMaxResults, setSearchMaxResults] = useState(1000)
+  const [searchFilterOptions, setSearchFilterOptions] = useState<{ vocabs: string[]; domains: string[]; classes: string[]; standards: string[] }>({ vocabs: [], domains: [], classes: [], standards: [] })
+
   // "Map with comment" dialog
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
   const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
@@ -194,8 +279,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [ignoreCommentText, setIgnoreCommentText] = useState('')
 
   // Browse mode state
-  const [csFilterCategory, setCsFilterCategory] = useState('')
-  const [csFilterSubcategory, setCsFilterSubcategory] = useState('')
+  const [csFilterCategory, setCsFilterCategory] = useState<Set<string>>(new Set())
+  const [csFilterSubcategory, setCsFilterSubcategory] = useState<Set<string>>(new Set())
   const [csFilterName, setCsFilterName] = useState('')
   const [csPage, setCsPage] = useState(0)
 
@@ -216,13 +301,13 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     name?: string; id?: string; code?: string
     vocab?: Set<string>; domain?: Set<string>; class?: Set<string>; std?: Set<string>
   }>({})
-  const [resolvedColVisibility, setResolvedColVisibility] = useState({ domain: true, class: false, std: false, code: false })
+  const [resolvedColVisibility, setResolvedColVisibility] = useState({ vocab: true, id: false, name: true, code: false, domain: false, class: false, std: true })
 
   // Browse mode toggle
   const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search'>('concept_sets')
 
   // Selected target concept (for resolved concepts or search results)
-  const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string } | null>(null)
+  const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
 
   // Clear selected target when source concept changes
   useEffect(() => {
@@ -249,8 +334,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Filter concept sets by column filters
   const filteredCs = linkedSets.filter((cs) => {
     const tr = getConceptSetI18n(cs, lang)
-    if (csFilterCategory && (tr.category ?? '') !== csFilterCategory) return false
-    if (csFilterSubcategory && (tr.subcategory ?? '') !== csFilterSubcategory) return false
+    if (csFilterCategory.size > 0 && !csFilterCategory.has(tr.category ?? '')) return false
+    if (csFilterSubcategory.size > 0 && !csFilterSubcategory.has(tr.subcategory ?? '')) return false
     if (csFilterName && !textMatch(tr.name, csFilterName)) return false
     return true
   })
@@ -265,7 +350,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     prevFiltersRef.current.csFilterName !== csFilterName
   ) {
     prevFiltersRef.current = { csFilterCategory, csFilterSubcategory, csFilterName }
-    setCsPage(0)
+    if (csPage !== 0) setCsPage(0)
   }
 
   // Load resolved concepts when a concept set is selected
@@ -362,6 +447,42 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     (resolvedPage + 1) * RESOLVED_PAGE_SIZE,
   )
 
+  // Load distinct filter options for the search pre-filters
+  useEffect(() => {
+    const vocabDs = project.vocabularyDataSourceId
+      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
+      : null
+    const targetDsId = vocabDs?.id ?? dataSource?.id
+    const targetMapping = vocabDs?.schemaMapping ?? dataSource?.schemaMapping
+    if (!targetDsId || !targetMapping) return
+    const dict = (targetMapping.conceptTables ?? [])[0]
+    if (!dict) return
+    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
+    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
+    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
+    const stdCol = dict.extraColumns?.standard_concept
+    const parts: string[] = []
+    parts.push(`SELECT DISTINCT d.${vocabCol} AS v FROM ${dict.table} d WHERE d.${vocabCol} IS NOT NULL ORDER BY v`)
+    if (domainCol) parts.push(`SELECT DISTINCT d.${domainCol} AS v FROM ${dict.table} d WHERE d.${domainCol} IS NOT NULL ORDER BY v`)
+    if (classCol) parts.push(`SELECT DISTINCT d.${classCol} AS v FROM ${dict.table} d WHERE d.${classCol} IS NOT NULL ORDER BY v`)
+    if (stdCol) parts.push(`SELECT DISTINCT d.${stdCol} AS v FROM ${dict.table} d WHERE d.${stdCol} IS NOT NULL ORDER BY v`)
+    ;(async () => {
+      try {
+        await ensureMounted(targetDsId)
+        const results = await Promise.all(parts.map((sql) => queryDataSource(targetDsId, sql)))
+        const toArr = (rows: Record<string, unknown>[]) => rows.map((r) => String(r.v)).filter(Boolean).sort()
+        let idx = 0
+        const vocabs = toArr(results[idx++])
+        const domains = domainCol ? toArr(results[idx++]) : []
+        const classes = classCol ? toArr(results[idx++]) : []
+        const standards = stdCol ? toArr(results[idx++]) : []
+        setSearchFilterOptions({ vocabs, domains, classes, standards })
+      } catch {
+        // Silently fail — filter options remain empty
+      }
+    })()
+  }, [project.vocabularyDataSourceId, dataSource, allDataSources, ensureMounted])
+
   // Reset resolved page when filters change
   useEffect(() => {
     setResolvedPage(0)
@@ -369,8 +490,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const handleSearch = useCallback(async () => {
     if (!searchTerm.trim()) return
-    // Determine which data source and schema mapping to use for the search.
-    // If a vocabulary reference is imported, use it; otherwise fall back to the clinical DB.
     const vocabDs = project.vocabularyDataSourceId
       ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
       : null
@@ -380,7 +499,13 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setSearching(true)
     try {
       await ensureMounted(targetDsId)
-      const sql = buildStandardConceptSearchQuery(targetMapping, searchTerm.trim())
+      const filters = {
+        vocabularyIds: searchFilterVocabs.size > 0 ? [...searchFilterVocabs] : undefined,
+        domainIds: searchFilterDomains.size > 0 ? [...searchFilterDomains] : undefined,
+        conceptClassIds: searchFilterClasses.size > 0 ? [...searchFilterClasses] : undefined,
+        standardConcepts: searchFilterStandard.size > 0 ? [...searchFilterStandard] : undefined,
+      }
+      const sql = buildStandardConceptSearchQuery(targetMapping, searchTerm.trim(), filters, searchMaxResults)
       if (!sql) { setSearching(false); return }
       const results = await queryDataSource(targetDsId, sql)
       setSearchResults(results as unknown as SearchResult[])
@@ -391,7 +516,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     } finally {
       setSearching(false)
     }
-  }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted])
+  }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, searchMaxResults])
 
   /** Add mapping from the selected target concept with a given predicate and optional comment. */
   const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
@@ -415,6 +540,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       targetVocabularyId: selectedTarget.vocabularyId,
       targetDomainId: selectedTarget.domainId,
       targetConceptCode: selectedTarget.conceptCode,
+      targetConceptClassId: selectedTarget.conceptClassId,
+      targetStandardConcept: selectedTarget.standardConcept,
       conceptSetId: selectedCs?.id,
       mappingType: 'maps_to',
       equivalence: predicate,
@@ -579,35 +706,19 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const FILTER_INPUT_CLASS = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
+  const CS_FILTER_TRIGGER = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-left text-[10px] outline-none truncate focus:border-primary'
+
   const renderCsFilter = (columnId: string) => {
-    if (columnId === 'category') return (
-      <Select value={csFilterCategory || '__all__'} onValueChange={(v) => setCsFilterCategory(v === '__all__' ? '' : v)}>
-        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">...</SelectItem>
-          {csCategoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-        </SelectContent>
-      </Select>
+    if (columnId === 'category' && csCategoryOptions.length > 0) return (
+      <ResolvedMultiSelect options={csCategoryOptions} selected={csFilterCategory} onChange={setCsFilterCategory} triggerClass={CS_FILTER_TRIGGER} />
     )
-    if (columnId === 'subcategory') return (
-      <Select value={csFilterSubcategory || '__all__'} onValueChange={(v) => setCsFilterSubcategory(v === '__all__' ? '' : v)}>
-        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">...</SelectItem>
-          {csSubcategoryOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-        </SelectContent>
-      </Select>
+    if (columnId === 'subcategory' && csSubcategoryOptions.length > 0) return (
+      <ResolvedMultiSelect options={csSubcategoryOptions} selected={csFilterSubcategory} onChange={setCsFilterSubcategory} triggerClass={CS_FILTER_TRIGGER} />
     )
     if (columnId === 'name') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterName} onChange={(e) => setCsFilterName(e.target.value)} />
     if (columnId === 'version') return <input className={FILTER_INPUT_CLASS} placeholder="..." value={csFilterVersion} onChange={(e) => setCsFilterVersion(e.target.value)} />
-    if (columnId === 'provenance') return (
-      <Select value={csFilterProvenance || '__all__'} onValueChange={(v) => setCsFilterProvenance(v === '__all__' ? '' : v)}>
-        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="__all__">...</SelectItem>
-          {csProvenanceOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
-        </SelectContent>
-      </Select>
+    if (columnId === 'provenance' && csProvenanceOptions.length > 0) return (
+      <ColumnFilterSelect value={csFilterProvenance || null} options={csProvenanceOptions} placeholder="..." onChange={(v) => setCsFilterProvenance(v ?? '')} triggerClass={CS_FILTER_TRIGGER} />
     )
     return null
   }
@@ -818,7 +929,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     return (
                       <TableCell
                         key={cell.id}
-                        className="overflow-hidden truncate text-xs"
+                        className="overflow-hidden truncate text-xs px-2 py-1"
                         style={{ maxWidth: cell.column.getSize() }}
                         title={title}
                       >
@@ -923,28 +1034,37 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       {/* Table header */}
       {(() => {
         const cols = resolvedColVisibility
-        const gridTemplate = `1fr 60px 70px${cols.domain ? ' 70px' : ''}${cols.class ? ' 70px' : ''}${cols.code ? ' 60px' : ''}${cols.std ? ' 24px' : ''} 20px`
+        const gridParts: string[] = []
+        if (cols.vocab) gridParts.push('70px')
+        if (cols.id) gridParts.push('60px')
+        if (cols.name) gridParts.push('1fr')
+        if (cols.code) gridParts.push('60px')
+        if (cols.domain) gridParts.push('70px')
+        if (cols.class) gridParts.push('70px')
+        if (cols.std) gridParts.push('24px')
+        gridParts.push('20px')
+        const gridTemplate = gridParts.join(' ')
         return (
           <>
             <div className="grid items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider" style={{ gridTemplateColumns: gridTemplate }}>
-              <span>{t('concept_mapping.col_name')}</span>
-              <span>ID</span>
-              <span>{t('concept_mapping.col_vocab')}</span>
+              {cols.vocab && <span>{t('concept_mapping.col_vocabulary')}</span>}
+              {cols.id && <span>ID</span>}
+              {cols.name && <span>{t('concept_mapping.col_name')}</span>}
+              {cols.code && <span>{t('concept_mapping.col_concept_code')}</span>}
               {cols.domain && <span>{t('concept_mapping.col_domain')}</span>}
-              {cols.class && <span>{t('concept_mapping.col_class')}</span>}
-              {cols.code && <span>{t('concept_mapping.col_code')}</span>}
+              {cols.class && <span>{t('concept_mapping.col_concept_class')}</span>}
               {cols.std && <span title={t('concept_mapping.col_std')}>Std</span>}
               <span />
             </div>
 
             {/* Filter row */}
             <div className="grid items-center gap-1 border-b bg-muted/10 px-3 py-1" style={{ gridTemplateColumns: gridTemplate }}>
-              <input className={RESOLVED_FILTER_INPUT} placeholder="..." value={resolvedFilters.name ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, name: e.target.value || undefined }))} />
-              <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="ID..." value={resolvedFilters.id ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, id: e.target.value || undefined }))} />
-              <ResolvedMultiSelect options={resolvedFilterOptions.vocab} selected={resolvedFilters.vocab} onChange={(v) => setResolvedFilters((f) => ({ ...f, vocab: v }))} />
+              {cols.vocab && <ResolvedMultiSelect options={resolvedFilterOptions.vocab} selected={resolvedFilters.vocab} onChange={(v) => setResolvedFilters((f) => ({ ...f, vocab: v }))} />}
+              {cols.id && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="ID..." value={resolvedFilters.id ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, id: e.target.value || undefined }))} />}
+              {cols.name && <input className={RESOLVED_FILTER_INPUT} placeholder="..." value={resolvedFilters.name ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, name: e.target.value || undefined }))} />}
+              {cols.code && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="Code..." value={resolvedFilters.code ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, code: e.target.value || undefined }))} />}
               {cols.domain && <ResolvedMultiSelect options={resolvedFilterOptions.domain} selected={resolvedFilters.domain} onChange={(v) => setResolvedFilters((f) => ({ ...f, domain: v }))} />}
               {cols.class && <ResolvedMultiSelect options={resolvedFilterOptions.class} selected={resolvedFilters.class} onChange={(v) => setResolvedFilters((f) => ({ ...f, class: v }))} />}
-              {cols.code && <input className={`${RESOLVED_FILTER_INPUT} font-mono`} placeholder="Code..." value={resolvedFilters.code ?? ''} onChange={(e) => setResolvedFilters((f) => ({ ...f, code: e.target.value || undefined }))} />}
               {cols.std && <ResolvedMultiSelect options={resolvedFilterOptions.std} selected={resolvedFilters.std} onChange={(v) => setResolvedFilters((f) => ({ ...f, std: v }))} />}
               <span />
             </div>
@@ -984,17 +1104,19 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                             vocabularyId: rc.vocabularyId,
                             domainId: rc.domainId,
                             conceptCode: rc.conceptCode,
+                            conceptClassId: rc.conceptClassId,
+                            standardConcept: rc.standardConcept,
                           })
                         }
                       }}
                     >
-                      <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>
-                      <span className="text-muted-foreground">{rc.conceptId}</span>
-                      <span className="truncate text-muted-foreground" title={rc.vocabularyId}>{rc.vocabularyId}</span>
+                      {cols.vocab && <span className="truncate text-muted-foreground" title={rc.vocabularyId}>{rc.vocabularyId}</span>}
+                      {cols.id && <span className="text-muted-foreground">{rc.conceptId}</span>}
+                      {cols.name && <span className="truncate" title={rc.conceptName}>{rc.conceptName}</span>}
+                      {cols.code && <span className="truncate text-muted-foreground" title={rc.conceptCode}>{rc.conceptCode}</span>}
                       {cols.domain && <span className="truncate text-muted-foreground" title={rc.domainId}>{rc.domainId}</span>}
                       {cols.class && <span className="truncate text-muted-foreground" title={rc.conceptClassId}>{rc.conceptClassId}</span>}
-                      {cols.code && <span className="truncate text-muted-foreground" title={rc.conceptCode}>{rc.conceptCode}</span>}
-                      {cols.std && <span className="text-center text-muted-foreground">{rc.standardConcept === 'S' ? '✓' : ''}</span>}
+                      {cols.std && <span className="flex justify-center">{rc.standardConcept === 'S' ? <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge> : rc.standardConcept === 'C' ? <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge> : null}</span>}
                       <span className="flex justify-center">
                         {alreadyMapped && <Check size={12} className="text-green-600" />}
                       </span>
@@ -1024,20 +1146,26 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent align="start" className="text-xs">
-              <DropdownMenuLabel className="text-[10px]">{t('concept_mapping.col_visibility')}</DropdownMenuLabel>
+            <DropdownMenuContent align="start" className="w-[180px]">
+              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
-              {(['domain', 'class', 'code', 'std'] as const).map((col) => (
+              {([
+                ['vocab', t('concept_mapping.col_vocabulary')],
+                ['id', t('concept_mapping.col_concept_id')],
+                ['name', t('concept_mapping.col_name')],
+                ['code', t('concept_mapping.col_concept_code')],
+                ['domain', t('concept_mapping.col_domain')],
+                ['class', t('concept_mapping.col_concept_class')],
+                ['std', t('concept_mapping.col_std')],
+              ] as const).map(([col, label]) => (
                 <DropdownMenuCheckboxItem
                   key={col}
                   checked={resolvedColVisibility[col]}
                   onCheckedChange={(v) => setResolvedColVisibility((prev) => ({ ...prev, [col]: v }))}
+                  onSelect={(e) => e.preventDefault()}
                   className="text-xs"
                 >
-                  {col === 'domain' ? t('concept_mapping.col_domain')
-                    : col === 'class' ? t('concept_mapping.col_class')
-                    : col === 'code' ? t('concept_mapping.col_code')
-                    : t('concept_mapping.col_std')}
+                  {label}
                 </DropdownMenuCheckboxItem>
               ))}
             </DropdownMenuContent>
@@ -1060,7 +1188,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // ─── Search mode: TanStack DataTable ─────────────────────────────
 
-  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({})
+  const [searchColVisibility, setSearchColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false })
   const [searchColSizing, setSearchColSizing] = useState<Record<string, number>>({})
   const [searchSorting, setSearchSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [searchPage, setSearchPage] = useState(0)
@@ -1098,8 +1226,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const SEARCH_FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
-  // Compute distinct values for dropdown filters from search results
-  const searchFilterOptions = useMemo(() => {
+  // Compute distinct values for inline column filters from search results
+  const searchResultFilterOptions = useMemo(() => {
     const unique = (fn: (r: SearchResult) => string | undefined) =>
       [...new Set(searchResults.map(fn).filter(Boolean) as string[])].sort()
     return {
@@ -1110,6 +1238,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [searchResults])
 
   const renderSearchColumnFilter = (columnId: string) => {
+    if (columnId === 'vocabulary_id' && searchResultFilterOptions.vocabulary_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.vocabulary_id ?? null} options={searchResultFilterOptions.vocabulary_id} placeholder="Vocab" onChange={(v) => updateSearchFilter('vocabulary_id', v)} />
+    }
     if (columnId === 'concept_id') {
       return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={searchColFilters.concept_id ?? ''} onChange={(e) => updateSearchFilter('concept_id', e.target.value || null)} />
     }
@@ -1119,14 +1250,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (columnId === 'concept_code') {
       return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
     }
-    if (columnId === 'vocabulary_id' && searchFilterOptions.vocabulary_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.vocabulary_id ?? null} options={searchFilterOptions.vocabulary_id} placeholder="Vocab" onChange={(v) => updateSearchFilter('vocabulary_id', v)} />
+    if (columnId === 'domain_id' && searchResultFilterOptions.domain_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.domain_id ?? null} options={searchResultFilterOptions.domain_id} placeholder="Domain" onChange={(v) => updateSearchFilter('domain_id', v)} />
     }
-    if (columnId === 'domain_id' && searchFilterOptions.domain_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.domain_id ?? null} options={searchFilterOptions.domain_id} placeholder="Domain" onChange={(v) => updateSearchFilter('domain_id', v)} />
-    }
-    if (columnId === 'concept_class_id' && searchFilterOptions.concept_class_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.concept_class_id ?? null} options={searchFilterOptions.concept_class_id} placeholder="Class" onChange={(v) => updateSearchFilter('concept_class_id', v)} />
+    if (columnId === 'concept_class_id' && searchResultFilterOptions.concept_class_id.length > 0) {
+      return <ColumnFilterSelect value={searchColFilters.concept_class_id ?? null} options={searchResultFilterOptions.concept_class_id} placeholder="Class" onChange={(v) => updateSearchFilter('concept_class_id', v)} />
     }
     if (columnId === 'standard_concept') {
       return (
@@ -1147,8 +1275,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const searchColumns = useMemo<ColumnDef<SearchResult>[]>(() => [
     {
+      id: 'vocabulary_id',
+      header: () => t('concept_mapping.col_vocabulary'),
+      accessorFn: (row) => row.vocabulary_id,
+      cell: ({ row }) => row.original.vocabulary_id,
+      size: 80,
+      minSize: 50,
+    },
+    {
       id: 'concept_id',
-      header: 'ID',
+      header: () => t('concept_mapping.col_concept_id'),
       accessorFn: (row) => row.concept_id,
       cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
       size: 70,
@@ -1164,17 +1300,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     },
     {
       id: 'concept_code',
-      header: 'Code',
+      header: () => t('concept_mapping.col_concept_code'),
       accessorFn: (row) => row.concept_code,
       cell: ({ row }) => <span className="font-mono">{row.original.concept_code}</span>,
-      size: 80,
-      minSize: 50,
-    },
-    {
-      id: 'vocabulary_id',
-      header: () => t('concept_mapping.col_vocab'),
-      accessorFn: (row) => row.vocabulary_id,
-      cell: ({ row }) => row.original.vocabulary_id,
       size: 80,
       minSize: 50,
     },
@@ -1196,13 +1324,13 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     },
     {
       id: 'standard_concept',
-      header: 'Std',
+      header: () => t('concept_mapping.col_std'),
       accessorFn: (row) => row.standard_concept,
       cell: ({ row }) => {
         const sc = row.original.standard_concept
-        if (sc === 'S') return <Badge variant="default" className="px-1 py-0 text-[8px]">S</Badge>
+        if (sc === 'S') return <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge>
         if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
-        return <span className="text-[10px] text-muted-foreground">{sc ?? ''}</span>
+        return null
       },
       size: 40,
       minSize: 30,
@@ -1276,13 +1404,89 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   const renderSearchMode = () => (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Search bar + columns toggle */}
-      <div className="flex items-center gap-2 border-b px-3 py-2">
+      {/* Search bar + filter + search button */}
+      <div className="flex items-center gap-1.5 border-b px-3 py-2">
+        {/* Filter popover */}
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className={`h-8 w-8 shrink-0 ${(searchFilterVocabs.size + searchFilterDomains.size + searchFilterClasses.size + searchFilterStandard.size > 0) ? 'text-primary' : ''}`}>
+                  <SlidersHorizontal size={14} />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.search_filters')}</TooltipContent>
+          </Tooltip>
+          <PopoverContent align="start" className="w-[280px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <p className="text-xs font-medium">{t('concept_mapping.search_filters')}</p>
+            {/* Vocabulary */}
+            {searchFilterOptions.vocabs.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                <ResolvedMultiSelect options={searchFilterOptions.vocabs} selected={searchFilterVocabs} onChange={setSearchFilterVocabs} />
+              </div>
+            )}
+            {/* Domain */}
+            {searchFilterOptions.domains.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_domain')}</label>
+                <ResolvedMultiSelect options={searchFilterOptions.domains} selected={searchFilterDomains} onChange={setSearchFilterDomains} />
+              </div>
+            )}
+            {/* Concept Class */}
+            {searchFilterOptions.classes.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_concept_class')}</label>
+                <ResolvedMultiSelect options={searchFilterOptions.classes} selected={searchFilterClasses} onChange={setSearchFilterClasses} />
+              </div>
+            )}
+            {/* Standard */}
+            {searchFilterOptions.standards.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_std')}</label>
+                <div className="flex gap-1">
+                  {searchFilterOptions.standards.map((s) => (
+                    <Button
+                      key={s}
+                      size="xs"
+                      variant={searchFilterStandard.has(s) ? 'default' : 'outline'}
+                      className={`h-6 text-[10px] ${searchFilterStandard.has(s) && s === 'S' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                      onClick={() => {
+                        const next = new Set(searchFilterStandard)
+                        if (next.has(s)) next.delete(s); else next.add(s)
+                        setSearchFilterStandard(next)
+                      }}
+                    >
+                      {s}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Max results */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.search_max_results')}</label>
+              <Input
+                type="number"
+                className="h-7 text-xs"
+                value={searchMaxResults}
+                min={1}
+                max={100000}
+                onChange={(e) => setSearchMaxResults(Math.max(1, parseInt(e.target.value) || 1000))}
+              />
+              {searchMaxResults > 10000 && (
+                <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+        {/* Search input */}
         <div className="relative min-w-0 flex-1">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-xs"
-            placeholder={t('concept_mapping.search_standard')}
+            placeholder={t('concept_mapping.search_omop')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
@@ -1291,7 +1495,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
           {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
         </Button>
-        {/* Column visibility — moved to footer */}
       </div>
 
       {/* Results table */}
@@ -1405,6 +1608,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                           vocabularyId: row.original.vocabulary_id,
                           domainId: row.original.domain_id ?? '',
                           conceptCode: row.original.concept_code,
+                          conceptClassId: row.original.concept_class_id,
+                          standardConcept: row.original.standard_concept,
                         })
                       }
                     }}

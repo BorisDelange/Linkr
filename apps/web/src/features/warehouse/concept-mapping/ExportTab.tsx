@@ -244,10 +244,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       <div className="mx-auto max-w-3xl space-y-6">
         {/* Status filter section */}
         <Card className="p-4">
-          <p className="mb-3 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+          <p className="mb-1.5 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
 
           {/* Status checkboxes */}
-          <div className="space-y-2">
+          <div className="space-y-1">
             {STATUSES.map((status) => {
               const count = statusCounts[status] ?? 0
               const checked = includedStatuses.has(status)
@@ -305,7 +305,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             </div>
           </div>
 
-          <div className="mt-3 border-t pt-3">
+          <div className="mt-1.5 border-t pt-1.5">
             <p className="text-xs text-muted-foreground">
               {t('concept_mapping.export_total')}: <strong>{totalExportCount}</strong> {t('concept_mapping.export_mappings_count')}
             </p>

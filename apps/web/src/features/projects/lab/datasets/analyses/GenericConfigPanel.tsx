@@ -25,6 +25,8 @@ import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
+import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
+import { PaletteEditor } from '@/components/ui/palette-editor'
 import type { DatasetColumn } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 
@@ -374,6 +376,18 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           onConfigChange={onConfigChange}
         />
       )
+    case 'palette-editor': {
+      const paletteLabel = typeof field.label === 'object' ? (field.label[lang] ?? field.label.en ?? '') : field.label ?? ''
+      return (
+        <div className="space-y-1.5">
+          <span className="text-xs text-muted-foreground">{paletteLabel}</span>
+          <PaletteEditor
+            value={(value as string) ?? (field.default as string) ?? ''}
+            onChange={(v) => onConfigChange({ [fieldKey]: v })}
+          />
+        </div>
+      )
+    }
     default:
       return null
   }
@@ -1037,23 +1051,8 @@ function IconSelectField({
 }
 
 // ---------------------------------------------------------------------------
-// Color select (palette picker)
+// Color select (palette picker — compact popover)
 // ---------------------------------------------------------------------------
-
-const COLOR_PALETTE = [
-  { name: 'none', bg: 'bg-foreground/10 border border-border', ring: 'ring-foreground/30' },
-  { name: 'red', bg: 'bg-red-500', ring: 'ring-red-500' },
-  { name: 'rose', bg: 'bg-rose-500', ring: 'ring-rose-500' },
-  { name: 'orange', bg: 'bg-orange-500', ring: 'ring-orange-500' },
-  { name: 'amber', bg: 'bg-amber-500', ring: 'ring-amber-500' },
-  { name: 'green', bg: 'bg-green-500', ring: 'ring-green-500' },
-  { name: 'emerald', bg: 'bg-emerald-500', ring: 'ring-emerald-500' },
-  { name: 'cyan', bg: 'bg-cyan-500', ring: 'ring-cyan-500' },
-  { name: 'blue', bg: 'bg-blue-500', ring: 'ring-blue-500' },
-  { name: 'indigo', bg: 'bg-indigo-500', ring: 'ring-indigo-500' },
-  { name: 'violet', bg: 'bg-violet-500', ring: 'ring-violet-500' },
-  { name: 'slate', bg: 'bg-slate-500', ring: 'ring-slate-500' },
-]
 
 function ColorSelectField({
   fieldKey,
@@ -1064,45 +1063,25 @@ function ColorSelectField({
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'
-  const isCustom = current.startsWith('#')
+
+  // Build special options from field.options (e.g. "auto", "none")
+  const specialOptions = useMemo(() => {
+    if (!field.options) return undefined
+    return field.options.map(opt => ({
+      value: opt.value as string,
+      label: opt.label as { en: string; fr: string },
+    }))
+  }, [field.options])
+
+  const fieldLabel = typeof field.label === 'object' ? (field.label[lang] ?? field.label.en ?? '') : field.label ?? ''
 
   return (
-    <div className="space-y-1.5">
-      <FieldLabel field={field} config={config} lang={lang} />
-      <div className="flex flex-wrap items-center gap-1">
-        {COLOR_PALETTE.map(c => {
-          const isSelected = c.name === current
-          return (
-            <button
-              key={c.name}
-              onClick={() => onConfigChange({ [fieldKey]: c.name })}
-              title={c.name}
-              className={cn(
-                'size-5 rounded-full transition-all',
-                c.bg,
-                isSelected && `ring-2 ${c.ring} ring-offset-1 ring-offset-background`,
-              )}
-            />
-          )
-        })}
-        {/* Custom color picker */}
-        <label
-          title="Custom"
-          className={cn(
-            'relative size-5 rounded-full cursor-pointer transition-all overflow-hidden',
-            'bg-[conic-gradient(red,yellow,lime,aqua,blue,magenta,red)]',
-            isCustom && 'ring-2 ring-foreground/50 ring-offset-1 ring-offset-background',
-          )}
-        >
-          <input
-            type="color"
-            value={isCustom ? current : '#2563eb'}
-            onChange={e => onConfigChange({ [fieldKey]: e.target.value })}
-            className="absolute inset-0 opacity-0 cursor-pointer"
-          />
-        </label>
-      </div>
-    </div>
+    <ColorPickerPopover
+      value={current}
+      onChange={v => onConfigChange({ [fieldKey]: v })}
+      specialOptions={specialOptions}
+      label={fieldLabel}
+    />
   )
 }
 

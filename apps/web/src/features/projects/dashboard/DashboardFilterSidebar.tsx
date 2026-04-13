@@ -20,20 +20,21 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { Dashboard, DashboardFilter, DashboardWidget, FilterValue } from '@/types'
+import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
   widgets: DashboardWidget[]
+  tabs: { id: string; name: string }[]
   editMode: boolean
   onClose: () => void
 }
 
 let filterIdCounter = 0
 
-export function DashboardFilterSidebar({ dashboard, widgets, editMode, onClose }: DashboardFilterSidebarProps) {
+export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onClose }: DashboardFilterSidebarProps) {
   const { t } = useTranslation()
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles, getFileRows } = useDatasetStore()
@@ -118,6 +119,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, editMode, onClose }
     updateDashboard(dashboard.id, {
       filterConfig: dashboard.filterConfig.map((f) =>
         f.id === filterId ? { ...f, propagate } : f
+      ),
+    })
+  }
+
+  const handleScopeChange = (filterId: string, scope: DashboardFilterScope) => {
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.map((f) =>
+        f.id === filterId ? { ...f, scope } : f
       ),
     })
   }
@@ -235,6 +244,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, editMode, onClose }
                           {t('dashboard.filter_propagate')}
                         </span>
                       </div>
+
+                      {/* Scope selector */}
+                      <FilterScopeSelector
+                        scope={fc.scope ?? { type: 'all' }}
+                        onChange={(scope) => handleScopeChange(fc.id, scope)}
+                        tabs={tabs}
+                        widgets={widgets}
+                      />
                     </div>
                   )}
 
@@ -745,6 +762,139 @@ function DateFilter({
           }}
         />
       </div>
+    </div>
+  )
+}
+
+// --- Filter Scope Selector ---
+
+function FilterScopeSelector({
+  scope,
+  onChange,
+  tabs,
+  widgets,
+}: {
+  scope: DashboardFilterScope
+  onChange: (scope: DashboardFilterScope) => void
+  tabs: { id: string; name: string }[]
+  widgets: DashboardWidget[]
+}) {
+  const { t } = useTranslation()
+  const [popoverOpen, setPopoverOpen] = useState(false)
+
+  // Build widget options grouped by tab
+  const widgetOptions = useMemo(() => {
+    const result: { tabName: string; widgetId: string; widgetName: string }[] = []
+    for (const tab of tabs) {
+      const tabWidgets = widgets.filter(w => w.tabId === tab.id)
+      for (const w of tabWidgets) {
+        result.push({ tabName: tab.name, widgetId: w.id, widgetName: w.name })
+      }
+    }
+    return result
+  }, [tabs, widgets])
+
+  const scopeType = scope.type
+
+  const scopeLabel = scopeType === 'all'
+    ? t('dashboard.filter_scope_all')
+    : scopeType === 'tabs'
+      ? t('dashboard.filter_scope_tabs_count', { count: (scope as { tabIds: string[] }).tabIds.length })
+      : t('dashboard.filter_scope_widgets_count', { count: (scope as { widgetIds: string[] }).widgetIds.length })
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[10px] text-muted-foreground">{t('dashboard.filter_scope')}</span>
+      <Select
+        value={scopeType}
+        onValueChange={(v) => {
+          if (v === 'all') onChange({ type: 'all' })
+          else if (v === 'tabs') onChange({ type: 'tabs', tabIds: tabs.map(tab => tab.id) })
+          else if (v === 'widgets') onChange({ type: 'widgets', widgetIds: widgets.map(w => w.id) })
+        }}
+      >
+        <SelectTrigger className="h-6 text-[10px] w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent position="popper" sideOffset={4}>
+          <SelectItem value="all" className="text-xs">{t('dashboard.filter_scope_all')}</SelectItem>
+          <SelectItem value="tabs" className="text-xs">{t('dashboard.filter_scope_tabs')}</SelectItem>
+          <SelectItem value="widgets" className="text-xs">{t('dashboard.filter_scope_widgets')}</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {/* Tab selection */}
+      {scopeType === 'tabs' && (
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="xs" className="w-full justify-between text-[10px] font-normal h-6">
+              <span className="truncate">{scopeLabel}</span>
+              <ChevronsUpDown size={9} className="shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-52 p-2" align="start">
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {tabs.map((tab) => {
+                const selected = (scope as { tabIds: string[] }).tabIds.includes(tab.id)
+                return (
+                  <label key={tab.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() => {
+                        const current = (scope as { tabIds: string[] }).tabIds
+                        const next = selected ? current.filter(id => id !== tab.id) : [...current, tab.id]
+                        if (next.length > 0) onChange({ type: 'tabs', tabIds: next })
+                      }}
+                      className="h-3 w-3"
+                    />
+                    <span className="truncate">{tab.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {/* Widget selection */}
+      {scopeType === 'widgets' && (
+        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="xs" className="w-full justify-between text-[10px] font-normal h-6">
+              <span className="truncate">{scopeLabel}</span>
+              <ChevronsUpDown size={9} className="shrink-0 opacity-50" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-56 p-2" align="start">
+            <div className="max-h-48 overflow-y-auto space-y-0.5">
+              {widgetOptions.map(({ tabName, widgetId, widgetName }) => {
+                const selected = (scope as { widgetIds: string[] }).widgetIds.includes(widgetId)
+                return (
+                  <label key={widgetId} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                    <Checkbox
+                      checked={selected}
+                      onCheckedChange={() => {
+                        const current = (scope as { widgetIds: string[] }).widgetIds
+                        const next = selected ? current.filter(id => id !== widgetId) : [...current, widgetId]
+                        if (next.length > 0) onChange({ type: 'widgets', widgetIds: next })
+                      }}
+                      className="h-3 w-3"
+                    />
+                    <span className="truncate text-muted-foreground">{tabName}</span>
+                    <span className="text-[10px] text-muted-foreground/60">›</span>
+                    <span className="truncate">{widgetName}</span>
+                  </label>
+                )
+              })}
+              {widgetOptions.length === 0 && (
+                <p className="text-[10px] text-muted-foreground italic text-center py-2">
+                  {t('dashboard.filter_no_widgets')}
+                </p>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   )
 }

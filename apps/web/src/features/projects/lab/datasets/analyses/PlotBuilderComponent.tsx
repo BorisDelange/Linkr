@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ResponsiveContainer,
@@ -24,9 +24,20 @@ import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 const PALETTES: Record<string, string[]> = {
   default: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'],
+  tableau10: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'],
   pastel: ['#aec7e8', '#ffbb78', '#ff9896', '#98df8a', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'],
   vivid: ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'],
+  earth: ['#8c510a', '#bf812d', '#dfc27d', '#80cdc1', '#35978f', '#01665e', '#c7eae5', '#f6e8c3', '#d8b365', '#5ab4ac'],
+  ocean: ['#08519c', '#3182bd', '#6baed6', '#9ecae1', '#c6dbef', '#084594', '#2171b5', '#4292c6', '#6baed6', '#9ecae1'],
+  warm: ['#e41a1c', '#fc4e2a', '#fd8d3c', '#feb24c', '#fed976', '#d7301f', '#ef6548', '#fc8d59', '#fdbb84', '#fdd49e'],
+  cool: ['#225ea8', '#1d91c0', '#41b6c4', '#7fcdbb', '#c7e9b4', '#253494', '#2c7fb8', '#41b6c4', '#a1dab4', '#ffffcc'],
   monochrome: ['#252525', '#525252', '#737373', '#969696', '#bdbdbd', '#d9d9d9', '#636363', '#a8a8a8', '#454545', '#cccccc'],
+}
+
+function parseCustomPalette(input: string): string[] | null {
+  if (!input.trim()) return null
+  const colors = input.split(',').map(s => s.trim()).filter(s => /^#[0-9a-fA-F]{3,8}$/.test(s))
+  return colors.length > 0 ? colors : null
 }
 
 // ---------------------------------------------------------------------------
@@ -50,12 +61,21 @@ function isDateRange(values: number[]): boolean {
   return mid > 1e11 && mid < 1e14
 }
 
-function formatBinLabel(val: number, dateMode: boolean): string {
+function formatBinLabel(val: number, dateMode: boolean, decimals = 1): string {
   if (dateMode) {
     const d = new Date(val)
     return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
   }
-  return val.toPrecision(3)
+  return val.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+}
+
+function formatNumericTick(decimals: number) {
+  return (val: number | string): string => {
+    const n = typeof val === 'string' ? Number(val) : val
+    if (isNaN(n)) return String(val)
+    if (Number.isInteger(n) && Math.abs(n) < 1e6) return n.toLocaleString()
+    return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })
+  }
 }
 
 function formatDateTick(val: number | string): string {
@@ -97,28 +117,30 @@ function TruncatedTick({ x, y, payload, maxLen = 16, angle = 0, textAnchor = 'mi
 
 /** Compute bin parameters: aligned start, width, and count.
  *  When binWidth is provided, bins start at a round multiple of binWidth. */
-function computeBinParams(min: number, max: number, binMode: string, binsConfig: number, binWidthConfig: number) {
+function computeBinParams(min: number, max: number, binMode: string, binsConfig: number, binWidthConfig: number, startAtZero = false) {
+  const effectiveMin = (startAtZero && min > 0) ? 0 : min
   if (binMode === 'width' && binWidthConfig > 0) {
     const bw = binWidthConfig
-    const alignedMin = Math.floor(min / bw) * bw
+    const alignedMin = Math.floor(effectiveMin / bw) * bw
     const alignedMax = Math.ceil(max / bw) * bw
     const n = Math.max(1, Math.round((alignedMax - alignedMin) / bw))
     return { start: alignedMin, binWidth: bw, count: n }
   }
-  return { start: min, binWidth: (max - min) / binsConfig, count: binsConfig }
+  const range = max - effectiveMin
+  return { start: effectiveMin, binWidth: range / binsConfig, count: binsConfig }
 }
 
-function buildHistogramData(values: number[], binMode: string, binsConfig: number, binWidthConfig: number) {
+function buildHistogramData(values: number[], binMode: string, binsConfig: number, binWidthConfig: number, startAtZero = false, decimals = 1) {
   if (values.length === 0) return []
   const min = Math.min(...values)
   const max = Math.max(...values)
-  if (min === max) return [{ bin: formatBinLabel(min, isDateRange(values)), count: values.length }]
+  if (min === max) return [{ bin: formatBinLabel(min, isDateRange(values), decimals), count: values.length }]
   const dateMode = isDateRange(values)
-  const { start, binWidth, count } = computeBinParams(min, max, binMode, binsConfig, binWidthConfig)
+  const { start, binWidth, count } = computeBinParams(min, max, binMode, binsConfig, binWidthConfig, startAtZero)
   const buckets: { bin: string; count: number }[] = []
   for (let i = 0; i < count; i++) {
     const lo = start + i * binWidth
-    buckets.push({ bin: formatBinLabel(lo, dateMode), count: 0 })
+    buckets.push({ bin: formatBinLabel(lo, dateMode, decimals), count: 0 })
   }
   for (const v of values) {
     let idx = Math.floor((v - start) / binWidth)
@@ -137,19 +159,21 @@ function buildHistogramGrouped(
   binsConfig: number,
   binWidthConfig: number,
   groupNames: string[],
+  startAtZero = false,
+  decimals = 1,
 ) {
   const allVals = rows.map(r => toNumeric(r[xCol])).filter(v => !isNaN(v))
   if (allVals.length === 0) return []
   const min = Math.min(...allVals)
   const max = Math.max(...allVals)
   const dateMode = isDateRange(allVals)
-  if (min === max) return [{ bin: formatBinLabel(min, dateMode), ...Object.fromEntries(groupNames.map(g => [g, 0])) }]
-  const { start, binWidth, count } = computeBinParams(min, max, binMode, binsConfig, binWidthConfig)
+  if (min === max) return [{ bin: formatBinLabel(min, dateMode, decimals), ...Object.fromEntries(groupNames.map(g => [g, 0])) }]
+  const { start, binWidth, count } = computeBinParams(min, max, binMode, binsConfig, binWidthConfig, startAtZero)
 
   const buckets: Record<string, unknown>[] = []
   for (let i = 0; i < count; i++) {
     const lo = start + i * binWidth
-    const entry: Record<string, unknown> = { bin: formatBinLabel(lo, dateMode) }
+    const entry: Record<string, unknown> = { bin: formatBinLabel(lo, dateMode, decimals) }
     for (const g of groupNames) entry[g] = 0
     buckets.push(entry)
   }
@@ -381,6 +405,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   // Config
   const cardIcon = (config.cardIcon as string) ?? '__none__'
   const cardColor = (config.cardColor as string) ?? 'none'
+  const bgColorName = (config.bgColor as string) ?? 'none'
+  const titleColorName = (config.titleColor as string) ?? 'auto'
   const centerTitle = (config.centerTitle as boolean) ?? false
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
@@ -396,20 +422,26 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const pointSize = (config.pointSize as number) ?? 4
   const opacityPct = (config.opacity as number) ?? 70
   const paletteName = (config.colorPalette as string) ?? 'default'
+  const customPaletteStr = (config.customPalette as string) ?? ''
   const chartTitle = (config.title as string) ?? ''
   const xLabel = (config.xLabel as string) ?? ''
   const yLabel = (config.yLabel as string) ?? ''
+  const decimals = (config.decimals as number) ?? 1
   const xAxisStartZero = (config.xAxisStartZero as boolean) ?? false
   const showGrid = (config.showGrid as boolean) ?? true
   const showLegend = (config.showLegend as boolean) ?? true
   const legendPosition = (config.legendPosition as string) ?? 'bottom'
 
   const opacity = opacityPct / 100
-  const paletteColors = PALETTES[paletteName] ?? PALETTES.default
+  const paletteColors = paletteName === 'custom'
+    ? (parseCustomPalette(customPaletteStr) ?? PALETTES.default)
+    : (PALETTES[paletteName] ?? PALETTES.default)
 
-  // Use card color as primary chart color when no groups and color is set
+  // Resolve colors
   const cardColorResolved = resolveColor(cardColor)
   const hasCardColor = cardColor !== 'none' && cardColor !== ''
+  const bgColor = bgColorName !== 'none' && bgColorName !== '' ? resolveColor(bgColorName) : null
+  const titleColor = titleColorName !== 'auto' ? resolveColor(titleColorName) : null
   const colors = useMemo(() => {
     if (hasCardColor && !groupCol) {
       return [cardColorResolved.hex, ...paletteColors.slice(1)]
@@ -503,6 +535,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           xIsDate={xIsDate}
           yIsDate={yIsDate}
           xAxisStartZero={xAxisStartZero}
+          decimals={decimals}
         />
       )}
       {plotType === 'line' && (
@@ -522,6 +555,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           legendPosition={legendPosition}
           xIsDate={xIsDate}
           xAxisStartZero={xAxisStartZero}
+          decimals={decimals}
         />
       )}
       {plotType === 'bar' && (
@@ -538,6 +572,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           showGrid={showGrid}
           showLegend={showLegend}
           legendPosition={legendPosition}
+          decimals={decimals}
         />
       )}
       {plotType === 'histogram' && (
@@ -557,6 +592,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           legendPosition={legendPosition}
           barMode={barMode}
           xAxisStartZero={xAxisStartZero}
+          decimals={decimals}
         />
       )}
       {plotType === 'boxplot' && (
@@ -591,11 +627,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const hasIcon = cardIcon !== '__none__' && cardIcon !== ''
   const Icon = hasIcon ? getLucideIcon(cardIcon) : null
 
+  // Background styles (from bgColor, independent of main color)
+  const bgStyle: React.CSSProperties = {}
+  let bgClasses = ''
+  if (bgColor) {
+    if (bgColor.isCustom) bgStyle.backgroundColor = `${bgColor.hex}10`
+    else bgClasses = bgColor.bg
+  }
+
   const titleElement = resolvedTitle ? (
     <span className={cn(
-      'text-xs font-medium text-muted-foreground truncate',
-      compact ? '' : 'text-sm text-foreground/80',
-    )}>
+      'text-xs font-medium truncate',
+      titleColor ? titleColor.text : 'text-muted-foreground',
+      !compact && !titleColor && 'text-sm text-foreground/80',
+    )} style={titleColor?.isCustom ? { color: titleColor.hex } : undefined}>
       {resolvedTitle}
     </span>
   ) : null
@@ -620,8 +665,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   if (compact) {
     return (
       <div
-        className={cn('flex h-full flex-col', hasCardColor && color.bg)}
-        style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
+        className={cn('flex h-full flex-col', bgClasses)}
+        style={bgStyle}
       >
         {header}
         <div className="flex-1 min-h-0 px-2 pb-2">
@@ -633,8 +678,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
 
   return (
     <div
-      className={cn('flex h-full flex-col p-4 gap-2', hasCardColor && color.bg)}
-      style={color.isCustom ? { backgroundColor: `${color.hex}10` } : undefined}
+      className={cn('flex h-full flex-col p-4 gap-2', bgClasses)}
+      style={bgStyle}
     >
       {header}
       <div className="flex-1 min-h-0">
@@ -649,11 +694,11 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
 // ---------------------------------------------------------------------------
 
 function ScatterPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, xIsDate, yIsDate, xAxisStartZero,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, xIsDate, yIsDate, xAxisStartZero, decimals = 1,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; xIsDate?: boolean; yIsDate?: boolean; xAxisStartZero?: boolean
+  legendPosition: string; xIsDate?: boolean; yIsDate?: boolean; xAxisStartZero?: boolean; decimals?: number
 }) {
   const legendProps = buildLegendProps(legendPosition)
   const data = useMemo(() => {
@@ -678,8 +723,8 @@ function ScatterPlot({
     <ResponsiveContainer width="100%" height="100%">
       <ScatterChart margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} domain={xAxisStartZero ? [0, 'auto'] : undefined} />
-        <YAxis dataKey="y" type="number" name={yLabel || undefined} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : undefined} />
+        <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xAxisStartZero ? [0, 'auto'] : undefined} />
+        <YAxis dataKey="y" type="number" name={yLabel || undefined} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={yIsDate ? formatDateTick : formatNumericTick(decimals)} />
         <Tooltip
           {...TOOLTIP_STYLE}
           cursor={{ strokeDasharray: '3 3' }}
@@ -710,11 +755,11 @@ function ScatterPlot({
 // ---------------------------------------------------------------------------
 
 function LinePlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, xIsDate, xAxisStartZero,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, xIsDate, xAxisStartZero, decimals = 1,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; xIsDate?: boolean; xAxisStartZero?: boolean
+  legendPosition: string; xIsDate?: boolean; xAxisStartZero?: boolean; decimals?: number
 }) {
   const legendProps = buildLegendProps(legendPosition)
   const { merged, series } = useMemo(() => {
@@ -743,8 +788,8 @@ function LinePlot({
     <ResponsiveContainer width="100%" height="100%">
       <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : undefined} domain={xAxisStartZero ? [0, 'auto'] : undefined} />
-        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} />
+        <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xAxisStartZero ? [0, 'auto'] : undefined} />
+        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={formatNumericTick(decimals)} />
         <Tooltip {...TOOLTIP_STYLE} labelFormatter={xIsDate ? formatDateTick : undefined} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
@@ -771,11 +816,11 @@ function LinePlot({
 // ---------------------------------------------------------------------------
 
 function BarPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition,
+  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, decimals = 1,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string
+  legendPosition: string; decimals?: number
 }) {
   const legendProps = buildLegendProps(legendPosition)
   const isCountMode = !yCol
@@ -858,7 +903,7 @@ function BarPlot({
       <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={20} angle={-30} textAnchor="end" />} interval={0} height={60} />
-        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} />
+        <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} tickFormatter={formatNumericTick(decimals)} />
         <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
@@ -874,27 +919,57 @@ function BarPlot({
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, showGrid, showLegend, legendPosition, barMode, xAxisStartZero,
+  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, showGrid, showLegend, legendPosition, barMode, xAxisStartZero, decimals = 1,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string
-  showGrid: boolean; showLegend: boolean; legendPosition: string; barMode: string; xAxisStartZero?: boolean
+  showGrid: boolean; showLegend: boolean; legendPosition: string; barMode: string; xAxisStartZero?: boolean; decimals?: number
 }) {
   const { data, series, effectiveBins } = useMemo(() => {
     if (!groupNames || !groupCol) {
       const values = rows.map(r => toNumeric(r[xCol])).filter(v => !isNaN(v))
-      const d = buildHistogramData(values, binMode, binsConfig, binWidthConfig)
+      const d = buildHistogramData(values, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals)
       return { data: d, series: ['count'], effectiveBins: d.length }
     }
-    const d = buildHistogramGrouped(rows, xCol, groupCol, binMode, binsConfig, binWidthConfig, groupNames)
+    const d = buildHistogramGrouped(rows, xCol, groupCol, binMode, binsConfig, binWidthConfig, groupNames, xAxisStartZero, decimals)
     return { data: d, series: groupNames, effectiveBins: d.length }
-  }, [rows, xCol, groupCol, groupNames, binMode, binsConfig, binWidthConfig])
+  }, [rows, xCol, groupCol, groupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals])
 
   const hasGroups = groupNames != null && groupNames.length > 1
   const isOverlay = barMode === 'overlay' && hasGroups
   const isStacked = barMode === 'stacked' && hasGroups
   const effectiveOpacity = isOverlay ? Math.min(opacity, 0.5) : opacity
   const legendProps = buildLegendProps(legendPosition)
+
+  // Total count for proportion calculation
+  const totalCount = useMemo(() => {
+    let total = 0
+    for (const d of data) {
+      for (const s of series) {
+        total += (d[s] as number) ?? 0
+      }
+    }
+    return total
+  }, [data, series])
+
+  const renderHistTooltip = useCallback(({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
+    if (!active || !payload?.length) return null
+    return (
+      <div style={{ fontSize: 10, padding: '6px 10px', background: 'rgba(0,0,0,.85)', borderRadius: 4, color: '#fff', lineHeight: 1.6 }}>
+        <div style={{ fontWeight: 600, marginBottom: 2 }}>{label}</div>
+        {payload.map((p, i) => {
+          const pct = totalCount > 0 ? ((p.value / totalCount) * 100).toFixed(1) : '0'
+          return (
+            <div key={i}>
+              {hasGroups && <span style={{ color: p.color }}>{p.name}: </span>}
+              <span>Count: {p.value.toLocaleString()}</span>
+              <span style={{ marginLeft: 8, opacity: 0.7 }}>({pct}%)</span>
+            </div>
+          )
+        })}
+      </div>
+    )
+  }, [totalCount, hasGroups])
 
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -906,7 +981,7 @@ function HistogramPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="bin" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={12} />} interval={Math.max(0, Math.floor(effectiveBins / 10) - 1)} />
         <YAxis label={{ value: 'Count', angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 }} tick={{ fontSize: 10 }} />
-        <Tooltip {...TOOLTIP_STYLE} />
+        <Tooltip content={renderHistTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
           <Bar

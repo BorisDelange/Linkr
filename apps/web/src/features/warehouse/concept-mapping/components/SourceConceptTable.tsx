@@ -19,13 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+// Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
   TableBody,
@@ -38,6 +32,7 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -46,7 +41,7 @@ import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-m
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptDictionary } from '@/types/schema-mapping'
 
-export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'approved' | 'rejected' | 'flagged' | 'ignored'
+export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
 
 interface SourceConceptTableProps {
   rows: SourceConceptRow[]
@@ -60,6 +55,8 @@ interface SourceConceptTableProps {
   filterOptions: Record<string, string[]>
   conceptDicts: ConceptDictionary[]
   mappingStatusMap: Map<number, string>
+  /** Set of source concept IDs that are mapped in another project. */
+  mappedElsewhereIds: Set<number>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
   /** True when source is a file import. */
@@ -83,7 +80,7 @@ interface SourceConceptTableProps {
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
-/** Small dropdown for categorical column filters. */
+/** Small dropdown for categorical column filters with search. */
 function ColumnFilterSelect({
   value,
   options,
@@ -96,30 +93,52 @@ function ColumnFilterSelect({
   onChange: (v: string | null) => void
 }) {
   const { t } = useTranslation()
+  const [search, setSearch] = useState('')
+  const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
   return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <DropdownMenu onOpenChange={() => setSearch('')}>
+      <DropdownMenuTrigger asChild>
+        <button className={`${FILTER_INPUT_CLASS} flex items-center truncate ${value ? 'border-primary text-foreground' : ''}`}>
+          <span className="truncate">{value ?? placeholder}</span>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <div className="px-2 pb-1.5">
+          <input
+            className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+            placeholder={t('common.search')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </div>
+        <DropdownMenuSeparator />
+        <div className="max-h-44 overflow-auto">
+          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
+            {t('concepts.filter_all')}
+          </DropdownMenuItem>
+          {filtered.map((opt) => (
+            <DropdownMenuItem
+              key={opt}
+              className={`text-xs ${value === opt ? 'bg-accent font-medium' : ''}`}
+              onSelect={() => onChange(opt)}
+            >
+              {opt}
+            </DropdownMenuItem>
+          ))}
+          {filtered.length === 0 && (
+            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+          )}
+        </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
 const STATUS_COLORS: Record<string, string> = {
   unmapped: 'bg-gray-300',
-  mapped: 'bg-blue-500',
-  approved: 'bg-green-500',
-  flagged: 'bg-orange-500',
-  invalid: 'bg-red-500',
+  mapped: 'bg-green-500',
+  mapped_elsewhere: 'bg-blue-500',
   ignored: 'bg-gray-400',
 }
 
@@ -158,6 +177,7 @@ export function SourceConceptTable({
   filterOptions,
   conceptDicts,
   mappingStatusMap,
+  mappedElsewhereIds,
   mappingStatusFilter,
   selectedConceptId,
   isFileSource,
@@ -185,7 +205,7 @@ export function SourceConceptTable({
     }
   }
 
-  const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'approved', 'rejected', 'flagged', 'ignored']
+  const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
 
   // Determine which optional columns are available based on the schema dicts
   const hasCategory = conceptDicts.some((d) => !!d.categoryColumn)
@@ -281,8 +301,11 @@ export function SourceConceptTable({
         header: '',
         accessorFn: () => null,
         cell: ({ row }) => {
-          const isIgnored = ignoredConceptIds.has(row.original.concept_id)
-          const status = isIgnored ? 'ignored' : (mappingStatusMap.get(row.original.concept_id) ?? 'unmapped')
+          const cid = row.original.concept_id
+          const isIgnored = ignoredConceptIds.has(cid)
+          const isMapped = mappingStatusMap.has(cid)
+          const isMappedElsewhere = !isMapped && mappedElsewhereIds.has(cid)
+          const status = isIgnored ? 'ignored' : isMapped ? 'mapped' : isMappedElsewhere ? 'mapped_elsewhere' : 'unmapped'
           return (
             <span className="flex justify-center">
               <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[status] ?? STATUS_COLORS.unmapped}`} />
@@ -295,31 +318,7 @@ export function SourceConceptTable({
       },
     ]
 
-    // Show concept_id column only for database source or if conceptIdColumn is mapped
-    if (!isFileSource) {
-      cols.push({
-        id: 'concept_id',
-        header: 'ID',
-        accessorFn: (row) => row.concept_id,
-        cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
-        size: 70,
-        minSize: 50,
-      })
-    }
-
-    // Concept code column (file source)
-    if (isFileSource) {
-      cols.push({
-        id: 'concept_code',
-        header: () => t('concept_mapping.col_code'),
-        accessorFn: (row) => row.concept_code,
-        cell: ({ row }) => <span className="font-mono">{row.original.concept_code ?? ''}</span>,
-        size: 100,
-        minSize: 60,
-      })
-    }
-
-    // Terminology column
+    // Terminology/vocabulary column (first data column)
     if (!isFileSource || fileHasTerminology) {
       cols.push({
         id: 'terminology_name',
@@ -353,6 +352,18 @@ export function SourceConceptTable({
       })
     }
 
+    // Concept ID column (database source only)
+    if (!isFileSource) {
+      cols.push({
+        id: 'concept_id',
+        header: () => t('concept_mapping.col_concept_id'),
+        accessorFn: (row) => row.concept_id,
+        cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
+        size: 70,
+        minSize: 50,
+      })
+    }
+
     cols.push({
       id: 'concept_name',
       header: () => t('concept_mapping.col_name'),
@@ -361,6 +372,18 @@ export function SourceConceptTable({
       size: 220,
       minSize: 100,
     })
+
+    // Concept code column
+    if (isFileSource) {
+      cols.push({
+        id: 'concept_code',
+        header: () => t('concept_mapping.col_concept_code'),
+        accessorFn: (row) => row.concept_code,
+        cell: ({ row }) => <span className="font-mono">{row.original.concept_code ?? ''}</span>,
+        size: 100,
+        minSize: 60,
+      })
+    }
 
     // Count columns: always for database source, or when mapped in file source
     if (!isFileSource || hasPatientCount) {
@@ -421,25 +444,25 @@ export function SourceConceptTable({
           return (
             <button
               type="button"
-              className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
+              className="flex size-5 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-primary"
               title={t('concept_mapping.show_concept_stats')}
               onClick={(e) => {
                 e.stopPropagation()
                 onShowDetail(row.original)
               }}
             >
-              <BarChart3 size={14} />
+              <BarChart3 size={12} />
             </button>
           )
         },
-        size: 32,
-        minSize: 32,
+        size: 28,
+        minSize: 28,
         enableResizing: false,
       })
     }
 
     return cols
-  }, [t, mappingStatusMap, ignoredConceptIds, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
 
   const table = useReactTable({
     data: rows,
@@ -559,7 +582,7 @@ export function SourceConceptTable({
                       return (
                         <TableCell
                           key={cell.id}
-                          className="overflow-hidden truncate text-xs"
+                          className="overflow-hidden truncate text-xs px-2 py-1"
                           style={{ maxWidth: cell.column.getSize() }}
                           title={title}
                         >

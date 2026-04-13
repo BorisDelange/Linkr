@@ -87,8 +87,13 @@ function fileRowsToSourceRows(
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+
+  // Load "mapped elsewhere" keys for cross-project detection
+  useEffect(() => {
+    if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
+  }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
 
   const isFileSource = project.sourceType === 'file'
 
@@ -363,25 +368,35 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     ? sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
     : sortedRows
 
-  // Compute mapping status for each source concept
-  const mappingStatusMap = new Map<number, 'unmapped' | 'mapped' | 'approved' | 'flagged' | 'invalid'>()
+  // Compute mapping status for each source concept (simplified: mapped or not)
+  const mappingStatusMap = new Map<number, 'mapped'>()
   for (const m of mappings) {
-    const current = mappingStatusMap.get(m.sourceConceptId)
-    if (m.status === 'approved') mappingStatusMap.set(m.sourceConceptId, 'approved')
-    else if (m.status === 'flagged' && current !== 'approved') mappingStatusMap.set(m.sourceConceptId, 'flagged')
-    else if (m.status === 'invalid' && !current) mappingStatusMap.set(m.sourceConceptId, 'invalid')
-    else if (!current) mappingStatusMap.set(m.sourceConceptId, 'mapped')
+    if (m.status !== 'ignored') mappingStatusMap.set(m.sourceConceptId, 'mapped')
   }
+
+  // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
+  const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
+  const mappedElsewhereIds = useMemo(() => {
+    const result = new Set<number>()
+    if (!otherProjectMappings || otherProjectMappings.size === 0) return result
+    const allRows = isFileSource ? allFileRows : rows
+    for (const row of allRows) {
+      if (mappingStatusMap.has(row.concept_id)) continue // already mapped in this project
+      const key = `${row.vocabulary_id ?? ''}:${row.concept_code ?? ''}`
+      if (otherProjectMappings.has(key)) result.add(row.concept_id)
+    }
+    return result
+  }, [otherProjectMappings, isFileSource, allFileRows, rows, mappingStatusMap])
 
   // Client-side filtering by mapping status
   const statusFilteredRows = mappingStatusFilter === 'all'
     ? sortedRows
     : sortedRows.filter((row) => {
-        if (mappingStatusFilter === 'ignored') return ignoredConceptIds.has(row.concept_id)
-        const status = mappingStatusMap.get(row.concept_id)
-        if (mappingStatusFilter === 'unmapped') return !status && !ignoredConceptIds.has(row.concept_id)
-        if (mappingStatusFilter === 'mapped') return !!status
-        return status === mappingStatusFilter
+        const isMapped = mappingStatusMap.has(row.concept_id)
+        if (mappingStatusFilter === 'mapped') return isMapped
+        if (mappingStatusFilter === 'unmapped') return !isMapped && !ignoredConceptIds.has(row.concept_id) && !mappedElsewhereIds.has(row.concept_id)
+        if (mappingStatusFilter === 'mapped_elsewhere') return !isMapped && mappedElsewhereIds.has(row.concept_id)
+        return true
       })
 
   const finalRows = mappingStatusFilter === 'all'
@@ -420,6 +435,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             filterOptions={filterOptions}
             conceptDicts={isFileSource ? [] : (dataSource?.schemaMapping?.conceptTables ?? [])}
             mappingStatusMap={mappingStatusMap}
+            mappedElsewhereIds={mappedElsewhereIds}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             isFileSource={isFileSource}

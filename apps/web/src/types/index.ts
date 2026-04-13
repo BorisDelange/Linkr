@@ -342,6 +342,11 @@ export interface DashboardFilterColumn {
   label?: string
 }
 
+export type DashboardFilterScope =
+  | { type: 'all' }
+  | { type: 'tabs'; tabIds: string[] }
+  | { type: 'widgets'; widgetIds: string[] }
+
 export interface DashboardFilter {
   id: string
   datasetFileId: string
@@ -350,6 +355,7 @@ export interface DashboardFilter {
   type: 'categorical' | 'numeric' | 'date'
   inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range'
   propagate: boolean
+  scope?: DashboardFilterScope
 }
 
 export interface Dashboard {
@@ -358,6 +364,7 @@ export interface Dashboard {
   name: string
   filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
+  defaultDatasetFileId?: string | null
   createdAt: string
   updatedAt: string
 }

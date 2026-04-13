@@ -44,6 +44,11 @@ function resolveWidgetFilters(
     const filterValue = activeFilters[filter.id]
     if (!filterValue) continue
 
+    // Check scope: skip if filter is scoped and widget is not in scope
+    const scope = filter.scope ?? { type: 'all' }
+    if (scope.type === 'tabs' && !scope.tabIds.includes(widget.tabId)) continue
+    if (scope.type === 'widgets' && !scope.widgetIds.includes(widget.id)) continue
+
     if (filter.datasetFileId === widget.datasetFileId) {
       // Direct match: filter targets this widget's dataset
       result[filter.columnId] = filterValue
@@ -177,12 +182,18 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         onLayoutChange={handleLayoutChange}
         autoSize
       >
-        {widgets.map((widget) => (
+        {widgets.map((widget) => {
+          // Sibling names for uniqueness check (exclude current widget)
+          const siblingNames = new Set(
+            widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
+          )
+          return (
           <div key={widget.id} className="h-full">
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onRename={(name) => updateWidgetName(widget.id, name)}
+              siblingNames={siblingNames}
               onEdit={() => setEditingWidgetId(widget.id)}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
@@ -194,7 +205,8 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
               />
             </WidgetCard>
           </div>
-        ))}
+          )
+        })}
       </GridLayout>
 
       <WidgetEditorDialog

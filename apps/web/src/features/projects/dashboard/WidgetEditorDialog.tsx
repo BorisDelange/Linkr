@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -106,9 +106,18 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
   const [installedDeps, setInstalledDeps] = useState<string[]>([])
   const isExecutingRef = useRef(false)
 
+  // Debounced config for live preview — avoids re-rendering on every keystroke
+  const [debouncedConfig, setDebouncedConfig] = useState(config)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  useEffect(() => {
+    debounceRef.current = setTimeout(() => setDebouncedConfig(config), 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [config])
+
   // Reset state when widget changes
   useEffect(() => {
     setConfig(widget.source.config ?? {})
+    setDebouncedConfig(widget.source.config ?? {})
     setIsCodeCustomized((widget.source.config?.isCodeCustomized as boolean) ?? false)
     setUserCode((widget.source.config?.userCode as string) ?? '')
     setResult(null)
@@ -336,7 +345,7 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
 
           <Allotment.Pane minSize={200}>
             {isComponentPlugin && plugin?.componentId ? (
-              <ComponentPluginOutput componentId={plugin.componentId} config={config} columns={columns} rows={filteredRows} />
+              <ComponentPluginOutput componentId={plugin.componentId} config={debouncedConfig} columns={columns} rows={filteredRows} />
             ) : (
               <PluginOutputRenderer
                 result={result}

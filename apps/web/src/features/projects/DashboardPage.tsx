@@ -109,11 +109,12 @@ export function DashboardPage() {
           </Button>
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="xs"
+            className="gap-1"
             onClick={() => setSettingsOpen(true)}
-            title={t('dashboard.settings_title')}
           >
-            <Settings2 size={13} />
+            <Settings2 size={12} />
+            {t('common.settings')}
           </Button>
           {editMode && (
             <Button
@@ -189,6 +190,7 @@ export function DashboardPage() {
           <DashboardFilterSidebar
             dashboard={dashboard}
             widgets={allDashboardWidgets}
+            tabs={dashboardTabs}
             editMode={editMode}
             onClose={() => setFilterOpen(false)}
           />
@@ -200,12 +202,15 @@ export function DashboardPage() {
         onOpenChange={setAddWidgetOpen}
         tabId={currentTabId ?? ''}
         projectUid={projectUid}
+        defaultDatasetFileId={dashboard.defaultDatasetFileId}
       />
 
       <DashboardSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
         dashboard={dashboard}
+        projectUid={projectUid}
+        currentTabId={currentTabId}
       />
     </div>
   )
