@@ -1,0 +1,53 @@
+{
+  "id": "00000000-0000-0000-0000-000000000008",
+  "workspaceId": "00000000-0000-0000-0000-000000000010",
+  "name": "MIMIC-IV Demo",
+  "description": "Concept catalog for the MIMIC-IV Demo database (100 patients).",
+  "dataSourceId": "00000000-0000-0000-0000-000000000003",
+  "dimensions": [
+    {
+      "id": "age_group",
+      "label": "Age group",
+      "type": "age_group",
+      "enabled": true,
+      "config": {
+        "ranges": [
+          { "label": "0-17", "min": 0, "max": 17 },
+          { "label": "18-29", "min": 18, "max": 29 },
+          { "label": "30-39", "min": 30, "max": 39 },
+          { "label": "40-49", "min": 40, "max": 49 },
+          { "label": "50-59", "min": 50, "max": 59 },
+          { "label": "60-69", "min": 60, "max": 69 },
+          { "label": "70-79", "min": 70, "max": 79 },
+          { "label": "80+", "min": 80, "max": 200 }
+        ]
+      }
+    },
+    {
+      "id": "sex",
+      "label": "Sex",
+      "type": "sex",
+      "enabled": true
+    }
+  ],
+  "periodConfig": {
+    "granularity": "year",
+    "serviceLevel": "visit_detail"
+  },
+  "anonymization": {
+    "threshold": 10,
+    "mode": "replace"
+  },
+  "status": "draft",
+  "dcatApMetadata": {
+    "catalog.title": "MIMIC-IV Demo \u2014 Concept Catalog",
+    "catalog.description": "Aggregated clinical concepts catalog from the MIMIC-IV Demo database.",
+    "dataset.title": "MIMIC-IV Demo \u2014 Concepts Dictionary",
+    "dataset.description": "Aggregated clinical concepts catalog with demographic breakdowns (age, sex). Generated from the MIMIC-IV Demo clinical data warehouse (100 patients).",
+    "dataset.identifier": "00000000-0000-0000-0000-000000000008",
+    "dataset.accessRights": "http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC",
+    "dataset.personalData": "false"
+  },
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "updatedAt": "2026-02-10T00:00:00.000Z"
+}

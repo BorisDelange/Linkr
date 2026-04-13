@@ -1,0 +1,129 @@
+{
+  "workspaces": [
+    {
+      "folder": "default",
+      "organization": {
+        "id": "00000000-0000-0000-0000-000000000020",
+        "name": "Demo Hospital",
+        "type": "hospital",
+        "createdAt": "2026-02-10T00:00:00.000Z",
+        "updatedAt": "2026-02-10T00:00:00.000Z"
+      },
+      "databases": [
+        {
+          "id": "00000000-0000-0000-0000-000000000002",
+          "alias": "mimic_iv_omop",
+          "name": "MIMIC-IV Demo (OMOP)",
+          "description": "Bundled demo dataset — 100 patients from MIMIC-IV in OMOP CDM format.",
+          "schema": "omop-5.4",
+          "parquetBase": "/data/mimic-iv-demo-omop",
+          "tables": [
+            "care_site", "concept", "concept_ancestor", "concept_class",
+            "concept_relationship", "concept_synonym", "condition_era",
+            "condition_occurrence", "cost", "death", "device_exposure",
+            "domain", "dose_era", "drug_era", "drug_exposure", "drug_strength",
+            "fact_relationship", "location", "measurement", "note", "observation",
+            "observation_period", "payer_plan_period", "person",
+            "procedure_occurrence", "provider", "relationship", "specimen",
+            "visit_detail", "visit_occurrence", "vocabulary"
+          ],
+          "linkToProject": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000003",
+          "alias": "mimic_iv_raw",
+          "name": "MIMIC-IV Demo",
+          "description": "Bundled demo dataset — 100 patients from MIMIC-IV v2.2 in native format.",
+          "schema": "mimic-iv",
+          "parquetBase": "/data/mimic-iv-demo",
+          "tables": [
+            "admissions", "caregiver", "chartevents", "d_hcpcs",
+            "d_icd_diagnoses", "d_icd_procedures", "d_items", "d_labitems",
+            "datetimeevents", "demo_subject_id", "diagnoses_icd", "drgcodes",
+            "emar", "emar_detail", "hcpcsevents", "icustays",
+            "ingredientevents", "inputevents", "labevents",
+            "microbiologyevents", "omr", "outputevents", "patients",
+            "pharmacy", "poe", "poe_detail", "prescriptions",
+            "procedureevents", "procedures_icd", "provider", "services",
+            "transfers"
+          ],
+          "linkToProject": "00000000-0000-0000-0000-000000000001"
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000004",
+          "alias": "omop_vocab",
+          "name": "OMOP Vocabulary (MIMIC-IV Demo)",
+          "description": "Bundled OMOP vocabulary reference — 6 234 concepts from ATHENA. Use as vocabulary reference in concept mapping.",
+          "schema": {
+            "presetId": "omop-cdm-5.4",
+            "presetLabel": "ATHENA Vocabulary",
+            "conceptTables": [{
+              "key": "concept",
+              "table": "concept",
+              "idColumn": "concept_id",
+              "nameColumn": "concept_name",
+              "codeColumn": "concept_code",
+              "vocabularyColumn": "vocabulary_id",
+              "extraColumns": {
+                "domain_id": "domain_id",
+                "concept_class_id": "concept_class_id",
+                "standard_concept": "standard_concept"
+              }
+            }],
+            "knownTables": [
+              "concept", "concept_ancestor", "concept_class",
+              "concept_relationship", "concept_synonym", "domain",
+              "drug_strength", "relationship", "vocabulary"
+            ]
+          },
+          "parquetBase": "/data/omop-vocabulary",
+          "tables": [
+            "concept", "concept_ancestor", "concept_class",
+            "concept_relationship", "concept_synonym", "domain",
+            "drug_strength", "relationship", "vocabulary"
+          ],
+          "isVocabularyReference": true
+        },
+        {
+          "id": "00000000-0000-0000-0000-000000000009",
+          "alias": "omop_etl_example",
+          "name": "OMOP ETL Pipeline Example",
+          "description": "Empty OMOP CDM 5.4 target database for the ETL pipeline example. Populated when the ETL is run.",
+          "schema": "omop-5.4",
+          "parquetBase": "",
+          "tables": [],
+          "inMemory": true
+        }
+      ],
+      "conceptMappings": [
+        {
+          "file": "/data/mimic-iv-concept-mappings.json",
+          "projectId": "00000000-0000-0000-0000-000000000005"
+        }
+      ],
+      "etlScripts": [
+        {
+          "file": "/data/mimic-iv-etl-scripts.json",
+          "pipelineId": "00000000-0000-0000-0000-000000000007",
+          "customMappingsFile": "/data/mimic-iv-custom-mappings.json",
+          "mappingProjectId": "00000000-0000-0000-0000-000000000005",
+          "vocabularyDataSourceId": "00000000-0000-0000-0000-000000000004"
+        }
+      ],
+      "datasets": [
+        {
+          "file": "/data/icu-activity-dataset.json",
+          "id": "demo-activity-dataset-1",
+          "projectUid": "00000000-0000-0000-0000-000000000005",
+          "fileName": "icu_activity.csv"
+        }
+      ],
+      "dashboards": [
+        {
+          "file": "/data/seed/default/dashboards/activity-dashboard.json",
+          "projectUid": "00000000-0000-0000-0000-000000000005"
+        }
+      ]
+    }
+  ]
+}

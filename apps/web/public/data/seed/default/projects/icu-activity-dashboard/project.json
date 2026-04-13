@@ -1,0 +1,26 @@
+{
+  "uid": "00000000-0000-0000-0000-000000000005",
+  "projectId": "icu-activity-dashboard",
+  "workspaceId": "00000000-0000-0000-0000-000000000010",
+  "name": {
+    "en": "ICU Activity Dashboard",
+    "fr": "Tableau de bord d'activité de réanimation"
+  },
+  "description": {
+    "en": "ICU activity indicators extracted from MIMIC-IV demo data: demographics, admissions, mechanical ventilation, infections, and procedures.",
+    "fr": "Indicateurs d'activité de réanimation extraits des données MIMIC-IV demo : démographie, admissions, ventilation mécanique, infections et procédures."
+  },
+  "shortDescription": {},
+  "config": {},
+  "ownerId": 1,
+  "status": "active",
+  "badges": [
+    { "id": "b1", "label": "ICU", "color": "red" },
+    { "id": "b2", "label": "Dashboard", "color": "blue" }
+  ],
+  "todos": [],
+  "notes": "",
+  "linkedDataSourceIds": ["00000000-0000-0000-0000-000000000002"],
+  "createdAt": "2026-02-10T00:00:00.000Z",
+  "updatedAt": "2026-02-10T00:00:00.000Z"
+}
