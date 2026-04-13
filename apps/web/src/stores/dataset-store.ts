@@ -73,6 +73,7 @@ interface DatasetState {
 
 const uid = () => crypto.randomUUID()
 let undoCounter = 0
+let analysisCounter = 0
 
 const _loadedData = new Map<string, Record<string, unknown>[]>()
 const _dataSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -431,7 +432,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     storage.datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
     // Also copy the data rows in IndexedDB
     if (originalRows) {
-      storage.datasetData.save(newId, originalRows).catch((e) => console.warn('[dataset-store] persist error:', e))
+      storage.datasetData.save({ datasetFileId: newId, rows: originalRows }).catch((e) => console.warn('[dataset-store] persist error:', e))
     }
 
     get().pushUndo({
@@ -752,7 +753,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         const match = a.id.match(/^analysis-(\d+)$/)
         if (match) {
           const n = parseInt(match[1], 10)
-          if (n >= fileCounter) fileCounter = n + 1
+          if (n >= analysisCounter) analysisCounter = n + 1
         }
       }
       set({ analyses })

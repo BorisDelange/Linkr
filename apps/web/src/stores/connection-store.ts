@@ -245,14 +245,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 }))
 
 // Helper to update connection status in both store and IDB
-type SetFn = Parameters<Parameters<typeof create<ConnectionState>>[0]>[0]
-type GetFn = Parameters<Parameters<typeof create<ConnectionState>>[0]>[1]
-
 async function updateConnStatus(
   id: string,
   status: DataSourceStatus,
-  set: SetFn,
-  get: GetFn,
+  set: (partial: Partial<ConnectionState>) => void,
+  get: () => ConnectionState,
   errorMessage?: string,
 ) {
   const changes: Partial<IdeConnection> = { status, errorMessage }
