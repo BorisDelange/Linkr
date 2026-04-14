@@ -26,6 +26,8 @@ export function ProfilePage() {
     setLanguage,
     darkMode,
     toggleDarkMode,
+    dismissSeedUpdateNotifications,
+    setDismissSeedUpdateNotifications,
   } = useAppStore()
 
   const currentTab = searchParams.get('tab') ?? 'profile'
@@ -46,7 +48,7 @@ export function ProfilePage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-2xl font-bold text-foreground">
+        <h1 className="text-2xl font-bold text-foreground text-center">
           {t('profile.title')}
         </h1>
 
@@ -55,7 +57,7 @@ export function ProfilePage() {
           onValueChange={handleTabChange}
           className="mt-6"
         >
-          <TabsList>
+          <TabsList className="mx-auto">
             <TabsTrigger value="profile">
               {t('profile.account')}
             </TabsTrigger>
@@ -181,6 +183,32 @@ export function ProfilePage() {
                     {t('profile.dark_mode')}
                   </Label>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">
+                  {t('profile.notifications')}
+                </CardTitle>
+                <CardDescription>
+                  {t('profile.notifications_description')}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="dismiss-seed-updates"
+                    checked={dismissSeedUpdateNotifications}
+                    onCheckedChange={setDismissSeedUpdateNotifications}
+                  />
+                  <Label htmlFor="dismiss-seed-updates" className="text-sm">
+                    {t('profile.dismiss_seed_updates')}
+                  </Label>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground ml-[44px]">
+                  {t('profile.dismiss_seed_updates_description')}
+                </p>
               </CardContent>
             </Card>
           </TabsContent>

@@ -1668,7 +1668,7 @@
     "languages": "Languages"
   },
   "profile": {
-    "title": "Profile",
+    "title": "User settings",
     "account": "Account",
     "account_description": "Your account information.",
     "username": "Username",
@@ -1693,7 +1693,9 @@
     "email_notifications": "Email notifications",
     "email_notifications_description": "Receive email notifications for important events.",
     "project_updates": "Project updates",
-    "project_updates_description": "Get notified when projects you follow are updated."
+    "project_updates_description": "Get notified when projects you follow are updated.",
+    "dismiss_seed_updates": "Hide data update notifications",
+    "dismiss_seed_updates_description": "Don't show the notification dialog when bundled demo data has been updated in a new version."
   },
   "editor": {
     "font_size": "Font size",
@@ -1856,7 +1858,23 @@
     "schema_description": "The local data format has changed with this update. Your existing data is no longer compatible and may cause errors.",
     "schema_hint": "You can export your projects before resetting to avoid losing work.",
     "reset_data": "Reset all data",
-    "dismiss": "Ignore (may cause errors)"
+    "dismiss": "Ignore (may cause errors)",
+    "seed_changed_title": "Demo data has been updated",
+    "seed_changed_description": "This update includes changes to the bundled data. You can reset to get the latest data, or keep your current data.",
+    "keep_data": "Keep my data",
+    "seed_change_added": "New",
+    "seed_change_modified": "Updated",
+    "seed_change_removed": "Removed",
+    "seed_entity_workspace": "Workspace",
+    "seed_entity_database": "Database",
+    "seed_entity_conceptMapping": "Concept mapping",
+    "seed_entity_etlScript": "ETL script",
+    "seed_entity_dataset": "Dataset",
+    "seed_entity_dashboard": "Dashboard",
+    "seed_entity_project": "Project",
+    "seed_entity_mappingProject": "Mapping project",
+    "seed_entity_dqRuleSet": "Data quality",
+    "seed_entity_catalog": "Data catalog"
   },
   "entity_id": {
     "label": "Identifier",
@@ -1913,7 +1931,7 @@
     "columns": "Columns"
   },
   "user_menu": {
-    "profile": "Profile",
+    "profile": "Settings",
     "reset_data": "Reset all data",
     "sign_out": "Sign out"
   },

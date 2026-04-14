@@ -12,7 +12,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, User, LogOut, Building2, FolderOpen } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -243,7 +243,7 @@ export function Header() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate('/profile')}>
-                  <User size={14} />
+                  <Settings size={14} />
                   {t('user_menu.profile')}
                 </DropdownMenuItem>
                 <DropdownMenuItem

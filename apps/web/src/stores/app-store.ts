@@ -56,6 +56,7 @@ interface Preferences {
   darkMode: boolean
   editorSettings: EditorSettings
   sidebarCollapsed: boolean
+  dismissSeedUpdateNotifications: boolean
   userFirstName?: string
   userLastName?: string
 }
@@ -144,6 +145,10 @@ interface AppState {
   // Editor settings
   editorSettings: EditorSettings
   updateEditorSettings: (settings: Partial<EditorSettings>) => void
+
+  // Notifications
+  dismissSeedUpdateNotifications: boolean
+  setDismissSeedUpdateNotifications: (value: boolean) => void
 
   // UI state
   sidebarCollapsed: boolean
@@ -453,6 +458,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       editorSettings: { ...s.editorSettings, ...settings },
     })),
 
+  // Notifications
+  dismissSeedUpdateNotifications: prefs.dismissSeedUpdateNotifications ?? false,
+  setDismissSeedUpdateNotifications: (value) => set({ dismissSeedUpdateNotifications: value }),
+
   // UI state
   sidebarCollapsed: prefs.sidebarCollapsed ?? false,
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -471,6 +480,7 @@ useAppStore.subscribe((state) => {
     darkMode: state.darkMode,
     editorSettings: state.editorSettings,
     sidebarCollapsed: state.sidebarCollapsed,
+    dismissSeedUpdateNotifications: state.dismissSeedUpdateNotifications,
     userFirstName: state.user?.firstName,
     userLastName: state.user?.lastName,
   })

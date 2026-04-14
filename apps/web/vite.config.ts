@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import seedHashesPlugin from './vite-plugin-seed-hashes'
 import path from 'path'
 import { execSync } from 'child_process'
 
@@ -14,7 +15,7 @@ const gitHash = (() => {
 })()
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), seedHashesPlugin()],
   define: {
     __APP_BUILD_HASH__: JSON.stringify(gitHash),
   },

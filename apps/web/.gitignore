@@ -15,6 +15,9 @@ dist-ssr
 # DuckDB WASM assets (copied from node_modules at install time)
 public/duckdb/
 
+# Generated seed hashes (build artifact)
+public/data/seed/seed-hashes.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

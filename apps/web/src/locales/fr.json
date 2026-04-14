@@ -1669,7 +1669,7 @@
     "languages": "Langages"
   },
   "profile": {
-    "title": "Profil",
+    "title": "Paramètres utilisateur",
     "account": "Compte",
     "account_description": "Informations de votre compte.",
     "username": "Nom d'utilisateur",
@@ -1694,7 +1694,9 @@
     "email_notifications": "Notifications par email",
     "email_notifications_description": "Recevez des notifications par email pour les événements importants.",
     "project_updates": "Mises à jour de projets",
-    "project_updates_description": "Soyez notifié lorsque les projets que vous suivez sont mis à jour."
+    "project_updates_description": "Soyez notifié lorsque les projets que vous suivez sont mis à jour.",
+    "dismiss_seed_updates": "Masquer les notifications de mise à jour des données",
+    "dismiss_seed_updates_description": "Ne pas afficher la notification lorsque les données intégrées ont été mises à jour dans une nouvelle version."
   },
   "editor": {
     "font_size": "Taille de police",
@@ -1857,7 +1859,23 @@
     "schema_description": "Le format des données locales a changé avec cette mise à jour. Vos données existantes ne sont plus compatibles et peuvent provoquer des erreurs.",
     "schema_hint": "Vous pouvez exporter vos projets avant de réinitialiser pour ne pas perdre votre travail.",
     "reset_data": "Réinitialiser toutes les données",
-    "dismiss": "Ignorer (risque d'erreurs)"
+    "dismiss": "Ignorer (risque d'erreurs)",
+    "seed_changed_title": "Les données ont été mises à jour",
+    "seed_changed_description": "Cette mise à jour inclut des modifications des données intégrées. Vous pouvez réinitialiser pour obtenir les dernières données, ou conserver vos données actuelles.",
+    "keep_data": "Conserver mes données",
+    "seed_change_added": "Nouveau",
+    "seed_change_modified": "Modifié",
+    "seed_change_removed": "Supprimé",
+    "seed_entity_workspace": "Espace de travail",
+    "seed_entity_database": "Base de données",
+    "seed_entity_conceptMapping": "Mapping de concepts",
+    "seed_entity_etlScript": "Script ETL",
+    "seed_entity_dataset": "Jeu de données",
+    "seed_entity_dashboard": "Tableau de bord",
+    "seed_entity_project": "Projet",
+    "seed_entity_mappingProject": "Projet de mapping",
+    "seed_entity_dqRuleSet": "Qualité des données",
+    "seed_entity_catalog": "Catalogue de données"
   },
   "entity_id": {
     "label": "Identifiant",
@@ -1914,7 +1932,7 @@
     "columns": "Colonnes"
   },
   "user_menu": {
-    "profile": "Profil",
+    "profile": "Paramètres",
     "reset_data": "Réinitialiser les données",
     "sign_out": "Se déconnecter"
   },
