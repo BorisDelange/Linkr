@@ -32,10 +32,11 @@ interface ConceptMapping {
   equivalence: string           // skos:exactMatch | closeMatch | broadMatch | narrowMatch | relatedMatch
   status: string                // unchecked | approved | rejected | flagged | invalid | ignored
   matchScore?: number           // 0-1 confidence score
-  comment?: string              // reasoning for the mapping
+  comments?: MappingComment[]   // threaded comments — use this for mapping reasoning
+  reviews?: MappingReview[]     // reviewer opinions
 
   // ATTRIBUTION
-  mappedBy?: string             // "Claude" for automated mappings
+  mappedBy?: string             // "Claude Opus 4.6" (or current model name)
   mappedOn?: string             // ISO 8601 date
   assignedReviewer?: string
   reviewedBy?: string

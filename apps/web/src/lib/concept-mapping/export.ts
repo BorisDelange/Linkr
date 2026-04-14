@@ -108,7 +108,7 @@ export function exportToUsagiCsv(
     csvEscape(m.targetConceptName),
     csvEscape(m.targetDomainId),
     csvEscape(m.mappingType?.toUpperCase()),
-    csvEscape(m.comment),
+    csvEscape(m.comments?.map((c) => c.text).join(' | ') ?? ''),
     csvEscape(m.mappedBy),
     csvEscape(isoToEpochMs(m.createdAt)),
     csvEscape(m.assignedReviewer),
@@ -251,7 +251,7 @@ export function exportToSssomTsv(
       tsvEscape(isIgnored ? 'semapv:ManualMappingCuration' : statusToJustification(m.status)),
       tsvEscape(m.matchScore),
       tsvEscape(m.mappedBy),
-      tsvEscape(m.comment),
+      tsvEscape(m.comments?.map((c) => c.text).join(' | ') ?? ''),
     ].join('\t')
   })
 

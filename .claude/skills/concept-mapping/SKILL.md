@@ -190,7 +190,16 @@ Each mapping must follow this exact JSON structure (see reference.md for full ty
   "targetStandardConcept": "S",
   "equivalence": "<skos:exactMatch|closeMatch|broadMatch|narrowMatch|relatedMatch>",
   "status": "unchecked",
-  "comment": "<brief reasoning for this mapping>",
+  "comments": [
+    {
+      "id": "<UUID>",
+      "authorId": "Claude <Model Name>",
+      "text": "<line 1: brief description of the mapping>\n<line 2: equivalence level + justification — what is preserved or lost>",
+      // Example: "Respiratory rate measured by ventilator.\ncloseMatch: source is total RR measured by the ventilator; target LOINC 19840-8 specifies 'spontaneous and mechanical' — adds an interpretation not explicit in the source."
+      // Use \n to separate the description from the equivalence justification.
+      "createdAt": "<ISO date>"
+    }
+  ],
   "mappedBy": "Claude <Model Name>",  // e.g. "Claude Opus 4.6", "Claude Sonnet 4.6" — use the actual model powering this session
   "mappedOn": "<ISO date>",
   "createdAt": "<ISO date>",

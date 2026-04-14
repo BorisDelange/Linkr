@@ -192,8 +192,14 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     }
     await getStorage().mappingProjects.create(entity)
     for (const m of children.mappings) {
+      // Migrate legacy `comment` string → `comments[]` array
+      const legacy = (m as unknown as Record<string, unknown>).comment
+      const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
+        ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? new Date().toISOString() }]
+        : m.comments
       await getStorage().conceptMappings.create({
         ...m,
+        comments: migratedComments,
         id: crypto.randomUUID(),
         projectId,
       })

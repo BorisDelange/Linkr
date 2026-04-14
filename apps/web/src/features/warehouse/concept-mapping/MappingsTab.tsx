@@ -313,7 +313,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
                       </div>
                     </div>
                   ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">{c.text}</p>
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">{c.text}</p>
                   )}
                 </div>
               ))}
@@ -492,9 +492,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
     createdAt: false,
     sourceCategoryId: false,
     sourceSubcategoryId: false,
-    targetConceptClassId: false,
-    targetDomainId: false,
-    targetStandardConcept: false,
+    sourceConceptCode: false,
+    targetConceptId: false,
   })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
@@ -723,8 +722,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
           missingSource++
           continue
         }
+        // Migrate legacy `comment` string → `comments[]` array
+        const legacy = (m as unknown as Record<string, unknown>).comment
+        const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
+          ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? now }]
+          : m.comments
         toImport.push({
           ...m,
+          comments: migratedComments,
           id: crypto.randomUUID(),
           projectId: project.id,
           updatedAt: now,
@@ -901,10 +906,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
             )
           }
           return (
-            <span className="flex min-w-0 items-center gap-1.5">
-              <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
-              {m.comment && <span title={m.comment}><MessageSquare size={10} className="shrink-0 text-muted-foreground" /></span>}
-            </span>
+            <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
           )
         },
         size: 200,

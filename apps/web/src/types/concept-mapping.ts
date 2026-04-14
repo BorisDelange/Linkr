@@ -255,7 +255,6 @@ export interface ConceptMapping {
   equivalence: MappingEquivalence
   status: MappingStatus
   matchScore?: number
-  comment?: string
   /** Threaded comments (mapping + review). */
   comments?: MappingComment[]
   /** Multi-reviewer opinions on this mapping. */
