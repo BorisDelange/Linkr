@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { GitCommit, GitRemoteConfig, WikiPage, CommitFileChange, FileChangeType, RestoreResult } from '@/types'
-import { buildWorkspaceZip, downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import { buildWorkspaceZip, downloadBlob, slugify } from '@/lib/entity-io'
 import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 
@@ -78,7 +78,7 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
     try {
       const result = await buildWorkspaceZip(workspaceId, getStorage(), options)
       if (result) {
-        downloadBlob(result.blob, `${slugify(result.workspaceName)}-${timestamp()}.zip`)
+        downloadBlob(result.blob, `${slugify(result.workspaceName)}.zip`)
       }
     } finally {
       set({ loading: false })

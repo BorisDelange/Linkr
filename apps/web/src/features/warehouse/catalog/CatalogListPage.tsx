@@ -7,7 +7,7 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
@@ -43,7 +43,7 @@ export function CatalogListPage() {
   const handleExport = useCallback(async (catalog: DataCatalog) => {
     await exportEntityZip(
       [{ filename: 'catalog.json', data: catalog }],
-      `${slugify(catalog.name)}-${timestamp()}.zip`,
+      `${slugify(catalog.name)}.zip`,
     )
   }, [])
 

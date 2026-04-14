@@ -9,7 +9,7 @@ import { useFileStore } from '@/stores/file-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
-import { buildProjectZip, parseProjectZip, downloadBlob, slugify, timestamp, deleteProjectData } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -100,7 +100,7 @@ export function ProjectsPage() {
     if (!exportTarget) return
     const result = await buildProjectZip(exportTarget, getStorage(), options)
     if (!result) return
-    downloadBlob(result.blob, `${slugify(result.projectName)}-${timestamp()}.zip`)
+    downloadBlob(result.blob, `${slugify(result.projectName)}.zip`)
   }, [exportTarget])
 
   // --- Duplicate a project (export then re-import as copy) ---

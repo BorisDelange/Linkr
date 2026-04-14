@@ -16,7 +16,7 @@ import {
   downloadFile,
   buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
-import { downloadBlob, slugify, timestamp } from '@/lib/entity-io'
+import { downloadBlob, slugify } from '@/lib/entity-io'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
@@ -231,7 +231,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         dataSources,
       })
       const blob = await zip.generateAsync({ type: 'blob' })
-      downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
+      downloadBlob(blob, `${slugify(project.name)}.zip`)
     } catch {
       // ZIP generation failed (likely memory overflow on very large source CSV)
       // Fall back: download ZIP without source CSV + source CSV separately
@@ -244,7 +244,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           skipSourceConcepts: true,
         })
         const blob = await zip.generateAsync({ type: 'blob' })
-        downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
+        downloadBlob(blob, `${slugify(project.name)}.zip`)
 
         if (project.sourceType === 'file' && project.fileSourceData?.rawFileBuffer?.byteLength) {
           try {

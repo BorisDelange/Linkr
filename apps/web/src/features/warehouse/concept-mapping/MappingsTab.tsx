@@ -11,7 +11,7 @@ import {
   Check, Flag, X, MessageSquare, EyeOff,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload, Download,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -58,7 +58,6 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
-import { downloadFile } from '@/lib/concept-mapping/export'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus } from '@/types'
 
@@ -676,11 +675,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     total: number
   } | null>(null)
 
-  const handleExportMappings = () => {
-    const json = JSON.stringify(projectMappings, null, 2)
-    downloadFile(json, `mappings-${project.entityId || project.id}.json`, 'application/json')
-  }
-
   const handleImportMappings = async (file: File) => {
     try {
       const text = await file.text()
@@ -1188,14 +1182,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="icon-sm" className="h-7 w-7" onClick={handleExportMappings} disabled={projectMappings.length === 0}>
-                <Download size={12} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.export_mappings')}</TooltipContent>
           </Tooltip>
           {editMode && selected.size > 0 && (
             <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>

@@ -16,7 +16,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
-import { downloadBlob, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
+import { downloadBlob, parseImportZip, slugify } from '@/lib/entity-io'
 import { buildMappingProjectFolder } from '@/lib/concept-mapping/export'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -96,7 +96,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       dataSources,
     })
     const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(project.name)}-${timestamp()}.zip`)
+    downloadBlob(blob, `${slugify(project.name)}.zip`)
   }, [dataSources, ensureMounted])
 
   const handleImport = useCallback(async (file: File) => {

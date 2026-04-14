@@ -8,7 +8,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify, timestamp } from '@/lib/entity-io'
+import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
@@ -55,7 +55,7 @@ export function DqRuleSetListPage() {
         { filename: 'ruleset.json', data: rs },
         { filename: 'checks.json', data: checks },
       ],
-      `${slugify(rs.name)}-${timestamp()}.zip`,
+      `${slugify(rs.name)}.zip`,
     )
   }, [])
 

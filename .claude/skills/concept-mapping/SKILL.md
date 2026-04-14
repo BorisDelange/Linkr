@@ -141,12 +141,14 @@ For each candidate, assess:
 3. **Domain consistency**: does the OMOP domain match the data type?
 4. **Unit compatibility** (for measurements): does the standard concept expect the same unit?
 
-Assign an equivalence level:
-- `skos:exactMatch` — identical meaning
-- `skos:closeMatch` — very similar, minor differences
-- `skos:broadMatch` — standard concept is more general
-- `skos:narrowMatch` — standard concept is more specific
+Assign an equivalence level — **be rigorous, do NOT default to exactMatch**:
+- `skos:exactMatch` — identical meaning, no information loss (e.g., "SpO2" → LOINC "Oxygen saturation in Arterial blood by Pulse oximetry")
+- `skos:closeMatch` — very similar but some context/specificity is lost (e.g., "Frequence_respiratoire_mesuree_scope" → "Respiratory rate" loses the "measured by scope" detail; "PEEP_reglee" → "PEEP setting Ventilator" is close but the source implies a specific clinical workflow)
+- `skos:broadMatch` — standard concept is more general (e.g., source specifies a subtype but target covers the whole category)
+- `skos:narrowMatch` — standard concept is more specific than the source
 - `skos:relatedMatch` — related but different angle
+
+**Guideline**: if the source concept name contains qualifying information (measurement method, device, location, timing) that the target concept does NOT capture, this is `closeMatch`, not `exactMatch`. Only use `exactMatch` when the concepts are truly semantically equivalent.
 
 ### 3d. Present candidates to user
 
@@ -189,7 +191,7 @@ Each mapping must follow this exact JSON structure (see reference.md for full ty
   "equivalence": "<skos:exactMatch|closeMatch|broadMatch|narrowMatch|relatedMatch>",
   "status": "unchecked",
   "comment": "<brief reasoning for this mapping>",
-  "mappedBy": "Claude",
+  "mappedBy": "Claude <Model Name>",  // e.g. "Claude Opus 4.6", "Claude Sonnet 4.6" — use the actual model powering this session
   "mappedOn": "<ISO date>",
   "createdAt": "<ISO date>",
   "updatedAt": "<ISO date>"

@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
-import { timestamp } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { Button } from '@/components/ui/button'
@@ -256,7 +255,7 @@ export function PluginsTab() {
       const m = JSON.parse(userPlugin.files['plugin.json'] ?? '{}')
       name = m.id ?? pluginId
     } catch { /* use pluginId */ }
-    a.download = `${name}-${timestamp()}.zip`
+    a.download = `${name}.zip`
     a.click()
     URL.revokeObjectURL(url)
   }, [])
