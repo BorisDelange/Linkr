@@ -47,15 +47,28 @@ export function buildSourceConceptsQuery(
   if (dicts.length === 0) return ''
 
   const unionParts = buildConceptUnionParts(dicts)
+  const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
 
-  let sql = unionParts.length === 1
-    ? `SELECT * FROM (${unionParts[0]}) AS src`
-    : `SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS src`
+  const srcSql = unionParts.length === 1
+    ? `(${unionParts[0]})`
+    : `(${unionParts.join(' UNION ALL ')})`
+
+  // When sorting by counts, JOIN the counts sub-query so ORDER BY works in SQL
+  let sql: string
+  if (isSortingByCount) {
+    const countsSql = buildAllConceptCountsQuery(mapping)
+    if (countsSql) {
+      sql = `SELECT src.*, COALESCE(cnt.record_count, 0) AS record_count, COALESCE(cnt.patient_count, 0) AS patient_count FROM ${srcSql} AS src LEFT JOIN (${countsSql}) AS cnt ON src.concept_id = cnt.concept_id`
+    } else {
+      sql = `SELECT src.*, 0 AS record_count, 0 AS patient_count FROM ${srcSql} AS src`
+    }
+  } else {
+    sql = `SELECT * FROM ${srcSql} AS src`
+  }
 
   sql += buildWhereClause(filters)
 
-  // ORDER BY — record_count/patient_count sorting handled client-side via cached counts
-  if (sorting && sorting.columnId !== 'record_count' && sorting.columnId !== 'patient_count') {
+  if (sorting) {
     sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
   } else {
     sql += ' ORDER BY concept_name ASC'
