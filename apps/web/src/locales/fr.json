@@ -1,4 +1,7 @@
 {
+  "app": {
+    "loading": "Chargement…"
+  },
   "nav": {
     "home": "Accueil",
     "workspaces": "Espaces de travail",

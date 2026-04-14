@@ -1934,6 +1934,17 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
     await db.put('source_concept_id_entries', { ...entry, workspaceBadgeKey })
   }
 
+  async saveBatch(entries: SourceConceptIdEntry[]): Promise<void> {
+    if (entries.length === 0) return
+    const db = await getDB()
+    const tx = db.transaction('source_concept_id_entries', 'readwrite')
+    for (const entry of entries) {
+      const workspaceBadgeKey = this.workspaceBadgeKey(entry.workspaceId, entry.badgeLabel)
+      tx.store.put({ ...entry, workspaceBadgeKey })
+    }
+    await tx.done
+  }
+
   async deleteByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<void> {
     const db = await getDB()
     const items = await db.getAllFromIndex('source_concept_id_entries', 'by-workspace-badge', this.workspaceBadgeKey(workspaceId, badgeLabel))

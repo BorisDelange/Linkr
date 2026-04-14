@@ -347,6 +347,7 @@ export interface SourceConceptIdEntryStorage {
   getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]>
   get(id: string): Promise<SourceConceptIdEntry | undefined>
   save(entry: SourceConceptIdEntry): Promise<void>
+  saveBatch(entries: SourceConceptIdEntry[]): Promise<void>
   deleteByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<void>
   deleteByWorkspace(workspaceId: string): Promise<void>
 }

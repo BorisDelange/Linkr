@@ -516,8 +516,10 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, updatedAt: now }).catch(() => {})
   }
   const idEntries = await fetchJson<SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`) ?? []
-  for (const entry of idEntries) {
-    await storage.sourceConceptIdEntries.save({ ...entry, workspaceId: wsId }).catch(() => {})
+  if (idEntries.length > 0) {
+    await storage.sourceConceptIdEntries.saveBatch(
+      idEntries.map(e => ({ ...e, workspaceId: wsId }))
+    ).catch(() => {})
   }
 
   // --- catalogs/ ---

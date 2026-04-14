@@ -1,4 +1,7 @@
 {
+  "app": {
+    "loading": "Loading…"
+  },
   "nav": {
     "home": "Home",
     "workspaces": "Workspaces",

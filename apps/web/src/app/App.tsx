@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Loader2 } from 'lucide-react'
 import { Routes, Route, Navigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -58,7 +59,7 @@ export function App() {
   const { cohortsLoaded, loadCohorts } = useCohortStore()
   const { pipelinesLoaded, loadPipelines } = usePipelineStore()
   const { catalogsLoaded, loadCatalogs, serviceMappingsLoaded, loadServiceMappings } = useCatalogStore()
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   useEffect(() => {
     loadOrganizations()
@@ -101,7 +102,14 @@ export function App() {
   }, [activeProjectUid, dataSourcesLoaded, mountProjectSources])
 
   if (!organizationsLoaded || !workspacesLoaded || !projectsLoaded || !dataSourcesLoaded || !cohortsLoaded || !pipelinesLoaded || !catalogsLoaded || !serviceMappingsLoaded) {
-    return null
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t('app.loading')}</p>
+        </div>
+      </div>
+    )
   }
 
   return (

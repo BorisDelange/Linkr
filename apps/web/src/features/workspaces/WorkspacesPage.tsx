@@ -397,14 +397,16 @@ export function WorkspacesPage() {
           ...range, workspaceId: targetWsId, badgeLabel, updatedAt: now,
         })
       }
-      for (const entry of parsed.sourceConceptIdEntries) {
-        const badgeLabel = duplicate ? `${entry.badgeLabel} (copy)` : entry.badgeLabel
-        const newId = duplicate
-          ? `${targetWsId}__${badgeLabel}__${entry.vocabularyId}__${entry.conceptCode}`
-          : entry.id
-        await storage.sourceConceptIdEntries.save({
-          ...entry, id: newId, workspaceId: targetWsId, badgeLabel,
-        })
+      if (parsed.sourceConceptIdEntries.length > 0) {
+        await storage.sourceConceptIdEntries.saveBatch(
+          parsed.sourceConceptIdEntries.map(entry => {
+            const badgeLabel = duplicate ? `${entry.badgeLabel} (copy)` : entry.badgeLabel
+            const newId = duplicate
+              ? `${targetWsId}__${badgeLabel}__${entry.vocabularyId}__${entry.conceptCode}`
+              : entry.id
+            return { ...entry, id: newId, workspaceId: targetWsId, badgeLabel }
+          })
+        )
       }
     }
 
