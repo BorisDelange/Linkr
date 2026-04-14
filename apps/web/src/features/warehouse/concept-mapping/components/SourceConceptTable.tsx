@@ -74,6 +74,10 @@ interface SourceConceptTableProps {
   ignoredConceptIds: Set<number>
   /** Show concept detail view (chart icon click). */
   onShowDetail?: (row: SourceConceptRow) => void
+  /** Scroll position to restore when the table remounts after detail view. */
+  initialScrollTop?: number
+  /** Called on every scroll so the parent can persist the position. */
+  onScrollTopChange?: (scrollTop: number) => void
 }
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -227,6 +231,8 @@ export function SourceConceptTable({
   ignoredConceptIds,
   onSelectConcept,
   onShowDetail,
+  initialScrollTop,
+  onScrollTopChange,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
@@ -240,10 +246,18 @@ export function SourceConceptTable({
   loadingRef2.current = loading
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
 
+  const onScrollTopChangeRef = useRef(onScrollTopChange)
+  onScrollTopChangeRef.current = onScrollTopChange
+
   useEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
+    // Restore scroll position when remounting after detail view
+    if (initialScrollTop) {
+      el.scrollTop = initialScrollTop
+    }
     const onScroll = () => {
+      onScrollTopChangeRef.current?.(el.scrollTop)
       if (!hasMoreRef.current || loadingRef2.current) return
       if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
         onLoadMoreRef.current()
@@ -251,7 +265,7 @@ export function SourceConceptTable({
     }
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSort = (columnId: string) => {
     if (columnId === '_info') return

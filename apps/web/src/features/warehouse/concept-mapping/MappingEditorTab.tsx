@@ -76,6 +76,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [fileSourceReady, setFileSourceReady] = useState(false)
 
   const loadingRef = useRef(false)
+  const savedScrollTop = useRef(0)
 
   // Ignored source concepts: derived from mappings with status='ignored'
   const ignoredConceptIds = useMemo(
@@ -421,6 +422,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             onMappingStatusFilterChange={setMappingStatusFilter}
             onSelectConcept={setSelectedSourceConcept}
             onShowDetail={setDetailConcept}
+            initialScrollTop={savedScrollTop.current}
+            onScrollTopChange={(v) => { savedScrollTop.current = v }}
           />
           )}
         </Allotment.Pane>

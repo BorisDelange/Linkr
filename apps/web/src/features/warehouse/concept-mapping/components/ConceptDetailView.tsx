@@ -237,14 +237,23 @@ function SectionRenderer({ section }: { section: Section }) {
     const bottomMargin = longLabels ? 70 : 25
     // Detect numeric labels (histogram bins) to apply rounding
     const numericLabels = section.data.every((d) => d.label !== '' && !isNaN(Number(d.label)))
+    // Compute a smart rounding function based on the step between bins
     const formatXTick = numericLabels
-      ? (val: string) => {
-          const n = Number(val)
-          if (Math.abs(n) >= 1000) return String(Math.round(n / 100) * 100)
-          if (Math.abs(n) >= 100) return String(Math.round(n / 10) * 10)
-          if (Math.abs(n) >= 10) return String(Math.round(n))
-          return String(parseFloat(n.toPrecision(2)))
-        }
+      ? (() => {
+          const nums = section.data.map((d) => Number(d.label)).filter((n) => !isNaN(n))
+          // Find the minimum step between consecutive bins
+          let minStep = Infinity
+          for (let i = 1; i < nums.length; i++) {
+            const step = Math.abs(nums[i] - nums[i - 1])
+            if (step > 0 && step < minStep) minStep = step
+          }
+          // Choose decimal places so we don't lose bin distinction
+          const decimals = minStep >= 1 ? 0 : minStep >= 0.1 ? 1 : 2
+          return (val: string) => {
+            const n = Number(val)
+            return n.toFixed(decimals)
+          }
+        })()
       : undefined
     return (
       <Card className="p-3">
@@ -262,7 +271,7 @@ function SectionRenderer({ section }: { section: Section }) {
               textAnchor={longLabels ? 'end' : 'middle'}
               height={bottomMargin}
             />
-            <YAxis tick={{ fontSize: 10 }} width={45} domain={numericLabels ? [0, 'auto'] : undefined} />
+            <YAxis tick={{ fontSize: 10 }} width={45} domain={[0, 'auto']} />
             <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} />
             <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
           </BarChart>
