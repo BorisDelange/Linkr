@@ -15,6 +15,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schema-presets'
 import { getAllPlugins } from '@/lib/plugins/registry'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
+import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
@@ -497,6 +498,11 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     const project = await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/_project.json`)
       ?? await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/project.json`)
     if (!project) continue
+    // Restore source concepts from CSV (file-based projects)
+    if (project.sourceType === 'file' && project.fileSourceData) {
+      const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
+      if (csvText) restoreFileSourceDataFromCsv(project, csvText)
+    }
     await storage.mappingProjects.create({ ...project, workspaceId: wsId, updatedAt: now }).catch(() => {})
     const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
     if (mappings.length > 0) {

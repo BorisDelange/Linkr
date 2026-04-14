@@ -13,6 +13,44 @@ export function csvEscape(value: string | number | undefined | null): string {
   return str
 }
 
+/**
+ * Restore `fileSourceData` on a MappingProject from a raw CSV string.
+ * Parses the CSV header, sets `rawFileBuffer`, `columns`, `totalRowCount`,
+ * and rebuilds `columnMapping` (handles both normalized and original column names).
+ */
+export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: string): void {
+  if (!project.fileSourceData || project.sourceType !== 'file') return
+  project.fileSourceData.rawFileBuffer = new TextEncoder().encode(csvText)
+  const headerLine = csvText.split('\n')[0]?.trim()
+  if (!headerLine) return
+  // Strip surrounding quotes from each column name (CSV may quote headers)
+  const csvColumns = headerLine.split(',').map(c => c.replace(/^"|"$/g, '').trim())
+  project.fileSourceData.columns = csvColumns
+  project.fileSourceData.totalRowCount = csvText.split('\n').length - 1
+  // Rebuild columnMapping: try normalized names first, fall back to project's existing mapping
+  const colSet = new Set(csvColumns)
+  const existing = project.fileSourceData.columnMapping ?? {} as FileColumnMapping
+  const pick = (normalized: string, existingVal?: string) =>
+    colSet.has(normalized) ? normalized : (existingVal && colSet.has(existingVal) ? existingVal : undefined)
+  const mapping: Record<string, string | undefined> = {
+    terminologyColumn: pick('terminology', existing.terminologyColumn),
+    conceptCodeColumn: pick('concept_code', existing.conceptCodeColumn),
+    conceptIdColumn: pick('concept_id', existing.conceptIdColumn),
+    conceptNameColumn: pick('concept_name', existing.conceptNameColumn),
+    domainColumn: pick('domain', existing.domainColumn),
+    conceptClassColumn: pick('concept_class', existing.conceptClassColumn),
+    recordCountColumn: pick('record_count', existing.recordCountColumn),
+    patientCountColumn: pick('patient_count', existing.patientCountColumn),
+    infoJsonColumn: pick('info_json', existing.infoJsonColumn),
+    categoryColumn: pick('category', existing.categoryColumn),
+    subcategoryColumn: pick('subcategory', existing.subcategoryColumn),
+  }
+  const mappedCols = new Set(Object.values(mapping).filter(Boolean))
+  const extras = csvColumns.filter(c => !mappedCols.has(c))
+  if (extras.length > 0) mapping.extraColumns = extras as unknown as string | undefined
+  project.fileSourceData.columnMapping = mapping as FileColumnMapping
+}
+
 /** Preferred column order for source concept CSV exports. */
 const SOURCE_CONCEPT_PREFERRED_COLUMNS = ['vocabulary_id', 'terminology_name', 'category', 'subcategory', 'concept_id', 'concept_code', 'concept_name']
 

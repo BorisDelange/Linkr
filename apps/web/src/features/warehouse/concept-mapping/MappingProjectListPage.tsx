@@ -17,7 +17,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
 import { downloadBlob, parseImportZip, slugify } from '@/lib/entity-io'
-import { buildMappingProjectFolder } from '@/lib/concept-mapping/export'
+import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import {
@@ -110,49 +110,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
 
       // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
-      // The exported CSV uses normalized column names (terminology, concept_code, concept_name, etc.)
-      // so we must update columnMapping and columns to match.
       if (project.sourceType === 'file' && project.fileSourceData) {
         const sourceCsv = parsed['source-concepts.csv']
         if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
-          const encoder = new TextEncoder()
-          project.fileSourceData.rawFileBuffer = encoder.encode(sourceCsv)
-          // Parse actual CSV header to update columns
-          const headerLine = sourceCsv.split('\n')[0]?.trim()
-          if (headerLine) {
-            // Strip surrounding quotes from each column name (CSV may quote headers)
-            const csvColumns = headerLine.split(',').map(c => c.replace(/^"|"$/g, '').trim())
-            project.fileSourceData.columns = csvColumns
-            project.fileSourceData.totalRowCount = sourceCsv.split('\n').length - 1
-            // Build a set of actual CSV column names for lookup
-            const colSet = new Set(csvColumns)
-            // Try to rebuild columnMapping from the CSV columns.
-            // The CSV may use normalized names (terminology, concept_name, record_count, ...)
-            // or the original project column names (terminology_code, concept_label, rows_count, ...).
-            // Check both: first try normalized names, then fall back to the project's
-            // existing columnMapping values (which reference original column names).
-            const existingMap = project.fileSourceData.columnMapping ?? {}
-            const pick = (normalized: string, existingVal?: string) =>
-              colSet.has(normalized) ? normalized : (existingVal && colSet.has(existingVal) ? existingVal : undefined)
-            const normalizedMapping: Record<string, string | undefined> = {
-              terminologyColumn: pick('terminology', existingMap.terminologyColumn),
-              conceptCodeColumn: pick('concept_code', existingMap.conceptCodeColumn),
-              conceptIdColumn: pick('concept_id', existingMap.conceptIdColumn),
-              conceptNameColumn: pick('concept_name', existingMap.conceptNameColumn),
-              domainColumn: pick('domain', existingMap.domainColumn),
-              conceptClassColumn: pick('concept_class', existingMap.conceptClassColumn),
-              recordCountColumn: pick('record_count', existingMap.recordCountColumn),
-              patientCountColumn: pick('patient_count', existingMap.patientCountColumn),
-              infoJsonColumn: pick('info_json', existingMap.infoJsonColumn),
-              categoryColumn: pick('category', existingMap.categoryColumn),
-              subcategoryColumn: pick('subcategory', existingMap.subcategoryColumn),
-            }
-            // Keep extra columns that are in the CSV but not in a standard role
-            const mappedCols = new Set(Object.values(normalizedMapping).filter(Boolean))
-            const extras = csvColumns.filter(c => !mappedCols.has(c))
-            if (extras.length > 0) normalizedMapping.extraColumns = extras as unknown as string | undefined
-            project.fileSourceData.columnMapping = normalizedMapping as typeof project.fileSourceData.columnMapping
-          }
+          restoreFileSourceDataFromCsv(project, sourceCsv)
         }
       }
 

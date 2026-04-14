@@ -17,7 +17,7 @@ import type {
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
 } from '@/types'
-import { buildMappingProjectFolder } from '@/lib/concept-mapping/export'
+import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 
 // ---------------------------------------------------------------------------
 // Download helpers
@@ -1137,12 +1137,12 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     if (!project) continue
     const mappings = (await readJsonFile<ConceptMapping[]>(zipData, `${prefix}mappings.json`)) ?? []
 
-    // Restore rawFileBuffer from source-concepts.csv (file-based projects)
+    // Restore rawFileBuffer + columnMapping from source-concepts.csv (file-based projects)
     const sourceCsvEntry = zipData.files[`${prefix}source-concepts.csv`]
     if (sourceCsvEntry && project.sourceType === 'file' && project.fileSourceData) {
       const csvText = await sourceCsvEntry.async('string')
       if (csvText) {
-        project.fileSourceData.rawFileBuffer = new TextEncoder().encode(csvText)
+        restoreFileSourceDataFromCsv(project, csvText)
       }
     }
 
