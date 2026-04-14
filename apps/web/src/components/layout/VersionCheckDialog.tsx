@@ -19,7 +19,7 @@ import {
 import { useAppStore } from '@/stores/app-store'
 import { checkVersion, acknowledgeVersion, clearAllData, type VersionStatus } from '@/lib/version-check'
 import {
-  detectSeedChanges, storeSeedHashes, fetchSeedHashes,
+  detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
   type SeedChange, type SeedDiffResult, type SeedEntityType, type SeedChangeType,
 } from '@/lib/seed-change-detector'
 
@@ -65,10 +65,12 @@ export function VersionCheckDialog() {
 
   useEffect(() => {
     const result = checkVersion()
-    if (result.kind === 'first-visit') {
-      acknowledgeVersion()
-      // Store initial seed hashes for future comparison
-      fetchSeedHashes().then((h) => { if (h) storeSeedHashes(h) })
+    if (result.kind === 'first-visit' || result.kind === 'up-to-date') {
+      if (result.kind === 'first-visit') acknowledgeVersion()
+      // Store seed hashes if not yet present (first visit or migration from pre-feature build)
+      if (!getStoredSeedHashes()) {
+        fetchSeedHashes().then((h) => { if (h) storeSeedHashes(h) })
+      }
     } else if (result.kind === 'new-build') {
       setStatus(result)
 
