@@ -1702,7 +1702,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                       variant="outline"
                       size="sm"
                       onClick={() => handleExportDownload(fmt.id)}
-                      disabled={exportFilteredMappings.length === 0}
+                      disabled={exportFilteredMappings.length === 0 && !(exportIncludeUnmapped && totals.unmapped > 0)}
                     >
                       <Download size={14} />
                       {t('concept_mapping.export_download')}
