@@ -20,7 +20,7 @@ import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
   DataSource, StoredFile, DatabaseConnectionConfig, SchemaMapping, SchemaPresetId,
-  MappingProject, ConceptMapping, EtlPipeline, EtlFile,
+  MappingProject, ConceptMapping, SourceConceptIdRange, SourceConceptIdEntry, EtlPipeline, EtlFile,
   DqRuleSet, DataCatalog, ServiceMapping,
   SqlScriptCollection, SqlScriptFile,
   WikiPage, ConceptSet,
@@ -508,6 +508,16 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     if (mappings.length > 0) {
       await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
     }
+  }
+
+  // --- source-concept-ids/ (cross-project ID assignment registry) ---
+  const idRanges = await fetchJson<SourceConceptIdRange[]>(`${base}/source-concept-ids/ranges.json`) ?? []
+  for (const range of idRanges) {
+    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, updatedAt: now }).catch(() => {})
+  }
+  const idEntries = await fetchJson<SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`) ?? []
+  for (const entry of idEntries) {
+    await storage.sourceConceptIdEntries.save({ ...entry, workspaceId: wsId }).catch(() => {})
   }
 
   // --- catalogs/ ---
