@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -11,6 +11,7 @@ import {
   Check, Flag, X, MessageSquare, EyeOff,
   ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
+  Upload, Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -57,6 +58,8 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
+import { downloadFile } from '@/lib/concept-mapping/export'
+import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus } from '@/types'
 
 interface MappingsTabProps {
@@ -471,7 +474,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
 
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
-  const { mappings, updateMapping, deleteMapping } = useConceptMappingStore()
+  const { mappings, updateMapping, deleteMapping, createMappingsBatch } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const currentUser = getUserDisplayName()
 
@@ -661,6 +664,94 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const handleDeleteSelected = () => {
     for (const id of selected) deleteMapping(id)
     setSelected(new Set())
+  }
+
+  // ─── Import / Export mappings.json ──────────────────────────────────
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importResult, setImportResult] = useState<{
+    imported: number
+    duplicates: number
+    missingSource: number
+    total: number
+  } | null>(null)
+
+  const handleExportMappings = () => {
+    const json = JSON.stringify(projectMappings, null, 2)
+    downloadFile(json, `mappings-${project.entityId || project.id}.json`, 'application/json')
+  }
+
+  const handleImportMappings = async (file: File) => {
+    try {
+      const text = await file.text()
+      const incoming: ConceptMapping[] = JSON.parse(text)
+      if (!Array.isArray(incoming)) return
+
+      // Build set of existing mapping keys: (sourceVocabularyId, sourceConceptCode, targetConceptId)
+      const existingKeys = new Set(
+        projectMappings.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+      )
+
+      // Load valid source concept codes from the project's source data
+      let validSourceKeys: Set<string> | null = null
+      try {
+        if (project.sourceType === 'file' && project.fileSourceData) {
+          const dsId = fileSourceDataSourceId(project.id)
+          if (!isFileSourceMounted(project.id)) {
+            await mountFileSourceIntoDuckDB(
+              project.id,
+              project.fileSourceData.rows,
+              project.fileSourceData.columnMapping,
+              project.fileSourceData.rawFileBuffer,
+            )
+          }
+          const rows = await queryDataSource(dsId, 'SELECT concept_code, vocabulary_id FROM source_concepts')
+          validSourceKeys = new Set(
+            rows.map((r: Record<string, unknown>) => `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`),
+          )
+        }
+      } catch {
+        // If source validation fails, skip it — still import with duplicates check only
+      }
+
+      const now = new Date().toISOString()
+      const toImport: ConceptMapping[] = []
+      let duplicates = 0
+      let missingSource = 0
+
+      for (const m of incoming) {
+        const key = `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`
+        if (existingKeys.has(key)) {
+          duplicates++
+          continue
+        }
+        if (validSourceKeys && !validSourceKeys.has(`${m.sourceVocabularyId}\0${m.sourceConceptCode}`)) {
+          missingSource++
+          continue
+        }
+        toImport.push({
+          ...m,
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          updatedAt: now,
+        })
+        // Add to existingKeys to prevent duplicates within the import batch
+        existingKeys.add(key)
+      }
+
+      if (toImport.length > 0) {
+        await createMappingsBatch(toImport)
+      }
+
+      setImportResult({
+        imported: toImport.length,
+        duplicates,
+        missingSource,
+        total: incoming.length,
+      })
+    } catch (err) {
+      console.error('Failed to import mappings:', err)
+    }
   }
 
   /** Toggle review: clicking the same status resets to unchecked. */
@@ -1048,6 +1139,40 @@ export function MappingsTab({ project }: MappingsTabProps) {
       open={!!commentsMappingId}
       onOpenChange={(open) => { if (!open) setCommentsMappingId(null) }}
     />
+    {/* Import result dialog */}
+    <AlertDialog open={!!importResult} onOpenChange={(open) => { if (!open) setImportResult(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.import_mappings_result_title')}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-1 text-sm">
+              <p>{t('concept_mapping.import_mappings_imported', { count: importResult?.imported ?? 0 })}</p>
+              {(importResult?.duplicates ?? 0) > 0 && (
+                <p className="text-muted-foreground">{t('concept_mapping.import_mappings_duplicates', { count: importResult!.duplicates })}</p>
+              )}
+              {(importResult?.missingSource ?? 0) > 0 && (
+                <p className="text-orange-600 dark:text-orange-400">{t('concept_mapping.import_mappings_missing_source', { count: importResult!.missingSource })}</p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction>{t('common.ok')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    {/* Hidden file input for import */}
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept=".json"
+      className="hidden"
+      onChange={(e) => {
+        const file = e.target.files?.[0]
+        if (file) handleImportMappings(file)
+        e.target.value = ''
+      }}
+    />
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
@@ -1055,6 +1180,23 @@ export function MappingsTab({ project }: MappingsTabProps) {
           {filtered.length} / {projectMappings.length} {t('concept_mapping.existing_mappings').toLowerCase()}
         </span>
         <div className="ml-auto flex items-center gap-1">
+          {/* Import / Export */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon-sm" className="h-7 w-7" onClick={() => fileInputRef.current?.click()}>
+                <Upload size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon-sm" className="h-7 w-7" onClick={handleExportMappings} disabled={projectMappings.length === 0}>
+                <Download size={12} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.export_mappings')}</TooltipContent>
+          </Tooltip>
           {editMode && selected.size > 0 && (
             <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />

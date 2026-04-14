@@ -108,6 +108,45 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         return
       }
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+
+      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
+      // The exported CSV uses normalized column names (terminology, concept_code, concept_name, etc.)
+      // so we must update columnMapping and columns to match.
+      if (project.sourceType === 'file' && project.fileSourceData) {
+        const sourceCsv = parsed['source-concepts.csv']
+        if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
+          const encoder = new TextEncoder()
+          project.fileSourceData.rawFileBuffer = encoder.encode(sourceCsv)
+          // Parse actual CSV header to update columns
+          const headerLine = sourceCsv.split('\n')[0]?.trim()
+          if (headerLine) {
+            const csvColumns = headerLine.split(',')
+            project.fileSourceData.columns = csvColumns
+            project.fileSourceData.totalRowCount = sourceCsv.split('\n').length - 1
+            // Rebuild columnMapping to match the normalized CSV column names
+            const normalizedMapping: Record<string, string | undefined> = {
+              terminologyColumn: csvColumns.includes('terminology') ? 'terminology' : undefined,
+              conceptCodeColumn: csvColumns.includes('concept_code') ? 'concept_code' : undefined,
+              conceptIdColumn: csvColumns.includes('concept_id') ? 'concept_id' : undefined,
+              conceptNameColumn: csvColumns.includes('concept_name') ? 'concept_name' : undefined,
+              domainColumn: csvColumns.includes('domain') ? 'domain' : undefined,
+              conceptClassColumn: csvColumns.includes('concept_class') ? 'concept_class' : undefined,
+              recordCountColumn: csvColumns.includes('record_count') ? 'record_count' : undefined,
+              patientCountColumn: csvColumns.includes('patient_count') ? 'patient_count' : undefined,
+              infoJsonColumn: csvColumns.includes('info_json') ? 'info_json' : undefined,
+              categoryColumn: csvColumns.includes('category') ? 'category' : undefined,
+              subcategoryColumn: csvColumns.includes('subcategory') ? 'subcategory' : undefined,
+            }
+            // Keep extra columns that are in the CSV but not in the standard roles
+            const standardCols = new Set(['terminology', 'concept_code', 'concept_id', 'concept_name',
+              'domain', 'concept_class', 'record_count', 'patient_count', 'info_json', 'category', 'subcategory'])
+            const extras = csvColumns.filter(c => !standardCols.has(c))
+            if (extras.length > 0) normalizedMapping.extraColumns = extras as unknown as string | undefined
+            project.fileSourceData.columnMapping = normalizedMapping as typeof project.fileSourceData.columnMapping
+          }
+        }
+      }
+
       // Check for conflict by entityId or name within the current workspace
       const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
       const existing = wsProjects.find(p =>
