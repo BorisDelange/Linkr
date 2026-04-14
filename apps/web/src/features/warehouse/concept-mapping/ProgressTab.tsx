@@ -265,7 +265,22 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
               <ResponsiveContainer width="100%" height={Math.max(180, stats.domainData.slice(0, 10).length * 26 + 20)}>
                 <BarChart data={stats.domainData.slice(0, 10)} layout="vertical" margin={{ left: 90 }}>
                   <XAxis type="number" tick={{ fontSize: 10 }} />
-                  <YAxis type="category" dataKey="domain" tick={{ fontSize: 10 }} width={90} interval={0} />
+                  <YAxis
+                    type="category"
+                    dataKey="domain"
+                    width={90}
+                    interval={0}
+                    tick={(props: Record<string, unknown>) => {
+                      const x = Number(props.x), y = Number(props.y), value = String((props.payload as { value: string }).value)
+                      const label = value.length > 14 ? value.slice(0, 13) + '…' : value
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <title>{value}</title>
+                          <text x={-4} y={0} dy={4} textAnchor="end" fontSize={10} fill="currentColor">{label}</text>
+                        </g>
+                      )
+                    }}
+                  />
                   <Tooltip
                     contentStyle={{
                       backgroundColor: 'var(--color-popover)',
@@ -331,30 +346,47 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
 
       {/* Category breakdown full modal */}
       <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="sm:max-w-[90vw] max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="text-sm font-medium">{t('concept_mapping.prog_domain_breakdown')}</DialogTitle>
           </DialogHeader>
-          <div className="overflow-auto">
-            <ResponsiveContainer width="100%" height={Math.max(300, stats.domainData.length * 26 + 20)}>
-              <BarChart data={stats.domainData} layout="vertical" margin={{ left: 120 }}>
-                <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="domain" tick={{ fontSize: 11 }} width={120} interval={0} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--color-popover)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 6,
-                    fontSize: 12,
-                    color: 'var(--color-popover-foreground)',
-                  }}
-                  itemStyle={{ color: 'var(--color-popover-foreground)' }}
-                  labelStyle={{ color: 'var(--color-popover-foreground)' }}
-                  cursor={{ fill: 'var(--color-accent)' }}
-                />
-                <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="flex-1 overflow-y-auto min-h-0">
+            <div style={{ height: Math.max(400, stats.domainData.length * 28 + 40) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stats.domainData} layout="vertical" margin={{ left: 160 }}>
+                  <XAxis type="number" tick={{ fontSize: 11 }} />
+                  <YAxis
+                    type="category"
+                    dataKey="domain"
+                    width={160}
+                    interval={0}
+                    tick={(props: Record<string, unknown>) => {
+                      const x = Number(props.x), y = Number(props.y), value = String((props.payload as { value: string }).value)
+                      const label = value.length > 24 ? value.slice(0, 23) + '…' : value
+                      return (
+                        <g transform={`translate(${x},${y})`}>
+                          <title>{value}</title>
+                          <text x={-4} y={0} dy={4} textAnchor="end" fontSize={11} fill="currentColor">{label}</text>
+                        </g>
+                      )
+                    }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-popover)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      color: 'var(--color-popover-foreground)',
+                    }}
+                    itemStyle={{ color: 'var(--color-popover-foreground)' }}
+                    labelStyle={{ color: 'var(--color-popover-foreground)' }}
+                    cursor={{ fill: 'var(--color-accent)' }}
+                  />
+                  <Bar dataKey="count" fill="#60a5fa" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
