@@ -13,6 +13,7 @@ import type {
   EtlPipeline, EtlFile,
   DqRuleSet, DqCustomCheck,
   ConceptSet, MappingProject, ConceptMapping,
+  SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
 } from '@/types'
@@ -889,6 +890,16 @@ export async function buildWorkspaceZip(
       const folder = eid(mp)
       await buildMappingProjectFolder(zip, `mapping-projects/${folder}/`, mp, storage)
     }
+
+    // --- source-concept-ids/ (ranges + entries for cross-project ID assignment) ---
+    const idRanges = await storage.sourceConceptIdRanges.getByWorkspace(workspaceId)
+    if (idRanges.length > 0) {
+      zip.file('source-concept-ids/ranges.json', json(idRanges))
+      const idEntries = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
+      if (idEntries.length > 0) {
+        zip.file('source-concept-ids/entries.json', json(idEntries))
+      }
+    }
   }
 
   // --- catalogs/ + service-mappings/ ---
@@ -946,6 +957,8 @@ export interface ParsedWorkspaceZip {
   dqRuleSets: { ruleSet: DqRuleSet; checks: DqCustomCheck[] }[]
   conceptSets: ConceptSet[]
   mappingProjects: { project: MappingProject; mappings: ConceptMapping[] }[]
+  sourceConceptIdRanges: SourceConceptIdRange[]
+  sourceConceptIdEntries: SourceConceptIdEntry[]
   catalogs: DataCatalog[]
   serviceMappings: ServiceMapping[]
   plugins: UserPlugin[]
@@ -1123,8 +1136,22 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       ?? (await readJsonFile<MappingProject>(zipData, `${prefix}_project.json`))
     if (!project) continue
     const mappings = (await readJsonFile<ConceptMapping[]>(zipData, `${prefix}mappings.json`)) ?? []
+
+    // Restore rawFileBuffer from source-concepts.csv (file-based projects)
+    const sourceCsvEntry = zipData.files[`${prefix}source-concepts.csv`]
+    if (sourceCsvEntry && project.sourceType === 'file' && project.fileSourceData) {
+      const csvText = await sourceCsvEntry.async('string')
+      if (csvText) {
+        project.fileSourceData.rawFileBuffer = new TextEncoder().encode(csvText)
+      }
+    }
+
     mappingProjects.push({ project, mappings })
   }
+
+  // --- source-concept-ids/ (cross-project ID assignment registry) ---
+  const sourceConceptIdRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, 'source-concept-ids/ranges.json')) ?? []
+  const sourceConceptIdEntries = (await readJsonFile<SourceConceptIdEntry[]>(zipData, 'source-concept-ids/entries.json')) ?? []
 
   // --- catalogs/ ---
   const catalogs: DataCatalog[] = []
@@ -1166,6 +1193,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     workspace, projects, projectEntries, schemas, databases,
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
     sqlCollections, etlPipelines, dqRuleSets, conceptSets,
-    mappingProjects, catalogs, serviceMappings, plugins,
+    mappingProjects, sourceConceptIdRanges, sourceConceptIdEntries,
+    catalogs, serviceMappings, plugins,
   }
 }

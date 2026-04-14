@@ -384,6 +384,29 @@ export function WorkspacesPage() {
       }
     }
 
+    // --- Import source concept ID registry (ranges + entries) ---
+    if (parsed.sourceConceptIdRanges.length > 0) {
+      if (!duplicate) {
+        await storage.sourceConceptIdRanges.deleteByWorkspace(targetWsId).catch(() => {})
+        await storage.sourceConceptIdEntries.deleteByWorkspace(targetWsId).catch(() => {})
+      }
+      for (const range of parsed.sourceConceptIdRanges) {
+        const badgeLabel = duplicate ? `${range.badgeLabel} (copy)` : range.badgeLabel
+        await storage.sourceConceptIdRanges.save({
+          ...range, workspaceId: targetWsId, badgeLabel, updatedAt: now,
+        })
+      }
+      for (const entry of parsed.sourceConceptIdEntries) {
+        const badgeLabel = duplicate ? `${entry.badgeLabel} (copy)` : entry.badgeLabel
+        const newId = duplicate
+          ? `${targetWsId}__${badgeLabel}__${entry.vocabularyId}__${entry.conceptCode}`
+          : entry.id
+        await storage.sourceConceptIdEntries.save({
+          ...entry, id: newId, workspaceId: targetWsId, badgeLabel,
+        })
+      }
+    }
+
     // --- Import catalogs ---
     for (const cat of parsed.catalogs) {
       const id = duplicate ? crypto.randomUUID() : cat.id
