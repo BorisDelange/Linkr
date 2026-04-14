@@ -2614,6 +2614,7 @@
     "global_projects": "projets",
     "global_mappings": "mappings",
     "global_loading": "Chargement des mappings…",
+    "global_showing": "{{shown}} / {{total}} affichés",
     "global_total": "Total mappings",
     "global_chart_title": "Mappings par groupe",
     "global_filter_group": "Filtrer :",
@@ -2642,7 +2643,10 @@
     "source_id_reset_confirm_title": "Réinitialiser les IDs source",
     "source_id_reset_confirm_desc": "Tous les IDs attribués pour \"{{badge}}\" seront supprimés et réattribués depuis le début de la plage à la prochaine attribution. Cette action est irréversible.",
     "source_id_reset_all_confirm_desc": "Tous les IDs attribués pour tous les badges seront supprimés. Cette action est irréversible.",
-    "source_id_reset_confirm_action": "Réinitialiser"
+    "source_id_reset_confirm_action": "Réinitialiser",
+    "source_id_assign_no_concepts": "Aucun concept source trouvé pour ce badge.",
+    "source_id_assign_all_done": "Les {{total}} concepts sont déjà tous assignés.",
+    "source_id_assign_result": "{{count}} nouveaux IDs assignés ({{total}} concepts au total)."
   },
   "data_catalog": {
     "title": "Catalogue de données",

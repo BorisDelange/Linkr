@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import type { MappingProject, SourceConceptIdRange } from '@/types'
 
@@ -25,7 +25,7 @@ import type { MappingProject, SourceConceptIdRange } from '@/types'
 // Max safe value: 2,147,483,647 (INT32 max, for compatibility with INTEGER columns)
 const OMOP_CUSTOM_MIN = 2_000_000_001
 const OMOP_CUSTOM_MAX = 2_147_483_647
-const DEFAULT_RANGE_SIZE = 10_000_000
+const DEFAULT_RANGE_SIZE = 1_000_000
 
 interface SourceIdTabProps {
   workspaceId: string
@@ -67,6 +67,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [loading, setLoading] = useState(true)
   const [edits, setEdits] = useState<Record<string, RangeEdit>>({})
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
+  const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number } | null>(null)
   const [resetConfirm, setResetConfirm] = useState<string | null>(null) // badgeLabel or 'all'
   const [errors, setErrors] = useState<Record<string, string>>({})
 
@@ -163,6 +164,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   const assignIds = async (badgeLabel: string) => {
     setAssignLoading(badgeLabel)
+    setAssignResult(null)
     try {
       const range = ranges.find((r) => r.badgeLabel === badgeLabel)
       if (!range) return
@@ -173,6 +175,11 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         (p.badges ?? []).some((b) => b.label === badgeLabel),
       )
 
+      if (projectsWithBadge.length === 0) {
+        setAssignResult({ badge: badgeLabel, newlyAssigned: 0, total: 0 })
+        return
+      }
+
       // Unique (vocabularyId, conceptCode) pairs — exclude file projects with a real conceptIdColumn
       const pairsToAssign = new Set<string>()
 
@@ -181,15 +188,25 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         if (isFile) {
           // File project with real concept IDs: skip (real IDs are used directly)
           if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
-          // File project without concept ID: collect from imported rows
-          const rows = proj.fileSourceData?.rows ?? []
-          const colMapping = proj.fileSourceData?.columnMapping
-          const codeCol = colMapping?.conceptCodeColumn
-          const vocabCol = colMapping?.terminologyColumn
-          for (const row of rows) {
-            const code = codeCol ? String(row[codeCol] ?? '') : ''
-            const vocab = vocabCol ? String(row[vocabCol] ?? '') : proj.name
-            if (code) pairsToAssign.add(`${vocab}__${code}`)
+          // Mount file source into DuckDB if needed, then query
+          if (proj.fileSourceData) {
+            try {
+              await mountFileSourceIntoDuckDB(
+                proj.id,
+                proj.fileSourceData.rows,
+                proj.fileSourceData.columnMapping,
+                proj.fileSourceData.rawFileBuffer,
+              )
+              const dsId = fileSourceDataSourceId(proj.id)
+              const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code FROM source_concepts')
+              for (const row of rows) {
+                const code = String(row.concept_code ?? '')
+                const vocab = String(row.vocabulary_id ?? proj.name)
+                if (code) pairsToAssign.add(`${vocab}__${code}`)
+              }
+            } catch {
+              // If mount/query fails, skip silently
+            }
           }
         } else {
           // Database project: query all source concepts
@@ -260,6 +277,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         updatedAt: now,
       })
       await load()
+      setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size })
     } finally {
       setAssignLoading(null)
     }
@@ -399,6 +417,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                               {t('common.edit')}
                             </button>
                           </div>
+                        )}
+                        {assignResult && assignResult.badge === range.badgeLabel && (
+                          <p className={`text-[11px] ${assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                            {assignResult.total === 0
+                              ? t('concept_mapping.source_id_assign_no_concepts')
+                              : assignResult.newlyAssigned === 0
+                                ? t('concept_mapping.source_id_assign_all_done', { total: assignResult.total.toLocaleString() })
+                                : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
+                          </p>
                         )}
                       </div>
 

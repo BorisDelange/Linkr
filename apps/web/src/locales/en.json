@@ -2613,6 +2613,7 @@
     "global_projects": "projects",
     "global_mappings": "mappings",
     "global_loading": "Loading mappings…",
+    "global_showing": "Showing {{shown}} / {{total}}",
     "global_total": "Total mappings",
     "global_chart_title": "Mappings by group",
     "global_filter_group": "Filter:",
@@ -2641,7 +2642,10 @@
     "source_id_reset_confirm_title": "Reset source concept IDs",
     "source_id_reset_confirm_desc": "All assigned source concept IDs for \"{{badge}}\" will be deleted and reassigned from the range start on next assignment. This cannot be undone.",
     "source_id_reset_all_confirm_desc": "All assigned source concept IDs for all badges will be deleted. This cannot be undone.",
-    "source_id_reset_confirm_action": "Reset"
+    "source_id_reset_confirm_action": "Reset",
+    "source_id_assign_no_concepts": "No source concepts found for this badge.",
+    "source_id_assign_all_done": "All {{total}} concepts already assigned.",
+    "source_id_assign_result": "{{count}} new IDs assigned ({{total}} total concepts)."
   },
   "data_catalog": {
     "title": "Data Catalog",

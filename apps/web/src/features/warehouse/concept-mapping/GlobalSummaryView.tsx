@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, FileSpreadsheet } from 'lucide-react'
 import {
@@ -39,7 +39,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import {
   exportToUsagiCsv,
@@ -52,7 +51,18 @@ import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/li
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
+import {
+  populateFlatTable,
+  populateDedupTable,
+  invalidateGlobalTables,
+  queryFlatCount,
+  queryFlatPage,
+  queryDedupCount,
+  queryDedupPage,
+  queryFlatDistinct,
+  queryDedupDistinct,
+} from '@/lib/concept-mapping/global-summary-queries'
 import { SourceIdTab } from './SourceIdTab'
 import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
 
@@ -375,10 +385,19 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [registryEntries, setRegistryEntries] = useState<SourceConceptIdEntry[]>([])
   const [groupMode, setGroupMode] = useState<'project' | 'badge'>('project')
   const [activeTab, setActiveTab] = useState('summary')
-  const [page, setPage] = useState(0)
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [colFilters, setColFilters] = useState<GlobalTableFilters>({})
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ sourceConceptId: false })
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ sourceConceptCode: false, targetConceptId: false })
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
+
+  // ── Table tab: DuckDB-backed pagination ──
+  const [tableRows, setTableRows] = useState<Record<string, unknown>[]>([])
+  const [tableTotalCount, setTableTotalCount] = useState(0)
+  const [tableLoading, setTableLoading] = useState(false)
+  const [tableHasMore, setTableHasMore] = useState(false)
+  const [tableReady, setTableReady] = useState(false)
+  const tablePage = useRef(0)
+  const tableLoadingRef = useRef(false)
 
   // Export tab state
   const [exportStatuses, setExportStatuses] = useState<Set<MappingStatus>>(new Set(['approved']))
@@ -411,23 +430,26 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     for (const p of projects) {
       const isFile = p.sourceType === 'file' || !!p.fileSourceData
       if (isFile) {
-        // File project: build source concepts from rows
-        const rows = p.fileSourceData?.rows ?? []
-        const colMapping = p.fileSourceData?.columnMapping
-        const codeCol = colMapping?.conceptCodeColumn
-        const nameCol = colMapping?.conceptNameColumn
-        const vocabCol = colMapping?.terminologyColumn
-        const idCol = colMapping?.conceptIdColumn
-        const seen = new Map<string, SourceConceptRaw>()
-        for (const row of rows) {
-          const code = codeCol ? String(row[codeCol] ?? '') : ''
-          const name = nameCol ? String(row[nameCol] ?? '') : code
-          const vocab = vocabCol ? String(row[vocabCol] ?? '') : p.name
-          const id = idCol ? Number(row[idCol] ?? 0) : 0
-          const key = `${vocab}__${code}`
-          if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
+        // File project: mount into DuckDB and query
+        if (p.fileSourceData) {
+          try {
+            await mountFileSourceIntoDuckDB(p.id, p.fileSourceData.rows, p.fileSourceData.columnMapping, p.fileSourceData.rawFileBuffer)
+            const dsId = fileSourceDataSourceId(p.id)
+            const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_name, concept_code, vocabulary_id FROM source_concepts')
+            const seen = new Map<string, SourceConceptRaw>()
+            for (const row of rows) {
+              const code = String(row.concept_code ?? '')
+              const name = String(row.concept_name ?? '')
+              const vocab = String(row.vocabulary_id ?? p.name)
+              const id = Number(row.concept_id ?? 0)
+              const key = `${vocab}__${code}`
+              if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
+            }
+            sourceConceptsMap.set(p.id, Array.from(seen.values()))
+          } catch {
+            // If mount/query fails, skip
+          }
         }
-        sourceConceptsMap.set(p.id, Array.from(seen.values()))
         continue
       }
       const ds = dataSources.find((d) => d.id === p.dataSourceId)
@@ -470,12 +492,94 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     setRegistryEntries(all.flat())
   }, [activeWorkspaceId])
 
+  // ── Table tab: DuckDB pagination functions ──
+  const registryMap = useMemo(
+    () => new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId])),
+    [registryEntries],
+  )
+
+  // Populate DuckDB temp table when data is ready
+  const populateTable = useCallback(async () => {
+    if (loadingMappings) return
+    invalidateGlobalTables()
+    try {
+      if (groupMode === 'badge') {
+        await populateDedupTable(allMappings, allSourceConceptsByProject, projects, registryMap)
+      } else {
+        await populateFlatTable(allMappings, allSourceConceptsByProject, projects, registryMap)
+      }
+      setTableReady(true)
+    } catch (err) {
+      console.error('Failed to populate global summary table:', err)
+    }
+  }, [loadingMappings, allMappings, allSourceConceptsByProject, projects, registryMap, groupMode])
+
+  // Load a page of rows from DuckDB
+  const loadTableRows = useCallback(async (pageToLoad: number) => {
+    if (!tableReady || tableLoadingRef.current) return
+    tableLoadingRef.current = true
+    setTableLoading(true)
+    try {
+      const queryCount = groupMode === 'badge' ? queryDedupCount : queryFlatCount
+      const queryPage = groupMode === 'badge' ? queryDedupPage : queryFlatPage
+
+      if (pageToLoad === 0) {
+        const count = await queryCount(colFilters)
+        setTableTotalCount(count)
+      }
+
+      const rows = await queryPage(colFilters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
+
+      if (pageToLoad === 0) {
+        setTableRows(rows)
+      } else {
+        setTableRows((prev) => [...prev, ...rows])
+      }
+      setTableHasMore(rows.length === PAGE_SIZE)
+    } catch (err) {
+      console.error('Failed to load table rows:', err)
+      if (pageToLoad === 0) setTableRows([])
+    } finally {
+      setTableLoading(false)
+      tableLoadingRef.current = false
+    }
+  }, [tableReady, groupMode, colFilters, sorting])
+
+  const loadTableRowsRef = useRef(loadTableRows)
+  loadTableRowsRef.current = loadTableRows
+
   useEffect(() => { loadAllMappings() }, [loadAllMappings])
   useEffect(() => { loadRegistry() }, [loadRegistry])
   // Re-load registry when switching to table or export tab (entries may have been assigned meanwhile)
   useEffect(() => {
     if (activeTab === 'table' || activeTab === 'export') loadRegistry()
   }, [activeTab, loadRegistry])
+
+  // Populate DuckDB table when switching to table tab or when groupMode/data changes
+  useEffect(() => {
+    if (activeTab !== 'table' || loadingMappings) return
+    invalidateGlobalTables()
+    setTableReady(false)
+    setTableRows([])
+    populateTable()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, loadingMappings, groupMode])
+
+  // Load first page when table is ready or filters/sorting change
+  useEffect(() => {
+    if (!tableReady) return
+    tablePage.current = 0
+    setTableRows([])
+    setTableHasMore(false)
+    loadTableRowsRef.current(0)
+  }, [tableReady, colFilters, sorting])
+
+  // Load next page on scroll
+  const handleLoadMore = useCallback(() => {
+    if (tableLoading || !tableHasMore) return
+    tablePage.current += 1
+    loadTableRowsRef.current(tablePage.current)
+  }, [tableLoading, tableHasMore])
 
   const groupStats = useMemo(
     () => computeGroupStats(allMappings, projects, groupMode, dbProjectTotals),
@@ -531,238 +635,25 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     }
   }), [groupNames, groupStats, getDisplayName])
 
-  // ── Table tab ────────────────────────────────────────────────────────
-  const tableProjectMap = useMemo(() => new Map(projects.map((p) => [p.id, p])), [projects])
+  // ── Table tab: filter dropdown options (loaded from DuckDB DISTINCT) ──
+  const [allEquivs, setAllEquivs] = useState<string[]>([])
+  const [allSourceVocabs, setAllSourceVocabs] = useState<string[]>([])
+  const [allTargetVocabs, setAllTargetVocabs] = useState<string[]>([])
 
-  // Registry lookup: (vocabularyId, conceptCode) → sourceConceptId
-  const registryMap = useMemo(
-    () => new Map(registryEntries.map((e) => [`${e.vocabularyId}__${e.conceptCode}`, e.sourceConceptId])),
-    [registryEntries],
-  )
-
-  // badge mode: deduplicate by (sourceConceptCode||sourceConceptId, targetConceptId, effectiveBadges)
-  // When a badge filter is active, only show the filtered badges and group on those only
-  const deduplicatedRows = useMemo<DeduplicatedMappingRow[]>(() => {
-    if (groupMode !== 'badge') return []
-    const activeFilter = colFilters.groupLabels?.size ? colFilters.groupLabels : null
-    const map = new Map<string, DeduplicatedMappingRow>()
-
-    // Track mapped source concept keys per badge set
-    const mappedKeys = new Set<string>() // `${badgeKey}__${vocab}__${code}`
-
-    for (const m of allMappings) {
-      const p = tableProjectMap.get(m.projectId)
-      const allBadges = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
-      const effectiveBadges = activeFilter
-        ? allBadges.filter((b) => activeFilter.has(b))
-        : allBadges
-      if (activeFilter && effectiveBadges.length === 0) continue
-      const badgeKey = [...effectiveBadges].sort().join('|')
-      const sourceKey = `${badgeKey}__${m.sourceVocabularyId}__${m.sourceConceptCode ?? m.sourceConceptId}`
-      mappedKeys.add(sourceKey)
-      const key = `${m.sourceConceptCode ?? m.sourceConceptId}__${m.targetConceptId}__${badgeKey}`
-      const isArtificialId = p?.sourceType === 'database'
-        || (p?.sourceType === 'file' && !p.fileSourceData?.columnMapping?.conceptIdColumn)
-      const resolvedSourceConceptId = isArtificialId
-        ? registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
-        : m.sourceConceptId
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          resolvedSourceConceptId,
-          sourceVocabularyId: m.sourceVocabularyId ?? '',
-          sourceConceptName: m.sourceConceptName,
-          sourceConceptCode: m.sourceConceptCode ?? String(m.sourceConceptId),
-          targetVocabularyId: m.targetVocabularyId ?? '',
-          targetConceptName: m.targetConceptName ?? '',
-          targetConceptId: m.targetConceptId,
-          equivalence: m.equivalence,
-          votesApproved: 0,
-          votesFlagged: 0,
-          votesRejected: 0,
-          projectCount: 0,
-          badgeLabels: effectiveBadges,
-        })
-      }
-      const row = map.get(key)!
-      const reviews = m.reviews ?? []
-      row.votesApproved += reviews.filter((r) => r.status === 'approved').length
-      row.votesFlagged += reviews.filter((r) => r.status === 'flagged').length
-      row.votesRejected += reviews.filter((r) => r.status === 'rejected').length
-      row.projectCount++
-    }
-
-    // Add unmapped source concepts
-    for (const [projectId, sourceConcepts] of allSourceConceptsByProject) {
-      const p = tableProjectMap.get(projectId)
-      if (!p) continue
-      const allBadges = (p.badges ?? []).map((b) => b.label).filter(Boolean)
-      const effectiveBadges = activeFilter
-        ? allBadges.filter((b) => activeFilter.has(b))
-        : allBadges
-      if (activeFilter && effectiveBadges.length === 0) continue
-      const badgeKey = [...effectiveBadges].sort().join('|')
-      const isArtificialId = p.sourceType === 'database'
-        || (p.sourceType === 'file' && !p.fileSourceData?.columnMapping?.conceptIdColumn)
-      for (const sc of sourceConcepts) {
-        const sourceKey = `${badgeKey}__${sc.vocabulary_id}__${sc.concept_code}`
-        if (mappedKeys.has(sourceKey)) continue
-        mappedKeys.add(sourceKey) // deduplicate across projects
-        const resolvedSourceConceptId = isArtificialId
-          ? registryMap.get(`${sc.vocabulary_id}__${sc.concept_code}`)
-          : (sc.concept_id || undefined)
-        const key = `unmapped__${sourceKey}`
-        map.set(key, {
-          key,
-          isUnmapped: true,
-          resolvedSourceConceptId,
-          sourceVocabularyId: sc.vocabulary_id,
-          sourceConceptName: sc.concept_name,
-          sourceConceptCode: sc.concept_code,
-          targetVocabularyId: '',
-          targetConceptName: '',
-          targetConceptId: 0,
-          votesApproved: 0,
-          votesFlagged: 0,
-          votesRejected: 0,
-          projectCount: 0,
-          badgeLabels: effectiveBadges,
-        })
-      }
-    }
-
-    return Array.from(map.values())
-  }, [allMappings, tableProjectMap, groupMode, colFilters.groupLabels, allSourceConceptsByProject, registryMap])
-
-  // project mode: one row per mapping + unmapped source concepts
-  const flatRows = useMemo<GlobalMappingRow[]>(() => {
-    if (groupMode === 'badge') return []
-
-    // Build set of mapped source concept keys (vocab__code) per project
-    const mappedKeys = new Map<string, Set<string>>() // projectId → Set<vocab__code>
-    for (const m of allMappings) {
-      if (!mappedKeys.has(m.projectId)) mappedKeys.set(m.projectId, new Set())
-      mappedKeys.get(m.projectId)!.add(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
-    }
-
-    const rows: GlobalMappingRow[] = allMappings.map((m) => {
-      const proj = tableProjectMap.get(m.projectId)
-      const isArtificialId = proj?.sourceType === 'database'
-        || (proj?.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
-      const resolvedSourceConceptId = isArtificialId
-        ? registryMap.get(`${m.sourceVocabularyId}__${m.sourceConceptCode}`)
-        : m.sourceConceptId
-      return {
-        ...m,
-        resolvedSourceConceptId,
-        projectName: tableProjectMap.get(m.projectId)?.name ?? m.projectId,
-      }
-    })
-
-    // Add unmapped source concepts as synthetic rows
-    for (const [projectId, sourceConcepts] of allSourceConceptsByProject) {
-      const proj = tableProjectMap.get(projectId)
-      if (!proj) continue
-      const mapped = mappedKeys.get(projectId) ?? new Set()
-      const isArtificialId = proj.sourceType === 'database'
-        || (proj.sourceType === 'file' && !proj.fileSourceData?.columnMapping?.conceptIdColumn)
-      for (const sc of sourceConcepts) {
-        const key = `${sc.vocabulary_id}__${sc.concept_code}`
-        if (mapped.has(key)) continue
-        const resolvedSourceConceptId = isArtificialId
-          ? registryMap.get(key)
-          : (sc.concept_id || undefined)
-        rows.push({
-          id: `unmapped__${projectId}__${key}`,
-          projectId,
-          projectName: proj.name,
-          sourceConceptId: sc.concept_id,
-          sourceConceptName: sc.concept_name,
-          sourceConceptCode: sc.concept_code,
-          sourceVocabularyId: sc.vocabulary_id,
-          targetConceptId: 0,
-          targetConceptName: '',
-          targetVocabularyId: '',
-          status: 'unchecked' as MappingStatus,
-          mappedBy: '',
-          createdAt: '',
-          updatedAt: '',
-          resolvedSourceConceptId,
-          isUnmapped: true,
-        })
-      }
-    }
-
-    return rows
-  }, [allMappings, tableProjectMap, groupMode, registryMap, allSourceConceptsByProject])
-
-  const allEquivs = useMemo(() => {
-    const vals = groupMode === 'badge'
-      ? deduplicatedRows.map((r) => r.equivalence)
-      : flatRows.map((r) => r.equivalence)
-    return [...new Set(vals.filter(Boolean) as string[])].sort()
-  }, [groupMode, deduplicatedRows, flatRows])
-
-const allBadgeLabels = useMemo(() => {
+  const allBadgeLabels = useMemo(() => {
     const labels = new Set<string>()
     for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
     return Array.from(labels).sort()
   }, [projects])
 
-  const allSourceVocabs = useMemo(() => {
-    const vals = groupMode === 'badge'
-      ? deduplicatedRows.map((r) => r.sourceVocabularyId)
-      : flatRows.map((r) => r.sourceVocabularyId)
-    return [...new Set(vals.filter(Boolean))].sort()
-  }, [groupMode, deduplicatedRows, flatRows])
-
-  const allTargetVocabs = useMemo(() => {
-    const vals = groupMode === 'badge'
-      ? deduplicatedRows.map((r) => r.targetVocabularyId)
-      : flatRows.map((r) => r.targetVocabularyId)
-    return [...new Set(vals.filter(Boolean))].sort()
-  }, [groupMode, deduplicatedRows, flatRows])
-
-  // Filters
-  const filteredDeduped = useMemo(() => {
-    const f = colFilters
-    // groupLabels already applied during deduplication — only apply text/equiv filters here
-    return deduplicatedRows.filter((r) => {
-      if (f.statusFilter?.size) {
-        const rowStatus = r.isUnmapped ? 'unmapped' : 'mapped'
-        if (!f.statusFilter.has(rowStatus)) return false
-      }
-      if (f.sourceVocabularyId && r.sourceVocabularyId !== f.sourceVocabularyId) return false
-      if (f.sourceConceptCode && !r.sourceConceptCode.toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
-      if (f.sourceConceptName && !r.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
-      if (f.equivalence && r.equivalence !== f.equivalence) return false
-      if (f.targetVocabularyId && r.targetVocabularyId !== f.targetVocabularyId) return false
-      if (f.targetConceptId && !String(r.targetConceptId).includes(f.targetConceptId)) return false
-      if (f.targetConceptName && !r.targetConceptName.toLowerCase().includes(f.targetConceptName.toLowerCase())) return false
-      return true
-    })
-  }, [deduplicatedRows, colFilters])
-
-  const filteredFlat = useMemo(() => {
-    const f = colFilters
-    return flatRows.filter((r) => {
-      // Status filter (empty set = all)
-      if (f.statusFilter?.size) {
-        const rowStatus = r.isUnmapped ? 'unmapped' : 'mapped'
-        if (!f.statusFilter.has(rowStatus)) return false
-      }
-      if (f.groupLabels?.size && !f.groupLabels.has(r.projectName)) return false
-      if (f.sourceVocabularyId && r.sourceVocabularyId !== f.sourceVocabularyId) return false
-      if (f.sourceConceptId && !String(r.resolvedSourceConceptId ?? '').includes(f.sourceConceptId)) return false
-      if (f.sourceConceptCode && !(r.sourceConceptCode ?? '').toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
-      if (f.sourceConceptName && !r.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
-      if (f.equivalence && r.equivalence !== f.equivalence) return false
-      if (f.targetVocabularyId && r.targetVocabularyId !== f.targetVocabularyId) return false
-      if (f.targetConceptId && !String(r.targetConceptId).includes(f.targetConceptId)) return false
-      if (f.targetConceptName && !(r.targetConceptName ?? '').toLowerCase().includes(f.targetConceptName.toLowerCase())) return false
-      return true
-    })
-  }, [flatRows, colFilters, groupMode])
+  // Load filter options from DuckDB when table is ready
+  useEffect(() => {
+    if (!tableReady) return
+    const queryDistinct = groupMode === 'badge' ? queryDedupDistinct : queryFlatDistinct
+    queryDistinct('equivalence').then(setAllEquivs).catch(() => {})
+    queryDistinct('source_vocabulary_id').then(setAllSourceVocabs).catch(() => {})
+    queryDistinct('target_vocabulary_id').then(setAllTargetVocabs).catch(() => {})
+  }, [tableReady, groupMode])
 
   // Export: mappings filtered by group only (used for per-status counts in the checkbox UI)
   const exportGroupOnlyMappings = useMemo(() => {
@@ -886,16 +777,18 @@ const allBadgeLabels = useMemo(() => {
       for (const proj of filteredProjects) {
         if (proj.sourceType === 'file') {
           if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
-          const rows = proj.fileSourceData?.rows ?? []
-          const colMapping = proj.fileSourceData?.columnMapping
-          const codeCol = colMapping?.conceptCodeColumn
-          const vocabCol = colMapping?.terminologyColumn
-          const nameCol = colMapping?.conceptNameColumn
-          for (const row of rows) {
-            const code = codeCol ? String(row[codeCol] ?? '') : ''
-            const vocab = vocabCol ? String(row[vocabCol] ?? '') : proj.name
-            const name = nameCol ? String(row[nameCol] ?? '') : code
-            if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+          if (proj.fileSourceData) {
+            try {
+              await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
+              const dsId = fileSourceDataSourceId(proj.id)
+              const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
+              for (const r of rows) {
+                const code = String(r.concept_code ?? '')
+                const vocab = String(r.vocabulary_id ?? proj.name)
+                const name = String(r.concept_name ?? '')
+                if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+              }
+            } catch { /* skip if mount/query fails */ }
           }
         } else {
           const ds = dataSources.find((s) => s.id === proj.dataSourceId)
@@ -1208,29 +1101,30 @@ const allBadgeLabels = useMemo(() => {
     },
   ], [t, groupMode])
 
-  // Sort + paginate
-  type AnyRow = DeduplicatedMappingRow | GlobalMappingRow
-  const activeRows: AnyRow[] = groupMode === 'badge' ? filteredDeduped : filteredFlat
-  const sortedRows = useMemo<AnyRow[]>(() => {
-    if (!sorting) return activeRows
-    const { columnId, desc } = sorting
-    const dir = desc ? -1 : 1
-    return [...activeRows].sort((a, b) => {
-      // sourceConceptId column uses resolvedSourceConceptId accessor
-      const key = columnId === 'sourceConceptId' ? 'resolvedSourceConceptId' : columnId
-      const av = (a as Record<string, unknown>)[key]
-      const bv = (b as Record<string, unknown>)[key]
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
-      return dir * String(av).localeCompare(String(bv))
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRows, sorting])
+  // Infinite scroll for table tab — use callback ref since Radix TabsContent
+  // unmounts/remounts content, so a regular ref + useEffect misses the element.
+  const hasMoreRef = useRef(tableHasMore)
+  hasMoreRef.current = tableHasMore
+  const handleLoadMoreRef = useRef(handleLoadMore)
+  handleLoadMoreRef.current = handleLoadMore
+  const scrollCleanupRef = useRef<(() => void) | null>(null)
 
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE))
-  const pageItems = sortedRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const scrollContainerRef = useCallback((el: HTMLDivElement | null) => {
+    // Clean up previous listener
+    if (scrollCleanupRef.current) {
+      scrollCleanupRef.current()
+      scrollCleanupRef.current = null
+    }
+    if (!el) return
+    const onScroll = () => {
+      if (!hasMoreRef.current) return
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        handleLoadMoreRef.current()
+      }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    scrollCleanupRef.current = () => el.removeEventListener('scroll', onScroll)
+  }, [])
 
   // Active columns depend on groupMode
   const activeColumns = groupMode === 'badge' ? dedupedColumns : flatColumns
@@ -1251,8 +1145,8 @@ const allBadgeLabels = useMemo(() => {
           ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
           : null
       }
-      // project mode
-      const opts = [...new Set(flatRows.map((r) => r.projectName))].sort().map((n) => ({ value: n, label: n }))
+      // project mode: use project names from projects list
+      const opts = projects.map((p) => ({ value: p.name, label: p.name }))
       return opts.length > 0
         ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
         : null
@@ -1277,24 +1171,70 @@ const allBadgeLabels = useMemo(() => {
     return null
   }
 
+  // Map DuckDB snake_case rows → camelCase for column defs
+  const mappedDedupRows = useMemo<DeduplicatedMappingRow[]>(() => {
+    if (groupMode !== 'badge') return []
+    return tableRows.map((r) => ({
+      key: String(r.key ?? ''),
+      isUnmapped: !!r.is_unmapped,
+      resolvedSourceConceptId: r.resolved_source_concept_id != null ? Number(r.resolved_source_concept_id) : undefined,
+      sourceVocabularyId: String(r.source_vocabulary_id ?? ''),
+      sourceConceptName: String(r.source_concept_name ?? ''),
+      sourceConceptCode: String(r.source_concept_code ?? ''),
+      equivalence: String(r.equivalence ?? ''),
+      targetVocabularyId: String(r.target_vocabulary_id ?? ''),
+      targetConceptId: Number(r.target_concept_id ?? 0),
+      targetConceptName: String(r.target_concept_name ?? ''),
+      votesApproved: Number(r.votes_approved ?? 0),
+      votesFlagged: Number(r.votes_flagged ?? 0),
+      votesRejected: Number(r.votes_rejected ?? 0),
+      projectCount: Number(r.project_count ?? 0),
+      badgeLabels: String(r.badge_labels ?? '').split(',').filter(Boolean),
+    }))
+  }, [tableRows, groupMode])
+
+  const mappedFlatRows = useMemo<GlobalMappingRow[]>(() => {
+    if (groupMode === 'badge') return []
+    return tableRows.map((r) => ({
+      id: String(r.id ?? ''),
+      projectId: String(r.project_id ?? ''),
+      projectName: String(r.project_name ?? ''),
+      isUnmapped: !!r.is_unmapped,
+      sourceVocabularyId: String(r.source_vocabulary_id ?? ''),
+      sourceConceptId: Number(r.source_concept_id ?? 0),
+      resolvedSourceConceptId: r.resolved_source_concept_id != null ? Number(r.resolved_source_concept_id) : undefined,
+      sourceConceptCode: String(r.source_concept_code ?? ''),
+      sourceConceptName: String(r.source_concept_name ?? ''),
+      equivalence: String(r.equivalence ?? ''),
+      targetVocabularyId: String(r.target_vocabulary_id ?? ''),
+      targetConceptId: Number(r.target_concept_id ?? 0),
+      targetConceptName: String(r.target_concept_name ?? ''),
+      status: (String(r.status ?? 'unchecked')) as MappingStatus,
+      mappedBy: String(r.mapped_by ?? ''),
+      createdAt: String(r.created_at ?? ''),
+      updatedAt: String(r.updated_at ?? ''),
+      reviews: r.reviews_json ? JSON.parse(String(r.reviews_json)) : [],
+    }))
+  }, [tableRows, groupMode])
+
   const dedupTable = useReactTable({
-    data: groupMode === 'badge' ? (pageItems as DeduplicatedMappingRow[]) : [],
+    data: mappedDedupRows,
     columns: dedupedColumns,
-    state: { columnVisibility },
+    state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    pageCount: totalPages,
   })
 
   const flatTable = useReactTable({
-    data: groupMode !== 'badge' ? (pageItems as GlobalMappingRow[]) : [],
+    data: mappedFlatRows,
     columns: flatColumns,
-    state: { columnVisibility },
+    state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: setColumnVisibility,
+    onColumnSizingChange: setColumnSizing,
+    columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    pageCount: totalPages,
   })
 
   const activeTable = groupMode === 'badge' ? dedupTable : flatTable
@@ -1477,7 +1417,7 @@ const allBadgeLabels = useMemo(() => {
 
         {/* ── TABLE TAB ── */}
         <TabsContent value="table" className="flex flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-auto">
+          <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
             <Table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
               <TableHeader>
                 <TableRow>
@@ -1500,6 +1440,20 @@ const allBadgeLabels = useMemo(() => {
                             <span className="truncate">{headerContent}</span>
                             {sortIcon}
                           </button>
+                          {header.column.getCanResize() && (
+                            <div
+                              onMouseDown={header.getResizeHandler()}
+                              onTouchStart={header.getResizeHandler()}
+                              onDoubleClick={() => header.column.resetSize()}
+                              className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                            >
+                              <div
+                                className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                                  header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                                }`}
+                              />
+                            </div>
+                          )}
                         </TableHead>
                       )
                     })
@@ -1516,13 +1470,13 @@ const allBadgeLabels = useMemo(() => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {loadingMappings ? (
+                {(loadingMappings || (tableLoading && tableRows.length === 0)) ? (
                   <TableRow>
                     <TableCell colSpan={activeColumns.length} className="h-24 text-center text-muted-foreground">
                       {t('concept_mapping.global_loading')}
                     </TableCell>
                   </TableRow>
-                ) : pageItems.length === 0 ? (
+                ) : tableRows.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={activeColumns.length} className="h-24 text-center text-muted-foreground">
                       {t('common.no_results')}
@@ -1537,6 +1491,13 @@ const allBadgeLabels = useMemo(() => {
                     ))}
                   </TableRow>
                 ))}
+                {tableLoading && tableRows.length > 0 && (
+                  <TableRow>
+                    <TableCell colSpan={activeColumns.length} className="py-2 text-center text-[10px] text-muted-foreground">
+                      {t('common.loading')}
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>
@@ -1572,15 +1533,15 @@ const allBadgeLabels = useMemo(() => {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <div className="ml-auto flex items-center gap-1">
-              <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-                <ChevronLeft size={14} />
-              </Button>
-              <span className="text-[10px] text-muted-foreground">{page + 1} / {totalPages}</span>
-              <Button variant="ghost" size="icon-sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-                <ChevronRight size={14} />
-              </Button>
-            </div>
+            <span className="ml-2 text-[10px] text-muted-foreground">
+              {tableTotalCount.toLocaleString()} {t('datasets.rows')}
+            </span>
+
+            {tableHasMore && (
+              <span className="ml-auto text-[10px] text-muted-foreground">
+                {t('concept_mapping.global_showing', { shown: tableRows.length.toLocaleString(), total: tableTotalCount.toLocaleString() } as Record<string, string>)}
+              </span>
+            )}
           </div>
         </TabsContent>
 
