@@ -10,6 +10,7 @@ import { useWikiStore } from '@/stores/wiki-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
 import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2 } from 'lucide-react'
@@ -445,6 +446,7 @@ export function WorkspacesPage() {
     useSqlScriptsStore.setState({ collectionsLoaded: false })
     useEtlStore.setState({ etlPipelinesLoaded: false })
     useDqStore.setState({ dqRuleSetsLoaded: false })
+    useConceptMappingStore.setState({ mappingProjectsLoaded: false, conceptSetsLoaded: false })
     await useWorkspaceStore.getState().loadWorkspaces()
     await loadProjects()
   }, [loadProjects])
