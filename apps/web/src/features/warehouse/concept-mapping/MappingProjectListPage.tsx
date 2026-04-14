@@ -120,27 +120,36 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           // Parse actual CSV header to update columns
           const headerLine = sourceCsv.split('\n')[0]?.trim()
           if (headerLine) {
-            const csvColumns = headerLine.split(',')
+            // Strip surrounding quotes from each column name (CSV may quote headers)
+            const csvColumns = headerLine.split(',').map(c => c.replace(/^"|"$/g, '').trim())
             project.fileSourceData.columns = csvColumns
             project.fileSourceData.totalRowCount = sourceCsv.split('\n').length - 1
-            // Rebuild columnMapping to match the normalized CSV column names
+            // Build a set of actual CSV column names for lookup
+            const colSet = new Set(csvColumns)
+            // Try to rebuild columnMapping from the CSV columns.
+            // The CSV may use normalized names (terminology, concept_name, record_count, ...)
+            // or the original project column names (terminology_code, concept_label, rows_count, ...).
+            // Check both: first try normalized names, then fall back to the project's
+            // existing columnMapping values (which reference original column names).
+            const existingMap = project.fileSourceData.columnMapping ?? {}
+            const pick = (normalized: string, existingVal?: string) =>
+              colSet.has(normalized) ? normalized : (existingVal && colSet.has(existingVal) ? existingVal : undefined)
             const normalizedMapping: Record<string, string | undefined> = {
-              terminologyColumn: csvColumns.includes('terminology') ? 'terminology' : undefined,
-              conceptCodeColumn: csvColumns.includes('concept_code') ? 'concept_code' : undefined,
-              conceptIdColumn: csvColumns.includes('concept_id') ? 'concept_id' : undefined,
-              conceptNameColumn: csvColumns.includes('concept_name') ? 'concept_name' : undefined,
-              domainColumn: csvColumns.includes('domain') ? 'domain' : undefined,
-              conceptClassColumn: csvColumns.includes('concept_class') ? 'concept_class' : undefined,
-              recordCountColumn: csvColumns.includes('record_count') ? 'record_count' : undefined,
-              patientCountColumn: csvColumns.includes('patient_count') ? 'patient_count' : undefined,
-              infoJsonColumn: csvColumns.includes('info_json') ? 'info_json' : undefined,
-              categoryColumn: csvColumns.includes('category') ? 'category' : undefined,
-              subcategoryColumn: csvColumns.includes('subcategory') ? 'subcategory' : undefined,
+              terminologyColumn: pick('terminology', existingMap.terminologyColumn),
+              conceptCodeColumn: pick('concept_code', existingMap.conceptCodeColumn),
+              conceptIdColumn: pick('concept_id', existingMap.conceptIdColumn),
+              conceptNameColumn: pick('concept_name', existingMap.conceptNameColumn),
+              domainColumn: pick('domain', existingMap.domainColumn),
+              conceptClassColumn: pick('concept_class', existingMap.conceptClassColumn),
+              recordCountColumn: pick('record_count', existingMap.recordCountColumn),
+              patientCountColumn: pick('patient_count', existingMap.patientCountColumn),
+              infoJsonColumn: pick('info_json', existingMap.infoJsonColumn),
+              categoryColumn: pick('category', existingMap.categoryColumn),
+              subcategoryColumn: pick('subcategory', existingMap.subcategoryColumn),
             }
-            // Keep extra columns that are in the CSV but not in the standard roles
-            const standardCols = new Set(['terminology', 'concept_code', 'concept_id', 'concept_name',
-              'domain', 'concept_class', 'record_count', 'patient_count', 'info_json', 'category', 'subcategory'])
-            const extras = csvColumns.filter(c => !standardCols.has(c))
+            // Keep extra columns that are in the CSV but not in a standard role
+            const mappedCols = new Set(Object.values(normalizedMapping).filter(Boolean))
+            const extras = csvColumns.filter(c => !mappedCols.has(c))
             if (extras.length > 0) normalizedMapping.extraColumns = extras as unknown as string | undefined
             project.fileSourceData.columnMapping = normalizedMapping as typeof project.fileSourceData.columnMapping
           }
