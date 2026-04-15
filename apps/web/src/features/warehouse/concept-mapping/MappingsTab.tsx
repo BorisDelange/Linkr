@@ -8,10 +8,10 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Check, Flag, X, MessageSquare, EyeOff,
-  ChevronLeft, ChevronRight, Pencil, Trash2, Square, CheckSquare,
+  Check, Flag, X, MessageSquare, EyeOff, Eye,
+  Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload,
+  Upload, ArrowLeft, Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -56,13 +56,17 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
+import { Card } from '@/components/ui/card'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
-import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, DataSource } from '@/types'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 
 interface MappingsTabProps {
   project: MappingProject
+  dataSource?: DataSource
 }
 
 const PAGE_SIZE = 50
@@ -471,16 +475,273 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   )
 }
 
-export function MappingsTab({ project }: MappingsTabProps) {
+// ─── Mapping Detail View (split source / target) ─────────────────────
+
+interface SourceCounts { record_count: number; patient_count: number }
+
+function MappingDetailView({ mapping, sourceCounts, onBack }: { mapping: ConceptMapping; sourceCounts: SourceCounts | null; onBack: () => void }) {
+  const { t } = useTranslation()
+
+  const formatDate = (iso?: string) => {
+    if (!iso) return '—'
+    const d = new Date(iso)
+    return `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+  }
+
+  const equivBadge = EQUIV_BADGE[mapping.equivalence]
+  const statusBadge = STATUS_BADGE[mapping.status]
+
+  const renderField = (label: string, value: string | number | undefined | null, mono?: boolean) => {
+    if (value == null || value === '') return null
+    return (
+      <tr>
+        <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{label}</td>
+        <td className={`py-1 text-xs font-medium ${mono ? 'font-mono' : ''}`}>{value}</td>
+      </tr>
+    )
+  }
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b px-4 py-2">
+        <Button variant="ghost" size="icon-sm" onClick={onBack}>
+          <ArrowLeft size={16} />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="truncate text-sm font-semibold" title={mapping.sourceConceptName}>
+              {mapping.sourceConceptName}
+            </span>
+            <span className="text-xs text-muted-foreground">→</span>
+            <span className="truncate text-sm font-semibold" title={mapping.targetConceptName}>
+              {mapping.targetConceptName || t('concept_mapping.no_mapping_needed')}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+            {equivBadge && (
+              <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${equivBadge.className}`}>
+                {equivBadge.label}
+              </Badge>
+            )}
+            <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
+              {t(`concept_mapping.status_${mapping.status}`)}
+            </Badge>
+            {mapping.mappedBy && <span>· {mapping.mappedBy}</span>}
+            {mapping.mappedOn && <span>· {formatDate(mapping.mappedOn)}</span>}
+          </div>
+        </div>
+      </div>
+
+      {/* Split view */}
+      <div className="grid min-h-0 flex-1 grid-cols-2 divide-x overflow-hidden">
+        {/* Left: Source concept */}
+        <div className="overflow-auto p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('concept_mapping.detail_source')}
+          </h3>
+          <Card className="p-3">
+            <table className="w-full text-xs">
+              <tbody>
+                {renderField(t('concept_mapping.col_source_vocabulary'), mapping.sourceVocabularyId)}
+                {renderField(t('concept_mapping.col_category'), mapping.sourceCategoryId)}
+                {renderField(t('concept_mapping.col_subcategory'), mapping.sourceSubcategoryId)}
+                {renderField(t('concept_mapping.col_source_concept_name'), mapping.sourceConceptName)}
+                {renderField(t('concept_mapping.col_source_concept_code'), mapping.sourceConceptCode, true)}
+                {sourceCounts && renderField(t('concept_mapping.col_patients'), sourceCounts.patient_count.toLocaleString())}
+                {sourceCounts && renderField(t('concept_mapping.col_records'), sourceCounts.record_count.toLocaleString())}
+                {!sourceCounts && mapping.sourceFrequency != null && renderField(t('concept_mapping.col_records'), mapping.sourceFrequency.toLocaleString())}
+                {renderField(t('concept_mapping.col_domain_id'), mapping.sourceDomainId)}
+                {renderField(t('concept_mapping.col_concept_class_id'), mapping.sourceConceptClassId)}
+              </tbody>
+            </table>
+          </Card>
+        </div>
+
+        {/* Right: Target concept */}
+        <div className="overflow-auto p-4">
+          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            {t('concept_mapping.detail_target')}
+          </h3>
+          <Card className="p-3">
+            {mapping.status === 'ignored' || (mapping.targetConceptId === 0 && !mapping.targetConceptName) ? (
+              <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
+                <EyeOff size={12} />
+                <span className="italic">{t('concept_mapping.no_mapping_needed')}</span>
+              </div>
+            ) : (
+              <table className="w-full text-xs">
+                <tbody>
+                  {renderField(t('concept_mapping.col_target_vocabulary'), mapping.targetVocabularyId)}
+                  {renderField(t('concept_mapping.col_target_concept_id'), mapping.targetConceptId, true)}
+                  {renderField(t('concept_mapping.col_target_concept_name'), mapping.targetConceptName)}
+                  {renderField(t('concept_mapping.col_source_concept_code'), mapping.targetConceptCode, true)}
+                  {renderField(t('concept_mapping.col_domain_id'), mapping.targetDomainId)}
+                  {renderField(t('concept_mapping.col_concept_class_id'), mapping.targetConceptClassId)}
+                  {renderField(t('concept_mapping.col_std'), mapping.targetStandardConcept)}
+                </tbody>
+              </table>
+            )}
+          </Card>
+
+          {/* Mapping metadata */}
+          <div className="mt-4">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('concept_mapping.detail_metadata')}
+            </h4>
+            <Card className="p-3">
+              <table className="w-full text-xs">
+                <tbody>
+                  <tr>
+                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{t('concept_mapping.col_equivalence')}</td>
+                    <td className="py-1 text-xs">
+                      {equivBadge ? (
+                        <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${equivBadge.className}`}>
+                          {equivBadge.label}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">{mapping.equivalence}</span>
+                      )}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">Status</td>
+                    <td className="py-1 text-xs">
+                      <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
+                        {t(`concept_mapping.status_${mapping.status}`)}
+                      </Badge>
+                    </td>
+                  </tr>
+                  {mapping.matchScore != null && renderField(t('concept_mapping.detail_match_score'), `${Math.round(mapping.matchScore * 100)}%`)}
+                  {renderField(t('concept_mapping.col_mapped_by'), mapping.mappedBy)}
+                  {renderField(t('concept_mapping.col_created_at'), formatDate(mapping.createdAt))}
+                  {renderField(t('concept_mapping.detail_updated_at'), formatDate(mapping.updatedAt))}
+                </tbody>
+              </table>
+            </Card>
+          </div>
+
+          {/* Comments */}
+          {(mapping.comments ?? []).length > 0 && (
+            <div className="mt-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('concept_mapping.comments')} ({(mapping.comments ?? []).length})
+              </h4>
+              <div className="space-y-1.5">
+                {(mapping.comments ?? []).map((c) => (
+                  <div key={c.id} className="rounded-lg border bg-muted/30 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium">{c.authorId}</span>
+                      <span className="text-[10px] text-muted-foreground">{formatDate(c.createdAt)}</span>
+                    </div>
+                    <p className="mt-0.5 whitespace-pre-wrap text-xs text-muted-foreground">{c.text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Reviews */}
+          {(mapping.reviews ?? []).length > 0 && (
+            <div className="mt-4">
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('concept_mapping.reviews_title')} ({(mapping.reviews ?? []).length})
+              </h4>
+              <div className="space-y-1.5">
+                {(mapping.reviews ?? []).map((r) => (
+                  <div key={r.id} className="rounded-lg border bg-muted/30 px-3 py-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-medium">{r.reviewerId}</span>
+                      <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${STATUS_BADGE[r.status] ?? ''}`}>
+                        {t(`concept_mapping.status_${r.status}`)}
+                      </Badge>
+                    </div>
+                    {r.comment && <p className="mt-0.5 text-xs text-muted-foreground">{r.comment}</p>}
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">{formatDate(r.createdAt)}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
   const { mappings, updateMapping, deleteMapping, createMappingsBatch } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
-  const [page, setPage] = useState(0)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [editMode, setEditMode] = useState(false)
+  const [detailMapping, setDetailMapping] = useState<ConceptMapping | null>(null)
+  const [detailSourceCounts, setDetailSourceCounts] = useState<SourceCounts | null>(null)
+  const savedScrollTop = useRef(0)
+
+  // Cache concept counts from DuckDB (computed once per data source)
+  const countsCache = useRef<Map<number, SourceCounts>>(new Map())
+  const countsCacheDs = useRef<string | null>(null)
+
+  const isFileSource = project.sourceType === 'file'
+
+  /** Fetch source concept counts from DuckDB and cache them. */
+  const fetchSourceCounts = useCallback(async (conceptId: number): Promise<SourceCounts | null> => {
+    // Check cache
+    const cached = countsCache.current.get(conceptId)
+    if (cached) return cached
+
+    try {
+      if (isFileSource && project.fileSourceData) {
+        const dsId = fileSourceDataSourceId(project.id)
+        if (!isFileSourceMounted(project.id)) {
+          await mountFileSourceIntoDuckDB(
+            project.id,
+            project.fileSourceData.rows,
+            project.fileSourceData.columnMapping,
+            project.fileSourceData.rawFileBuffer,
+          )
+        }
+        const rows = await queryDataSource(dsId, `SELECT patient_count, record_count FROM source_concepts WHERE concept_id = ${conceptId} LIMIT 1`)
+        if (rows.length > 0) {
+          const r = rows[0] as Record<string, unknown>
+          const counts: SourceCounts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
+          countsCache.current.set(conceptId, counts)
+          return counts
+        }
+      } else if (dataSource) {
+        // Database source: build counts query if not already cached for this DS
+        const dsId = dataSource.id
+        if (countsCacheDs.current !== dsId) {
+          await ensureMounted(dsId)
+          const schemaMapping = dataSource.schemaMapping
+          if (schemaMapping) {
+            const countsSql = buildAllConceptCountsQuery(schemaMapping)
+            if (countsSql) {
+              const rows = await queryDataSource(dsId, countsSql)
+              countsCache.current.clear()
+              for (const r of rows as Record<string, unknown>[]) {
+                countsCache.current.set(Number(r.concept_id), {
+                  record_count: Number(r.record_count ?? 0),
+                  patient_count: Number(r.patient_count ?? 0),
+                })
+              }
+            }
+          }
+          countsCacheDs.current = dsId
+        }
+        return countsCache.current.get(conceptId) ?? null
+      }
+    } catch (err) {
+      console.warn('Failed to fetch source concept counts:', err)
+    }
+    return null
+  }, [isFileSource, project, dataSource, ensureMounted])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
@@ -575,8 +836,29 @@ export function MappingsTab({ project }: MappingsTabProps) {
     })
   }, [filtered, sorting])
 
-  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
-  const pageItems = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const visibleItems = sorted.slice(0, visibleCount)
+  const hasMore = visibleCount < sorted.length
+
+  // Reset visible count when filters/sorting change
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule])
+
+  // Infinite scroll
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const hasMoreRef = useRef(hasMore)
+  hasMoreRef.current = hasMore
+
+  useEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const onScroll = () => {
+      if (!hasMoreRef.current) return
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
+        setVisibleCount((prev) => Math.min(prev + PAGE_SIZE, sorted.length))
+      }
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [sorted.length])
 
   const handleSort = (columnId: string) => {
     if (sorting?.columnId === columnId) {
@@ -585,12 +867,10 @@ export function MappingsTab({ project }: MappingsTabProps) {
     } else {
       setSorting({ columnId, desc: true })
     }
-    setPage(0)
   }
 
   const updateFilter = (key: keyof MappingColumnFilters, value: string | null) => {
     setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
-    setPage(0)
   }
 
   /** Render inline column filter for a given column. */
@@ -646,7 +926,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
   }, [])
 
   const toggleSelectAll = () => {
-    const pageIds = pageItems.map((m) => m.id)
+    const pageIds = visibleItems.map((m) => m.id)
     const allSelected = pageIds.every((id) => selected.has(id))
     setSelected((prev) => {
       const next = new Set(prev)
@@ -776,7 +1056,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
     })
   }, [updateMapping, getUserDisplayName, mappings])
 
-  const pageAllSelected = pageItems.length > 0 && pageItems.every((m) => selected.has(m.id))
+  const pageAllSelected = visibleItems.length > 0 && visibleItems.every((m) => selected.has(m.id))
 
   // Build TanStack columns
   const columns = useMemo<ColumnDef<ConceptMapping>[]>(() => {
@@ -1018,6 +1298,25 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   <Button
                     variant="outline"
                     size="icon-sm"
+                    className="size-6"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      savedScrollTop.current = scrollContainerRef.current?.scrollTop ?? 0
+                      setDetailMapping(m)
+                      setDetailSourceCounts(null)
+                      fetchSourceCounts(m.sourceConceptId).then((c) => { if (c) setDetailSourceCounts(c) })
+                    }}
+                  >
+                    <Eye size={12} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="text-xs">{t('concept_mapping.view_detail')}</TooltipContent>
+              </Tooltip>
+              <Tooltip delayDuration={700}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
                     className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
                     onClick={(e) => { e.stopPropagation(); setCommentsMappingId(m.id) }}
                   >
@@ -1101,18 +1400,18 @@ export function MappingsTab({ project }: MappingsTabProps) {
             </span>
           )
         },
-        size: 160,
-        minSize: 160,
+        size: 190,
+        minSize: 190,
         enableResizing: false,
       })
     }
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, pageItems])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems])
 
   const table = useReactTable({
-    data: pageItems,
+    data: visibleItems,
     columns,
     state: { columnVisibility, columnSizing },
     onColumnVisibilityChange: setColumnVisibility,
@@ -1120,8 +1419,21 @@ export function MappingsTab({ project }: MappingsTabProps) {
     columnResizeMode: 'onChange',
     getCoreRowModel: getCoreRowModel(),
     manualPagination: true,
-    pageCount: totalPages,
+    pageCount: 1,
   })
+
+  // Show detail view when a mapping is selected
+  if (detailMapping) {
+    // Always read from live store so edits appear immediately
+    const liveMapping = mappings.find((m) => m.id === detailMapping.id) ?? detailMapping
+    return <MappingDetailView mapping={liveMapping} sourceCounts={detailSourceCounts} onBack={() => {
+      setDetailMapping(null)
+      // Restore scroll position after React re-renders the table
+      requestAnimationFrame(() => {
+        scrollContainerRef.current?.scrollTo({ top: savedScrollTop.current })
+      })
+    }} />
+  }
 
   return (
     <>
@@ -1172,9 +1484,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <span className="text-xs text-muted-foreground">
-          {filtered.length} / {projectMappings.length} {t('concept_mapping.existing_mappings').toLowerCase()}
-        </span>
         <div className="ml-auto flex items-center gap-1">
           {/* Import / Export */}
           <Tooltip>
@@ -1266,7 +1575,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       </div>
 
       {/* Table */}
-      <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             {/* Column titles */}
@@ -1347,7 +1656,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageItems.length === 0 ? (
+            {visibleItems.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
                   {projectMappings.length === 0
@@ -1382,11 +1691,20 @@ export function MappingsTab({ project }: MappingsTabProps) {
             )}
           </TableBody>
         </Table>
+        {/* Loading indicator when fetching next page */}
+        {hasMore && (
+          <div className="flex h-8 items-center justify-center">
+            <Loader2 size={12} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
       </div>
 
-      {/* Pagination + column visibility */}
-      <div className="flex shrink-0 items-center justify-between border-t px-4 py-1.5">
-        <div className="flex items-center gap-2">
+      {/* Footer: count + column visibility */}
+      <div className="flex shrink-0 items-center border-t px-4 py-1.5">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground">
+            {visibleItems.length.toLocaleString()}{hasMore ? '+' : ''} / {sorted.length.toLocaleString()} {t('concept_mapping.existing_mappings').toLowerCase()}
+          </span>
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1416,17 +1734,6 @@ export function MappingsTab({ project }: MappingsTabProps) {
                 ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon-sm" disabled={page === 0} onClick={() => setPage(page - 1)}>
-            <ChevronLeft size={14} />
-          </Button>
-          <span className="text-[10px] text-muted-foreground">
-            {page + 1} / {totalPages}
-          </span>
-          <Button variant="ghost" size="icon-sm" disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}>
-            <ChevronRight size={14} />
-          </Button>
         </div>
       </div>
 

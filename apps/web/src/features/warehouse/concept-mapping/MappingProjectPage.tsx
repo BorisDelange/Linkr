@@ -131,7 +131,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
         </TabsContent>
         <TabsContent value="mappings" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <MappingsTab project={project} />
+          <MappingsTab project={project} dataSource={dataSource} />
         </TabsContent>
         <TabsContent value="export" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
           <ExportTab project={project} dataSource={dataSource} />
