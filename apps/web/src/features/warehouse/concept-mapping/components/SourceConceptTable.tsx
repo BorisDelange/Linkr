@@ -127,11 +127,13 @@ function ColumnFilterSelect({
   options,
   placeholder,
   onChange,
+  wide,
 }: {
   value: string | null
   options: string[]
   placeholder: string
   onChange: (v: string | null) => void
+  wide?: boolean
 }) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
@@ -143,7 +145,7 @@ function ColumnFilterSelect({
           <span className="truncate">{value ?? placeholder}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent align="start" className={wide ? 'w-[360px]' : 'w-[200px]'} onCloseAutoFocus={(e) => e.preventDefault()}>
         <div className="px-2 pb-1.5">
           <input
             className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
@@ -154,7 +156,7 @@ function ColumnFilterSelect({
           />
         </div>
         <DropdownMenuSeparator />
-        <div className="max-h-44 overflow-auto">
+        <div className="max-h-72 overflow-auto">
           <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
             {t('concepts.filter_all')}
           </DropdownMenuItem>
@@ -347,14 +349,14 @@ export function SourceConceptTable({
       if (termOpts?.length) {
         const filterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
         const value = filterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId
-        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder={t('concept_mapping.col_terminology')} onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} />
+        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder={t('concept_mapping.col_terminology')} onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} wide />
       }
     }
     if (columnId === 'category' && filterOptions.category?.length > 0) {
-      return <ColumnFilterSelect value={filters.category ?? null} options={filterOptions.category} placeholder="Category" onChange={(v) => onFiltersChange({ ...filters, category: v ?? undefined })} />
+      return <ColumnFilterSelect value={filters.category ?? null} options={filterOptions.category} placeholder="Category" onChange={(v) => onFiltersChange({ ...filters, category: v ?? undefined })} wide />
     }
     if (columnId === 'subcategory' && filterOptions.subcategory?.length > 0) {
-      return <ColumnFilterSelect value={filters.subcategory ?? null} options={filterOptions.subcategory} placeholder="Subcategory" onChange={(v) => onFiltersChange({ ...filters, subcategory: v ?? undefined })} />
+      return <ColumnFilterSelect value={filters.subcategory ?? null} options={filterOptions.subcategory} placeholder="Subcategory" onChange={(v) => onFiltersChange({ ...filters, subcategory: v ?? undefined })} wide />
     }
     if (columnId === 'domain_id' && filterOptions.domain_id?.length > 0) {
       return <ColumnFilterSelect value={filters.domainId ?? null} options={filterOptions.domain_id} placeholder="Domain" onChange={(v) => onFiltersChange({ ...filters, domainId: v ?? undefined })} />

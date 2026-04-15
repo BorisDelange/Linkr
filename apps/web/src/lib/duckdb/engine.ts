@@ -799,7 +799,7 @@ async function doMountFileSource(
       }
 
       await conn.query(
-        `CREATE VIEW "${schema}"."source_concepts" AS SELECT ${selectCols.join(', ')} FROM read_csv_auto('${fileName}')`,
+        `CREATE VIEW "${schema}"."source_concepts" AS SELECT ${selectCols.join(', ')} FROM read_csv_auto('${fileName}', nullstr='NA')`,
       )
     } else {
       // --- Legacy fallback: insert parsed rows ---

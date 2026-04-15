@@ -119,7 +119,7 @@ function ColumnFilterSelect({
           />
         </div>
         <DropdownMenuSeparator />
-        <div className="max-h-44 overflow-auto">
+        <div className="max-h-72 overflow-auto">
           <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
             {t('concepts.filter_all')}
           </DropdownMenuItem>
@@ -208,7 +208,7 @@ function ResolvedMultiSelect({
           </Tooltip>
         </div>
         <DropdownMenuSeparator />
-        <div className="max-h-44 overflow-auto">
+        <div className="max-h-72 overflow-auto">
           {filtered.map((opt) => (
             <DropdownMenuCheckboxItem
               key={opt}
@@ -1199,8 +1199,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     concept_name?: string
     concept_code?: string
     vocabulary_id?: string
-    domain_id?: string
-    concept_class_id?: string
+    domain_id?: Set<string>
+    concept_class_id?: Set<string>
     standard_concept?: string | null
   }
   const [searchColFilters, setSearchColFilters] = useState<SearchColumnFilters>({})
@@ -1212,14 +1212,17 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (f.concept_name && !textMatch(r.concept_name, f.concept_name)) return false
     if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
     if (f.vocabulary_id && r.vocabulary_id !== f.vocabulary_id) return false
-    if (f.domain_id && (r.domain_id ?? '') !== f.domain_id) return false
-    if (f.concept_class_id && (r.concept_class_id ?? '') !== f.concept_class_id) return false
+    if (f.domain_id?.size && !f.domain_id.has(r.domain_id ?? '')) return false
+    if (f.concept_class_id?.size && !f.concept_class_id.has(r.concept_class_id ?? '')) return false
     if (f.standard_concept && (r.standard_concept ?? '') !== f.standard_concept) return false
     return true
   })
 
-  const updateSearchFilter = (key: keyof SearchColumnFilters, value: string | null) => {
-    setSearchColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
+  const updateSearchFilter = (key: keyof SearchColumnFilters, value: string | null | Set<string>) => {
+    setSearchColFilters((prev) => ({
+      ...prev,
+      [key]: value instanceof Set ? (value.size > 0 ? value : undefined) : (value ?? undefined),
+    }))
     setSearchPage(0)
   }
 
@@ -1250,10 +1253,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       return <input className={`${SEARCH_FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={searchColFilters.concept_code ?? ''} onChange={(e) => updateSearchFilter('concept_code', e.target.value || null)} />
     }
     if (columnId === 'domain_id' && searchResultFilterOptions.domain_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.domain_id ?? null} options={searchResultFilterOptions.domain_id} placeholder="Domain" onChange={(v) => updateSearchFilter('domain_id', v)} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.domain_id} selected={searchColFilters.domain_id} onChange={(v) => updateSearchFilter('domain_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
     }
     if (columnId === 'concept_class_id' && searchResultFilterOptions.concept_class_id.length > 0) {
-      return <ColumnFilterSelect value={searchColFilters.concept_class_id ?? null} options={searchResultFilterOptions.concept_class_id} placeholder="Class" onChange={(v) => updateSearchFilter('concept_class_id', v)} />
+      return <ResolvedMultiSelect options={searchResultFilterOptions.concept_class_id} selected={searchColFilters.concept_class_id} onChange={(v) => updateSearchFilter('concept_class_id', v)} triggerClass={SEARCH_FILTER_INPUT_CLASS} />
     }
     if (columnId === 'standard_concept') {
       return (
