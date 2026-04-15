@@ -141,11 +141,20 @@ For each candidate, assess:
 3. **Domain consistency**: does the OMOP domain match the data type?
 4. **Unit compatibility** (for measurements): does the standard concept expect the same unit?
 
-Assign an equivalence level — **be rigorous, do NOT default to exactMatch**:
+Assign an equivalence level — **be rigorous, do NOT default to exactMatch**.
+
+**SSSOM convention (source = subject, target = object):**
+- `skos:broadMatch` — the **target (object) is broader** than the source (subject)
+- `skos:narrowMatch` — the **target (object) is narrower** than the source (subject)
+- These are inverses: if A→B is broadMatch, then B→A is narrowMatch
+
+Reference: [SSSOM mapping predicates](https://mapping-commons.github.io/sssom/mapping-predicates/)
+
+**Levels:**
 - `skos:exactMatch` — identical meaning, no information loss (e.g., "SpO2" → LOINC "Oxygen saturation in Arterial blood by Pulse oximetry")
 - `skos:closeMatch` — very similar but some context/specificity is lost (e.g., "Frequence_respiratoire_mesuree_scope" → "Respiratory rate" loses the "measured by scope" detail; "PEEP_reglee" → "PEEP setting Ventilator" is close but the source implies a specific clinical workflow)
-- `skos:broadMatch` — standard concept is more general (e.g., source specifies a subtype but target covers the whole category)
-- `skos:narrowMatch` — standard concept is more specific than the source
+- `skos:broadMatch` — target is more general than source (e.g., "Voie intraveineuse directe" → "Intravenous": source specifies bolus IV, target covers all IV routes)
+- `skos:narrowMatch` — target is more specific than source (e.g., source is a generic category, target covers only a subtype)
 - `skos:relatedMatch` — related but different angle
 
 **Guideline**: if the source concept name contains qualifying information (measurement method, device, location, timing) that the target concept does NOT capture, this is `closeMatch`, not `exactMatch`. Only use `exactMatch` when the concepts are truly semantically equivalent.
