@@ -16,6 +16,7 @@ import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schem
 import { getAllPlugins } from '@/lib/plugins/registry'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { parseSourceConceptIdEntries, type CompactSourceConceptIdEntries } from '@/lib/entity-io'
 import type { CustomMappingRow } from '@/features/warehouse/etl/build-vocabulary-script'
 import type {
   Workspace, Organization, Project, CustomSchemaPreset, UserPlugin,
@@ -515,7 +516,8 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
   for (const range of idRanges) {
     await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, updatedAt: now }).catch(() => {})
   }
-  const idEntries = await fetchJson<SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`) ?? []
+  const rawIdEntries = await fetchJson<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(`${base}/source-concept-ids/entries.json`)
+  const idEntries = rawIdEntries ? parseSourceConceptIdEntries(rawIdEntries, wsId) : []
   if (idEntries.length > 0) {
     await storage.sourceConceptIdEntries.saveBatch(
       idEntries.map(e => ({ ...e, workspaceId: wsId }))

@@ -20,6 +20,45 @@ import type {
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 
 // ---------------------------------------------------------------------------
+// Source-concept-id compact format helpers
+// ---------------------------------------------------------------------------
+
+/** Compact JSON format for source-concept-id entries (smaller than one object per entry). */
+export interface CompactSourceConceptIdEntries {
+  /** Column order: [badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt] */
+  columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt']
+  entries: [string, string, string, number, string][]
+}
+
+/** Serialize SourceConceptIdEntry[] to compact format for export. */
+function toCompactEntries(entries: SourceConceptIdEntry[]): CompactSourceConceptIdEntries {
+  return {
+    columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt'],
+    entries: entries.map(e => [e.badgeLabel, e.vocabularyId, e.conceptCode, e.sourceConceptId, e.createdAt]),
+  }
+}
+
+/** Deserialize compact or legacy entries.json into SourceConceptIdEntry[]. */
+export function parseSourceConceptIdEntries(
+  raw: CompactSourceConceptIdEntries | SourceConceptIdEntry[],
+  workspaceId: string,
+): SourceConceptIdEntry[] {
+  // Legacy format: array of full objects
+  if (Array.isArray(raw)) return raw
+
+  // Compact format: { columns, entries }
+  return raw.entries.map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt]) => ({
+    id: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`,
+    workspaceId,
+    badgeLabel,
+    vocabularyId,
+    conceptCode,
+    sourceConceptId,
+    createdAt,
+  }))
+}
+
+// ---------------------------------------------------------------------------
 // Download helpers
 // ---------------------------------------------------------------------------
 
@@ -891,13 +930,13 @@ export async function buildWorkspaceZip(
       await buildMappingProjectFolder(zip, `mapping-projects/${folder}/`, mp, storage)
     }
 
-    // --- source-concept-ids/ (ranges + entries for cross-project ID assignment) ---
+    // --- source-concept-ids/ (ranges + compact entries for cross-project ID assignment) ---
     const idRanges = await storage.sourceConceptIdRanges.getByWorkspace(workspaceId)
     if (idRanges.length > 0) {
       zip.file('source-concept-ids/ranges.json', json(idRanges))
       const idEntries = await storage.sourceConceptIdEntries.getByWorkspace(workspaceId)
       if (idEntries.length > 0) {
-        zip.file('source-concept-ids/entries.json', json(idEntries))
+        zip.file('source-concept-ids/entries.json', json(toCompactEntries(idEntries)))
       }
     }
   }
@@ -1151,7 +1190,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- source-concept-ids/ (cross-project ID assignment registry) ---
   const sourceConceptIdRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, 'source-concept-ids/ranges.json')) ?? []
-  const sourceConceptIdEntries = (await readJsonFile<SourceConceptIdEntry[]>(zipData, 'source-concept-ids/entries.json')) ?? []
+  const rawEntries = await readJsonFile<CompactSourceConceptIdEntries | SourceConceptIdEntry[]>(zipData, 'source-concept-ids/entries.json')
+  const sourceConceptIdEntries = rawEntries ? parseSourceConceptIdEntries(rawEntries, workspace.id) : []
 
   // --- catalogs/ ---
   const catalogs: DataCatalog[] = []
