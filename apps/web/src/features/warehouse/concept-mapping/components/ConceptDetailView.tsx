@@ -130,48 +130,48 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
   )
 }
 
-// --- Section types ---
+// --- Section types (exported for reuse in MappingDetailView) ---
 
-interface StatsSection {
+export interface StatsSection {
   type: 'stats'
   title?: string
   items: { label: string; value: string; highlight?: boolean }[]
   boxplot?: { min: number; p25: number; median: number; p75: number; max: number; mean?: number }
 }
 
-interface BarChartSection {
+export interface BarChartSection {
   type: 'bar'
   title: string
   data: { label: string; value: number }[]
   longLabels?: boolean
 }
 
-interface PieChartSection {
+export interface PieChartSection {
   type: 'pie'
   title: string
   data: { label: string; value: number }[]
 }
 
-interface LineChartSection {
+export interface LineChartSection {
   type: 'line'
   title: string
   data: { label: string; value: number }[]
 }
 
-interface TableSection {
+export interface TableSection {
   type: 'table'
   title: string
   rows: { label: string; value: string }[]
 }
 
-interface ColumnsTableSection {
+export interface ColumnsTableSection {
   type: 'columns_table'
   title: string
   columns: { key: string; label: string; align?: 'left' | 'right' }[]
   rows: Record<string, unknown>[]
 }
 
-type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection
+export type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection
 
 // Custom boxplot shape
 function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: {
@@ -210,7 +210,7 @@ function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: {
   )
 }
 
-function SectionRenderer({ section }: { section: Section }) {
+export function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'stats') {
     return (
       <Card className="p-3">
@@ -435,7 +435,7 @@ function isNormalizedFormat(info: Record<string, unknown>): boolean {
 }
 
 /** Keys that are simple scalar text fields at the top level. */
-function extractTextFields(info: Record<string, unknown>): { label: string; value: string }[] {
+export function extractTextFields(info: Record<string, unknown>): { label: string; value: string }[] {
   // Normalized format: metadata fields become text fields
   if (isNormalizedFormat(info)) {
     if (info.metadata && typeof info.metadata === 'object' && !Array.isArray(info.metadata)) {
@@ -493,7 +493,7 @@ function tryBuildBoxplot(nd: Record<string, unknown>): StatsSection['boxplot'] |
 }
 
 /** Extract all visualizable sections from the JSON. */
-function extractSections(info: Record<string, unknown>, t: TFunction): Section[] {
+export function extractSections(info: Record<string, unknown>, t: TFunction): Section[] {
   // Use normalized parser if detected
   if (isNormalizedFormat(info)) return extractNormalizedSections(info, t)
 

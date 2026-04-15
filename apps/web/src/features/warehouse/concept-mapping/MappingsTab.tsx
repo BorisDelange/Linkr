@@ -57,12 +57,14 @@ import {
 } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
+import { SectionRenderer, extractSections, extractTextFields } from './components/ConceptDetailView'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
+import { escSql } from '@/lib/format-helpers'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -478,8 +480,10 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
 // ─── Mapping Detail View (split source / target) ─────────────────────
 
 interface SourceCounts { record_count: number; patient_count: number }
+/** undefined = still loading, null = no data available */
+interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
 
-function MappingDetailView({ mapping, sourceCounts, onBack }: { mapping: ConceptMapping; sourceCounts: SourceCounts | null; onBack: () => void }) {
+function MappingDetailView({ mapping, sourceDetail, onBack }: { mapping: ConceptMapping; sourceDetail: SourceDetail; onBack: () => void }) {
   const { t } = useTranslation()
 
   const formatDate = (iso?: string) => {
@@ -548,14 +552,65 @@ function MappingDetailView({ mapping, sourceCounts, onBack }: { mapping: Concept
                 {renderField(t('concept_mapping.col_subcategory'), mapping.sourceSubcategoryId)}
                 {renderField(t('concept_mapping.col_source_concept_name'), mapping.sourceConceptName)}
                 {renderField(t('concept_mapping.col_source_concept_code'), mapping.sourceConceptCode, true)}
-                {sourceCounts && renderField(t('concept_mapping.col_patients'), sourceCounts.patient_count.toLocaleString())}
-                {sourceCounts && renderField(t('concept_mapping.col_records'), sourceCounts.record_count.toLocaleString())}
-                {!sourceCounts && mapping.sourceFrequency != null && renderField(t('concept_mapping.col_records'), mapping.sourceFrequency.toLocaleString())}
+                {sourceDetail.counts && renderField(t('concept_mapping.col_patients'), sourceDetail.counts.patient_count.toLocaleString())}
+                {sourceDetail.counts && renderField(t('concept_mapping.col_records'), sourceDetail.counts.record_count.toLocaleString())}
+                {!sourceDetail.counts && mapping.sourceFrequency != null && renderField(t('concept_mapping.col_records'), mapping.sourceFrequency.toLocaleString())}
                 {renderField(t('concept_mapping.col_domain_id'), mapping.sourceDomainId)}
                 {renderField(t('concept_mapping.col_concept_class_id'), mapping.sourceConceptClassId)}
               </tbody>
             </table>
           </Card>
+
+          {/* Source concept statistics (from info_json) */}
+          <div className="mt-4">
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {t('concept_mapping.detail_statistics')}
+            </h4>
+            {sourceDetail.infoJson === undefined ? (
+              /* Still loading */
+              <Card className="p-3">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                  <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+                </div>
+              </Card>
+            ) : sourceDetail.infoJson ? (() => {
+              const textFields = extractTextFields(sourceDetail.infoJson!)
+              const sections = extractSections(sourceDetail.infoJson!, t)
+              if (textFields.length === 0 && sections.length === 0) {
+                return (
+                  <Card className="p-3">
+                    <p className="text-xs text-muted-foreground italic">{t('concept_mapping.detail_no_info')}</p>
+                  </Card>
+                )
+              }
+              return (
+                <div className="space-y-3">
+                  {textFields.length > 0 && (
+                    <Card className="p-3">
+                      <table className="w-full text-xs">
+                        <tbody>
+                          {textFields.map((item) => (
+                            <tr key={item.label}>
+                              <td className="whitespace-nowrap pr-4 py-0.5 text-muted-foreground align-top">{item.label}</td>
+                              <td className="py-0.5 font-medium" title={item.value}>{item.value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </Card>
+                  )}
+                  {sections.map((section, i) => (
+                    <SectionRenderer key={i} section={section} />
+                  ))}
+                </div>
+              )
+            })() : (
+              <Card className="p-3">
+                <p className="text-xs text-muted-foreground italic">{t('concept_mapping.detail_no_info')}</p>
+              </Card>
+            )}
+          </div>
         </div>
 
         {/* Right: Target concept */}
@@ -681,7 +736,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [editMode, setEditMode] = useState(false)
   const [detailMapping, setDetailMapping] = useState<ConceptMapping | null>(null)
-  const [detailSourceCounts, setDetailSourceCounts] = useState<SourceCounts | null>(null)
+  const [detailSource, setDetailSource] = useState<SourceDetail>({ counts: null, infoJson: undefined })
   const savedScrollTop = useRef(0)
 
   // Cache concept counts from DuckDB (computed once per data source)
@@ -690,11 +745,22 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   const isFileSource = project.sourceType === 'file'
 
-  /** Fetch source concept counts from DuckDB and cache them. */
-  const fetchSourceCounts = useCallback(async (conceptId: number): Promise<SourceCounts | null> => {
-    // Check cache
-    const cached = countsCache.current.get(conceptId)
-    if (cached) return cached
+  /** Parse a raw info_json value (string or object) into a Record. */
+  const parseInfoJson = (raw: unknown): Record<string, unknown> | null => {
+    if (raw && typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw)
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+      } catch { /* ignore parse errors */ }
+    } else if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>
+    }
+    return null
+  }
+
+  /** Fetch source concept detail (counts + info_json) from DuckDB. */
+  const fetchSourceDetail = useCallback(async (mapping: ConceptMapping): Promise<SourceDetail> => {
+    const detail: SourceDetail = { counts: null, infoJson: null }
 
     try {
       if (isFileSource && project.fileSourceData) {
@@ -707,12 +773,18 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             project.fileSourceData.rawFileBuffer,
           )
         }
-        const rows = await queryDataSource(dsId, `SELECT patient_count, record_count FROM source_concepts WHERE concept_id = ${conceptId} LIMIT 1`)
+        // Look up by vocabulary + concept_code (the natural key — concept_id is just row_number())
+        const clauses: string[] = []
+        clauses.push(`concept_code = '${escSql(mapping.sourceConceptCode)}'`)
+        if (mapping.sourceVocabularyId) clauses.push(`vocabulary_id = '${escSql(mapping.sourceVocabularyId)}'`)
+        const rows = await queryDataSource(dsId, `SELECT * FROM source_concepts WHERE ${clauses.join(' AND ')} LIMIT 1`)
         if (rows.length > 0) {
           const r = rows[0] as Record<string, unknown>
-          const counts: SourceCounts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
-          countsCache.current.set(conceptId, counts)
-          return counts
+          detail.counts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
+          countsCache.current.set(mapping.sourceConceptId, detail.counts)
+          if ('info_json' in r) {
+            detail.infoJson = parseInfoJson(r.info_json)
+          }
         }
       } else if (dataSource) {
         // Database source: build counts query if not already cached for this DS
@@ -735,13 +807,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           }
           countsCacheDs.current = dsId
         }
-        return countsCache.current.get(conceptId) ?? null
+        detail.counts = countsCache.current.get(mapping.sourceConceptId) ?? null
       }
     } catch (err) {
-      console.warn('Failed to fetch source concept counts:', err)
+      console.warn('Failed to fetch source detail:', err)
     }
-    return null
+    return detail
   }, [isFileSource, project, dataSource, ensureMounted])
+
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
@@ -1303,8 +1376,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                       e.stopPropagation()
                       savedScrollTop.current = scrollContainerRef.current?.scrollTop ?? 0
                       setDetailMapping(m)
-                      setDetailSourceCounts(null)
-                      fetchSourceCounts(m.sourceConceptId).then((c) => { if (c) setDetailSourceCounts(c) })
+                      setDetailSource({ counts: null, infoJson: undefined })
+                      fetchSourceDetail(m).then(setDetailSource)
                     }}
                   >
                     <Eye size={12} />
@@ -1426,7 +1499,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   if (detailMapping) {
     // Always read from live store so edits appear immediately
     const liveMapping = mappings.find((m) => m.id === detailMapping.id) ?? detailMapping
-    return <MappingDetailView mapping={liveMapping} sourceCounts={detailSourceCounts} onBack={() => {
+    return <MappingDetailView mapping={liveMapping} sourceDetail={detailSource} onBack={() => {
       setDetailMapping(null)
       // Restore scroll position after React re-renders the table
       requestAnimationFrame(() => {
