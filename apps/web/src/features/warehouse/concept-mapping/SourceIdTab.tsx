@@ -69,6 +69,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
   const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number } | null>(null)
   const [resetConfirm, setResetConfirm] = useState<string | null>(null) // badgeLabel or 'all'
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // badgeLabel
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   // Distinct badge labels across all projects
@@ -449,7 +450,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                             <RefreshCw size={12} />
                           </Button>
                         )}
-                        <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" title={t('common.remove')} onClick={() => removeBadge(range.badgeLabel)}>
+                        <Button size="icon-sm" variant="ghost" className="h-7 w-7 text-destructive hover:text-destructive" title={t('common.remove')} onClick={() => setDeleteConfirm(range.badgeLabel)}>
                           <Trash2 size={12} />
                         </Button>
                       </div>
@@ -503,6 +504,27 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
               }}
             >
               {t('concept_mapping.source_id_reset_confirm_action')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete confirmation */}
+      <AlertDialog open={!!deleteConfirm} onOpenChange={(open) => { if (!open) setDeleteConfirm(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.source_id_delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.source_id_delete_confirm_desc', { badge: deleteConfirm })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deleteConfirm) removeBadge(deleteConfirm) }}
+            >
+              {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
