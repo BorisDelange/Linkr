@@ -315,7 +315,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   }, [sourceConcept?.concept_id])
 
   // Linked concept sets
-  const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
+  const linkedSets = conceptSets.filter((cs) => (project.conceptSetIds ?? []).includes(cs.id))
 
 
   // Existing mappings for selected source concept (match by ID or by code for code-only tables)

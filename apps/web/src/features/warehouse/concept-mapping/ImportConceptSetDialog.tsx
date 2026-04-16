@@ -203,7 +203,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
       })
 
       await updateMappingProject(project.id, {
-        conceptSetIds: [...project.conceptSetIds, id],
+        conceptSetIds: [...(project.conceptSetIds ?? []), id],
       })
 
       onOpenChange(false)
@@ -286,7 +286,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
           importedAt: new Date().toISOString(),
         }
         await updateMappingProject(project.id, {
-          conceptSetIds: [...project.conceptSetIds, ...newIds],
+          conceptSetIds: [...(project.conceptSetIds ?? []), ...newIds],
           importBatches: [...(project.importBatches ?? []), importBatch],
         })
       }

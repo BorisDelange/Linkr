@@ -204,7 +204,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const CS_PAGE_SIZE = 25
   const [csPage, setCsPage] = useState(0)
 
-  const linkedSets = conceptSets.filter((cs) => project.conceptSetIds.includes(cs.id))
+  const linkedSets = conceptSets.filter((cs) => (project.conceptSetIds ?? []).includes(cs.id))
 
   // Fuzzy match: all query characters appear in order in the target
   const fuzzyMatch = (target: string, query: string): boolean => {
@@ -487,7 +487,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     if (selectedIds.size === 0) return
     const ids = [...selectedIds]
     await updateMappingProject(project.id, {
-      conceptSetIds: project.conceptSetIds.filter((id) => !selectedIds.has(id)),
+      conceptSetIds: (project.conceptSetIds ?? []).filter((id) => !selectedIds.has(id)),
     })
     await deleteConceptSetsBatch(ids)
     setSelectedIds(new Set())
@@ -501,7 +501,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     if (batchCsIds.length > 0) {
       const batchIdSet = new Set(batchCsIds)
       await updateMappingProject(project.id, {
-        conceptSetIds: project.conceptSetIds.filter((id) => !batchIdSet.has(id)),
+        conceptSetIds: (project.conceptSetIds ?? []).filter((id) => !batchIdSet.has(id)),
         importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
       })
       await deleteConceptSetsBatch(batchCsIds)
