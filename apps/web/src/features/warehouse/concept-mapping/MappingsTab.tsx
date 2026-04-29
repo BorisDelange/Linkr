@@ -772,7 +772,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
-  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsMappedKeys } = useConceptMappingStore()
+  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsMappedKeys, loadProjectMappings } = useConceptMappingStore()
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -1239,6 +1239,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // ─── Import / Export mappings.json ──────────────────────────────────
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{
     imported: number
     duplicates: number
@@ -1247,14 +1248,21 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   } | null>(null)
 
   const handleImportMappings = async (file: File) => {
+    if (importing) return
+    setImporting(true)
     try {
       const text = await file.text()
       const incoming: ConceptMapping[] = JSON.parse(text)
       if (!Array.isArray(incoming)) return
 
+      // Reload mappings from IDB to make sure we see the current state.
+      // Necessary after a workspace re-import where the in-memory store may be stale.
+      await loadProjectMappings(project.id)
+      const freshLocal = useConceptMappingStore.getState().mappings.filter((m) => m.projectId === project.id)
+
       // Build set of existing mapping keys: (sourceVocabularyId, sourceConceptCode, targetConceptId)
       const existingKeys = new Set(
-        projectMappings.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+        freshLocal.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
       )
 
       // Load valid source concept codes from the project's source data
@@ -1322,6 +1330,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       })
     } catch (err) {
       console.error('Failed to import mappings:', err)
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -1927,8 +1937,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           {/* Import / Export */}
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="icon-sm" className="h-7 w-7" onClick={() => fileInputRef.current?.click()}>
-                <Upload size={12} />
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className="h-7 w-7"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importing}
+              >
+                {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>

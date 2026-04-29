@@ -303,6 +303,14 @@ export interface ConceptMappingStorage {
   update(id: string, changes: Partial<ConceptMapping>): Promise<void>
   delete(id: string): Promise<void>
   deleteByProject(projectId: string): Promise<void>
+  /** Cascade-delete every concept mapping whose `projectId` matches one of the given project IDs.
+   *  Used when removing a workspace: walk the table once and prune all orphan rows defensively,
+   *  even if the parent mapping project is missing or has a stale workspaceId. */
+  deleteByProjectIds(projectIds: string[]): Promise<number>
+  /** Delete every concept mapping whose `projectId` is NOT in the given set of valid IDs.
+   *  Use after deleting workspaces / mapping projects to scrub orphan rows that accumulated
+   *  from earlier failed imports. */
+  deleteOrphans(validProjectIds: Set<string>): Promise<number>
 }
 
 /** Storage interface for data catalog persistence. */

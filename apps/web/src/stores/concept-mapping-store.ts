@@ -128,6 +128,12 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     for (const p of migrateEntityIds(all, e => e.name)) {
       storage.mappingProjects.update(p.id, { entityId: p.entityId }).catch(() => {})
     }
+    // One-shot cleanup: prune orphan concept_mapping rows whose projectId is no longer
+    // a known mapping project. Heals databases that accumulated orphans from earlier
+    // failed/cancelled imports. Runs in the background — never blocks UI.
+    storage.conceptMappings.deleteOrphans(new Set(all.map((p) => p.id)))
+      .then((n) => { if (n > 0) console.warn(`[concept-mapping] Pruned ${n} orphan concept mapping rows from IDB.`) })
+      .catch(() => { /* ignore */ })
     set({ mappingProjects: all, mappingProjectsLoaded: true })
   },
 
@@ -191,8 +197,25 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   },
 
   createMappingsBatch: async (mappings) => {
-    await getStorage().conceptMappings.createBatch(mappings)
-    set((s) => ({ mappings: [...s.mappings, ...mappings] }))
+    if (mappings.length === 0) return
+    // Defensive dedup: skip any incoming mapping whose (projectId, sourceVocab, sourceCode, targetId)
+    // already exists locally. Protects against rapid double-imports that race the React render
+    // before the previous batch has been merged into state.
+    const existingKeys = new Set(
+      get().mappings.map((m) => `${m.projectId}\0${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+    )
+    // Also dedup within the incoming batch itself (same key appearing twice).
+    const seenInBatch = new Set<string>()
+    const filtered: ConceptMapping[] = []
+    for (const m of mappings) {
+      const key = `${m.projectId}\0${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`
+      if (existingKeys.has(key) || seenInBatch.has(key)) continue
+      seenInBatch.add(key)
+      filtered.push(m)
+    }
+    if (filtered.length === 0) return
+    await getStorage().conceptMappings.createBatch(filtered)
+    set((s) => ({ mappings: [...s.mappings, ...filtered] }))
   },
 
   updateMapping: async (id, changes) => {

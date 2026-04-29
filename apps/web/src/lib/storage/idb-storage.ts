@@ -1786,6 +1786,30 @@ class IDBConceptMappingStorage implements ConceptMappingStorage {
     }
     await tx.done
   }
+
+  async deleteByProjectIds(projectIds: string[]): Promise<number> {
+    if (projectIds.length === 0) return 0
+    const db = await getDB()
+    const idSet = new Set(projectIds)
+    const all = await db.getAll('concept_mappings')
+    const toDelete = all.filter((m) => idSet.has(m.projectId))
+    if (toDelete.length === 0) return 0
+    const tx = db.transaction('concept_mappings', 'readwrite')
+    for (const m of toDelete) tx.store.delete(m.id)
+    await tx.done
+    return toDelete.length
+  }
+
+  async deleteOrphans(validProjectIds: Set<string>): Promise<number> {
+    const db = await getDB()
+    const all = await db.getAll('concept_mappings')
+    const toDelete = all.filter((m) => !validProjectIds.has(m.projectId))
+    if (toDelete.length === 0) return 0
+    const tx = db.transaction('concept_mappings', 'readwrite')
+    for (const m of toDelete) tx.store.delete(m.id)
+    await tx.done
+    return toDelete.length
+  }
 }
 
 class IDBDataCatalogStorage implements DataCatalogStorage {

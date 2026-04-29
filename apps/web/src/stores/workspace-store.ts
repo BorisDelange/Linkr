@@ -55,7 +55,7 @@ interface WorkspaceState {
   updateWorkspace: (id: string, changes: Partial<Workspace>) => Promise<void>
   updateWorkspaceBadges: (id: string, badges: ProjectBadge[]) => Promise<void>
   updateWorkspaceReadme: (id: string, readme: string) => Promise<void>
-  deleteWorkspace: (id: string) => Promise<void>
+  deleteWorkspace: (id: string, onProgress?: (phaseKey: string) => void) => Promise<void>
 
   // Navigation
   openWorkspace: (id: string, name: string) => void
@@ -145,10 +145,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }))
   },
 
-  deleteWorkspace: async (id) => {
+  deleteWorkspace: async (id, onProgress) => {
     const storage = getStorage()
+    const phase = (key: string) => {
+      try { onProgress?.(key) } catch { /* ignore */ }
+    }
+    /** Yield to the browser so React paints the new phase before the next sync block. */
+    const yieldToBrowser = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
     // Cascade delete all workspace-scoped entities
+    phase('workspaces.delete_phase_projects')
+    await yieldToBrowser()
     const projects = (await storage.projects.getAll()).filter(p => p.workspaceId === id)
     for (const p of projects) {
       await deleteProjectData(storage, p.uid)
@@ -156,6 +163,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
 
     // Data sources
+    phase('workspaces.delete_phase_databases')
+    await yieldToBrowser()
     const dataSources = await storage.dataSources.getByWorkspace(id)
     for (const ds of dataSources) {
       await storage.files.deleteByDataSource(ds.id).catch(() => {})
@@ -165,10 +174,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
 
     // Wiki
+    phase('workspaces.delete_phase_wiki')
+    await yieldToBrowser()
     await storage.wikiAttachments.deleteByWorkspace(id).catch(() => {})
     await storage.wikiPages.deleteByWorkspace(id).catch(() => {})
 
     // SQL scripts
+    phase('workspaces.delete_phase_sql')
+    await yieldToBrowser()
     const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(id)
     for (const c of sqlCollections) {
       await storage.sqlScriptFiles.deleteByCollection(c.id).catch(() => {})
@@ -176,6 +189,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
 
     // ETL
+    phase('workspaces.delete_phase_etl')
+    await yieldToBrowser()
     const etlPipelines = await storage.etlPipelines.getByWorkspace(id)
     for (const p of etlPipelines) {
       await storage.etlFiles.deleteByPipeline(p.id).catch(() => {})
@@ -183,6 +198,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
 
     // DQ
+    phase('workspaces.delete_phase_dq')
+    await yieldToBrowser()
     const dqRuleSets = await storage.dqRuleSets.getByWorkspace(id)
     for (const rs of dqRuleSets) {
       await storage.dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
@@ -190,33 +207,73 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     }
 
     // Concept mapping
+    phase('workspaces.delete_phase_mappings')
+    await yieldToBrowser()
     const mappingProjects = await storage.mappingProjects.getByWorkspace(id)
+    const mappingProjectIds = mappingProjects.map((mp) => mp.id)
+    // Delete in bulk to avoid one round-trip per project, and ensure we don't miss any row.
+    await storage.conceptMappings.deleteByProjectIds(mappingProjectIds).catch(() => {})
     for (const mp of mappingProjects) {
-      await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
       await storage.mappingProjects.delete(mp.id).catch(() => {})
     }
+    // Defensive sweep: delete any concept_mapping row whose projectId is no longer a valid project
+    // (orphans from earlier failed imports).
+    try {
+      const remainingProjects = await storage.mappingProjects.getAll()
+      const validIds = new Set(remainingProjects.map((p) => p.id))
+      await storage.conceptMappings.deleteOrphans(validIds)
+    } catch { /* ignore */ }
     const conceptSets = await storage.conceptSets.getByWorkspace(id)
     for (const cs of conceptSets) await storage.conceptSets.delete(cs.id).catch(() => {})
 
+    // Source concept ID registry (workspace-scoped)
+    phase('workspaces.delete_phase_source_id_registry')
+    await yieldToBrowser()
+    await storage.sourceConceptIdEntries.deleteByWorkspace(id).catch(() => {})
+    await storage.sourceConceptIdRanges.deleteByWorkspace(id).catch(() => {})
+
     // Catalogs & service mappings
+    phase('workspaces.delete_phase_catalogs')
+    await yieldToBrowser()
     const catalogs = await storage.dataCatalogs.getByWorkspace(id)
     for (const cat of catalogs) await storage.dataCatalogs.delete(cat.id).catch(() => {})
     const serviceMappings = await storage.serviceMappings.getByWorkspace(id)
     for (const sm of serviceMappings) await storage.serviceMappings.delete(sm.id).catch(() => {})
 
     // Plugins
+    phase('workspaces.delete_phase_plugins')
+    await yieldToBrowser()
     const plugins = await storage.userPlugins.getByWorkspace(id)
     for (const p of plugins) await storage.userPlugins.delete(p.id).catch(() => {})
 
     // Schema presets
+    phase('workspaces.delete_phase_schemas')
+    await yieldToBrowser()
     const schemas = await storage.schemaPresets.getByWorkspace(id)
     for (const sp of schemas) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
 
     // Finally delete the workspace itself
+    phase('workspaces.delete_phase_finalizing')
+    await yieldToBrowser()
     await storage.workspaces.delete(id)
 
     // Reload projects store since we deleted projects
     await useAppStore.getState().loadProjects()
+
+    // Clear concept-mapping in-memory state so deleted mappings don't pollute future
+    // project views. Dynamic import to avoid a circular module dependency.
+    try {
+      const { useConceptMappingStore } = await import('./concept-mapping-store')
+      useConceptMappingStore.setState({
+        mappings: [],
+        mappingsLoaded: false,
+        activeProjectId: null,
+        mappingProjects: useConceptMappingStore.getState().mappingProjects.filter((p) => p.workspaceId !== id),
+        conceptSets: useConceptMappingStore.getState().conceptSets.filter((cs) => cs.workspaceId !== id),
+        otherProjectsMappedKeys: new Set(),
+        otherProjectsMappings: new Map(),
+      })
+    } catch { /* ignore */ }
 
     set((s) => ({
       _workspacesRaw: s._workspacesRaw.filter((ws) => ws.id !== id),
