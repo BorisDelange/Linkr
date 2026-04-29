@@ -74,7 +74,7 @@ export function StatusBar() {
               {memPct !== null ? (
                 <span>{formatMB(metrics.memory.usedMB)}{metrics.memory.totalMB ? ` / ${formatMB(metrics.memory.totalMB)}` : ''}</span>
               ) : (
-                <span>—</span>
+                <span className="opacity-60">{t('server.memory_unavailable_short')}</span>
               )}
               {storagePct !== null && (
                 <>
@@ -91,7 +91,7 @@ export function StatusBar() {
               <Separator />
 
               {/* JS Heap Memory */}
-              {memPct !== null && (
+              {memPct !== null ? (
                 <>
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-1.5">
@@ -105,6 +105,21 @@ export function StatusBar() {
                   </div>
                   <div className="pl-5 text-[10px] text-muted-foreground">
                     {formatMB(metrics.memory.usedMB)} / {formatMB(metrics.memory.totalMB!)}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <MemoryStick size={12} className="text-muted-foreground" />
+                      <span>{t('server.memory')}</span>
+                    </div>
+                    <span className="text-[10px] text-muted-foreground italic">
+                      {t('server.memory_unavailable')}
+                    </span>
+                  </div>
+                  <div className="pl-5 text-[10px] text-muted-foreground">
+                    {t('server.memory_unavailable_hint')}
                   </div>
                 </>
               )}
