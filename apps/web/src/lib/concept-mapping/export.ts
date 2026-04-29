@@ -120,7 +120,10 @@ function isoToEpochMs(iso: string | undefined | null): string {
 /**
  * Export mappings in USAGI-compatible CSV format.
  * Columns match OHDSI Usagi's WriteCodeMappingsToFile format.
- * Ignored mappings (status='ignored', targetConceptId=0) are exported with IGNORED status.
+ *
+ * Per Usagi modern convention (https://ohdsi.github.io/Usagi/):
+ * - "Ignored" / "no mapping needed" = `mappingStatus=APPROVED, equivalence=UNMATCHED, conceptId=0`
+ *   (Usagi's IGNORED status is kept only for backwards compatibility in their codebase.)
  */
 export function exportToUsagiCsv(
   mappings: ConceptMapping[],
@@ -132,33 +135,37 @@ export function exportToUsagiCsv(
     'comment', 'createdBy', 'createdOn', 'assignedReviewer',
   ].join(',')
 
-  const rows = mappings.map((m) => [
-    csvEscape(m.sourceConceptCode),
-    csvEscape(m.sourceConceptName),
-    csvEscape(m.sourceFrequency),
-    csvEscape(m.sourceConceptId),
-    csvEscape(m.matchScore ?? 0),
-    csvEscape(statusToUsagi(m.status)),
-    csvEscape(m.status === 'ignored' ? 'UNREVIEWED' : equivalenceToUsagi(m.equivalence)),
-    csvEscape(m.mappedBy),
-    csvEscape(isoToEpochMs(m.mappedOn)),
-    csvEscape(m.targetConceptId),
-    csvEscape(m.targetConceptName),
-    csvEscape(m.targetDomainId),
-    csvEscape(m.mappingType?.toUpperCase()),
-    csvEscape(m.comments?.map((c) => c.text).join(' | ') ?? ''),
-    csvEscape(m.mappedBy),
-    csvEscape(isoToEpochMs(m.createdAt)),
-    csvEscape(m.assignedReviewer),
-  ].join(','))
+  const rows = mappings.map((m) => {
+    const noTarget = m.status === 'ignored' || m.targetConceptId === 0
+    const usagiStatus = m.status === 'ignored' ? 'APPROVED' : statusToUsagi(m.status)
+    const usagiEquivalence = noTarget ? 'UNMATCHED' : equivalenceToUsagi(m.equivalence)
+    return [
+      csvEscape(m.sourceConceptCode),
+      csvEscape(m.sourceConceptName),
+      csvEscape(m.sourceFrequency),
+      csvEscape(m.sourceConceptId),
+      csvEscape(m.matchScore ?? 0),
+      csvEscape(usagiStatus),
+      csvEscape(usagiEquivalence),
+      csvEscape(m.mappedBy),
+      csvEscape(isoToEpochMs(m.mappedOn)),
+      csvEscape(m.targetConceptId),
+      csvEscape(m.targetConceptName),
+      csvEscape(m.targetDomainId),
+      csvEscape(m.mappingType?.toUpperCase()),
+      csvEscape(m.comments?.map((c) => c.text).join(' | ') ?? ''),
+      csvEscape(m.mappedBy),
+      csvEscape(isoToEpochMs(m.createdAt)),
+      csvEscape(m.assignedReviewer),
+    ].join(',')
+  })
 
   return [header, ...rows].join('\n')
 }
 
 /**
  * Append source-only rows (no target) to a USAGI CSV.
- * Used when the user wants to include source concepts whose mappings were filtered out
- * (or whose source concepts have no mapping at all).
+ * Source concepts with no review yet → `mappingStatus=UNCHECKED, equivalence=UNREVIEWED`.
  */
 export function exportUnmappedToUsagi(
   allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
@@ -282,7 +289,13 @@ function statusToJustification(status: string): string {
 /**
  * Export mappings in SSSOM TSV format.
  * Includes YAML metadata header as per SSSOM spec.
- * Ignored mappings use sssom:NoTermFound predicate per SSSOM spec.
+ *
+ * Per SSSOM spec (https://mapping-commons.github.io/sssom/spec-model/):
+ * - When no target concept exists (status='ignored' or targetConceptId=0),
+ *   `sssom:NoTermFound` is placed in `object_id` (NOT in `predicate_id`).
+ * - The original `predicate_id` is preserved (typically `skos:exactMatch`).
+ * - `object_source` MUST still indicate where the term was searched.
+ * - Cardinality is `1:0` for these rows.
  */
 export function exportToSssomTsv(
   mappings: ConceptMapping[],
@@ -305,21 +318,25 @@ export function exportToSssomTsv(
     'subject_id', 'subject_label', 'subject_source',
     'predicate_id',
     'object_id', 'object_label', 'object_source',
+    'mapping_cardinality',
     'mapping_justification', 'confidence',
     'author_id', 'comment',
   ].join('\t')
 
   const rows = mappings.map((m) => {
-    const isIgnored = m.status === 'ignored'
+    const noTarget = m.status === 'ignored' || m.targetConceptId === 0
+    // Default object_source to "OHDSI" so SSSOM consumers know where the search happened.
+    const targetSource = m.targetVocabularyId || 'OHDSI'
     return [
       tsvEscape(`${m.sourceVocabularyId}:${m.sourceConceptCode}`),
       tsvEscape(m.sourceConceptName),
       tsvEscape(m.sourceVocabularyId),
-      tsvEscape(isIgnored ? 'sssom:NoTermFound' : equivalenceToSkosPredicate(m.equivalence)),
-      tsvEscape(isIgnored ? '' : `OHDSI:${m.targetConceptId}`),
-      tsvEscape(isIgnored ? '' : m.targetConceptName),
-      tsvEscape(isIgnored ? '' : m.targetVocabularyId),
-      tsvEscape(isIgnored ? 'semapv:ManualMappingCuration' : statusToJustification(m.status)),
+      tsvEscape(equivalenceToSkosPredicate(m.equivalence)),
+      tsvEscape(noTarget ? 'sssom:NoTermFound' : `OHDSI:${m.targetConceptId}`),
+      tsvEscape(noTarget ? '' : m.targetConceptName),
+      tsvEscape(noTarget ? targetSource : m.targetVocabularyId),
+      tsvEscape(noTarget ? '1:0' : ''),
+      tsvEscape(m.status === 'ignored' ? 'semapv:ManualMappingCuration' : statusToJustification(m.status)),
       tsvEscape(m.matchScore),
       tsvEscape(m.mappedBy),
       tsvEscape(m.comments?.map((c) => c.text).join(' | ') ?? ''),
@@ -331,7 +348,8 @@ export function exportToSssomTsv(
 
 /**
  * Append source-only rows (no target) to an SSSOM TSV.
- * Uses sssom:NoTermFound predicate per the SSSOM spec for unmapped terms.
+ * Per SSSOM spec, `sssom:NoTermFound` goes in `object_id` (cardinality 1:0),
+ * and `predicate_id` defaults to `skos:exactMatch` since no other relation was determined.
  */
 export function exportUnmappedToSssom(
   allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
@@ -343,10 +361,11 @@ export function exportUnmappedToSssom(
       tsvEscape(`${c.vocabularyId}:${c.conceptCode}`),
       tsvEscape(c.conceptName),
       tsvEscape(c.vocabularyId),
+      tsvEscape('skos:exactMatch'),
       tsvEscape('sssom:NoTermFound'),
       tsvEscape(''),
-      tsvEscape(''),
-      tsvEscape(''),
+      tsvEscape('OHDSI'),
+      tsvEscape('1:0'),
       tsvEscape('semapv:UnspecifiedMatching'),
       tsvEscape(''),
       tsvEscape(''),

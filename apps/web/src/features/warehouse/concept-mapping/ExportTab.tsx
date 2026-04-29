@@ -7,7 +7,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
@@ -46,7 +46,6 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     new Set(['approved']),
   )
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
-  const [includeUnmapped, setIncludeUnmapped] = useState(false)
   const [includeAllSourceConcepts, setIncludeAllSourceConcepts] = useState(false)
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
@@ -130,11 +129,36 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
   const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
-  /** Load every source concept for this project (file rows or DuckDB query). */
+  /** Load every source concept for this project.
+   *  - File source: query DuckDB (rows[] is deprecated when rawFileBuffer is used).
+   *    Falls back to in-memory rows for legacy projects without rawFileBuffer.
+   *  - Database source: query the source table via DuckDB. */
   const loadAllSourceConcepts = useCallback(async (): Promise<{ vocabularyId: string; conceptCode: string; conceptName: string }[]> => {
     if (project.sourceType === 'file') {
-      const rows = project.fileSourceData?.rows ?? []
-      const colMapping = project.fileSourceData?.columnMapping
+      if (!project.fileSourceData) return []
+      // Try DuckDB first (newer projects use rawFileBuffer + DuckDB-mounted source_concepts).
+      try {
+        if (!isFileSourceMounted(project.id)) {
+          await mountFileSourceIntoDuckDB(
+            project.id,
+            project.fileSourceData.rows,
+            project.fileSourceData.columnMapping,
+            project.fileSourceData.rawFileBuffer,
+          )
+        }
+        const dsId = fileSourceDataSourceId(project.id)
+        const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
+        const out = rows.map((r: Record<string, unknown>) => ({
+          vocabularyId: String(r.vocabulary_id ?? project.name),
+          conceptCode: String(r.concept_code ?? ''),
+          conceptName: String(r.concept_name ?? ''),
+        })).filter((c) => c.conceptCode)
+        if (out.length > 0) return out
+      } catch { /* fall through to legacy rows[] */ }
+
+      // Legacy fallback: in-memory rows[] (older projects, no rawFileBuffer).
+      const rows = project.fileSourceData.rows ?? []
+      const colMapping = project.fileSourceData.columnMapping
       const codeCol = colMapping?.conceptCodeColumn
       const vocabCol = colMapping?.terminologyColumn
       const nameCol = colMapping?.conceptNameColumn
@@ -165,14 +189,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   }, [project, dataSource, ensureMounted])
 
   /** Build the set of (vocab, code) keys that should NOT be appended as source-only rows.
-   *  - includeUnmapped: exclude any code that has at least one mapping anywhere
-   *  - includeAllSourceConcepts (alone): exclude only codes already in the filtered output */
+   *  Excludes any code already present in the filtered output. */
   const buildExcludeKeys = useCallback((): Set<string> => {
-    if (includeUnmapped) {
-      return new Set(mappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
-    }
     return new Set(filteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
-  }, [includeUnmapped, mappings, filteredMappings])
+  }, [filteredMappings])
 
   /** Append extra rows produced by `appendFn` to `mappedContent`, separated by a newline. */
   const withSourceOnlyRows = useCallback(async (
@@ -180,8 +200,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     appendFn: (concepts: { vocabularyId: string; conceptCode: string; conceptName: string }[], excludeKeys: Set<string>) => string,
     extraIsCsvWithHeader = false,
   ): Promise<string> => {
-    const wantExtraRows = includeUnmapped || includeAllSourceConcepts
-    if (!wantExtraRows) return mappedContent
+    if (!includeAllSourceConcepts) return mappedContent
     const allSourceConcepts = await loadAllSourceConcepts()
     const excludeKeys = buildExcludeKeys()
     const extra = appendFn(allSourceConcepts, excludeKeys)
@@ -190,7 +209,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     // STCM extra has its own header line — strip it before appending.
     const extraBody = extraIsCsvWithHeader ? extra.split('\n').slice(1).join('\n') : extra
     return extraBody ? `${mappedContent}\n${extraBody}` : mappedContent
-  }, [includeUnmapped, includeAllSourceConcepts, loadAllSourceConcepts, buildExcludeKeys])
+  }, [includeAllSourceConcepts, loadAllSourceConcepts, buildExcludeKeys])
 
   const formats = [
     {
@@ -305,9 +324,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   }, [project, dataSources, ensureMounted])
 
   // Dedup by (vocabularyId, conceptCode) — same key as Progress / Mapping Editor.
-  const mappedSourceKeys = useMemo(() => new Set(mappings.map(sourceKey)), [mappings])
   const filteredMappedKeys = useMemo(() => new Set(filteredMappings.map(sourceKey)), [filteredMappings])
-  const unmappedCount = totalSourceConcepts !== null ? Math.max(0, totalSourceConcepts - mappedSourceKeys.size) : null
   // "Include all source concepts": adds the source concepts that are NOT covered by `filteredMappings`
   // (they may have non-matching mappings, or be entirely unmapped).
   const allSourceExtraCount = totalSourceConcepts !== null
@@ -315,8 +332,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     : null
   const totalExportCount =
     filteredMappings.length
-    + (includeUnmapped && unmappedCount !== null ? unmappedCount : 0)
-    + (includeAllSourceConcepts && !includeUnmapped && allSourceExtraCount !== null ? allSourceExtraCount : 0)
+    + (includeAllSourceConcepts && allSourceExtraCount !== null ? allSourceExtraCount : 0)
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -365,22 +381,6 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 </div>
               )
             })}
-
-            {/* Unmapped (STCM only) */}
-            <div>
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <input
-                  type="checkbox"
-                  checked={includeUnmapped}
-                  onChange={() => setIncludeUnmapped((v) => !v)}
-                  className="size-3.5 rounded border-gray-300 accent-primary"
-                />
-                <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
-                {unmappedCount !== null && unmappedCount > 0 && (
-                  <Badge variant="secondary" className="text-[10px]">{unmappedCount}</Badge>
-                )}
-              </label>
-            </div>
           </div>
 
           {/* Include all source concepts (independent toggle) */}
@@ -390,13 +390,12 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 type="checkbox"
                 checked={includeAllSourceConcepts}
                 onChange={() => setIncludeAllSourceConcepts((v) => !v)}
-                disabled={includeUnmapped}
-                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary disabled:opacity-40"
+                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
               />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
-                  {allSourceExtraCount !== null && allSourceExtraCount > 0 && !includeUnmapped && (
+                  {allSourceExtraCount !== null && allSourceExtraCount > 0 && (
                     <Badge variant="secondary" className="text-[10px]">{allSourceExtraCount}</Badge>
                   )}
                 </div>

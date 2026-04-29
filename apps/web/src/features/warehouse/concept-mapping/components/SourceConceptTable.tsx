@@ -61,6 +61,12 @@ interface SourceConceptTableProps {
   projectMappings?: ConceptMapping[]
   /** Cross-project mappings, keyed by `vocabulary:code`. */
   externalMappingsByKey?: Map<string, ExternalMappingInfo[]>
+  /** Resolved source concept IDs from the workspace badge registry, keyed by `${vocabulary}__${code}`. */
+  sourceConceptIdMap?: Map<string, number>
+  /** True when the project is file-based AND does NOT have a `conceptIdColumn` mapped.
+   *  In that case, the displayed source_concept_id is the registry-assigned one (or '—'),
+   *  not the artificial row-number `concept_id`. */
+  isFileSourceWithoutConceptId?: boolean
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
   /** True when source is a file import. */
@@ -171,6 +177,8 @@ export function SourceConceptTable({
   mappedElsewhereIds,
   projectMappings,
   externalMappingsByKey,
+  sourceConceptIdMap,
+  isFileSourceWithoutConceptId,
   mappingStatusFilter,
   selectedConceptId,
   isFileSource,
@@ -243,7 +251,10 @@ export function SourceConceptTable({
 
   // Initial column visibility: hide extra OMOP columns by default
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
-    const hidden: VisibilityState = {}
+    const hidden: VisibilityState = {
+      // Source concept ID is hidden by default — toggleable via the Columns menu.
+      concept_id: false,
+    }
     if (hasExtraColumns) {
       // domain_id and concept_class_id are hidden by default (available via toggle)
       hidden['domain_id'] = false
@@ -495,17 +506,32 @@ export function SourceConceptTable({
       })
     }
 
-    // Concept ID column (database source only)
-    if (!isFileSource) {
-      cols.push({
-        id: 'concept_id',
-        header: () => t('concept_mapping.col_concept_id'),
-        accessorFn: (row) => row.concept_id,
-        cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
-        size: 70,
-        minSize: 50,
-      })
-    }
+    // Concept ID column.
+    // - Database source: native concept_id from the source table.
+    // - File source with `conceptIdColumn` mapped: native concept_id from the file.
+    // - File source without conceptIdColumn: resolve via the workspace badge registry
+    //   (assigned source_concept_id), or '—' if not yet assigned.
+    cols.push({
+      id: 'concept_id',
+      header: () => t('concept_mapping.col_source_concept_id'),
+      accessorFn: (row) => {
+        if (isFileSourceWithoutConceptId && sourceConceptIdMap) {
+          const key = `${row.vocabulary_id ?? ''}__${row.concept_code ?? ''}`
+          return sourceConceptIdMap.get(key) ?? null
+        }
+        return row.concept_id
+      },
+      cell: ({ row }) => {
+        if (isFileSourceWithoutConceptId) {
+          const key = `${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`
+          const assigned = sourceConceptIdMap?.get(key)
+          return <span className="font-mono">{assigned ?? <span className="text-muted-foreground/60">—</span>}</span>
+        }
+        return <span className="font-mono">{row.original.concept_id}</span>
+      },
+      size: 90,
+      minSize: 50,
+    })
 
     cols.push({
       id: 'concept_name',
@@ -606,7 +632,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
 
   const table = useReactTable({
     data: rows,

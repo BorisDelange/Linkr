@@ -15,6 +15,7 @@ import {
   type SourceConceptSorting,
 } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { getStorage } from '@/lib/storage'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import { ConceptDetailView } from './components/ConceptDetailView'
@@ -56,6 +57,34 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   useEffect(() => {
     if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
   }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
+
+  // Source-concept-id registry: resolve `(vocabulary, code) → assigned id` from the project's badges.
+  // When the same key exists under multiple badges, the FIRST badge in the project's badge list wins.
+  const [sourceConceptIdMap, setSourceConceptIdMap] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const wsId = project.workspaceId
+      const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+      if (!wsId || badgeLabels.length === 0) {
+        if (!cancelled) setSourceConceptIdMap(new Map())
+        return
+      }
+      const storage = getStorage()
+      const map = new Map<string, number>()
+      // Iterate badges in declared order so the first one wins on conflict.
+      for (const label of badgeLabels) {
+        const entries = await storage.sourceConceptIdEntries.getByWorkspaceAndBadge(wsId, label)
+        for (const e of entries) {
+          const key = `${e.vocabularyId}__${e.conceptCode}`
+          if (!map.has(key)) map.set(key, e.sourceConceptId)
+        }
+      }
+      if (!cancelled) setSourceConceptIdMap(map)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [project.workspaceId, project.badges])
 
   const isFileSource = project.sourceType === 'file'
 
@@ -381,6 +410,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             mappedElsewhereIds={mappedElsewhereIds}
             projectMappings={mappings.filter((m) => m.projectId === project.id)}
             externalMappingsByKey={otherProjectsMappings}
+            sourceConceptIdMap={sourceConceptIdMap}
+            isFileSourceWithoutConceptId={isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             isFileSource={isFileSource}

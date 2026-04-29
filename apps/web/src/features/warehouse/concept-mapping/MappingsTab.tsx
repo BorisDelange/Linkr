@@ -65,6 +65,7 @@ import type { MappingProject, ConceptMapping, MappingComment, MappingReview, Map
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { escSql } from '@/lib/format-helpers'
+import { getStorage } from '@/lib/storage'
 
 // Sentinel id prefix for synthetic rows that represent mappings made in another project.
 const EXTERNAL_PREFIX = 'external::'
@@ -782,6 +783,33 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
   }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
 
+  // Source-concept-id registry: resolve `(vocabulary, code) → assigned id` via the project's badges.
+  // First badge in the project's badge list wins on conflict.
+  const [sourceConceptIdMap, setSourceConceptIdMap] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    let cancelled = false
+    const load = async () => {
+      const wsId = project.workspaceId
+      const badgeLabels = (project.badges ?? []).map((b) => b.label).filter(Boolean)
+      if (!wsId || badgeLabels.length === 0) {
+        if (!cancelled) setSourceConceptIdMap(new Map())
+        return
+      }
+      const storage = getStorage()
+      const map = new Map<string, number>()
+      for (const label of badgeLabels) {
+        const entries = await storage.sourceConceptIdEntries.getByWorkspaceAndBadge(wsId, label)
+        for (const e of entries) {
+          const key = `${e.vocabularyId}__${e.conceptCode}`
+          if (!map.has(key)) map.set(key, e.sourceConceptId)
+        }
+      }
+      if (!cancelled) setSourceConceptIdMap(map)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [project.workspaceId, project.badges])
+
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -795,6 +823,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const countsCacheDs = useRef<string | null>(null)
 
   const isFileSource = project.sourceType === 'file'
+  /** True when source is a file with no conceptIdColumn — `m.sourceConceptId` is then an
+   *  artificial row-number index, not a real OMOP concept_id. The registry is authoritative. */
+  const useRegistryForId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
 
   /** Parse a raw info_json value (string or object) into a Record. */
   const parseInfoJson = (raw: unknown): Record<string, unknown> | null => {
@@ -882,6 +913,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     sourceCategoryId: false,
     sourceSubcategoryId: false,
     sourceConceptCode: false,
+    sourceConceptId: false,
     targetConceptId: false,
   })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
@@ -1417,7 +1449,37 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         id: 'sourceConceptCode',
         header: () => t('concept_mapping.col_source_concept_code'),
         accessorFn: (row) => row.sourceConceptCode,
-        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptCode || row.original.sourceConceptId || ''}</span>,
+        cell: ({ row }) => <span className="font-mono text-muted-foreground">{row.original.sourceConceptCode ?? ''}</span>,
+        size: 100,
+        minSize: 50,
+      },
+      {
+        // Source concept ID resolution:
+        // - File source without `conceptIdColumn` → registry-only (m.sourceConceptId is an
+        //   artificial row-number index, ignore it).
+        // - Otherwise (database, or file with conceptIdColumn) → native `m.sourceConceptId`,
+        //   falling back to the registry if the native id is missing.
+        id: 'sourceConceptId',
+        header: () => t('concept_mapping.col_source_concept_id'),
+        accessorFn: (row) => {
+          const key = `${row.sourceVocabularyId}__${row.sourceConceptCode}`
+          if (useRegistryForId) return sourceConceptIdMap.get(key) ?? null
+          if (row.sourceConceptId && row.sourceConceptId !== 0) return row.sourceConceptId
+          return sourceConceptIdMap.get(key) ?? null
+        },
+        cell: ({ row }) => {
+          const m = row.original
+          const key = `${m.sourceVocabularyId}__${m.sourceConceptCode}`
+          let id: number | null
+          if (useRegistryForId) {
+            id = sourceConceptIdMap.get(key) ?? null
+          } else if (m.sourceConceptId && m.sourceConceptId !== 0) {
+            id = m.sourceConceptId
+          } else {
+            id = sourceConceptIdMap.get(key) ?? null
+          }
+          return <span className="font-mono text-muted-foreground">{id ?? <span className="text-muted-foreground/60">—</span>}</span>
+        },
         size: 100,
         minSize: 50,
       },
@@ -1498,14 +1560,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           const m = row.original
           if (m.status === 'ignored' || (m.targetConceptId === 0 && !m.targetConceptName)) {
             return (
-              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground" title={t('concept_mapping.no_mapping_needed')}>
                 <EyeOff size={10} className="shrink-0" />
-                <span className="truncate italic text-[10px]">{t('concept_mapping.no_mapping_needed')}</span>
+                <span className="block min-w-0 flex-1 truncate italic">{t('concept_mapping.no_mapping_needed')}</span>
               </span>
             )
           }
           return (
-            <span className="truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
+            <span className="block truncate" title={m.targetConceptName}>{m.targetConceptName}</span>
           )
         },
         size: 200,
@@ -1730,7 +1792,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems, effectiveStatus, resolveExternal])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems, effectiveStatus, resolveExternal, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,

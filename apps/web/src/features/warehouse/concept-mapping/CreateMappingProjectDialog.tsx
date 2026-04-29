@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import Papa from 'papaparse'
 import * as XLSX from 'xlsx'
-import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus } from 'lucide-react'
+import { Upload, FileSpreadsheet, AlertCircle, X, Database, FileUp, Settings2, ArrowLeft, Check, Plus, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -111,6 +112,55 @@ export function CreateMappingProjectDialog({
   const isEdit = !!editingProject
   const { mappingProjects } = useConceptMappingStore()
   const existingIds = mappingProjects.map(p => p.entityId).filter((id): id is string => !!id)
+
+  /** Badges already attached to the current project, indexed by label (case-insensitive). */
+  const currentBadgeLabels = useMemo(
+    () => new Set(badges.map((b) => b.label.toLowerCase())),
+    [badges],
+  )
+
+  /** Suggestions = distinct badges from other workspace mapping projects (excluding the current one).
+   *  When the same label appears with different colors across projects, we keep the first-seen color. */
+  const badgeSuggestions = useMemo<ProjectBadge[]>(() => {
+    if (!activeWorkspaceId) return []
+    const seen = new Map<string, ProjectBadge>()
+    for (const p of mappingProjects) {
+      if (p.workspaceId !== activeWorkspaceId) continue
+      if (editingProject && p.id === editingProject.id) continue
+      for (const b of p.badges ?? []) {
+        if (!b.label) continue
+        const key = b.label.toLowerCase()
+        if (!seen.has(key)) seen.set(key, b)
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label))
+  }, [mappingProjects, activeWorkspaceId, editingProject])
+
+  /** Set of badge labels (case-insensitive) used in any other project of this workspace. */
+  const otherProjectBadgeLabels = useMemo(
+    () => new Set(badgeSuggestions.map((b) => b.label.toLowerCase())),
+    [badgeSuggestions],
+  )
+
+  /** Reasons we may forbid creating a new badge with this label. */
+  type DuplicateKind = 'current' | 'other-project' | null
+  const labelConflict = (label: string): DuplicateKind => {
+    const k = label.trim().toLowerCase()
+    if (!k) return null
+    if (currentBadgeLabels.has(k)) return 'current'
+    if (otherProjectBadgeLabels.has(k)) return 'other-project'
+    return null
+  }
+
+  /** Add a badge if its label isn't already attached to the current project. No-op otherwise.
+   *  Note: callers should pre-check against other-project conflicts; this function only blocks
+   *  same-project duplicates so suggestion clicks (which reuse an existing badge) still work. */
+  const addBadge = (badge: ProjectBadge) => {
+    const trimmed = badge.label.trim()
+    if (!trimmed || currentBadgeLabels.has(trimmed.toLowerCase())) return
+    setBadges([...badges, { ...badge, id: `b-${Date.now()}`, label: trimmed }])
+    setNewBadgeLabel('')
+  }
 
   useEffect(() => {
     if (editingProject) {
@@ -636,10 +686,22 @@ export function CreateMappingProjectDialog({
                     <div key={ri} className={`grid gap-x-4 ${rowRoles.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
                       {rowRoles.map((role) => (
                         <div key={role} className="flex items-center gap-2">
-                          <Label className="w-28 shrink-0 text-[10px] text-muted-foreground">
-                            {t(`concept_mapping.col_role_${role}`)}
+                          <Label className="flex w-28 shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
+                            <span>{t(`concept_mapping.col_role_${role}`)}</span>
                             {(role === 'conceptNameColumn' || role === 'conceptCodeColumn') && (
                               <span className="text-destructive">*</span>
+                            )}
+                            {role === 'conceptIdColumn' && (
+                              <Tooltip delayDuration={200}>
+                                <TooltipTrigger asChild>
+                                  <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
+                                    <Info size={10} />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-xs text-xs">
+                                  {t('concept_mapping.col_role_conceptIdColumn_info')}
+                                </TooltipContent>
+                              </Tooltip>
                             )}
                           </Label>
                           <Select
@@ -843,6 +905,33 @@ export function CreateMappingProjectDialog({
                   ))}
                 </div>
               )}
+              {/* Suggestions: badges already used in other projects of the workspace */}
+              {(() => {
+                const availableSuggestions = badgeSuggestions.filter((b) => !currentBadgeLabels.has(b.label.toLowerCase()))
+                if (availableSuggestions.length === 0) return null
+                return (
+                  <div className="rounded-md border border-dashed bg-muted/20 p-2">
+                    <p className="mb-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                      {t('concept_mapping.badge_suggestions')}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {availableSuggestions.map((badge) => (
+                        <button
+                          key={badge.label}
+                          type="button"
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${getBadgeClasses(badge.color)}`}
+                          style={getBadgeStyle(badge.color)}
+                          onClick={() => addBadge(badge)}
+                          title={t('concept_mapping.badge_suggestion_add')}
+                        >
+                          <Plus size={10} />
+                          {badge.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-1.5">
                   {PRESET_COLORS.map((c) => (
@@ -876,34 +965,46 @@ export function CreateMappingProjectDialog({
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2 items-center">
-                  <Input
-                    value={newBadgeLabel}
-                    onChange={(e) => setNewBadgeLabel(e.target.value)}
-                    placeholder={t('concept_mapping.badge_label_placeholder')}
-                    className="h-7 text-xs flex-1"
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newBadgeLabel.trim()) {
-                        e.preventDefault()
-                        setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
-                        setNewBadgeLabel('')
-                      }
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2"
-                    disabled={!newBadgeLabel.trim()}
-                    onClick={() => {
-                      setBadges([...badges, { id: `b-${Date.now()}`, label: newBadgeLabel.trim(), color: newBadgeColor }])
-                      setNewBadgeLabel('')
-                    }}
-                  >
-                    <Plus size={12} />
-                  </Button>
-                </div>
+                {(() => {
+                  const trimmed = newBadgeLabel.trim()
+                  const conflict = labelConflict(trimmed)
+                  const errorKey = conflict === 'current'
+                    ? 'concept_mapping.badge_duplicate'
+                    : conflict === 'other-project'
+                      ? 'concept_mapping.badge_used_elsewhere'
+                      : null
+                  return (
+                    <>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          value={newBadgeLabel}
+                          onChange={(e) => setNewBadgeLabel(e.target.value)}
+                          placeholder={t('concept_mapping.badge_label_placeholder')}
+                          className={`h-7 text-xs flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && trimmed && !conflict) {
+                              e.preventDefault()
+                              addBadge({ id: '', label: trimmed, color: newBadgeColor })
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-7 px-2"
+                          disabled={!trimmed || !!conflict}
+                          onClick={() => addBadge({ id: '', label: trimmed, color: newBadgeColor })}
+                        >
+                          <Plus size={12} />
+                        </Button>
+                      </div>
+                      {errorKey && (
+                        <p className="text-[10px] text-destructive">{t(errorKey)}</p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
