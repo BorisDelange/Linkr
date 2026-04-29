@@ -638,9 +638,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   // --- Browse vocabulary queries ---
 
-  // Load filter options when vocabulary is connected
+  // Load filter options when vocabulary is connected.
+  // We bail out silently if the linked vocabularyDataSource is gone (e.g. workspace was
+  // re-imported without re-importing the database files), to avoid spurious console errors.
   useEffect(() => {
     if (!project.vocabularyDataSourceId) return
+    if (!vocabDs) return
     const load = async () => {
       try {
         await ensureMounted(project.vocabularyDataSourceId!)
@@ -659,10 +662,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       }
     }
     load()
-  }, [project.vocabularyDataSourceId, ensureMounted])
+  }, [project.vocabularyDataSourceId, vocabDs, ensureMounted])
 
   const loadBrowseResults = useCallback(async () => {
     if (!project.vocabularyDataSourceId) return
+    // Linked vocabulary database was removed (e.g. after a workspace re-import) — skip silently.
+    if (!vocabDs) return
     setBrowseLoading(true)
     try {
       await ensureMounted(project.vocabularyDataSourceId)
@@ -703,7 +708,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     } finally {
       setBrowseLoading(false)
     }
-  }, [project.vocabularyDataSourceId, browseSearch, browseVocab, browseDomain, browseStandardOnly, browsePage, ensureMounted])
+  }, [project.vocabularyDataSourceId, vocabDs, browseSearch, browseVocab, browseDomain, browseStandardOnly, browsePage, ensureMounted])
 
   useEffect(() => {
     if (project.vocabularyDataSourceId) loadBrowseResults()

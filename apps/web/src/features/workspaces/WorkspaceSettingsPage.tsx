@@ -5,7 +5,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import type { BadgeColor, ProjectBadge, PresetBadgeColor } from '@/types'
-import { Building2, MapPin, Globe, Mail, Info, Plus, X, Trash2 } from 'lucide-react'
+import { Building2, MapPin, Globe, Mail, Info, Plus, X, Trash2, Loader2 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -50,6 +51,7 @@ export function WorkspaceSettingsPage() {
   const [description, setDescription] = useState(workspace?.description[language] ?? workspace?.description['en'] ?? '')
   const [selectedOrgId, setSelectedOrgId] = useState<string>(workspace?.organizationId ?? NONE)
   const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
 
@@ -89,9 +91,14 @@ export function WorkspaceSettingsPage() {
   }
 
   const handleDelete = async () => {
-    await deleteWorkspace(wsUid)
-    closeWorkspace()
-    navigate('/workspaces')
+    setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
+    try {
+      await deleteWorkspace(wsUid, (phaseKey) => setDeleteProgress({ phaseKey }))
+      closeWorkspace()
+      navigate('/workspaces')
+    } finally {
+      setDeleteProgress(null)
+    }
   }
 
   const wsDisplayName = workspace.name[language] ?? workspace.name['en'] ?? Object.values(workspace.name)[0] ?? ''
@@ -356,6 +363,28 @@ export function WorkspaceSettingsPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Delete progress modal — non-dismissable while deleteWorkspace runs. */}
+      <Dialog open={!!deleteProgress} onOpenChange={() => { /* not dismissable */ }}>
+        <DialogContent
+          className="max-w-md"
+          showCloseButton={false}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <Loader2 size={14} className="animate-spin text-primary" />
+              {t('workspaces.delete_progress_title')}
+            </DialogTitle>
+          </DialogHeader>
+          {deleteProgress && (
+            <div className="pt-2">
+              <p className="text-xs text-muted-foreground">{t(deleteProgress.phaseKey)}</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
