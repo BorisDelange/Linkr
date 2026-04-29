@@ -11,7 +11,7 @@ import {
   Check, Flag, X, MessageSquare, EyeOff, Eye,
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload, ArrowLeft, Loader2,
+  Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -425,7 +425,7 @@ interface SourceCounts { record_count: number; patient_count: number }
 /** undefined = still loading, null = no data available */
 interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
 
-function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, isExternal, externalProjectName, onOpenComments, onOpenReviews }: {
+function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, isExternal, externalProjectName, onOpenComments, onOpenReviews, position, onPrev, onNext }: {
   mapping: ConceptMapping
   sourceDetail: SourceDetail
   onBack: () => void
@@ -435,6 +435,10 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   externalProjectName?: string
   onOpenComments: (mappingId: string) => void
   onOpenReviews: (mappingId: string) => void
+  /** 1-based index in the parent's filtered/sorted list, plus the total count. */
+  position?: { index: number; total: number }
+  onPrev?: () => void
+  onNext?: () => void
 }) {
   const { t } = useTranslation()
   const myReview = (mapping.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
@@ -496,6 +500,44 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
             {mapping.mappedOn && <span>· {formatDate(mapping.mappedOn)}</span>}
           </div>
         </div>
+
+        {/* Prev / next nav across the parent list (filtered + sorted) */}
+        {position && (
+          <div className="flex items-center gap-1 mr-1">
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="size-7"
+                  onClick={onPrev}
+                  disabled={!onPrev || position.index <= 1}
+                >
+                  <ChevronLeft size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.detail_prev')}</TooltipContent>
+            </Tooltip>
+            <span className="text-[11px] tabular-nums text-muted-foreground min-w-[3.5rem] text-center">
+              {position.index} / {position.total}
+            </span>
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="size-7"
+                  onClick={onNext}
+                  disabled={!onNext || position.index >= position.total}
+                >
+                  <ChevronRight size={14} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.detail_next')}</TooltipContent>
+            </Tooltip>
+            <span className="mx-1 h-5 w-px bg-border" />
+          </div>
+        )}
 
         {/* Inline voting buttons */}
         <div className="flex items-center gap-1">
@@ -1839,6 +1881,26 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     const effectiveMapping = liveMapping ?? detailMapping
     const stillExternal = isExternal && !liveMapping
 
+    // Index in the parent filtered+sorted list (1-based for display).
+    // Match by id when possible; for an external row that just got imported, fall back to
+    // (vocabularyId, conceptCode, targetConceptId) so the position stays correct.
+    const navList = sorted
+    let currentIdx = navList.findIndex((m) => m.id === detailMapping.id)
+    if (currentIdx < 0) {
+      currentIdx = navList.findIndex((m) =>
+        m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
+        m.sourceConceptCode === detailMapping.sourceConceptCode &&
+        m.targetConceptId === detailMapping.targetConceptId,
+      )
+    }
+    const goTo = (i: number) => {
+      const next = navList[i]
+      if (!next) return
+      setDetailMapping(next)
+      setDetailSource({ counts: null, infoJson: undefined })
+      fetchSourceDetail(next).then(setDetailSource)
+    }
+
     return (
       <>
         <ReviewsSheet
@@ -1859,6 +1921,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           externalProjectName={externalInfo?.sourceProjectName}
           onOpenComments={(id) => setCommentsMappingId(id)}
           onOpenReviews={(id) => setReviewsMappingId(id)}
+          position={currentIdx >= 0 ? { index: currentIdx + 1, total: navList.length } : undefined}
+          onPrev={currentIdx > 0 ? () => goTo(currentIdx - 1) : undefined}
+          onNext={currentIdx >= 0 && currentIdx < navList.length - 1 ? () => goTo(currentIdx + 1) : undefined}
           onReview={async (mid, target) => {
             await handleReview(mid, target)
             // After voting on an external row, swap to the freshly-created local mapping so subsequent votes update it

@@ -2653,6 +2653,8 @@
     "detail_frequency": "Fréquence",
     "detail_match_score": "Score de correspondance",
     "view_detail": "Voir le détail du mapping",
+    "detail_prev": "Mapping précédent",
+    "detail_next": "Mapping suivant",
     "detail_updated_at": "Dernière modification",
     "import_settings_title": "Paramètres d'import",
     "import_settings_description": "Configurez le parsing du fichier et associez les colonnes aux champs de concepts.",
