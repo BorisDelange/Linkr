@@ -2361,6 +2361,7 @@
     "no_schema": "This database has no schema mapping configured. Set up a schema preset first.",
     "no_concept_tables": "The schema preset for this database does not define any concept dictionaries. Configure concept tables in the schema preset.",
     "search_concepts": "Search source concepts…",
+    "sorted_by_relevance": "Sorted by relevance",
     "all_vocabularies": "All vocabularies",
     "all_domains": "All domains",
     "col_name": "Concept Name",

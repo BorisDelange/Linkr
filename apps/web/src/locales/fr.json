@@ -2362,6 +2362,7 @@
     "no_schema": "Cette base n'a pas de mapping de schéma configuré. Configurez d'abord un preset de schéma.",
     "no_concept_tables": "Le preset de schéma de cette base ne définit aucun dictionnaire de concepts. Configurez les tables de concepts dans le preset de schéma.",
     "search_concepts": "Rechercher des concepts sources…",
+    "sorted_by_relevance": "Trié par pertinence",
     "all_vocabularies": "Tous les vocabulaires",
     "all_domains": "Tous les domaines",
     "col_name": "Nom du concept",

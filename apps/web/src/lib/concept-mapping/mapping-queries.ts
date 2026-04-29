@@ -9,9 +9,13 @@ import { escSql as esc } from '@/lib/format-helpers'
 // ---------------------------------------------------------------------------
 
 export interface SourceConceptFilters {
+  /** Inline column filter (concept_name): simple substring match. */
   searchText?: string
   searchId?: string
   searchCode?: string
+  /** Search bar above the table: fuzzy ranked match (substring multi-word + jaro_winkler).
+   *  When present, results are ordered by relevance and a `_rank` column is added. */
+  searchTextFuzzy?: string
   /** Multi-select column filters: empty array (or undefined) = no filter. */
   vocabularyId?: string[]
   terminologyName?: string[]
@@ -19,6 +23,32 @@ export interface SourceConceptFilters {
   subcategory?: string[]
   domainId?: string[]
   conceptClassId?: string[]
+}
+
+/** Build the relevance ranking expression and predicate for a fuzzy search term.
+ *  Returns `{ rankExpr, where }` where:
+ *  - `rankExpr` is a SQL expression evaluating to a number (lower = better match).
+ *  - `where` is a SQL predicate that excludes rows with no relevance to the query. */
+function fuzzySearchClauses(term: string): { rankExpr: string; where: string } | null {
+  const trimmed = term.trim()
+  if (!trimmed) return null
+  const escaped = esc(trimmed)
+  const words = trimmed.split(/\s+/).filter(Boolean)
+  // Per-word substring match (all words must appear)
+  const substringConds = words.map((w) => `LOWER(concept_name) LIKE LOWER('%${esc(w)}%')`).join(' AND ')
+  // Per-word fuzzy match: any token in concept_name fuzzy-matches each query word
+  const fuzzyConds = words.map((w) => {
+    const we = esc(w)
+    return `EXISTS (SELECT 1 FROM unnest(string_split(LOWER(concept_name), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8)`
+  }).join(' AND ')
+  // Whole-string similarity: used to score ranking
+  const similarity = `jaro_winkler_similarity(LOWER(concept_name), LOWER('${escaped}'))`
+  // Tier expression: 1.0 if substring match (best), 2.0 if fuzzy-only.
+  // Subtract similarity so that, within a tier, more similar matches rank first.
+  const tierExpr = `CASE WHEN (${substringConds}) THEN 1.0 ELSE 2.0 END`
+  const rankExpr = `(${tierExpr} - ${similarity})`
+  const where = `((${substringConds}) OR (${fuzzyConds}))`
+  return { rankExpr, where }
 }
 
 /** Render a SQL `column IN (...)` predicate for a multi-select filter, or empty string when no filter. */
@@ -56,6 +86,7 @@ export function buildSourceConceptsQuery(
 
   const unionParts = buildConceptUnionParts(dicts)
   const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
+  const fuzzy = filters.searchTextFuzzy ? fuzzySearchClauses(filters.searchTextFuzzy) : null
 
   const srcSql = unionParts.length === 1
     ? `(${unionParts[0]})`
@@ -76,8 +107,12 @@ export function buildSourceConceptsQuery(
 
   sql += buildWhereClause(filters)
 
+  // Sorting precedence: explicit user sort > fuzzy relevance > default (concept_name).
+  // This lets the user override the fuzzy ranking by clicking a column header.
   if (sorting) {
     sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
+  } else if (fuzzy) {
+    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC`
   } else {
     sql += ' ORDER BY concept_name ASC'
   }
@@ -227,6 +262,10 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const term = esc(filters.searchCode)
     conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
   }
+  if (filters.searchTextFuzzy) {
+    const fuzzy = fuzzySearchClauses(filters.searchTextFuzzy)
+    if (fuzzy) conditions.push(fuzzy.where)
+  }
   for (const c of [
     inListClause('vocabulary_id', filters.vocabularyId),
     inListClause('terminology_name', filters.terminologyName),
@@ -253,9 +292,17 @@ export function buildFileSourceConceptsQuery(
   limit: number,
   offset: number,
 ): string {
+  const fuzzy = filters.searchTextFuzzy ? fuzzySearchClauses(filters.searchTextFuzzy) : null
   let sql = 'SELECT * FROM source_concepts'
   sql += buildWhereClause(filters)
 
+  // Sorting precedence: explicit user sort > fuzzy relevance > default.
+  if (sorting) {
+    // fall through to the original branch below
+  } else if (fuzzy) {
+    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC LIMIT ${limit} OFFSET ${offset}`
+    return sql
+  }
   if (sorting) {
     sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST`
   } else {

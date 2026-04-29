@@ -14,6 +14,8 @@ import {
   Settings2,
   BarChart3,
   Loader2,
+  Search,
+  X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -646,8 +648,59 @@ export function SourceConceptTable({
     manualSorting: true,
   })
 
+  // Search bar state: typed text is local and only commits to filters on Enter / button click.
+  // Filters.searchTextFuzzy stays the source of truth (drives the SQL query).
+  const [pendingSearch, setPendingSearch] = useState(filters.searchTextFuzzy ?? '')
+  // Re-sync local input when external filter changes (e.g. cleared via reset)
+  useEffect(() => { setPendingSearch(filters.searchTextFuzzy ?? '') }, [filters.searchTextFuzzy])
+
+  const commitSearch = () => {
+    const term = pendingSearch.trim()
+    onFiltersChange({ ...filters, searchTextFuzzy: term || undefined })
+  }
+  const clearSearch = () => {
+    setPendingSearch('')
+    if (filters.searchTextFuzzy) onFiltersChange({ ...filters, searchTextFuzzy: undefined })
+  }
+
   return (
     <div className="flex h-full flex-col border-r overflow-hidden">
+      {/* Search bar — fuzzy ranked search by concept_name (DuckDB jaro_winkler) */}
+      <div className="flex items-center gap-1.5 border-b px-3 py-2">
+        <div className="relative min-w-0 flex-1">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            type="text"
+            value={pendingSearch}
+            onChange={(e) => setPendingSearch(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); commitSearch() }
+              else if (e.key === 'Escape') { e.preventDefault(); clearSearch() }
+            }}
+            placeholder={t('concept_mapping.search_concepts')}
+            className="h-7 w-full rounded-md border bg-transparent pl-8 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+          />
+          {pendingSearch && (
+            <button
+              type="button"
+              onClick={clearSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+        <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={commitSearch}>
+          {t('common.search')}
+        </Button>
+        {filters.searchTextFuzzy && !sorting && (
+          <span className="shrink-0 text-[10px] text-muted-foreground italic">
+            {t('concept_mapping.sorted_by_relevance')}
+          </span>
+        )}
+      </div>
+
       {/* Table */}
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>

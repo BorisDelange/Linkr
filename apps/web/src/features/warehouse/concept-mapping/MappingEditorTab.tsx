@@ -104,6 +104,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [fileSourceReady, setFileSourceReady] = useState(false)
 
   const loadingRef = useRef(false)
+  /** Monotonic request id — incremented for each load. Stale completions are ignored. */
+  const requestIdRef = useRef(0)
   const savedScrollTop = useRef(0)
 
   // Ignored source concepts: derived from mappings with status='ignored'
@@ -229,9 +231,13 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const loadConcepts = useCallback(async (pageToLoad: number) => {
     if (isFileSource && !fileSourceReady) return
     if (!isFileSource && (!dataSource?.id || !dataSource.schemaMapping)) return
-    if (loadingRef.current) return
+    // Generate a fresh request id; any prior in-flight load becomes stale.
+    const reqId = ++requestIdRef.current
     loadingRef.current = true
     setLoading(true)
+
+    /** Apply state updates only if this request is still the most recent one. */
+    const isStale = () => requestIdRef.current !== reqId
 
     try {
       setQueryError(null)
@@ -245,8 +251,12 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         const countSql = isFileSource
           ? buildFileSourceConceptsCountQuery(filters)
           : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filters)
-        if (!countSql) { setLoading(false); loadingRef.current = false; return }
+        if (!countSql) {
+          if (!isStale()) { setLoading(false); loadingRef.current = false }
+          return
+        }
         const [countResult] = await queryDataSource(effectiveDsId, countSql)
+        if (isStale()) return
         const total = Number(countResult?.total ?? 0)
         setTotalCount(total)
       }
@@ -257,6 +267,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         : buildSourceConceptsQuery(dataSource!.schemaMapping!, filters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
 
       const result = await queryDataSource(effectiveDsId, dataSql)
+      if (isStale()) return
 
       // Parse info_json strings back to objects for file source
       const parsedRows: SourceConceptRow[] = (result as unknown as SourceConceptRow[]).map((row) => {
@@ -275,12 +286,16 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       setRows((prev) => pageToLoad === 0 ? parsedRows : [...prev, ...parsedRows])
       setHasMore(parsedRows.length === PAGE_SIZE)
     } catch (err) {
+      if (isStale()) return
       console.error('Failed to load source concepts:', err)
       setQueryError(err instanceof Error ? err.message : String(err))
       if (pageToLoad === 0) setRows([])
     } finally {
-      setLoading(false)
-      loadingRef.current = false
+      // Only the most recent request controls the loading flag.
+      if (!isStale()) {
+        setLoading(false)
+        loadingRef.current = false
+      }
     }
   }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, ensureMounted, project.id])
 
