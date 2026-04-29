@@ -1899,6 +1899,7 @@
     "select_all": "Tout sélectionner",
     "deselect_all": "Tout désélectionner",
     "select_none": "Aucun",
+    "n_selected": "{{count}} sélectionné(s)",
     "none": "Aucun",
     "rename": "Renommer",
     "refresh": "Actualiser",

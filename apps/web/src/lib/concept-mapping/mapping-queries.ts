@@ -12,12 +12,20 @@ export interface SourceConceptFilters {
   searchText?: string
   searchId?: string
   searchCode?: string
-  vocabularyId?: string
-  terminologyName?: string
-  category?: string
-  subcategory?: string
-  domainId?: string
-  conceptClassId?: string
+  /** Multi-select column filters: empty array (or undefined) = no filter. */
+  vocabularyId?: string[]
+  terminologyName?: string[]
+  category?: string[]
+  subcategory?: string[]
+  domainId?: string[]
+  conceptClassId?: string[]
+}
+
+/** Render a SQL `column IN (...)` predicate for a multi-select filter, or empty string when no filter. */
+function inListClause(column: string, values: string[] | undefined): string {
+  if (!values || values.length === 0) return ''
+  const escaped = values.map((v) => `'${esc(v)}'`).join(',')
+  return `${column} IN (${escaped})`
 }
 
 export interface SourceConceptSorting {
@@ -219,12 +227,14 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const term = esc(filters.searchCode)
     conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
   }
-  if (filters.vocabularyId) conditions.push(`vocabulary_id = '${esc(filters.vocabularyId)}'`)
-  if (filters.terminologyName) conditions.push(`terminology_name = '${esc(filters.terminologyName)}'`)
-  if (filters.category) conditions.push(`category = '${esc(filters.category)}'`)
-  if (filters.subcategory) conditions.push(`subcategory = '${esc(filters.subcategory)}'`)
-  if (filters.domainId) conditions.push(`domain_id = '${esc(filters.domainId)}'`)
-  if (filters.conceptClassId) conditions.push(`concept_class_id = '${esc(filters.conceptClassId)}'`)
+  for (const c of [
+    inListClause('vocabulary_id', filters.vocabularyId),
+    inListClause('terminology_name', filters.terminologyName),
+    inListClause('category', filters.category),
+    inListClause('subcategory', filters.subcategory),
+    inListClause('domain_id', filters.domainId),
+    inListClause('concept_class_id', filters.conceptClassId),
+  ]) if (c) conditions.push(c)
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
   return ''
 }

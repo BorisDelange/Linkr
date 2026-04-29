@@ -1898,6 +1898,7 @@
     "select_all": "Select all",
     "deselect_all": "Deselect all",
     "select_none": "None",
+    "n_selected": "{{count}} selected",
     "none": "None",
     "rename": "Rename",
     "refresh": "Refresh",

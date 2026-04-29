@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
@@ -29,7 +30,6 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -116,80 +116,17 @@ function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {
   return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-// ─── Inline column filter helpers ──────────────────────────────────
-
-/** Small dropdown for categorical column filters. */
-function ColumnFilterSelect({
-  value,
-  options,
-  placeholder,
-  onChange,
-}: {
-  value: string | null
-  options: string[] | { value: string; label: string }[]
-  placeholder: string
-  onChange: (v: string | null) => void
-}) {
-  const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const normalized = options.map((o) =>
-    typeof o === 'string' ? { value: o, label: o } : o,
-  )
-  const selectedLabel = normalized.find((o) => o.value === value)?.label ?? value
-  const filtered = search
-    ? normalized.filter((o) => o.label.toLowerCase().includes(search.toLowerCase()))
-    : normalized
-  return (
-    <DropdownMenu onOpenChange={() => setSearch('')}>
-      <DropdownMenuTrigger asChild>
-        <button className={`${FILTER_INPUT_CLASS} flex items-center truncate ${value ? 'border-primary text-foreground' : ''}`}>
-          <span className="truncate">{value ? selectedLabel : placeholder}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="px-2 pb-1.5">
-          <input
-            className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
-            placeholder={t('common.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-        </div>
-        <DropdownMenuSeparator />
-        <div className="max-h-44 overflow-auto">
-          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
-            {t('concepts.filter_all')}
-          </DropdownMenuItem>
-          {filtered.map((opt) => (
-            <DropdownMenuItem
-              key={opt.value}
-              className={`text-xs ${value === opt.value ? 'bg-accent font-medium' : ''}`}
-              onSelect={() => onChange(opt.value)}
-            >
-              {opt.label}
-            </DropdownMenuItem>
-          ))}
-          {filtered.length === 0 && (
-            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  )
-}
-
-/** Column filter state for MappingsTab. */
+/** Column filter state for MappingsTab. Multi-select dropdowns use arrays — empty/undefined = no filter. */
 interface MappingColumnFilters {
   sourceConceptName?: string
   sourceConceptCode?: string
-  sourceVocabularyId?: string | null
-  sourceCategoryId?: string | null
+  sourceVocabularyId?: string[]
+  sourceCategoryId?: string[]
   targetConceptName?: string
   targetConceptId?: string
-  targetVocabularyId?: string | null
-  targetDomainId?: string | null
-  equivalence?: string | null
+  targetVocabularyId?: string[]
+  targetDomainId?: string[]
+  equivalence?: string[]
   mappedBy?: string
 }
 
@@ -1029,13 +966,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     const f = colFilters
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
-    if (f.sourceVocabularyId && m.sourceVocabularyId !== f.sourceVocabularyId) return false
-    if (f.sourceCategoryId && m.sourceCategoryId !== f.sourceCategoryId) return false
+    if (f.sourceVocabularyId?.length && !f.sourceVocabularyId.includes(m.sourceVocabularyId)) return false
+    if (f.sourceCategoryId?.length && !f.sourceCategoryId.includes(m.sourceCategoryId ?? '')) return false
     if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
-    if (f.targetVocabularyId && m.targetVocabularyId !== f.targetVocabularyId) return false
-    if (f.targetDomainId && m.targetDomainId !== f.targetDomainId) return false
-    if (f.equivalence && m.equivalence !== f.equivalence) return false
+    if (f.targetVocabularyId?.length && !f.targetVocabularyId.includes(m.targetVocabularyId)) return false
+    if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
+    if (f.equivalence?.length && !f.equivalence.includes(m.equivalence)) return false
     if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
     // Origin filter (status dot quick filter)
     const isExternalRow = m.id.startsWith(EXTERNAL_PREFIX)
@@ -1117,6 +1054,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
   }
 
+  const updateMultiFilter = (key: keyof MappingColumnFilters, values: string[]) => {
+    setColFilters((prev) => ({ ...prev, [key]: values.length ? values : undefined }))
+  }
+
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
     if (columnId === '_status') {
@@ -1172,22 +1113,22 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (columnId === 'mappedBy') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.mappedBy ?? ''} onChange={(e) => updateFilter('mappedBy', e.target.value || null)} />
     }
-    // Dropdowns
+    // Dropdowns (multi-select)
     if (columnId === 'sourceVocabularyId' && filterOptions.sourceVocabularyId.length > 0) {
-      return <ColumnFilterSelect value={colFilters.sourceVocabularyId ?? null} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('sourceVocabularyId', v)} />
+      return <MultiSelectFilter value={colFilters.sourceVocabularyId ?? []} options={filterOptions.sourceVocabularyId} placeholder="Vocab" onChange={(v) => updateMultiFilter('sourceVocabularyId', v)} />
     }
     if (columnId === 'sourceCategoryId' && filterOptions.sourceCategoryId.length > 0) {
-      return <ColumnFilterSelect value={colFilters.sourceCategoryId ?? null} options={filterOptions.sourceCategoryId} placeholder="..." onChange={(v) => updateFilter('sourceCategoryId', v)} />
+      return <MultiSelectFilter value={colFilters.sourceCategoryId ?? []} options={filterOptions.sourceCategoryId} placeholder="..." onChange={(v) => updateMultiFilter('sourceCategoryId', v)} />
     }
     if (columnId === 'targetVocabularyId' && filterOptions.targetVocabularyId.length > 0) {
-      return <ColumnFilterSelect value={colFilters.targetVocabularyId ?? null} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateFilter('targetVocabularyId', v)} />
+      return <MultiSelectFilter value={colFilters.targetVocabularyId ?? []} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateMultiFilter('targetVocabularyId', v)} />
     }
     if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
-      return <ColumnFilterSelect value={colFilters.targetDomainId ?? null} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateFilter('targetDomainId', v)} />
+      return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateMultiFilter('targetDomainId', v)} />
     }
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
       const equivOptions = filterOptions.equivalence.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e }))
-      return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={equivOptions} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
+      return <MultiSelectFilter value={colFilters.equivalence ?? []} options={equivOptions} placeholder="Equiv" onChange={(v) => updateMultiFilter('equivalence', v)} />
     }
     if (columnId === '_review') {
       const opts: { value: typeof myReviewFilter; icon?: ReactNode }[] = [

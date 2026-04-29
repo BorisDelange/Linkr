@@ -18,6 +18,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
   Table,
@@ -31,7 +32,6 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -124,63 +124,6 @@ function DebouncedInput({
       value={localValue}
       onChange={handleChange}
     />
-  )
-}
-
-/** Small dropdown for categorical column filters with search. */
-function ColumnFilterSelect({
-  value,
-  options,
-  placeholder,
-  onChange,
-  wide,
-}: {
-  value: string | null
-  options: string[]
-  placeholder: string
-  onChange: (v: string | null) => void
-  wide?: boolean
-}) {
-  const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
-  return (
-    <DropdownMenu onOpenChange={() => setSearch('')}>
-      <DropdownMenuTrigger asChild>
-        <button className={`${FILTER_INPUT_CLASS} flex items-center truncate ${value ? 'border-primary text-foreground' : ''}`}>
-          <span className="truncate">{value ?? placeholder}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className={wide ? 'w-[360px]' : 'w-[200px]'} onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="px-2 pb-1.5">
-          <input
-            className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
-            placeholder={t('common.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
-        </div>
-        <DropdownMenuSeparator />
-        <div className="max-h-72 overflow-auto">
-          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
-            {t('concepts.filter_all')}
-          </DropdownMenuItem>
-          {filtered.map((opt) => (
-            <DropdownMenuItem
-              key={opt}
-              className={`text-xs ${value === opt ? 'bg-accent font-medium' : ''}`}
-              onSelect={() => onChange(opt)}
-            >
-              {opt}
-            </DropdownMenuItem>
-          ))}
-          {filtered.length === 0 && (
-            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
   )
 }
 
@@ -357,20 +300,48 @@ export function SourceConceptTable({
       if (termOpts?.length) {
         const filterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
         const value = filterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId
-        return <ColumnFilterSelect value={value ?? null} options={termOpts} placeholder={t('concept_mapping.col_terminology')} onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v ?? undefined })} wide />
+        return <MultiSelectFilter
+          value={value ?? []}
+          options={termOpts}
+          placeholder={t('concept_mapping.col_terminology')}
+          onChange={(v) => onFiltersChange({ ...filters, [filterKey]: v.length ? v : undefined })}
+          popoverWidthClass="w-[360px]"
+        />
       }
     }
     if (columnId === 'category' && filterOptions.category?.length > 0) {
-      return <ColumnFilterSelect value={filters.category ?? null} options={filterOptions.category} placeholder="Category" onChange={(v) => onFiltersChange({ ...filters, category: v ?? undefined })} wide />
+      return <MultiSelectFilter
+        value={filters.category ?? []}
+        options={filterOptions.category}
+        placeholder="Category"
+        onChange={(v) => onFiltersChange({ ...filters, category: v.length ? v : undefined })}
+        popoverWidthClass="w-[360px]"
+      />
     }
     if (columnId === 'subcategory' && filterOptions.subcategory?.length > 0) {
-      return <ColumnFilterSelect value={filters.subcategory ?? null} options={filterOptions.subcategory} placeholder="Subcategory" onChange={(v) => onFiltersChange({ ...filters, subcategory: v ?? undefined })} wide />
+      return <MultiSelectFilter
+        value={filters.subcategory ?? []}
+        options={filterOptions.subcategory}
+        placeholder="Subcategory"
+        onChange={(v) => onFiltersChange({ ...filters, subcategory: v.length ? v : undefined })}
+        popoverWidthClass="w-[360px]"
+      />
     }
     if (columnId === 'domain_id' && filterOptions.domain_id?.length > 0) {
-      return <ColumnFilterSelect value={filters.domainId ?? null} options={filterOptions.domain_id} placeholder="Domain" onChange={(v) => onFiltersChange({ ...filters, domainId: v ?? undefined })} />
+      return <MultiSelectFilter
+        value={filters.domainId ?? []}
+        options={filterOptions.domain_id}
+        placeholder="Domain"
+        onChange={(v) => onFiltersChange({ ...filters, domainId: v.length ? v : undefined })}
+      />
     }
     if (columnId === 'concept_class_id' && filterOptions.concept_class_id?.length > 0) {
-      return <ColumnFilterSelect value={filters.conceptClassId ?? null} options={filterOptions.concept_class_id} placeholder="Class" onChange={(v) => onFiltersChange({ ...filters, conceptClassId: v ?? undefined })} />
+      return <MultiSelectFilter
+        value={filters.conceptClassId ?? []}
+        options={filterOptions.concept_class_id}
+        placeholder="Class"
+        onChange={(v) => onFiltersChange({ ...filters, conceptClassId: v.length ? v : undefined })}
+      />
     }
     return null
   }
