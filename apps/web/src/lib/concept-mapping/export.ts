@@ -155,6 +155,39 @@ export function exportToUsagiCsv(
   return [header, ...rows].join('\n')
 }
 
+/**
+ * Append source-only rows (no target) to a USAGI CSV.
+ * Used when the user wants to include source concepts whose mappings were filtered out
+ * (or whose source concepts have no mapping at all).
+ */
+export function exportUnmappedToUsagi(
+  allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
+  excludeKeys: Set<string>,
+): string {
+  const rows = allSourceConcepts
+    .filter((c) => !excludeKeys.has(`${c.vocabularyId}__${c.conceptCode}`))
+    .map((c) => [
+      csvEscape(c.conceptCode),
+      csvEscape(c.conceptName),
+      csvEscape(0),
+      csvEscape(0),
+      csvEscape(0),
+      csvEscape('UNCHECKED'),
+      csvEscape('UNREVIEWED'),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(0),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(''),
+      csvEscape(''),
+    ].join(','))
+  return rows.join('\n')
+}
+
 // ---------------------------------------------------------------------------
 // SOURCE_TO_CONCEPT_MAP export (OMOP CDM table format)
 // ---------------------------------------------------------------------------
@@ -294,6 +327,32 @@ export function exportToSssomTsv(
   })
 
   return [...metadataLines, header, ...rows].join('\n')
+}
+
+/**
+ * Append source-only rows (no target) to an SSSOM TSV.
+ * Uses sssom:NoTermFound predicate per the SSSOM spec for unmapped terms.
+ */
+export function exportUnmappedToSssom(
+  allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[],
+  excludeKeys: Set<string>,
+): string {
+  const rows = allSourceConcepts
+    .filter((c) => !excludeKeys.has(`${c.vocabularyId}__${c.conceptCode}`))
+    .map((c) => [
+      tsvEscape(`${c.vocabularyId}:${c.conceptCode}`),
+      tsvEscape(c.conceptName),
+      tsvEscape(c.vocabularyId),
+      tsvEscape('sssom:NoTermFound'),
+      tsvEscape(''),
+      tsvEscape(''),
+      tsvEscape(''),
+      tsvEscape('semapv:UnspecifiedMatching'),
+      tsvEscape(''),
+      tsvEscape(''),
+      tsvEscape(''),
+    ].join('\t'))
+  return rows.join('\n')
 }
 
 // ---------------------------------------------------------------------------

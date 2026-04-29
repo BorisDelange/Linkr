@@ -338,6 +338,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
 
   // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
   const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
+  const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const mappedElsewhereIds = useMemo(() => {
     const result = new Set<number>()
     if (!otherProjectMappings || otherProjectMappings.size === 0) return result
@@ -378,6 +379,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             conceptDicts={isFileSource ? EMPTY_CONCEPT_DICTS : (dataSource?.schemaMapping?.conceptTables ?? EMPTY_CONCEPT_DICTS)}
             mappingStatusMap={mappingStatusMap}
             mappedElsewhereIds={mappedElsewhereIds}
+            projectMappings={mappings.filter((m) => m.projectId === project.id)}
+            externalMappingsByKey={otherProjectsMappings}
             mappingStatusFilter={mappingStatusFilter}
             selectedConceptId={selectedSourceConceptId}
             isFileSource={isFileSource}

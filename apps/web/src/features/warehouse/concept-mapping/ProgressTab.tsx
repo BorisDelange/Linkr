@@ -9,7 +9,8 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, isFileSourceMounted, fileSourceDataSourceId, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import { buildSourceConceptsCountQuery, buildFileSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
-import type { MappingProject, MappingStatus, DataSource, ConceptMapping } from '@/types'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
+import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
 interface ProgressTabProps {
   project: MappingProject
@@ -68,34 +69,22 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
   }, [isFileSource, project.id, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
   const stats = useMemo(() => {
-    // Effective status per mapping (reviews majority vote, fallback to m.status)
-    const effectiveStatus = (m: ConceptMapping): MappingStatus => {
-      const reviews = m.reviews ?? []
-      if (reviews.length === 0) return m.status
-      const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
-      for (const r of reviews) counts[r.status as MappingStatus] = (counts[r.status as MappingStatus] ?? 0) + 1
-      const max = Math.max(...Object.values(counts))
-      if (counts.approved === max) return 'approved'
-      if (counts.rejected === max) return 'rejected'
-      if (counts.flagged === max) return 'flagged'
-      return m.status
-    }
-
-    // Unique source concept IDs (excluding ignored)
-    const ignoredSourceIds = new Set(
-      mappings.filter((m) => effectiveStatus(m) === 'ignored').map((m) => m.sourceConceptId),
+    // Dedup by (vocabularyId, conceptCode) — same key as Mapping Editor / Export.
+    const ignoredSourceKeys = new Set(
+      mappings.filter((m) => effectiveMappingStatus(m) === 'ignored').map(sourceKey),
     )
-    const nonIgnoredMappings = mappings.filter((m) => effectiveStatus(m) !== 'ignored')
-    const allSourceIds = new Set(nonIgnoredMappings.map((m) => m.sourceConceptId))
+    const nonIgnoredMappings = mappings.filter((m) => effectiveMappingStatus(m) !== 'ignored')
+    const allSourceKeys = new Set(nonIgnoredMappings.map(sourceKey))
 
     // Best status per source concept
-    const bestStatus = new Map<number, MappingStatus>()
+    const bestStatus = new Map<string, MappingStatus>()
     const statusPriority: MappingStatus[] = ['approved', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
     for (const m of nonIgnoredMappings) {
-      const eff = effectiveStatus(m)
-      const current = bestStatus.get(m.sourceConceptId)
+      const eff = effectiveMappingStatus(m)
+      const k = sourceKey(m)
+      const current = bestStatus.get(k)
       if (!current || statusPriority.indexOf(eff) < statusPriority.indexOf(current)) {
-        bestStatus.set(m.sourceConceptId, eff)
+        bestStatus.set(k, eff)
       }
     }
 
@@ -105,12 +94,12 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       sourceStatusCounts[status] = (sourceStatusCounts[status] ?? 0) + 1
     }
 
-    // Category breakdown
-    const domainMapped = new Map<string, Set<number>>()
+    // Category breakdown (deduped by source key)
+    const domainMapped = new Map<string, Set<string>>()
     for (const m of mappings) {
       const domain = m.sourceCategoryId || t('concept_mapping.prog_domain_unknown')
       if (!domainMapped.has(domain)) domainMapped.set(domain, new Set())
-      domainMapped.get(domain)!.add(m.sourceConceptId)
+      domainMapped.get(domain)!.add(sourceKey(m))
     }
 
     // Recent activity (last 10)
@@ -120,14 +109,14 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
 
     return {
       totalMappings: mappings.length,
-      uniqueSourceConcepts: allSourceIds.size,
+      uniqueSourceConcepts: allSourceKeys.size,
       approvedCount: sourceStatusCounts.approved ?? 0,
       flaggedCount: sourceStatusCounts.flagged ?? 0,
-      ignoredCount: ignoredSourceIds.size,
+      ignoredCount: ignoredSourceKeys.size,
       sourceStatusCounts,
-      domainData: Array.from(domainMapped.entries()).map(([domain, ids]) => ({
+      domainData: Array.from(domainMapped.entries()).map(([domain, keys]) => ({
         domain,
-        count: ids.size,
+        count: keys.size,
       })).sort((a, b) => b.count - a.count),
       recent,
     }

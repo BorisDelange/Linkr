@@ -3,6 +3,16 @@ import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
 
+/** Summary of a single mapping made in another project (for cross-project tooltips & import). */
+export interface ExternalMappingInfo {
+  /** Original mapping (from another project). */
+  mapping: ConceptMapping
+  /** Source project id where this mapping lives. */
+  sourceProjectId: string
+  /** Source project display name. */
+  sourceProjectName: string
+}
+
 interface ConceptMappingState {
   // --- Concept Sets ---
   conceptSets: ConceptSet[]
@@ -44,8 +54,17 @@ interface ConceptMappingState {
   // --- Cross-project "mapped elsewhere" ---
   /** Set of `vocabulary:code` keys mapped in other projects. */
   otherProjectsMappedKeys: Set<string>
+  /** Detailed cross-project mappings keyed by `vocabulary:code`. */
+  otherProjectsMappings: Map<string, ExternalMappingInfo[]>
   /** Load mapped keys from all other projects in the same workspace. */
   loadOtherProjectsMappedKeys: (currentProjectId: string, workspaceId: string) => Promise<void>
+  /** Import an external mapping into the active project as a local copy.
+   *  Returns the newly-created local mapping, or null if it could not be imported. */
+  importExternalMapping: (
+    info: ExternalMappingInfo,
+    targetProjectId: string,
+    options?: { sourceConceptId?: number; createdBy?: string },
+  ) => Promise<ConceptMapping | null>
 
   // --- UI State ---
   selectedSourceConceptId: number | null
@@ -257,24 +276,25 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       ? get().mappings
       : await getStorage().conceptMappings.getByProject(projectId)
 
-    // Count unique source concepts that have at least one mapping
-    const mappedSourceIds = new Set(mappings.map((m) => m.sourceConceptId))
-    const approvedIds = new Set(
-      mappings.filter((m) => m.status === 'approved').map((m) => m.sourceConceptId),
+    // Count unique source concepts that have at least one mapping (dedup by vocabulary + code).
+    const sk = (m: ConceptMapping) => `${m.sourceVocabularyId ?? ''}\0${m.sourceConceptCode ?? ''}`
+    const mappedKeys = new Set(mappings.map(sk))
+    const approvedKeys = new Set(
+      mappings.filter((m) => m.status === 'approved').map(sk),
     )
-    const flaggedIds = new Set(
-      mappings.filter((m) => m.status === 'flagged').map((m) => m.sourceConceptId),
+    const flaggedKeys = new Set(
+      mappings.filter((m) => m.status === 'flagged').map(sk),
     )
-    const ignoredIds = new Set(
-      mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId),
+    const ignoredKeys = new Set(
+      mappings.filter((m) => m.status === 'ignored').map(sk),
     )
 
     const stats: MappingProjectStats = {
       totalSourceConcepts: 0, // Must be set externally (from DuckDB query)
-      mappedCount: mappedSourceIds.size,
-      approvedCount: approvedIds.size,
-      flaggedCount: flaggedIds.size,
-      ignoredCount: ignoredIds.size,
+      mappedCount: mappedKeys.size,
+      approvedCount: approvedKeys.size,
+      flaggedCount: flaggedKeys.size,
+      ignoredCount: ignoredKeys.size,
       unmappedCount: 0, // totalSourceConcepts - mappedCount
     }
 
@@ -290,19 +310,60 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
 
   // --- Cross-project "mapped elsewhere" ---
   otherProjectsMappedKeys: new Set(),
+  otherProjectsMappings: new Map(),
   loadOtherProjectsMappedKeys: async (currentProjectId, workspaceId) => {
     const storage = getStorage()
     const projects = get().mappingProjects.filter((p) => p.workspaceId === workspaceId && p.id !== currentProjectId)
     const keys = new Set<string>()
+    const detailMap = new Map<string, ExternalMappingInfo[]>()
     for (const p of projects) {
       const mappings = await storage.conceptMappings.getByProject(p.id)
       for (const m of mappings) {
         if (m.status === 'ignored' || m.targetConceptId === 0) continue
         const key = `${m.sourceVocabularyId}:${m.sourceConceptCode}`
         keys.add(key)
+        const list = detailMap.get(key) ?? []
+        list.push({ mapping: m, sourceProjectId: p.id, sourceProjectName: p.name })
+        detailMap.set(key, list)
       }
     }
-    set({ otherProjectsMappedKeys: keys })
+    set({ otherProjectsMappedKeys: keys, otherProjectsMappings: detailMap })
+  },
+
+  importExternalMapping: async (info, targetProjectId, options) => {
+    const now = new Date().toISOString()
+    const { mapping } = info
+    // Skip if a mapping with the same target already exists for this source in the project
+    const existing = get().mappings.find((m) =>
+      m.projectId === targetProjectId &&
+      m.sourceVocabularyId === mapping.sourceVocabularyId &&
+      m.sourceConceptCode === mapping.sourceConceptCode &&
+      m.targetConceptId === mapping.targetConceptId,
+    )
+    if (existing) return existing
+
+    const local: ConceptMapping = {
+      ...mapping,
+      id: crypto.randomUUID(),
+      projectId: targetProjectId,
+      sourceConceptId: options?.sourceConceptId ?? mapping.sourceConceptId,
+      // Reset reviews/comments — local copy starts fresh, the importer will vote on it
+      reviews: [],
+      comments: [],
+      status: 'unchecked',
+      // Preserve the original author so the importer is treated as a reviewer (not the mapper).
+      // This lets them toggle their own approve/reject vote on the imported mapping.
+      mappedBy: mapping.mappedBy,
+      mappedOn: mapping.mappedOn,
+      reviewedBy: undefined,
+      reviewedOn: undefined,
+      reviewComment: undefined,
+      createdAt: now,
+      updatedAt: now,
+    }
+    await getStorage().conceptMappings.create(local)
+    set((s) => ({ mappings: [...s.mappings, local] }))
+    return local
   },
 
   // --- UI State ---

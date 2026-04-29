@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -65,6 +65,9 @@ import type { MappingProject, ConceptMapping, MappingComment, MappingReview, Map
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { escSql } from '@/lib/format-helpers'
+
+// Sentinel id prefix for synthetic rows that represent mappings made in another project.
+const EXTERNAL_PREFIX = 'external::'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -191,6 +194,7 @@ interface MappingColumnFilters {
 }
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
+type OriginFilter = 'all' | 'local' | 'external'
 const FILTER_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -483,8 +487,22 @@ interface SourceCounts { record_count: number; patient_count: number }
 /** undefined = still loading, null = no data available */
 interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
 
-function MappingDetailView({ mapping, sourceDetail, onBack }: { mapping: ConceptMapping; sourceDetail: SourceDetail; onBack: () => void }) {
+function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, isExternal, externalProjectName, onOpenComments, onOpenReviews }: {
+  mapping: ConceptMapping
+  sourceDetail: SourceDetail
+  onBack: () => void
+  onReview: (mappingId: string, target: MappingStatus) => void | Promise<void>
+  currentUser: string
+  isExternal: boolean
+  externalProjectName?: string
+  onOpenComments: (mappingId: string) => void
+  onOpenReviews: (mappingId: string) => void
+}) {
   const { t } = useTranslation()
+  const myReview = (mapping.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
+  const isOwn = mapping.mappedBy === currentUser
+  const commentsCount = (mapping.comments ?? []).length
+  const reviewsCount = (mapping.reviews ?? []).length
 
   const formatDate = (iso?: string) => {
     if (!iso) return '—'
@@ -531,9 +549,99 @@ function MappingDetailView({ mapping, sourceDetail, onBack }: { mapping: Concept
             <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
               {t(`concept_mapping.status_${mapping.status}`)}
             </Badge>
+            {isExternal && (
+              <Badge variant="secondary" className="px-1.5 py-0 text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+                {t('concept_mapping.from_project')}{externalProjectName ? `: ${externalProjectName}` : ''}
+              </Badge>
+            )}
             {mapping.mappedBy && <span>· {mapping.mappedBy}</span>}
             {mapping.mappedOn && <span>· {formatDate(mapping.mappedOn)}</span>}
           </div>
+        </div>
+
+        {/* Inline voting buttons */}
+        <div className="flex items-center gap-1">
+          {/* Comments + Reviews (disabled on external rows — comments/reviews live on the local copy) */}
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className={`relative size-7 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+                onClick={() => { if (!isExternal) onOpenComments(mapping.id) }}
+                disabled={isExternal}
+              >
+                <MessageSquare size={14} />
+                {commentsCount > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                    {commentsCount}
+                  </span>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}</TooltipContent>
+          </Tooltip>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                className={`relative size-7 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+                onClick={() => { if (!isExternal) onOpenReviews(mapping.id) }}
+                disabled={isExternal}
+              >
+                <Users size={14} />
+                {reviewsCount > 0 && (
+                  <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+                    {reviewsCount}
+                  </span>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}</TooltipContent>
+          </Tooltip>
+          <span className="mx-1 h-5 w-px bg-border" />
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={myReview === 'approved' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-7 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+                onClick={() => onReview(mapping.id, 'approved')}
+                disabled={isOwn && !isExternal}
+              >
+                <Check size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{(isOwn && !isExternal) ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
+          </Tooltip>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={myReview === 'rejected' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-7 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+                onClick={() => onReview(mapping.id, 'rejected')}
+                disabled={isOwn && !isExternal}
+              >
+                <X size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{(isOwn && !isExternal) ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
+          </Tooltip>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <Button
+                variant={myReview === 'flagged' ? 'default' : 'outline'}
+                size="icon-sm"
+                className={`size-7 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+                onClick={() => onReview(mapping.id, 'flagged')}
+              >
+                <Flag size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.flag')}</TooltipContent>
+          </Tooltip>
         </div>
       </div>
 
@@ -726,10 +834,16 @@ function MappingDetailView({ mapping, sourceDetail, onBack }: { mapping: Concept
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
-  const { mappings, updateMapping, deleteMapping, createMappingsBatch } = useConceptMappingStore()
+  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsMappedKeys } = useConceptMappingStore()
+  const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
+
+  // Load cross-project mappings on mount
+  useEffect(() => {
+    if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
+  }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
 
   const [colFilters, setColFilters] = useState<MappingColumnFilters>({})
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
@@ -820,6 +934,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(FILTER_STATUSES))
+  const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
+  // Filter by current user's review on each mapping. 'all' = no filter.
+  // 'unchecked' = the current user has NOT voted yet.
+  const [myReviewFilter, setMyReviewFilter] = useState<'all' | 'approved' | 'rejected' | 'flagged' | 'unchecked'>('all')
   const [commentsMappingId, setCommentsMappingId] = useState<string | null>(null)
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
@@ -832,6 +950,46 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
   const projectMappings = mappings.filter((m) => m.projectId === project.id)
+
+  // Build synthetic "external" rows for source concepts mapped only in other projects.
+  // Each external mapping gets a sentinel id prefixed with EXTERNAL_PREFIX so we can detect it.
+  const externalMappings = useMemo<ConceptMapping[]>(() => {
+    if (!otherProjectsMappings || otherProjectsMappings.size === 0) return []
+    // Skip external mappings whose (vocab, code, target) already exists locally to avoid duplicates
+    const localKeys = new Set(
+      projectMappings.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+    )
+    const result: ConceptMapping[] = []
+    for (const list of otherProjectsMappings.values()) {
+      for (const info of list) {
+        const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
+        if (localKeys.has(key)) continue
+        result.push({ ...info.mapping, id: `${EXTERNAL_PREFIX}${info.sourceProjectId}::${info.mapping.id}` })
+      }
+    }
+    return result
+  }, [otherProjectsMappings, projectMappings])
+
+  // Combined list: local + external (used for display)
+  const allDisplayMappings = useMemo(
+    () => [...projectMappings, ...externalMappings],
+    [projectMappings, externalMappings],
+  )
+
+  /** Resolve a display row id back to the underlying ExternalMappingInfo (or null for local rows). */
+  const resolveExternal = useCallback((id: string) => {
+    if (!id.startsWith(EXTERNAL_PREFIX)) return null
+    const rest = id.slice(EXTERNAL_PREFIX.length)
+    const sepIdx = rest.indexOf('::')
+    if (sepIdx < 0) return null
+    const sourceProjectId = rest.slice(0, sepIdx)
+    const mappingId = rest.slice(sepIdx + 2)
+    for (const list of otherProjectsMappings.values()) {
+      const info = list.find((i) => i.sourceProjectId === sourceProjectId && i.mapping.id === mappingId)
+      if (info) return info
+    }
+    return null
+  }, [otherProjectsMappings])
 
   // Compute distinct values for dropdown filters
   const filterOptions = useMemo(() => {
@@ -867,7 +1025,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   }, [])
 
   // Apply column filters + status popover filter (client-side)
-  const filtered = useMemo(() => projectMappings.filter((m) => {
+  const filtered = useMemo(() => allDisplayMappings.filter((m) => {
     const f = colFilters
     if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
@@ -879,6 +1037,19 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (f.targetDomainId && m.targetDomainId !== f.targetDomainId) return false
     if (f.equivalence && m.equivalence !== f.equivalence) return false
     if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
+    // Origin filter (status dot quick filter)
+    const isExternalRow = m.id.startsWith(EXTERNAL_PREFIX)
+    if (originFilter === 'local' && isExternalRow) return false
+    if (originFilter === 'external' && !isExternalRow) return false
+    // "My review" filter (under the Review column)
+    if (myReviewFilter !== 'all') {
+      const myStatus = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status
+      if (myReviewFilter === 'unchecked') {
+        if (myStatus) return false
+      } else if (myStatus !== myReviewFilter) {
+        return false
+      }
+    }
     // Status popover filter
     const eff = effectiveStatus(m)
     if (!includedStatuses.has(eff)) return false
@@ -891,7 +1062,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
     }
     return true
-  }), [projectMappings, colFilters, includedStatuses, approvalRule, effectiveStatus])
+  }), [allDisplayMappings, colFilters, originFilter, myReviewFilter, currentUser, includedStatuses, approvalRule, effectiveStatus])
 
   // Apply sorting
   const sorted = useMemo(() => {
@@ -913,7 +1084,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const hasMore = visibleCount < sorted.length
 
   // Reset visible count when filters/sorting change
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule])
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule, originFilter, myReviewFilter])
 
   // Infinite scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -948,6 +1119,43 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
+    if (columnId === '_status') {
+      const triggerDot = originFilter === 'external'
+        ? 'bg-blue-500'
+        : originFilter === 'local'
+          ? 'bg-green-500'
+          : null
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={`flex h-6 w-full items-center justify-center rounded border border-dashed hover:bg-accent ${originFilter !== 'all' ? 'border-primary' : ''}`}>
+              {triggerDot ? (
+                <span className={`inline-block size-2 rounded-full ${triggerDot}`} />
+              ) : (
+                <span className="text-[10px] text-muted-foreground">●</span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-48" onCloseAutoFocus={(e) => e.preventDefault()}>
+            {(['all', 'local', 'external'] as OriginFilter[]).map((opt) => (
+              <DropdownMenuCheckboxItem
+                key={opt}
+                checked={originFilter === opt}
+                onCheckedChange={() => setOriginFilter(opt)}
+                onSelect={(e) => e.preventDefault()}
+                className="text-xs"
+              >
+                <span className="flex items-center gap-2">
+                  {opt === 'external' && <span className="inline-block size-2 rounded-full bg-blue-500" />}
+                  {opt === 'local' && <span className="inline-block size-2 rounded-full bg-green-500" />}
+                  {t(`concept_mapping.filter_origin_${opt}`)}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
     // Text inputs
     if (columnId === 'sourceConceptName') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
@@ -980,6 +1188,44 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (columnId === 'equivalence' && filterOptions.equivalence.length > 0) {
       const equivOptions = filterOptions.equivalence.map((e) => ({ value: e, label: EQUIV_BADGE[e]?.label ?? e }))
       return <ColumnFilterSelect value={colFilters.equivalence ?? null} options={equivOptions} placeholder="Equiv" onChange={(v) => updateFilter('equivalence', v)} />
+    }
+    if (columnId === '_review') {
+      const opts: { value: typeof myReviewFilter; icon?: ReactNode }[] = [
+        { value: 'all' },
+        { value: 'approved', icon: <Check size={11} className="text-green-600" /> },
+        { value: 'rejected', icon: <X size={11} className="text-red-600" /> },
+        { value: 'flagged', icon: <Flag size={11} className="text-orange-500" /> },
+        { value: 'unchecked' },
+      ]
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className={`flex h-6 w-full items-center justify-end gap-1 rounded border border-dashed px-1.5 hover:bg-accent ${myReviewFilter !== 'all' ? 'border-primary text-foreground' : 'text-muted-foreground'}`}>
+              {myReviewFilter !== 'all' && opts.find((o) => o.value === myReviewFilter)?.icon}
+              <span className="truncate text-[10px]">{t(`concept_mapping.my_review_filter_${myReviewFilter}`)}</span>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              {t('concept_mapping.my_review_filter_label')}
+            </DropdownMenuLabel>
+            {opts.map((o) => (
+              <DropdownMenuCheckboxItem
+                key={o.value}
+                checked={myReviewFilter === o.value}
+                onCheckedChange={() => setMyReviewFilter(o.value)}
+                onSelect={(e) => e.preventDefault()}
+                className="text-xs"
+              >
+                <span className="flex items-center gap-2">
+                  {o.icon}
+                  {t(`concept_mapping.my_review_filter_${o.value}`)}
+                </span>
+              </DropdownMenuCheckboxItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
     }
     return null
   }
@@ -1106,10 +1352,22 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     }
   }
 
-  /** Toggle review: clicking the same status resets to unchecked. */
-  const handleReview = useCallback((mappingId: string, target: MappingStatus) => {
+  /** Toggle review: clicking the same status resets to unchecked.
+   *  For external (cross-project) rows, imports the mapping locally first, then applies the vote. */
+  const handleReview = useCallback(async (mappingId: string, target: MappingStatus) => {
     const reviewer = getUserDisplayName()
-    const m = mappings.find((x) => x.id === mappingId)
+
+    // External row: import as local copy first, then vote on the new local id.
+    let localId = mappingId
+    if (mappingId.startsWith(EXTERNAL_PREFIX)) {
+      const info = resolveExternal(mappingId)
+      if (!info) return
+      const local = await importExternalMapping(info, project.id, { createdBy: reviewer })
+      if (!local) return
+      localId = local.id
+    }
+
+    const m = useConceptMappingStore.getState().mappings.find((x) => x.id === localId)
     const prevReviews = m?.reviews ?? []
     const currentReviewerStatus = prevReviews.find((r) => r.reviewerId === reviewer)?.status ?? 'unchecked'
     const newStatus = currentReviewerStatus === target ? 'unchecked' : target
@@ -1122,12 +1380,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         createdAt: new Date().toISOString(),
       }] : []),
     ]
-    updateMapping(mappingId, {
+    updateMapping(localId, {
       reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
-  }, [updateMapping, getUserDisplayName, mappings])
+  }, [updateMapping, getUserDisplayName, importExternalMapping, project.id, resolveExternal])
 
   const pageAllSelected = visibleItems.length > 0 && visibleItems.every((m) => selected.has(m.id))
 
@@ -1161,6 +1419,48 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         enableResizing: false,
       })
     }
+
+    // ── Origin dot column ──────────────────────────────────────────
+    // Blue = mapping comes from another project, green = mapping created in this project.
+    // Voting status (approve/reject/flagged) is shown via the dedicated count columns —
+    // the dot only conveys the row's origin since multiple reviews can disagree.
+    cols.push({
+      id: '_status',
+      header: '',
+      cell: ({ row }) => {
+        const m = row.original
+        const isExternal = m.id.startsWith(EXTERNAL_PREFIX)
+        const dotColor = isExternal ? 'bg-blue-500' : 'bg-green-500'
+
+        let tooltip: ReactNode
+        if (isExternal) {
+          const info = resolveExternal(m.id)
+          tooltip = (
+            <div className="max-w-xs space-y-1">
+              <p className="text-xs font-semibold">{t('concept_mapping.status_tip_mapped_elsewhere_one')}</p>
+              {info && <p className="text-[10px] text-muted-foreground">{t('concept_mapping.from_project')}: {info.sourceProjectName}</p>}
+              <p className="text-[10px] text-muted-foreground">{t('concept_mapping.external_vote_hint')}</p>
+            </div>
+          )
+        } else {
+          tooltip = <span className="text-xs">{t('concept_mapping.status_tip_mapped')}</span>
+        }
+
+        return (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="flex justify-center">
+                <span className={`inline-block size-2 rounded-full ${dotColor}`} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="text-xs">{tooltip}</TooltipContent>
+          </Tooltip>
+        )
+      },
+      size: 28,
+      minSize: 28,
+      enableResizing: false,
+    })
 
     cols.push(
       // ── Source ──────────────────────────────────────────────────────
@@ -1219,9 +1519,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           const badge = EQUIV_BADGE[equiv]
           if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
           return (
-            <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}>
-              {badge.label}
-            </Badge>
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>
+                <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}>
+                  {badge.label}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">{equiv}</TooltipContent>
+            </Tooltip>
           )
         },
         size: 70,
@@ -1364,6 +1669,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         header: () => t('concept_mapping.col_review'),
         cell: ({ row }) => {
           const m = row.original
+          const isExternal = m.id.startsWith(EXTERNAL_PREFIX)
           return (
             <span className="flex items-center justify-end gap-1">
               <Tooltip delayDuration={700}>
@@ -1391,7 +1697,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     variant="outline"
                     size="icon-sm"
                     className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setCommentsMappingId(m.id) }}
+                    onClick={(e) => { e.stopPropagation(); if (!isExternal) setCommentsMappingId(m.id) }}
+                    disabled={isExternal}
                   >
                     <MessageSquare size={12} />
                     {(m.comments ?? []).length > 0 && (
@@ -1401,7 +1708,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('concept_mapping.comments')}</TooltipContent>
+                <TooltipContent side="top" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}</TooltipContent>
               </Tooltip>
               <Tooltip delayDuration={700}>
                 <TooltipTrigger asChild>
@@ -1409,7 +1716,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     variant="outline"
                     size="icon-sm"
                     className={`relative size-6 ${(m.reviews ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); setReviewsMappingId(m.id) }}
+                    onClick={(e) => { e.stopPropagation(); if (!isExternal) setReviewsMappingId(m.id) }}
+                    disabled={isExternal}
                   >
                     <Users size={12} />
                     {(m.reviews ?? []).length > 0 && (
@@ -1419,7 +1727,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                     )}
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('concept_mapping.reviews_title')}</TooltipContent>
+                <TooltipContent side="top" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}</TooltipContent>
               </Tooltip>
               {(() => {
                 const myReview = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
@@ -1481,7 +1789,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems, effectiveStatus, resolveExternal])
 
   const table = useReactTable({
     data: visibleItems,
@@ -1497,15 +1805,70 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   // Show detail view when a mapping is selected
   if (detailMapping) {
-    // Always read from live store so edits appear immediately
-    const liveMapping = mappings.find((m) => m.id === detailMapping.id) ?? detailMapping
-    return <MappingDetailView mapping={liveMapping} sourceDetail={detailSource} onBack={() => {
-      setDetailMapping(null)
-      // Restore scroll position after React re-renders the table
-      requestAnimationFrame(() => {
-        scrollContainerRef.current?.scrollTo({ top: savedScrollTop.current })
-      })
-    }} />
+    const isExternal = detailMapping.id.startsWith(EXTERNAL_PREFIX)
+    const externalInfo = isExternal ? resolveExternal(detailMapping.id) : null
+
+    // Try to find the live counterpart:
+    // 1) For external rows that have been imported locally during this view, find the local copy
+    //    (matched by vocabulary + concept code + target concept id since the import resets the id).
+    // 2) Otherwise read directly from the live store by id.
+    let liveMapping: ConceptMapping | undefined
+    if (isExternal) {
+      liveMapping = mappings.find((m) =>
+        m.projectId === project.id &&
+        m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
+        m.sourceConceptCode === detailMapping.sourceConceptCode &&
+        m.targetConceptId === detailMapping.targetConceptId,
+      )
+    } else {
+      liveMapping = mappings.find((m) => m.id === detailMapping.id)
+    }
+    const effectiveMapping = liveMapping ?? detailMapping
+    const stillExternal = isExternal && !liveMapping
+
+    return (
+      <>
+        <ReviewsSheet
+          mappingId={reviewsMappingId}
+          open={!!reviewsMappingId}
+          onOpenChange={(open) => { if (!open) setReviewsMappingId(null) }}
+        />
+        <CommentsSheet
+          mappingId={commentsMappingId}
+          open={!!commentsMappingId}
+          onOpenChange={(open) => { if (!open) setCommentsMappingId(null) }}
+        />
+        <MappingDetailView
+          mapping={effectiveMapping}
+          sourceDetail={detailSource}
+          currentUser={currentUser}
+          isExternal={stillExternal}
+          externalProjectName={externalInfo?.sourceProjectName}
+          onOpenComments={(id) => setCommentsMappingId(id)}
+          onOpenReviews={(id) => setReviewsMappingId(id)}
+          onReview={async (mid, target) => {
+            await handleReview(mid, target)
+            // After voting on an external row, swap to the freshly-created local mapping so subsequent votes update it
+            if (mid.startsWith(EXTERNAL_PREFIX)) {
+              const refreshed = useConceptMappingStore.getState().mappings.find((m) =>
+                m.projectId === project.id &&
+                m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
+                m.sourceConceptCode === detailMapping.sourceConceptCode &&
+                m.targetConceptId === detailMapping.targetConceptId,
+              )
+              if (refreshed) setDetailMapping(refreshed)
+            }
+          }}
+          onBack={() => {
+            setDetailMapping(null)
+            // Restore scroll position after React re-renders the table
+            requestAnimationFrame(() => {
+              scrollContainerRef.current?.scrollTo({ top: savedScrollTop.current })
+            })
+          }}
+        />
+      </>
+    )
   }
 
   return (

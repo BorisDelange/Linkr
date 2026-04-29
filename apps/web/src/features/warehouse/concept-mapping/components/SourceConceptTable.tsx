@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -39,6 +39,8 @@ import {
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptDictionary } from '@/types/schema-mapping'
+import type { ConceptMapping } from '@/types'
+import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
 
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
 
@@ -55,6 +57,10 @@ interface SourceConceptTableProps {
   mappingStatusMap: Map<number, string>
   /** Set of source concept IDs that are mapped in another project. */
   mappedElsewhereIds: Set<number>
+  /** Local mappings of the current project (used to show tooltip detail for "mapped" rows). */
+  projectMappings?: ConceptMapping[]
+  /** Cross-project mappings, keyed by `vocabulary:code`. */
+  externalMappingsByKey?: Map<string, ExternalMappingInfo[]>
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
   /** True when source is a file import. */
@@ -220,6 +226,8 @@ export function SourceConceptTable({
   conceptDicts,
   mappingStatusMap,
   mappedElsewhereIds,
+  projectMappings,
+  externalMappingsByKey,
   mappingStatusFilter,
   selectedConceptId,
   isFileSource,
@@ -380,10 +388,100 @@ export function SourceConceptTable({
           const isMapped = mappingStatusMap.has(cid)
           const isMappedElsewhere = !isMapped && mappedElsewhereIds.has(cid)
           const status = isIgnored ? 'ignored' : isMapped ? 'mapped' : isMappedElsewhere ? 'mapped_elsewhere' : 'unmapped'
-          return (
+
+          const dot = (
             <span className="flex justify-center">
               <span className={`inline-block size-2 rounded-full ${STATUS_COLORS[status] ?? STATUS_COLORS.unmapped}`} />
             </span>
+          )
+
+          // Tooltip content
+          let tooltipContent: ReactNode = (
+            <span className="text-xs">{t(`concept_mapping.status_tip_${status}`)}</span>
+          )
+
+          if (status === 'mapped' && projectMappings) {
+            const local = projectMappings.filter((m) => m.sourceConceptId === cid)
+            if (local.length > 0) {
+              tooltipContent = (
+                <div className="max-w-xs space-y-1.5">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('concept_mapping.status_tip_mapped')}
+                  </p>
+                  {local.map((m) => {
+                    const a = (m.reviews ?? []).filter((r) => r.status === 'approved').length
+                    const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
+                    const f = (m.reviews ?? []).filter((rv) => rv.status === 'flagged').length
+                    return (
+                      <div key={m.id} className="space-y-0.5">
+                        <p className="truncate text-xs font-medium" title={m.targetConceptName}>
+                          → {m.targetConceptName || `#${m.targetConceptId}`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
+                        </p>
+                        {(a + r + f) > 0 && (
+                          <p className="flex gap-2 text-[10px]">
+                            {a > 0 && <span className="text-green-600">✓ {a}</span>}
+                            {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
+                            {r > 0 && <span className="text-red-500">✗ {r}</span>}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            }
+          }
+
+          if (status === 'mapped_elsewhere' && externalMappingsByKey) {
+            const key = `${row.original.vocabulary_id ?? ''}:${row.original.concept_code ?? ''}`
+            const list = externalMappingsByKey.get(key) ?? []
+            if (list.length > 0) {
+              tooltipContent = (
+                <div className="max-w-xs space-y-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    {t('concept_mapping.status_tip_mapped_elsewhere', { count: list.length })}
+                  </p>
+                  {list.slice(0, 5).map((info) => {
+                    const m = info.mapping
+                    const a = (m.reviews ?? []).filter((r) => r.status === 'approved').length
+                    const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
+                    const f = (m.reviews ?? []).filter((rv) => rv.status === 'flagged').length
+                    return (
+                      <div key={m.id} className="space-y-0.5 border-l-2 border-blue-400/60 pl-2">
+                        <p className="truncate text-xs font-medium" title={m.targetConceptName}>
+                          → {m.targetConceptName || `#${m.targetConceptId}`}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {info.sourceProjectName} · {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
+                        </p>
+                        {(a + r + f) > 0 && (
+                          <p className="flex gap-2 text-[10px]">
+                            {a > 0 && <span className="text-green-600">✓ {a}</span>}
+                            {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
+                            {r > 0 && <span className="text-red-500">✗ {r}</span>}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                  {list.length > 5 && (
+                    <p className="text-[10px] italic text-muted-foreground">
+                      +{list.length - 5} {t('concept_mapping.status_tip_more')}
+                    </p>
+                  )}
+                </div>
+              )
+            }
+          }
+
+          return (
+            <Tooltip delayDuration={300}>
+              <TooltipTrigger asChild>{dot}</TooltipTrigger>
+              <TooltipContent side="right" className="text-xs">{tooltipContent}</TooltipContent>
+            </Tooltip>
           )
         },
         size: 28,
@@ -537,7 +635,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
 
   const table = useReactTable({
     data: rows,

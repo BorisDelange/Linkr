@@ -13,11 +13,14 @@ import {
   exportToSourceToConceptMap,
   exportToSssomTsv,
   exportUnmappedToStcm,
+  exportUnmappedToUsagi,
+  exportUnmappedToSssom,
   downloadFile,
   buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
 import { downloadBlob, slugify } from '@/lib/entity-io'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
 import type { MappingProject, MappingStatus, DataSource } from '@/types'
 
@@ -44,6 +47,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   )
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
   const [includeUnmapped, setIncludeUnmapped] = useState(false)
+  const [includeAllSourceConcepts, setIncludeAllSourceConcepts] = useState(false)
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
   useEffect(() => {
@@ -75,56 +79,118 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     })
   }
 
-  // Count per status
+  // Effective status per mapping (review-aware) — keeps Export, Mapping Editor, Progress in sync.
+  const mappingsWithEffective = useMemo(
+    () => mappings.map((m) => ({ mapping: m, effective: effectiveMappingStatus(m) })),
+    [mappings],
+  )
+
+  // Count per effective status (so a single approving review moves the mapping out of "unchecked").
   const statusCounts = useMemo(() => {
     const counts: Record<string, number> = {}
-    for (const m of mappings) {
-      counts[m.status] = (counts[m.status] ?? 0) + 1
+    for (const { effective } of mappingsWithEffective) {
+      counts[effective] = (counts[effective] ?? 0) + 1
     }
     return counts
-  }, [mappings])
+  }, [mappingsWithEffective])
 
   const filteredMappings = useMemo(() => {
-    // First filter: status checkboxes
-    let result = mappings.filter((m) => {
-      if (m.status === 'approved') {
-        // "Approved" checkbox must be on
-        if (!includedStatuses.has('approved')) return false
-        return true
-      }
-      return includedStatuses.has(m.status)
-    })
+    // First filter: status checkboxes (using effective status)
+    let result = mappingsWithEffective.filter(({ effective }) => includedStatuses.has(effective)).map((x) => x.mapping)
 
-    // Then apply approval sub-rule for approved mappings
+    // Then apply approval sub-rule for approved mappings (compare reviews per source concept)
     if (includedStatuses.has('approved') && approvalRule !== 'at_least_one') {
-      // Group all mappings by sourceConceptId to check cross-mapping status
-      const sourceConceptStatuses = new Map<number, MappingStatus[]>()
-      for (const m of mappings) {
-        const arr = sourceConceptStatuses.get(m.sourceConceptId) ?? []
-        arr.push(m.status)
-        sourceConceptStatuses.set(m.sourceConceptId, arr)
+      // Group all mappings by source concept to check cross-mapping vote tallies
+      const sourceConceptVotes = new Map<string, { approved: number; rejected: number }>()
+      for (const { mapping: m } of mappingsWithEffective) {
+        const key = sourceKey(m)
+        const tally = sourceConceptVotes.get(key) ?? { approved: 0, rejected: 0 }
+        const reviews = m.reviews ?? []
+        tally.approved += reviews.filter((r) => r.status === 'approved').length
+        tally.rejected += reviews.filter((r) => r.status === 'rejected').length
+        // Also factor the mapping's own status when no reviews
+        if (reviews.length === 0) {
+          if (m.status === 'approved') tally.approved += 1
+          else if (m.status === 'rejected') tally.rejected += 1
+        }
+        sourceConceptVotes.set(key, tally)
       }
 
       result = result.filter((m) => {
-        if (m.status !== 'approved') return true // only filter approved ones
-        const statuses = sourceConceptStatuses.get(m.sourceConceptId) ?? []
-        const approvedCount = statuses.filter((s) => s === 'approved').length
-        const rejectedCount = statuses.filter((s) => s === 'rejected').length
-
-        if (approvalRule === 'majority') {
-          return approvedCount > rejectedCount
-        }
-        if (approvalRule === 'no_rejections') {
-          return rejectedCount === 0
-        }
+        if (effectiveMappingStatus(m) !== 'approved') return true
+        const tally = sourceConceptVotes.get(sourceKey(m)) ?? { approved: 0, rejected: 0 }
+        if (approvalRule === 'majority') return tally.approved > tally.rejected
+        if (approvalRule === 'no_rejections') return tally.rejected === 0
         return true
       })
     }
 
     return result
-  }, [mappings, includedStatuses, approvalRule])
+  }, [mappingsWithEffective, includedStatuses, approvalRule])
 
   const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
+  /** Load every source concept for this project (file rows or DuckDB query). */
+  const loadAllSourceConcepts = useCallback(async (): Promise<{ vocabularyId: string; conceptCode: string; conceptName: string }[]> => {
+    if (project.sourceType === 'file') {
+      const rows = project.fileSourceData?.rows ?? []
+      const colMapping = project.fileSourceData?.columnMapping
+      const codeCol = colMapping?.conceptCodeColumn
+      const vocabCol = colMapping?.terminologyColumn
+      const nameCol = colMapping?.conceptNameColumn
+      const out: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
+      for (const row of rows) {
+        const code = codeCol ? String(row[codeCol] ?? '') : ''
+        const vocab = vocabCol ? String(row[vocabCol] ?? '') : project.name
+        const name = nameCol ? String(row[nameCol] ?? '') : code
+        if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
+      }
+      return out
+    }
+    if (dataSource?.schemaMapping) {
+      try {
+        await ensureMounted(dataSource.id)
+        const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
+        if (sql) {
+          const rows = await queryDataSource(dataSource.id, sql)
+          return rows.map((r) => ({
+            vocabularyId: String(r.vocabulary_id ?? dataSource.id),
+            conceptCode: String(r.concept_code ?? ''),
+            conceptName: String(r.concept_name ?? ''),
+          })).filter((c) => c.conceptCode)
+        }
+      } catch { /* skip if unavailable */ }
+    }
+    return []
+  }, [project, dataSource, ensureMounted])
+
+  /** Build the set of (vocab, code) keys that should NOT be appended as source-only rows.
+   *  - includeUnmapped: exclude any code that has at least one mapping anywhere
+   *  - includeAllSourceConcepts (alone): exclude only codes already in the filtered output */
+  const buildExcludeKeys = useCallback((): Set<string> => {
+    if (includeUnmapped) {
+      return new Set(mappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
+    }
+    return new Set(filteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
+  }, [includeUnmapped, mappings, filteredMappings])
+
+  /** Append extra rows produced by `appendFn` to `mappedContent`, separated by a newline. */
+  const withSourceOnlyRows = useCallback(async (
+    mappedContent: string,
+    appendFn: (concepts: { vocabularyId: string; conceptCode: string; conceptName: string }[], excludeKeys: Set<string>) => string,
+    extraIsCsvWithHeader = false,
+  ): Promise<string> => {
+    const wantExtraRows = includeUnmapped || includeAllSourceConcepts
+    if (!wantExtraRows) return mappedContent
+    const allSourceConcepts = await loadAllSourceConcepts()
+    const excludeKeys = buildExcludeKeys()
+    const extra = appendFn(allSourceConcepts, excludeKeys)
+    if (!mappedContent) return extra
+    if (!extra) return mappedContent
+    // STCM extra has its own header line — strip it before appending.
+    const extraBody = extraIsCsvWithHeader ? extra.split('\n').slice(1).join('\n') : extra
+    return extraBody ? `${mappedContent}\n${extraBody}` : mappedContent
+  }, [includeUnmapped, includeAllSourceConcepts, loadAllSourceConcepts, buildExcludeKeys])
 
   const formats = [
     {
@@ -136,7 +202,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       mime: 'text/tab-separated-values',
       color: 'text-violet-500',
       bg: 'bg-violet-50 dark:bg-violet-950/30',
-      generate: () => exportToSssomTsv(filteredMappings, project),
+      generate: async () => {
+        const mappedTsv = exportToSssomTsv(filteredMappings, project)
+        return withSourceOnlyRows(mappedTsv, (concepts, excludeKeys) => exportUnmappedToSssom(concepts, excludeKeys))
+      },
     },
     {
       id: 'source_to_concept_map',
@@ -159,46 +228,11 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           if (flat.length > 0) registryEntries = flat
         }
         const mappedCsv = exportToSourceToConceptMap(filteredMappings, project, registryEntries)
-        if (!includeUnmapped) return mappedCsv
-
-        // Build set of already-mapped (vocabularyId, conceptCode) keys
-        const mappedKeys = new Set(filteredMappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`))
-
-        // Collect ALL source concepts for this project
-        let allSourceConcepts: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
-        if (project.sourceType === 'file') {
-          const rows = project.fileSourceData?.rows ?? []
-          const colMapping = project.fileSourceData?.columnMapping
-          const codeCol = colMapping?.conceptCodeColumn
-          const vocabCol = colMapping?.terminologyColumn
-          const nameCol = colMapping?.conceptNameColumn
-          for (const row of rows) {
-            const code = codeCol ? String(row[codeCol] ?? '') : ''
-            const vocab = vocabCol ? String(row[vocabCol] ?? '') : project.name
-            const name = nameCol ? String(row[nameCol] ?? '') : code
-            if (code) allSourceConcepts.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-          }
-        } else if (dataSource?.schemaMapping) {
-          try {
-            await ensureMounted(dataSource.id)
-            const sql = buildSourceConceptsAllQuery(dataSource.schemaMapping, {})
-            if (sql) {
-              const rows = await queryDataSource(dataSource.id, sql)
-              allSourceConcepts = rows.map((r) => ({
-                vocabularyId: String(r.vocabulary_id ?? dataSource.id),
-                conceptCode: String(r.concept_code ?? ''),
-                conceptName: String(r.concept_name ?? ''),
-              })).filter((c) => c.conceptCode)
-            }
-          } catch { /* skip if unavailable */ }
-        }
-
-        const unmappedCsv = exportUnmappedToStcm(allSourceConcepts, mappedKeys, registryEntries)
-        if (!mappedCsv) return unmappedCsv
-        if (!unmappedCsv) return mappedCsv
-        // Both have a header line — strip the header from unmapped and append
-        const unmappedRows = unmappedCsv.split('\n').slice(1).join('\n')
-        return unmappedRows ? `${mappedCsv}\n${unmappedRows}` : mappedCsv
+        return withSourceOnlyRows(
+          mappedCsv,
+          (concepts, excludeKeys) => exportUnmappedToStcm(concepts, excludeKeys, registryEntries),
+          true, // STCM extra block has its own header line
+        )
       },
     },
     {
@@ -210,7 +244,10 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       mime: 'text/csv',
       color: 'text-emerald-500',
       bg: 'bg-emerald-50 dark:bg-emerald-950/30',
-      generate: () => exportToUsagiCsv(filteredMappings),
+      generate: async () => {
+        const mappedCsv = exportToUsagiCsv(filteredMappings)
+        return withSourceOnlyRows(mappedCsv, (concepts, excludeKeys) => exportUnmappedToUsagi(concepts, excludeKeys))
+      },
     },
   ]
 
@@ -267,9 +304,19 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }
   }, [project, dataSources, ensureMounted])
 
-  const mappedSourceIds = useMemo(() => new Set(mappings.map((m) => `${m.sourceVocabularyId}__${m.sourceConceptCode}`)), [mappings])
-  const unmappedCount = totalSourceConcepts !== null ? Math.max(0, totalSourceConcepts - mappedSourceIds.size) : null
-  const totalExportCount = filteredMappings.length + (includeUnmapped && unmappedCount !== null ? unmappedCount : 0)
+  // Dedup by (vocabularyId, conceptCode) — same key as Progress / Mapping Editor.
+  const mappedSourceKeys = useMemo(() => new Set(mappings.map(sourceKey)), [mappings])
+  const filteredMappedKeys = useMemo(() => new Set(filteredMappings.map(sourceKey)), [filteredMappings])
+  const unmappedCount = totalSourceConcepts !== null ? Math.max(0, totalSourceConcepts - mappedSourceKeys.size) : null
+  // "Include all source concepts": adds the source concepts that are NOT covered by `filteredMappings`
+  // (they may have non-matching mappings, or be entirely unmapped).
+  const allSourceExtraCount = totalSourceConcepts !== null
+    ? Math.max(0, totalSourceConcepts - filteredMappedKeys.size)
+    : null
+  const totalExportCount =
+    filteredMappings.length
+    + (includeUnmapped && unmappedCount !== null ? unmappedCount : 0)
+    + (includeAllSourceConcepts && !includeUnmapped && allSourceExtraCount !== null ? allSourceExtraCount : 0)
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -332,9 +379,30 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 {unmappedCount !== null && unmappedCount > 0 && (
                   <Badge variant="secondary" className="text-[10px]">{unmappedCount}</Badge>
                 )}
-                <span className="text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</span>
               </label>
             </div>
+          </div>
+
+          {/* Include all source concepts (independent toggle) */}
+          <div className="mt-3 border-t pt-2">
+            <label className="flex cursor-pointer items-start gap-2.5">
+              <input
+                type="checkbox"
+                checked={includeAllSourceConcepts}
+                onChange={() => setIncludeAllSourceConcepts((v) => !v)}
+                disabled={includeUnmapped}
+                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary disabled:opacity-40"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
+                  {allSourceExtraCount !== null && allSourceExtraCount > 0 && !includeUnmapped && (
+                    <Badge variant="secondary" className="text-[10px]">{allSourceExtraCount}</Badge>
+                  )}
+                </div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_include_all_source_concepts_desc')}</p>
+              </div>
+            </label>
           </div>
 
           <div className="mt-1.5 border-t pt-1.5">
