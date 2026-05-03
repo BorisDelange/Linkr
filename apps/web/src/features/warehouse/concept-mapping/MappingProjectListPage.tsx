@@ -50,9 +50,21 @@ import { useState } from 'react'
 
 const ALL_STATUSES: MappingProjectStatus[] = ['in_progress', 'on_hold', 'completed']
 
+/** Total source concepts: prefer the persisted stats value, fall back to the
+ *  file source row count for file-based projects (already in memory, no query). */
+function getTotalSourceConcepts(project: MappingProject): number {
+  const fromStats = project.stats?.totalSourceConcepts ?? 0
+  if (fromStats > 0) return fromStats
+  if (project.sourceType === 'file' && project.fileSourceData) {
+    return project.fileSourceData.totalRowCount ?? project.fileSourceData.rows.length ?? 0
+  }
+  return 0
+}
+
 function getProgress(project: MappingProject) {
-  if (!project.stats || project.stats.totalSourceConcepts === 0) return 0
-  return Math.round((project.stats.mappedCount / project.stats.totalSourceConcepts) * 100)
+  const total = getTotalSourceConcepts(project)
+  if (total === 0) return 0
+  return Math.round(((project.stats?.mappedCount ?? 0) / total) * 100)
 }
 
 // ---------------------------------------------------------------------------
@@ -83,7 +95,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
+  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject, recomputeProjectStats } = useConceptMappingStore()
   const loadConceptSets = useConceptMappingStore((s) => s.loadConceptSets)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -93,6 +105,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   }, [mappingProjectsLoaded, loadMappingProjects])
 
   const projects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
+
+  // Refresh stats once per project on mount (counts mapped/approved from IndexedDB).
+  useEffect(() => {
+    if (!mappingProjectsLoaded || projects.length === 0) return
+    Promise.all(projects.map((p) => recomputeProjectStats(p.id))).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mappingProjectsLoaded, activeWorkspaceId])
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('concept_mapping.unknown_source')
 
@@ -449,63 +468,70 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         }
         renderCardBody={(project) => {
           const progress = getProgress(project)
+          const total = getTotalSourceConcepts(project)
+          const mapped = project.stats?.mappedCount ?? 0
+          const approved = project.stats?.approvedCount ?? 0
           return (
             <>
               <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
                 <ArrowRightLeft size={20} className="text-teal-600" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
+                {/* Title row: name + status pill (right) */}
+                <div className="flex items-start justify-between gap-3">
                   <span className="truncate text-sm font-medium">{project.name}</span>
                   {project.status && (
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
+                    <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
                       <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />
                       {t(`concept_mapping.project_status_${project.status}`)}
                     </span>
                   )}
-                  {project.stats && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      {project.stats.approvedCount}/{project.stats.totalSourceConcepts}
-                    </Badge>
+                </div>
+                {/* Source row */}
+                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                  {project.sourceType === 'file' ? (
+                    <>
+                      <FileSpreadsheet size={12} />
+                      <span className="truncate">{project.fileSourceData?.fileName ?? t('concept_mapping.source_file')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Database size={12} />
+                      <span className="truncate">{getSourceName(project.dataSourceId)}</span>
+                    </>
                   )}
                 </div>
-                {project.badges && project.badges.length > 0 && (
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    {project.badges.map((badge) => (
+                {/* Badges + approved count (right) */}
+                {((project.badges && project.badges.length > 0) || total > 0) && (
+                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                    {project.badges?.map((badge) => (
                       <span
                         key={badge.id}
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
+                        className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${getBadgeClasses(badge.color)}`}
                         style={getBadgeStyle(badge.color)}
                       >
                         {badge.label}
                       </span>
                     ))}
+                    {mapped > 0 && (
+                      <span className="ml-auto text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                        {t('concept_mapping.card_approved_label', { approved, total: mapped })}
+                      </span>
+                    )}
                   </div>
                 )}
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-                  {project.sourceType === 'file' ? (
-                    <>
-                      <FileSpreadsheet size={12} />
-                      <span>{project.fileSourceData?.fileName ?? t('concept_mapping.source_file')}</span>
-                    </>
-                  ) : (
-                    <>
-                      <Database size={12} />
-                      <span>{getSourceName(project.dataSourceId)}</span>
-                    </>
-                  )}
-                </div>
-                {project.stats && project.stats.totalSourceConcepts > 0 && (
+                {/* Progress bar */}
+                {total > 0 && (
                   <div className="mt-2">
-                    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>{t('concept_mapping.card_progress_label', { mapped, total })}</span>
+                      <span className="tabular-nums">{progress}%</span>
+                    </div>
+                    <div className="h-1.5 w-full overflow-hidden rounded bg-muted/60">
                       <div
-                        className="h-full rounded-full bg-teal-500 transition-all"
+                        className="h-full rounded bg-teal-500 transition-all"
                         style={{ width: `${progress}%` }}
                       />
-                    </div>
-                    <div className="mt-0.5 flex justify-between text-[10px] text-muted-foreground">
-                      <span>{t('concept_mapping.mapped_count', { count: project.stats.mappedCount })}</span>
-                      <span>{progress}%</span>
                     </div>
                   </div>
                 )}

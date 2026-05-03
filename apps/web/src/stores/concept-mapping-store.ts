@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
 
 /** Summary of a single mapping made in another project (for cross-project tooltips & import). */
@@ -299,17 +300,18 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       ? get().mappings
       : await getStorage().conceptMappings.getByProject(projectId)
 
-    // Count unique source concepts that have at least one mapping (dedup by vocabulary + code).
-    const sk = (m: ConceptMapping) => `${m.sourceVocabularyId ?? ''}\0${m.sourceConceptCode ?? ''}`
-    const mappedKeys = new Set(mappings.map(sk))
+    // Dedup by (vocabularyId, conceptCode) — same key as ProgressTab / Mapping Editor / Export.
+    // Use effectiveMappingStatus so review-derived status is reflected.
+    const ignoredKeys = new Set(
+      mappings.filter((m) => effectiveMappingStatus(m) === 'ignored').map(sourceKey),
+    )
+    const nonIgnored = mappings.filter((m) => effectiveMappingStatus(m) !== 'ignored')
+    const mappedKeys = new Set(nonIgnored.map(sourceKey))
     const approvedKeys = new Set(
-      mappings.filter((m) => m.status === 'approved').map(sk),
+      nonIgnored.filter((m) => effectiveMappingStatus(m) === 'approved').map(sourceKey),
     )
     const flaggedKeys = new Set(
-      mappings.filter((m) => m.status === 'flagged').map(sk),
-    )
-    const ignoredKeys = new Set(
-      mappings.filter((m) => m.status === 'ignored').map(sk),
+      nonIgnored.filter((m) => effectiveMappingStatus(m) === 'flagged').map(sourceKey),
     )
 
     const stats: MappingProjectStats = {

@@ -2349,6 +2349,8 @@
     "no_projects_description": "Create a mapping project to start mapping source concepts to standard vocabularies.",
     "unknown_source": "Unknown database",
     "mapped_count": "{{count}} mapped",
+    "card_progress_label": "{{mapped}} of {{total}} mapped",
+    "card_approved_label": "{{approved}} / {{total}} approved",
     "delete_confirm_title": "Delete mapping project?",
     "delete_confirm_description": "This will permanently delete the project \"{{name}}\" and all its mappings. This action cannot be undone.",
     "project_not_found": "Mapping project not found.",
