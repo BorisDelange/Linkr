@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef, memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -826,6 +826,109 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   )
 }
 
+// ─── Memoized review action buttons (per row) ───────────────────────
+// Extracted as a separate React.memo component so a vote on row X doesn't force the 49
+// other visible rows to re-render their Tooltips and Buttons. With ~6 Radix Tooltips
+// per row × 50 visible rows, that adds up to several hundred ms of needless work on
+// every vote. Memoizing per-row is the standard React table fix.
+//
+// The props are deliberately flat primitives so React.memo's default shallow comparison
+// works; handlers are forwarded from the parent useCallback / setState references,
+// which are stable across renders.
+interface ReviewActionsCellProps {
+  mappingId: string
+  isExternal: boolean
+  isOwn: boolean
+  myReview: MappingStatus | 'unchecked'
+  commentsCount: number
+  reviewsCount: number
+  onOpenDetail: (mappingId: string) => void
+  onOpenComments: (mappingId: string) => void
+  onOpenReviews: (mappingId: string) => void
+  onReview: (mappingId: string, status: MappingStatus) => void
+  t: ReturnType<typeof useTranslation>['t']
+}
+const ReviewActionsCell = memo(function ReviewActionsCell({
+  mappingId, isExternal, isOwn, myReview, commentsCount, reviewsCount,
+  onOpenDetail, onOpenComments, onOpenReviews, onReview, t,
+}: ReviewActionsCellProps) {
+  // Use native `title=""` HTML tooltips instead of Radix <Tooltip>: 6 buttons × 50
+  // visible rows = 300 portal-managing components is enough to make the browser
+  // spend ~500 ms repainting on every cell update. Native tooltips cost zero.
+  return (
+    <span className="flex items-center justify-end gap-1">
+      <Button
+        variant="outline"
+        size="icon-sm"
+        className="size-6"
+        title={t('concept_mapping.view_detail')}
+        onClick={(e) => { e.stopPropagation(); onOpenDetail(mappingId) }}
+      >
+        <Eye size={12} />
+      </Button>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        className={`relative size-6 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+        title={isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}
+        onClick={(e) => { e.stopPropagation(); if (!isExternal) onOpenComments(mappingId) }}
+        disabled={isExternal}
+      >
+        <MessageSquare size={12} />
+        {commentsCount > 0 && (
+          <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+            {commentsCount}
+          </span>
+        )}
+      </Button>
+      <Button
+        variant="outline"
+        size="icon-sm"
+        className={`relative size-6 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
+        title={isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}
+        onClick={(e) => { e.stopPropagation(); if (!isExternal) onOpenReviews(mappingId) }}
+        disabled={isExternal}
+      >
+        <Users size={12} />
+        {reviewsCount > 0 && (
+          <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
+            {reviewsCount}
+          </span>
+        )}
+      </Button>
+      <Button
+        variant={myReview === 'approved' ? 'default' : 'outline'}
+        size="icon-sm"
+        className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
+        title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}
+        onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'approved') }}
+        disabled={isOwn}
+      >
+        <Check size={13} />
+      </Button>
+      <Button
+        variant={myReview === 'rejected' ? 'default' : 'outline'}
+        size="icon-sm"
+        className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
+        title={isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}
+        onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'rejected') }}
+        disabled={isOwn}
+      >
+        <X size={13} />
+      </Button>
+      <Button
+        variant={myReview === 'flagged' ? 'default' : 'outline'}
+        size="icon-sm"
+        className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
+        title={t('concept_mapping.flag')}
+        onClick={(e) => { e.stopPropagation(); onReview(mappingId, 'flagged') }}
+      >
+        <Flag size={13} />
+      </Button>
+    </span>
+  )
+})
+
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
   // Subscribe to version counters instead of the `mappings` array directly. This lets
@@ -1161,16 +1264,27 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (!sorting) return filtered
     const { columnId, desc } = sorting
     const dir = desc ? -1 : 1
+    // Synthetic columns (vote counts, origin) aren't on the mapping object — resolve
+    // them through `rowDerived` and the EXTERNAL_PREFIX sentinel.
+    const accessor = (m: ConceptMapping): unknown => {
+      switch (columnId) {
+        case '_votes_approved': return rowDerived.get(m.id)?.approvedCount ?? 0
+        case '_votes_flagged': return rowDerived.get(m.id)?.flaggedCount ?? 0
+        case '_votes_rejected': return rowDerived.get(m.id)?.rejectedCount ?? 0
+        case '_status': return m.id.startsWith(EXTERNAL_PREFIX) ? 1 : 0
+        default: return (m as unknown as Record<string, unknown>)[columnId]
+      }
+    }
     return [...filtered].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[columnId]
-      const bv = (b as unknown as Record<string, unknown>)[columnId]
+      const av = accessor(a)
+      const bv = accessor(b)
       if (av == null && bv == null) return 0
       if (av == null) return 1
       if (bv == null) return -1
       if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
       return dir * String(av).localeCompare(String(bv))
     })
-  }, [filtered, sorting])
+  }, [filtered, sorting, rowDerived])
 
   const visibleItems = sorted.slice(0, visibleCount)
   const hasMore = visibleCount < sorted.length
@@ -1632,6 +1746,27 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     })
   }, [updateMapping, getUserDisplayName, importExternalMapping, project.id, resolveExternal, requireIdentity])
 
+  /** Stable handlers for the memoized ReviewActionsCell. They take a mapping id and
+   *  resolve the full mapping via the store's id index — this lets the cell pass only
+   *  primitive props through React.memo for shallow-compare to short-circuit. */
+  const onOpenDetail = useCallback((mappingId: string) => {
+    const m = useConceptMappingStore.getState().mappingsById.get(mappingId)
+      ?? useConceptMappingStore.getState().mappings.find((x) => x.id === mappingId)
+    if (!m) return
+    savedScrollTop.current = scrollContainerRef.current?.scrollTop ?? 0
+    setDetailMapping(m)
+    setDetailSource({ counts: null, infoJson: undefined })
+    fetchSourceDetail(m).then(setDetailSource)
+  }, [fetchSourceDetail])
+
+  const onOpenComments = useCallback((mappingId: string) => {
+    setCommentsMappingId(mappingId)
+  }, [])
+
+  const onOpenReviews = useCallback((mappingId: string) => {
+    setReviewsMappingId(mappingId)
+  }, [])
+
   const pageAllSelected = visibleItems.length > 0 && visibleItems.every((m) => selected.has(m.id))
 
   // Build TanStack columns
@@ -1676,30 +1811,22 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         const m = row.original
         const isExternal = m.id.startsWith(EXTERNAL_PREFIX)
         const dotColor = isExternal ? 'bg-blue-500' : 'bg-green-500'
-
-        let tooltip: ReactNode
+        // Native title="" instead of Radix Tooltip — same reasoning as the action
+        // buttons: per-row Radix Tooltips were the dominant browser-paint cost on vote.
+        let titleText: string
         if (isExternal) {
           const info = resolveExternal(m.id)
-          tooltip = (
-            <div className="max-w-xs space-y-1">
-              <p className="text-xs font-semibold">{t('concept_mapping.status_tip_mapped_elsewhere_one')}</p>
-              {info && <p className="text-[10px] text-muted-foreground">{t('concept_mapping.from_project')}: {info.sourceProjectName}</p>}
-              <p className="text-[10px] text-muted-foreground">{t('concept_mapping.external_vote_hint')}</p>
-            </div>
-          )
+          const lines = [t('concept_mapping.status_tip_mapped_elsewhere_one')]
+          if (info) lines.push(`${t('concept_mapping.from_project')}: ${info.sourceProjectName}`)
+          lines.push(t('concept_mapping.external_vote_hint'))
+          titleText = lines.join('\n')
         } else {
-          tooltip = <span className="text-xs">{t('concept_mapping.status_tip_mapped')}</span>
+          titleText = t('concept_mapping.status_tip_mapped')
         }
-
         return (
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
-              <span className="flex justify-center">
-                <span className={`inline-block size-2 rounded-full ${dotColor}`} />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="right" className="text-xs">{tooltip}</TooltipContent>
-          </Tooltip>
+          <span className="flex justify-center" title={titleText}>
+            <span className={`inline-block size-2 rounded-full ${dotColor}`} />
+          </span>
         )
       },
       size: 28,
@@ -1794,14 +1921,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           const badge = EQUIV_BADGE[equiv]
           if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
           return (
-            <Tooltip delayDuration={300}>
-              <TooltipTrigger asChild>
-                <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}>
-                  {badge.label}
-                </Badge>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">{equiv}</TooltipContent>
-            </Tooltip>
+            <Badge
+              variant="secondary"
+              className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`}
+              title={equiv}
+            >
+              {badge.label}
+            </Badge>
           )
         },
         size: 70,
@@ -1939,123 +2065,31 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       },
     )
 
-    // Review action buttons (only in review mode)
+    // Review action buttons (only in review mode). Cell rendering delegates to the
+    // memoized ReviewActionsCell — see top of file. The cell function passes flat
+    // primitive props so React.memo's shallow compare lets unchanged rows skip
+    // re-rendering their tooltips and buttons.
     if (!editMode) {
       cols.push({
         id: '_review',
         header: () => t('concept_mapping.col_review'),
         cell: ({ row }) => {
           const m = row.original
-          const isExternal = m.id.startsWith(EXTERNAL_PREFIX)
+          const d = rowDerived.get(m.id)
           return (
-            <span className="flex items-center justify-end gap-1">
-              <Tooltip delayDuration={700}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    className="size-6"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      savedScrollTop.current = scrollContainerRef.current?.scrollTop ?? 0
-                      setDetailMapping(m)
-                      setDetailSource({ counts: null, infoJson: undefined })
-                      fetchSourceDetail(m).then(setDetailSource)
-                    }}
-                  >
-                    <Eye size={12} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('concept_mapping.view_detail')}</TooltipContent>
-              </Tooltip>
-              <Tooltip delayDuration={700}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    className={`relative size-6 ${(m.comments ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); if (!isExternal) setCommentsMappingId(m.id) }}
-                    disabled={isExternal}
-                  >
-                    <MessageSquare size={12} />
-                    {(m.comments ?? []).length > 0 && (
-                      <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-                        {(m.comments ?? []).length}
-                      </span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}</TooltipContent>
-              </Tooltip>
-              <Tooltip delayDuration={700}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    className={`relative size-6 ${(m.reviews ?? []).length > 0 ? 'border-primary/50 text-primary' : ''}`}
-                    onClick={(e) => { e.stopPropagation(); if (!isExternal) setReviewsMappingId(m.id) }}
-                    disabled={isExternal}
-                  >
-                    <Users size={12} />
-                    {(m.reviews ?? []).length > 0 && (
-                      <span className="absolute -right-1.5 -top-1.5 flex size-3.5 items-center justify-center rounded-full bg-primary text-[8px] font-bold text-primary-foreground">
-                        {(m.reviews ?? []).length}
-                      </span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}</TooltipContent>
-              </Tooltip>
-              {(() => {
-                const myReview = rowDerived.get(m.id)?.myReviewStatus ?? 'unchecked'
-                const isOwn = m.mappedBy === currentUser
-                return (
-                  <>
-                    <Tooltip delayDuration={700}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={myReview === 'approved' ? 'default' : 'outline'}
-                          size="icon-sm"
-                          className={`size-6 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
-                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'approved') }}
-                          disabled={isOwn}
-                        >
-                          <Check size={13} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
-                    </Tooltip>
-                    <Tooltip delayDuration={700}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={myReview === 'rejected' ? 'default' : 'outline'}
-                          size="icon-sm"
-                          className={`size-6 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
-                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'rejected') }}
-                          disabled={isOwn}
-                        >
-                          <X size={13} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
-                    </Tooltip>
-                    <Tooltip delayDuration={700}>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={myReview === 'flagged' ? 'default' : 'outline'}
-                          size="icon-sm"
-                          className={`size-6 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
-                          onClick={(e) => { e.stopPropagation(); handleReview(m.id, 'flagged') }}
-                        >
-                          <Flag size={13} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="text-xs">{t('concept_mapping.flag')}</TooltipContent>
-                    </Tooltip>
-                  </>
-                )
-              })()}
-            </span>
+            <ReviewActionsCell
+              mappingId={m.id}
+              isExternal={m.id.startsWith(EXTERNAL_PREFIX)}
+              isOwn={m.mappedBy === currentUser}
+              myReview={d?.myReviewStatus ?? 'unchecked'}
+              commentsCount={(m.comments ?? []).length}
+              reviewsCount={(m.reviews ?? []).length}
+              onOpenDetail={onOpenDetail}
+              onOpenComments={onOpenComments}
+              onOpenReviews={onOpenReviews}
+              onReview={handleReview}
+              t={t}
+            />
           )
         },
         size: 190,
@@ -2066,7 +2100,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, rowDerived, resolveExternal, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, resolveExternal, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,
