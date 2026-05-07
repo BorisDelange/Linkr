@@ -3,6 +3,9 @@
 /** Mapping validation status (inspired by OHDSI Usagi). */
 export type MappingStatus = 'unchecked' | 'approved' | 'rejected' | 'flagged' | 'invalid' | 'ignored'
 
+/** Display-only status. `disputed` is computed from contradicting reviews and is never stored. */
+export type EffectiveMappingStatus = MappingStatus | 'disputed'
+
 /** SKOS mapping predicate (SSSOM standard). */
 export type MappingEquivalence =
   | 'skos:exactMatch'

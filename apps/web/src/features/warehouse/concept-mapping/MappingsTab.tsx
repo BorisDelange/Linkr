@@ -58,12 +58,14 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
 import { SectionRenderer, extractSections, extractTextFields } from './components/ConceptDetailView'
+import { useRequireIdentity } from './components/IdentityRequiredDialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
-import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, DataSource } from '@/types'
+import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
+import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
 
@@ -79,13 +81,14 @@ const PAGE_SIZE = 50
 
 // ─── Status badge styling ────────────────────────────────────────────
 
-const STATUS_BADGE: Record<MappingStatus, string> = {
+const STATUS_BADGE: Record<EffectiveMappingStatus, string> = {
   unchecked: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
   approved: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
   rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
   flagged: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
   invalid: 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400',
   ignored: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-500',
+  disputed: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
 }
 
 // ─── Equivalence badge styling ────────────────────────────────────────
@@ -161,6 +164,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
@@ -177,6 +181,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
   const handleAdd = () => {
     const text = draft.trim()
     if (!text || !mapping) return
+    if (!requireIdentity()) return
     const comment: MappingComment = {
       id: crypto.randomUUID(),
       authorId: currentUser,
@@ -205,6 +210,8 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
   if (!mapping) return null
 
   return (
+    <>
+    {identityDialog}
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[480px] flex-col gap-0 p-0 sm:max-w-[480px]">
         <SheetHeader className="border-b px-4 py-3">
@@ -286,6 +293,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
         </div>
       </SheetContent>
     </Sheet>
+    </>
   )
 }
 
@@ -298,6 +306,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
   // Always read from live store so reviews appear immediately after save
   const mapping = mappingId ? (mappings.find((m) => m.id === mappingId) ?? null) : null
@@ -317,6 +326,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   const isOwnMapping = mapping.mappedBy === currentUser
 
   const handleReview = (status: MappingStatus) => {
+    if (!requireIdentity()) return
     const newStatus = myReview?.status === status ? 'unchecked' : status
     const newReviews: MappingReview[] = [
       ...reviews.filter((r) => r.reviewerId !== currentUser),
@@ -341,6 +351,8 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   }
 
   return (
+    <>
+    {identityDialog}
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="flex w-[540px] flex-col gap-0 p-0 sm:max-w-[540px]">
         <SheetHeader className="border-b px-4 py-3">
@@ -416,6 +428,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
         </div>
       </SheetContent>
     </Sheet>
+    </>
   )
 }
 
@@ -453,7 +466,8 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   }
 
   const equivBadge = EQUIV_BADGE[mapping.equivalence]
-  const statusBadge = STATUS_BADGE[mapping.status]
+  const effectiveStatus = effectiveMappingStatus(mapping)
+  const statusBadge = STATUS_BADGE[effectiveStatus]
 
   const renderField = (label: string, value: string | number | undefined | null, mono?: boolean) => {
     if (value == null || value === '') return null
@@ -489,7 +503,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
               </Badge>
             )}
             <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
-              {t(`concept_mapping.status_${mapping.status}`)}
+              {t(`concept_mapping.status_${effectiveStatus}`)}
             </Badge>
             {isExternal && (
               <Badge variant="secondary" className="px-1.5 py-0 text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
@@ -751,7 +765,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                     <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">Status</td>
                     <td className="py-1 text-xs">
                       <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
-                        {t(`concept_mapping.status_${mapping.status}`)}
+                        {t(`concept_mapping.status_${effectiveStatus}`)}
                       </Badge>
                     </td>
                   </tr>
@@ -819,6 +833,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
+  const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
   // Load cross-project mappings on mount
   useEffect(() => {
@@ -1284,7 +1299,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{
     imported: number
-    duplicates: number
+    merged: number
+    reviewsAdded: number
+    commentsAdded: number
     missingSource: number
     total: number
   } | null>(null)
@@ -1302,10 +1319,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       await loadProjectMappings(project.id)
       const freshLocal = useConceptMappingStore.getState().mappings.filter((m) => m.projectId === project.id)
 
-      // Build set of existing mapping keys: (sourceVocabularyId, sourceConceptCode, targetConceptId)
-      const existingKeys = new Set(
-        freshLocal.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
-      )
+      // Build map: (sourceVocabularyId, sourceConceptCode, targetConceptId) → existing mapping
+      const existingByKey = new Map<string, ConceptMapping>()
+      for (const m of freshLocal) {
+        existingByKey.set(`${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`, m)
+      }
 
       // Load valid source concept codes from the project's source data
       let validSourceKeys: Set<string> | null = null
@@ -1331,13 +1349,55 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
       const now = new Date().toISOString()
       const toImport: ConceptMapping[] = []
-      let duplicates = 0
+      let merged = 0
+      let reviewsAdded = 0
+      let commentsAdded = 0
       let missingSource = 0
 
       for (const m of incoming) {
         const key = `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`
-        if (existingKeys.has(key)) {
-          duplicates++
+        const existing = existingByKey.get(key)
+        if (existing) {
+          // Merge reviews and comments into the existing mapping (dedup by id).
+          const existingReviewIds = new Set((existing.reviews ?? []).map((r) => r.id))
+          const newReviews = (m.reviews ?? []).filter((r) => !existingReviewIds.has(r.id))
+
+          const existingCommentIds = new Set((existing.comments ?? []).map((c) => c.id))
+          // Migrate legacy `comment` string → ephemeral comment for merge
+          const legacy = (m as unknown as Record<string, unknown>).comment
+          const incomingComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
+            ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? now }]
+            : (m.comments ?? [])
+          const newComments = incomingComments.filter((c) => !existingCommentIds.has(c.id))
+
+          if (newReviews.length === 0 && newComments.length === 0) {
+            // Nothing to merge — the existing mapping already contains everything from the file.
+            merged++
+            continue
+          }
+
+          const mergedReviews = [...(existing.reviews ?? []), ...newReviews]
+          const mergedComments = [...(existing.comments ?? []), ...newComments]
+
+          // Pick the most recent non-unchecked review across all reviewers as the headline.
+          const latestReview = mergedReviews
+            .filter((r) => r.status !== 'unchecked')
+            .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''))[0]
+
+          const changes: Partial<ConceptMapping> = {
+            reviews: mergedReviews,
+            comments: mergedComments,
+          }
+          if (latestReview) {
+            changes.reviewedBy = latestReview.reviewerId
+            changes.reviewedOn = latestReview.createdAt
+            // If the existing mapping was still 'unchecked', lift it to the latest review's status.
+            if (existing.status === 'unchecked') changes.status = latestReview.status
+          }
+          await updateMapping(existing.id, changes)
+          merged++
+          reviewsAdded += newReviews.length
+          commentsAdded += newComments.length
           continue
         }
         if (validSourceKeys && !validSourceKeys.has(`${m.sourceVocabularyId}\0${m.sourceConceptCode}`)) {
@@ -1349,15 +1409,16 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
           ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? now }]
           : m.comments
-        toImport.push({
+        const newMapping: ConceptMapping = {
           ...m,
           comments: migratedComments,
           id: crypto.randomUUID(),
           projectId: project.id,
           updatedAt: now,
-        })
-        // Add to existingKeys to prevent duplicates within the import batch
-        existingKeys.add(key)
+        }
+        toImport.push(newMapping)
+        // Track within batch to avoid double-imports of the same key
+        existingByKey.set(key, newMapping)
       }
 
       if (toImport.length > 0) {
@@ -1366,7 +1427,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
       setImportResult({
         imported: toImport.length,
-        duplicates,
+        merged,
+        reviewsAdded,
+        commentsAdded,
         missingSource,
         total: incoming.length,
       })
@@ -1380,6 +1443,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   /** Toggle review: clicking the same status resets to unchecked.
    *  For external (cross-project) rows, imports the mapping locally first, then applies the vote. */
   const handleReview = useCallback(async (mappingId: string, target: MappingStatus) => {
+    if (!requireIdentity()) return
     const reviewer = getUserDisplayName()
 
     // External row: import as local copy first, then vote on the new local id.
@@ -1410,7 +1474,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
-  }, [updateMapping, getUserDisplayName, importExternalMapping, project.id, resolveExternal])
+  }, [updateMapping, getUserDisplayName, importExternalMapping, project.id, resolveExternal, requireIdentity])
 
   const pageAllSelected = visibleItems.length > 0 && visibleItems.every((m) => selected.has(m.id))
 
@@ -1951,6 +2015,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   return (
     <>
+    {identityDialog}
     <ReviewsSheet
       mappingId={reviewsMappingId}
       open={!!reviewsMappingId}
@@ -1969,8 +2034,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           <AlertDialogDescription asChild>
             <div className="space-y-1 text-sm">
               <p>{t('concept_mapping.import_mappings_imported', { count: importResult?.imported ?? 0 })}</p>
-              {(importResult?.duplicates ?? 0) > 0 && (
-                <p className="text-muted-foreground">{t('concept_mapping.import_mappings_duplicates', { count: importResult!.duplicates })}</p>
+              {(importResult?.merged ?? 0) > 0 && (
+                <p className="text-muted-foreground">
+                  {t('concept_mapping.import_mappings_merged', {
+                    count: importResult!.merged,
+                    reviews: importResult!.reviewsAdded,
+                    comments: importResult!.commentsAdded,
+                  })}
+                </p>
               )}
               {(importResult?.missingSource ?? 0) > 0 && (
                 <p className="text-orange-600 dark:text-orange-400">{t('concept_mapping.import_mappings_missing_source', { count: importResult!.missingSource })}</p>

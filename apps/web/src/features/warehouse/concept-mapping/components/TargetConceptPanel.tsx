@@ -52,6 +52,7 @@ import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
+import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
@@ -255,6 +256,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
   // Search for mapping
   const [searchTerm, setSearchTerm] = useState('')
@@ -522,6 +524,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (!sourceConcept || !selectedTarget) return
     const alreadyMapped = existingMappings.some((m) => m.targetConceptId === selectedTarget.conceptId)
     if (alreadyMapped) return
+    if (!requireIdentity()) return
     const now = new Date().toISOString()
     await createMapping({
       id: crypto.randomUUID(),
@@ -579,6 +582,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       )
       if (ignoredMapping) await deleteMapping(ignoredMapping.id)
     } else {
+      if (!requireIdentity()) return
       // Create an ignored mapping (targetConceptId=0)
       const now = new Date().toISOString()
       await createMapping({
@@ -1695,6 +1699,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // ─── Main layout (always show tabs) ──────────────────────────────────
 
   return (
+    <>
+    {identityDialog}
     <div className="flex h-full flex-col overflow-hidden">
       {/* Mode toggle + add mapping button */}
       <div className="relative flex items-center justify-center border-b px-3 py-1 gap-2">
@@ -1916,5 +1922,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         onOpenChange={setDetailSheetOpen}
       />
     </div>
+    </>
   )
 }

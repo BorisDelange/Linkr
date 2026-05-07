@@ -10,20 +10,21 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, isFileSourceMounted, fileSourceDataSourceId, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import { buildSourceConceptsCountQuery, buildFileSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
-import type { MappingProject, MappingStatus, DataSource } from '@/types'
+import type { MappingProject, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
 
 interface ProgressTabProps {
   project: MappingProject
   dataSource?: DataSource
 }
 
-const STATUS_COLORS: Record<MappingStatus, string> = {
+const STATUS_COLORS: Record<EffectiveMappingStatus, string> = {
   unchecked: '#94a3b8',
   approved: '#34d399',
   rejected: '#ef4444',
   flagged: '#fb923c',
   invalid: '#f87171',
   ignored: '#a78bfa',
+  disputed: '#f59e0b',
 }
 
 export function ProgressTab({ project, dataSource }: ProgressTabProps) {
@@ -77,8 +78,8 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     const allSourceKeys = new Set(nonIgnoredMappings.map(sourceKey))
 
     // Best status per source concept
-    const bestStatus = new Map<string, MappingStatus>()
-    const statusPriority: MappingStatus[] = ['approved', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
+    const bestStatus = new Map<string, EffectiveMappingStatus>()
+    const statusPriority: EffectiveMappingStatus[] = ['approved', 'disputed', 'flagged', 'rejected', 'unchecked', 'invalid', 'ignored']
     for (const m of nonIgnoredMappings) {
       const eff = effectiveMappingStatus(m)
       const k = sourceKey(m)

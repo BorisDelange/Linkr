@@ -22,7 +22,7 @@ import { downloadBlob, slugify } from '@/lib/entity-io'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
-import type { MappingProject, MappingStatus, DataSource } from '@/types'
+import type { MappingProject, EffectiveMappingStatus, DataSource } from '@/types'
 
 interface ExportTabProps {
   project: MappingProject
@@ -31,7 +31,7 @@ interface ExportTabProps {
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
-const STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
+const STATUSES: EffectiveMappingStatus[] = ['approved', 'rejected', 'flagged', 'disputed', 'unchecked', 'ignored']
 
 export function ExportTab({ project, dataSource }: ExportTabProps) {
   const { t } = useTranslation()
@@ -42,7 +42,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
 
   // Status checkboxes (approved checked by default)
-  const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(
+  const [includedStatuses, setIncludedStatuses] = useState<Set<EffectiveMappingStatus>>(
     new Set(['approved']),
   )
   const [approvalRule, setApprovalRule] = useState<ApprovalRule>('at_least_one')
@@ -69,7 +69,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     return () => { cancelled = true }
   }, [project.sourceType, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
 
-  const toggleStatus = (status: MappingStatus) => {
+  const toggleStatus = (status: EffectiveMappingStatus) => {
     setIncludedStatuses((prev) => {
       const next = new Set(prev)
       if (next.has(status)) next.delete(status)
