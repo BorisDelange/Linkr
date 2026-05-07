@@ -22,6 +22,16 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import {
   Table,
   TableBody,
   TableCell,
@@ -490,7 +500,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setResolvedPage(0)
   }, [resolvedSearch, resolvedFilters])
 
-  const handleSearch = useCallback(async () => {
+  const [searchWarningOpen, setSearchWarningOpen] = useState(false)
+
+  const runSearch = useCallback(async () => {
     const vocabDs = project.vocabularyDataSourceId
       ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
       : null
@@ -518,6 +530,26 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       setSearching(false)
     }
   }, [searchTerm, dataSource, project.vocabularyDataSourceId, allDataSources, ensureMounted, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, searchMaxResults])
+
+  /** Submit handler. If the user typed a term but didn't pick any filter, warn first
+   *  before launching what may be a multi-second scan over the entire vocabulary. */
+  const handleSearch = useCallback(() => {
+    const noFilter =
+      searchFilterVocabs.size === 0 &&
+      searchFilterDomains.size === 0 &&
+      searchFilterClasses.size === 0 &&
+      searchFilterStandard.size === 0
+    if (searchTerm.trim() && noFilter) {
+      setSearchWarningOpen(true)
+      return
+    }
+    void runSearch()
+  }, [searchTerm, searchFilterVocabs, searchFilterDomains, searchFilterClasses, searchFilterStandard, runSearch])
+
+  const confirmUnfilteredSearch = useCallback(() => {
+    setSearchWarningOpen(false)
+    void runSearch()
+  }, [runSearch])
 
   /** Add mapping from the selected target concept with a given predicate and optional comment. */
   const handleAddSelectedMapping = async (predicate: MappingEquivalence = 'skos:exactMatch', comment = '') => {
@@ -1495,7 +1527,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             placeholder={t('concept_mapping.search_omop')}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                // preventDefault: see ConceptSetsTab — without it the warning
+                // AlertDialog that handleSearch may open would auto-close because
+                // its focused action button receives the bubbled Enter keydown.
+                e.preventDefault()
+                handleSearch()
+              }
+            }}
           />
         </div>
         <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
@@ -1701,6 +1741,20 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   return (
     <>
     {identityDialog}
+    <AlertDialog open={searchWarningOpen} onOpenChange={setSearchWarningOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.unfiltered_search_warning_title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('concept_mapping.unfiltered_search_warning_desc')}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmUnfilteredSearch}>{t('concept_mapping.unfiltered_search_warning_proceed')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div className="flex h-full flex-col overflow-hidden">
       {/* Row 1 — Mode toggle (Jeux de concepts / Recherche) */}
       <div className="flex items-center justify-center border-b px-3 py-1">

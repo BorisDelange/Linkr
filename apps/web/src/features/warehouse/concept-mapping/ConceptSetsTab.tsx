@@ -10,7 +10,7 @@ import {
 import {
   Plus, BookOpen, Trash2, RefreshCw, Upload, Search, Loader2,
   Info, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
-  ArrowUpDown, ArrowUp, ArrowDown, Settings2,
+  ArrowUpDown, ArrowUp, ArrowDown, Settings2, SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -51,6 +51,8 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
@@ -181,14 +183,21 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
-  // Browse vocabulary state
+  // Browse vocabulary state. `browseSearch` is the text typed in the input; `appliedSearch`
+  // is the term actually sent to SQL — only updated when the user clicks Search or hits
+  // Enter. This avoids running an expensive multi-tier ranked query on every keystroke.
+  // Filters are multi-select arrays (empty = no filter), like the Mapping Editor's search.
   const [browseSearch, setBrowseSearch] = useState('')
-  const [browseVocab, setBrowseVocab] = useState<string>('__all__')
-  const [browseDomain, setBrowseDomain] = useState<string>('__all__')
-  const [browseStandardOnly, setBrowseStandardOnly] = useState(false)
+  const [appliedSearch, setAppliedSearch] = useState('')
+  const [browseVocabs, setBrowseVocabs] = useState<string[]>([])
+  const [browseDomains, setBrowseDomains] = useState<string[]>([])
+  const [browseStandards, setBrowseStandards] = useState<string[]>([])
   const [browseResults, setBrowseResults] = useState<Record<string, unknown>[]>([])
   const [browseTotal, setBrowseTotal] = useState(0)
   const [browsePage, setBrowsePage] = useState(0)
+  // Warning shown when the user submits a text search with no other filter applied.
+  const [searchWarningOpen, setSearchWarningOpen] = useState(false)
+  const pendingSearchRef = useRef<string>('')
   const [browseLoading, setBrowseLoading] = useState(false)
   const [browseVocabOptions, setBrowseVocabOptions] = useState<string[]>([])
   const [browseDomainOptions, setBrowseDomainOptions] = useState<string[]>([])
@@ -680,11 +689,11 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       // Use the same multi-tier ranked search as the Mapping Editor's target panel
       // (exact id match → substring on code/name → Jaro-Winkler ≥ 0.8). Far better
       // relevance than the previous ILIKE-only query.
-      const term = browseSearch.trim()
+      const term = appliedSearch.trim()
       const filters = {
-        vocabularyIds: browseVocab !== '__all__' ? [browseVocab] : undefined,
-        domainIds: browseDomain !== '__all__' ? [browseDomain] : undefined,
-        standardConcepts: browseStandardOnly ? ['S'] : undefined,
+        vocabularyIds: browseVocabs.length > 0 ? browseVocabs : undefined,
+        domainIds: browseDomains.length > 0 ? browseDomains : undefined,
+        standardConcepts: browseStandards.length > 0 ? browseStandards : undefined,
       }
 
       // The ranked search returns top N rows globally. We over-fetch (page size × pages
@@ -707,16 +716,38 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     } finally {
       setBrowseLoading(false)
     }
-  }, [project.vocabularyDataSourceId, vocabDs, browseSearch, browseVocab, browseDomain, browseStandardOnly, browsePage, ensureMounted])
+  }, [project.vocabularyDataSourceId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseStandards, browsePage, ensureMounted])
 
   useEffect(() => {
     if (project.vocabularyDataSourceId) loadBrowseResults()
   }, [loadBrowseResults, project.vocabularyDataSourceId])
 
-  // Reset page when browse filters change
+  // Reset page when applied search or filters change
   useEffect(() => {
     setBrowsePage(0)
-  }, [browseSearch, browseVocab, browseDomain, browseStandardOnly])
+  }, [appliedSearch, browseVocabs, browseDomains, browseStandards])
+
+  /** Submit the search input. If the user typed text without picking any filter, warn
+   *  them first (a fully-fuzzy scan over millions of OHDSI concepts can take seconds). */
+  const submitSearch = useCallback(() => {
+    const term = browseSearch.trim()
+    const noFilter =
+      browseVocabs.length === 0 &&
+      browseDomains.length === 0 &&
+      browseStandards.length === 0
+    if (term && noFilter) {
+      pendingSearchRef.current = term
+      setSearchWarningOpen(true)
+      return
+    }
+    setAppliedSearch(term)
+  }, [browseSearch, browseVocabs, browseDomains, browseStandards])
+
+  const confirmUnfilteredSearch = useCallback(() => {
+    setAppliedSearch(pendingSearchRef.current)
+    pendingSearchRef.current = ''
+    setSearchWarningOpen(false)
+  }, [])
 
   const browseTotalPages = Math.max(1, Math.ceil(browseTotal / BROWSE_PAGE_SIZE))
 
@@ -1072,50 +1103,101 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
                 {/* Browse vocabulary */}
                 <div className="space-y-3">
-                  {/* Search + filters */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative min-w-[200px] flex-1">
+                  {/* Filters popover + Search input + Search button — mirrors the
+                      Mapping Editor's target-search UI for consistency. */}
+                  <div className="flex items-center gap-1.5">
+                    <Popover>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <PopoverTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className={`h-8 w-8 shrink-0 ${(browseVocabs.length + browseDomains.length + browseStandards.length) > 0 ? 'text-primary' : ''}`}
+                            >
+                              <SlidersHorizontal size={14} />
+                            </Button>
+                          </PopoverTrigger>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.search_filters')}</TooltipContent>
+                      </Tooltip>
+                      <PopoverContent align="start" className="w-[280px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+                        <p className="text-xs font-medium">{t('concept_mapping.search_filters')}</p>
+                        {/* Vocabulary */}
+                        {browseVocabOptions.length > 0 && (
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                            <MultiSelectFilter
+                              value={browseVocabs}
+                              options={browseVocabOptions}
+                              placeholder={t('concept_mapping.vocab_browse_all_vocabs')}
+                              onChange={setBrowseVocabs}
+                              popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
+                              triggerClass="h-7 w-full justify-start text-xs"
+                            />
+                          </div>
+                        )}
+                        {/* Domain */}
+                        {browseDomainOptions.length > 0 && (
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_domain')}</label>
+                            <MultiSelectFilter
+                              value={browseDomains}
+                              options={browseDomainOptions}
+                              placeholder={t('concept_mapping.vocab_browse_all_domains')}
+                              onChange={setBrowseDomains}
+                              popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
+                              triggerClass="h-7 w-full justify-start text-xs"
+                            />
+                          </div>
+                        )}
+                        {/* Standard concept */}
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_std')}</label>
+                          <div className="flex gap-1">
+                            {(['S', 'C'] as const).map((s) => {
+                              const active = browseStandards.includes(s)
+                              return (
+                                <Button
+                                  key={s}
+                                  size="xs"
+                                  variant={active ? 'default' : 'outline'}
+                                  className={`h-6 text-[10px] ${active && s === 'S' ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                                  onClick={() => {
+                                    setBrowseStandards((prev) => prev.includes(s)
+                                      ? prev.filter((x) => x !== s)
+                                      : [...prev, s])
+                                  }}
+                                >
+                                  {s}
+                                </Button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                    <div className="relative min-w-0 flex-1">
                       <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         className="h-8 pl-8 text-xs"
                         placeholder={t('concept_mapping.vocab_browse_search')}
                         value={browseSearch}
                         onChange={(e) => setBrowseSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            // preventDefault stops the keydown from bubbling into the
+                            // warning AlertDialog that submitSearch may open — without
+                            // this the focused AlertDialogAction immediately receives
+                            // the Enter and auto-confirms, closing the dialog.
+                            e.preventDefault()
+                            submitSearch()
+                          }
+                        }}
                       />
                     </div>
-                    {browseVocabOptions.length > 0 && (
-                      <Select value={browseVocab} onValueChange={setBrowseVocab}>
-                        <SelectTrigger className="h-8 w-[160px] text-xs">
-                          <SelectValue placeholder={t('concept_mapping.vocab_browse_filter_vocab')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">{t('concept_mapping.vocab_browse_all_vocabs')}</SelectItem>
-                          {browseVocabOptions.map((v) => (
-                            <SelectItem key={v} value={v}>{v}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    {browseDomainOptions.length > 0 && (
-                      <Select value={browseDomain} onValueChange={setBrowseDomain}>
-                        <SelectTrigger className="h-8 w-[140px] text-xs">
-                          <SelectValue placeholder={t('concept_mapping.vocab_browse_filter_domain')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__all__">{t('concept_mapping.vocab_browse_all_domains')}</SelectItem>
-                          {browseDomainOptions.map((d) => (
-                            <SelectItem key={d} value={d}>{d}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <Button
-                      variant={browseStandardOnly ? 'default' : 'outline'}
-                      size="sm"
-                      className="h-8 text-xs"
-                      onClick={() => setBrowseStandardOnly(!browseStandardOnly)}
-                    >
-                      {t('concept_mapping.vocab_browse_standard_only')}
+                    <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={submitSearch} disabled={browseLoading}>
+                      {browseLoading ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
                     </Button>
                   </div>
 
@@ -1262,6 +1344,22 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         open={!!detailConceptSet}
         onOpenChange={(open) => { if (!open) setDetailConceptSet(null) }}
       />
+
+      {/* Unfiltered-search warning */}
+      <AlertDialog open={searchWarningOpen} onOpenChange={setSearchWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.unfiltered_search_warning_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.unfiltered_search_warning_desc')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmUnfilteredSearch}>{t('concept_mapping.unfiltered_search_warning_proceed')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Update all result dialog */}
       <AlertDialog open={!!updateAllResult} onOpenChange={(open) => { if (!open) setUpdateAllResult(null) }}>
