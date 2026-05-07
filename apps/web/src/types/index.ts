@@ -256,8 +256,16 @@ export interface StoredFile {
   dataSourceId: string
   fileName: string
   fileSize: number
+  /** Raw bytes. Empty for dedup-reference rows that point to another StoredFile via `dedupRef`. */
   data: ArrayBuffer
   createdAt: string
+  /** SHA-256 hex of the file content. Set by the importer; used to dedupe identical bytes
+   *  across multiple data sources (typical case: the same OHDSI vocabulary imported into
+   *  several mapping projects). When `dedupRef` is set, this hash matches the canonical row's. */
+  contentHash?: string
+  /** When set, this row stores no bytes and points at another StoredFile.id whose `data`
+   *  field is the canonical copy. Readers must follow the ref to fetch the actual bytes. */
+  dedupRef?: string
 }
 
 /** A lightweight file reference using File System Access API (no binary copy). */

@@ -11,7 +11,7 @@ import {
   Check, Flag, X, MessageSquare, EyeOff, Eye,
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
+  Upload, Download, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -1307,6 +1307,80 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     total: number
   } | null>(null)
 
+  // ─── Bulk import from other projects ────────────────────────────────
+
+  const [bulkImportOpen, setBulkImportOpen] = useState(false)
+  const [bulkSelectedProjects, setBulkSelectedProjects] = useState<string[]>([])
+  const [bulkImporting, setBulkImporting] = useState(false)
+  const [bulkResult, setBulkResult] = useState<{ imported: number; skipped: number } | null>(null)
+
+  // Distinct source projects across externalMappings (sorted by name).
+  const bulkProjectOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const list of otherProjectsMappings.values()) {
+      for (const info of list) {
+        if (!seen.has(info.sourceProjectId)) seen.set(info.sourceProjectId, info.sourceProjectName)
+      }
+    }
+    return [...seen.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [otherProjectsMappings])
+
+  // Number of mappings that would be imported with the current project selection.
+  const bulkImportPreviewCount = useMemo(() => {
+    if (bulkProjectOptions.length === 0) return 0
+    const selected = bulkSelectedProjects.length === 0
+      ? new Set(bulkProjectOptions.map((o) => o.value)) // empty selection = all (matches MultiSelectFilter convention)
+      : new Set(bulkSelectedProjects)
+    let count = 0
+    const localKeys = new Set(
+      mappings
+        .filter((m) => m.projectId === project.id)
+        .map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+    )
+    for (const list of otherProjectsMappings.values()) {
+      for (const info of list) {
+        if (!selected.has(info.sourceProjectId)) continue
+        const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
+        if (localKeys.has(key)) continue
+        count++
+      }
+    }
+    return count
+  }, [otherProjectsMappings, bulkProjectOptions, bulkSelectedProjects, mappings, project.id])
+
+  const handleBulkImport = useCallback(async () => {
+    if (bulkImporting) return
+    setBulkImporting(true)
+    try {
+      const selected = bulkSelectedProjects.length === 0
+        ? new Set(bulkProjectOptions.map((o) => o.value))
+        : new Set(bulkSelectedProjects)
+      const localKeys = new Set(
+        mappings
+          .filter((m) => m.projectId === project.id)
+          .map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
+      )
+      let imported = 0
+      let skipped = 0
+      for (const list of otherProjectsMappings.values()) {
+        for (const info of list) {
+          if (!selected.has(info.sourceProjectId)) continue
+          const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
+          if (localKeys.has(key)) { skipped++; continue }
+          const local = await importExternalMapping(info, project.id)
+          if (local) { imported++; localKeys.add(key) } else { skipped++ }
+        }
+      }
+      setBulkResult({ imported, skipped })
+      setBulkImportOpen(false)
+      setBulkSelectedProjects([])
+    } finally {
+      setBulkImporting(false)
+    }
+  }, [bulkImporting, bulkSelectedProjects, bulkProjectOptions, mappings, project.id, otherProjectsMappings, importExternalMapping])
+
   const handleImportMappings = async (file: File) => {
     if (importing) return
     setImporting(true)
@@ -2055,6 +2129,61 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+    {/* Bulk import from other projects — dialog */}
+    <AlertDialog open={bulkImportOpen} onOpenChange={(open) => { if (!open) { setBulkImportOpen(false); setBulkSelectedProjects([]) } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.bulk_import_title')}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-3 text-sm">
+              <p>{t('concept_mapping.bulk_import_description')}</p>
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium">{t('concept_mapping.bulk_import_select_projects')}</p>
+                <MultiSelectFilter
+                  value={bulkSelectedProjects}
+                  options={bulkProjectOptions}
+                  placeholder={t('concept_mapping.bulk_import_all_projects')}
+                  onChange={setBulkSelectedProjects}
+                  popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
+                  triggerClass="h-8 w-full justify-start text-xs"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {t('concept_mapping.bulk_import_count', { count: bulkImportPreviewCount })}
+              </p>
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction onClick={handleBulkImport} disabled={bulkImporting || bulkImportPreviewCount === 0}>
+            {bulkImporting ? <Loader2 size={12} className="mr-1 animate-spin" /> : null}
+            {t('concept_mapping.bulk_import_button')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    {/* Bulk import — result dialog */}
+    <AlertDialog open={!!bulkResult} onOpenChange={(open) => { if (!open) setBulkResult(null) }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.bulk_import_done_title')}</AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-1 text-sm">
+              <p>{t('concept_mapping.bulk_import_done_imported', { count: bulkResult?.imported ?? 0 })}</p>
+              {(bulkResult?.skipped ?? 0) > 0 && (
+                <p className="text-muted-foreground">
+                  {t('concept_mapping.bulk_import_done_skipped', { count: bulkResult!.skipped })}
+                </p>
+              )}
+            </div>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogAction>{t('common.ok')}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     {/* Hidden file input for import */}
     <input
       ref={fileInputRef}
@@ -2086,6 +2215,23 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
           </Tooltip>
+          {/* Bulk import from other projects (only visible when there are external mappings) */}
+          {bulkProjectOptions.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  className="h-7 w-7"
+                  onClick={() => setBulkImportOpen(true)}
+                  disabled={bulkImporting}
+                >
+                  {bulkImporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.bulk_import_external')}</TooltipContent>
+            </Tooltip>
+          )}
           {editMode && selected.size > 0 && (
             <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />

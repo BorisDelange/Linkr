@@ -35,6 +35,7 @@ interface LinkrDB extends DBSchema {
     value: StoredFile
     indexes: {
       'by-data-source': string
+      'by-content-hash': string
     }
   }
   cohorts: {
@@ -257,7 +258,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 29
+const DB_VERSION = 30
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -687,6 +688,13 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         entryStore.createIndex('by-workspace-badge', 'workspaceBadgeKey')
         entryStore.createIndex('by-workspace', 'workspaceId')
       }
+      // Version 30: content-hash index on `files` for vocabulary dedup
+      if (oldVersion < 30) {
+        const filesStore = transaction.objectStore('files')
+        if (!filesStore.indexNames.contains('by-content-hash')) {
+          filesStore.createIndex('by-content-hash', 'contentHash')
+        }
+      }
     },
   })
   // Auto-close when another tab requests a deleteDatabase or version upgrade
@@ -826,15 +834,28 @@ class IDBDataSourceStorage implements DataSourceStorage {
   }
 }
 
+/** Resolve a `dedupRef` chain to the canonical bytes-bearing row.
+ *  Returns the row itself when it has its own bytes, or follows `dedupRef` once. */
+async function resolveCanonicalFile(db: IDBPDatabase<LinkrDB>, file: StoredFile): Promise<StoredFile> {
+  if (!file.dedupRef) return file
+  const canonical = await db.get('files', file.dedupRef)
+  if (!canonical) return file // ref dangling — fall back, callers will see empty data
+  // Return a synthetic row with canonical bytes but the original metadata (dataSourceId, fileName).
+  return { ...file, data: canonical.data }
+}
+
 class IDBFileStorage implements FileStorage {
   async getByDataSource(dataSourceId: string): Promise<StoredFile[]> {
     const db = await getDB()
-    return db.getAllFromIndex('files', 'by-data-source', dataSourceId)
+    const files = await db.getAllFromIndex('files', 'by-data-source', dataSourceId)
+    return Promise.all(files.map((f) => resolveCanonicalFile(db, f)))
   }
 
   async getById(id: string): Promise<StoredFile | undefined> {
     const db = await getDB()
-    return db.get('files', id)
+    const file = await db.get('files', id)
+    if (!file) return undefined
+    return resolveCanonicalFile(db, file)
   }
 
   async create(file: StoredFile): Promise<void> {
@@ -844,17 +865,46 @@ class IDBFileStorage implements FileStorage {
 
   async delete(id: string): Promise<void> {
     const db = await getDB()
+    // If this row was a canonical (bytes-bearing) row referenced by other dedup rows,
+    // promote one of them so we don't lose the bytes. Only matters when there's at least
+    // one row pointing at us via `dedupRef`.
+    const target = await db.get('files', id)
+    if (target?.contentHash && !target.dedupRef && target.data && target.data.byteLength > 0) {
+      // Find rows that ref this id
+      const tx = db.transaction('files', 'readwrite')
+      const all = await tx.store.index('by-content-hash').getAll(target.contentHash)
+      const refs = all.filter((r) => r.dedupRef === id)
+      if (refs.length > 0) {
+        // Promote the first ref by giving it the bytes; others keep pointing at it.
+        const promoted = refs[0]
+        await tx.store.put({ ...promoted, data: target.data, dedupRef: undefined })
+        for (let i = 1; i < refs.length; i++) {
+          await tx.store.put({ ...refs[i], dedupRef: promoted.id })
+        }
+      }
+      await tx.store.delete(id)
+      await tx.done
+      return
+    }
     await db.delete('files', id)
   }
 
   async deleteByDataSource(dataSourceId: string): Promise<void> {
     const db = await getDB()
+    // List rows directly from the index (don't use getByDataSource which resolves dedupRef →
+    // we need the raw rows to call delete per-id, which handles canonical-row promotion).
     const files = await db.getAllFromIndex('files', 'by-data-source', dataSourceId)
-    const tx = db.transaction('files', 'readwrite')
     for (const file of files) {
-      tx.store.delete(file.id)
+      await this.delete(file.id)
     }
-    await tx.done
+  }
+
+  async findByHash(contentHash: string): Promise<StoredFile | undefined> {
+    if (!contentHash) return undefined
+    const db = await getDB()
+    const candidates = await db.getAllFromIndex('files', 'by-content-hash', contentHash)
+    // Prefer a row that holds the actual bytes (not a dedupRef) and has non-empty data.
+    return candidates.find((f) => !f.dedupRef && f.data && f.data.byteLength > 0)
   }
 }
 

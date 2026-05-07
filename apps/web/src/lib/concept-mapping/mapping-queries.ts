@@ -440,6 +440,81 @@ export function buildStandardConceptSearchQuery(
   LIMIT ${limit}`
 }
 
+/**
+ * Cheap count query for the same set of concepts that buildStandardConceptSearchQuery
+ * would return. Skips the ranking joins — just counts distinct concept_ids matching the
+ * substring or fuzzy criteria. Uses the same SchemaMapping + filters contract.
+ */
+export function buildStandardConceptSearchCountQuery(
+  mapping: SchemaMapping,
+  searchTerm: string,
+  filters?: StandardConceptSearchFilters,
+): string {
+  const dicts = mapping.conceptTables ?? []
+  if (dicts.length === 0) return ''
+
+  const dict = dicts[0]
+  const idCol = dict.idColumn ?? 'concept_id'
+  const nameCol = dict.nameColumn ?? 'concept_name'
+  const codeCol = dict.codeColumn ?? 'concept_code'
+  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
+  const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
+  const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
+  const stdCol = dict.extraColumns?.standard_concept
+
+  const filterConds: string[] = []
+  if (filters?.vocabularyIds?.length) {
+    filterConds.push(`d.${vocabCol} IN (${filters.vocabularyIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.domainIds?.length && domainCol) {
+    filterConds.push(`d.${domainCol} IN (${filters.domainIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.conceptClassIds?.length && classCol) {
+    filterConds.push(`d.${classCol} IN (${filters.conceptClassIds.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.standardConcepts?.length && stdCol) {
+    filterConds.push(`d.${stdCol} IN (${filters.standardConcepts.map((v) => `'${esc(v)}'`).join(',')})`)
+  }
+  if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
+    filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
+  }
+
+  const term = searchTerm.trim()
+
+  // Empty search term: count all rows matching filters
+  if (!term) {
+    const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
+    return `SELECT COUNT(*) AS total FROM ${dict.table} d${wherePart}`
+  }
+
+  const escaped = esc(term)
+  const isNumeric = /^\d+$/.test(term)
+  const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
+
+  // Match if: exact id match (numeric) OR all words appear (substring on name OR code) OR
+  // each word matches via fuzzy similarity > 0.8 on name or code.
+  const words = term.split(/\s+/).filter(Boolean)
+  const substringConds = words.map((w) => {
+    const we = esc(w)
+    return `(LOWER(d.${nameCol}) LIKE LOWER('%${we}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${we}%'))`
+  }).join(' AND ')
+  const fuzzyConds = words.map((w) => {
+    const we = esc(w)
+    return `(EXISTS (SELECT 1 FROM unnest(string_split(LOWER(d.${nameCol}), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8) OR jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${we}')) > 0.8)`
+  }).join(' AND ')
+
+  const matchClauses: string[] = []
+  if (isNumeric) matchClauses.push(`d.${idCol} = ${escaped}`)
+  if (substringConds) matchClauses.push(`(${substringConds})`)
+  if (fuzzyConds) matchClauses.push(`(${fuzzyConds})`)
+
+  const whereClause = matchClauses.length > 0
+    ? `WHERE (${matchClauses.join(' OR ')})${filterClause}`
+    : filterConds.length > 0 ? `WHERE ${filterConds.join(' AND ')}` : ''
+
+  return `SELECT COUNT(DISTINCT d.${idCol}) AS total FROM ${dict.table} d ${whereClause}`
+}
+
 // ---------------------------------------------------------------------------
 // Concept set resolution (expand descendants + mapped)
 // ---------------------------------------------------------------------------

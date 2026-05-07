@@ -440,27 +440,23 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     )
     if (existing) return existing
 
+    // Full preservation: status, reviews, comments, reviewedBy/reviewedOn — everything
+    // from the source project is copied as-is. Only identity-bound fields (id, projectId,
+    // sourceConceptId mapping to local source CSV) and timestamps are rewritten.
     const local: ConceptMapping = {
       ...mapping,
       id: crypto.randomUUID(),
       projectId: targetProjectId,
       sourceConceptId: options?.sourceConceptId ?? mapping.sourceConceptId,
-      // Reset reviews/comments — local copy starts fresh, the importer will vote on it
-      reviews: [],
-      comments: [],
-      status: 'unchecked',
-      // Preserve the original author so the importer is treated as a reviewer (not the mapper).
-      // This lets them toggle their own approve/reject vote on the imported mapping.
-      mappedBy: mapping.mappedBy,
-      mappedOn: mapping.mappedOn,
-      reviewedBy: undefined,
-      reviewedOn: undefined,
-      reviewComment: undefined,
       createdAt: now,
       updatedAt: now,
     }
     await getStorage().conceptMappings.create(local)
-    set((s) => ({ mappings: [...s.mappings, local] }))
+    set((s) => ({
+      mappings: [...s.mappings, local],
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
+    }))
     return local
   },
 

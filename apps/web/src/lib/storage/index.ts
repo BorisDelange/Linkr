@@ -45,6 +45,10 @@ export interface FileStorage {
   create(file: StoredFile): Promise<void>
   delete(id: string): Promise<void>
   deleteByDataSource(dataSourceId: string): Promise<void>
+  /** Look up an existing canonical file by SHA-256 content hash, used for dedup
+   *  when re-importing the same vocabulary into another data source. Returns the
+   *  first non-`dedupRef` row matching the hash, or `undefined` if none. */
+  findByHash(contentHash: string): Promise<StoredFile | undefined>
 }
 
 /** Storage interface for cohort persistence. */

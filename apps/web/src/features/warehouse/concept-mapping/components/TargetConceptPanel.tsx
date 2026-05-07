@@ -1702,8 +1702,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     <>
     {identityDialog}
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Mode toggle + add mapping button */}
-      <div className="relative flex items-center justify-center border-b px-3 py-1 gap-2">
+      {/* Row 1 — Mode toggle (Jeux de concepts / Recherche) */}
+      <div className="flex items-center justify-center border-b px-3 py-1">
         <div className="flex rounded-md bg-muted p-0.5">
           <button
             className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
@@ -1726,11 +1726,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {t('concept_mapping.mode_search')}
           </button>
         </div>
+      </div>
 
-        {/* Split add-mapping button (only when a source concept is selected) */}
-        {sourceConcept && (
-          <div className="absolute right-3 flex items-center">
-            {selectedTarget ? (
+      {/* Row 2 — Action buttons (only visible when a source concept is selected) */}
+      {sourceConcept && (
+        <div className="flex items-center justify-end gap-1 border-b px-3 py-1">
+          {selectedTarget ? (
               <>
                 <Button
                   variant="outline"
@@ -1794,21 +1795,20 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                     : t('concept_mapping.ignore')}
                 </Button>
                 {!ignoredConceptIds.has(sourceConcept.concept_id) && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
-                    title={t('concept_mapping.ignore_with_comment')}
-                    onClick={() => setIgnoreDialogOpen(true)}
-                  >
-                    <MessageSquare size={10} />
-                  </Button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-      </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
+                  title={t('concept_mapping.ignore_with_comment')}
+                  onClick={() => setIgnoreDialogOpen(true)}
+                >
+                  <MessageSquare size={10} />
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Mode content */}
       <div className="flex-1 overflow-hidden">

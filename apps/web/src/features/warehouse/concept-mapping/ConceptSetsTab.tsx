@@ -54,19 +54,24 @@ import {
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { escSql } from '@/lib/format-helpers'
 import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery } from '@/lib/concept-mapping/mapping-queries'
 
 // ---------------------------------------------------------------------------
 // ATHENA vocabulary schema mapping
 // ---------------------------------------------------------------------------
 
+// Only `concept` is required (target search uses it). `concept_ancestor` and
+// `concept_relationship` are optional but enable concept-set descendant/mapped expansion
+// (see lib/concept-mapping/mapping-queries.ts buildResolveDescendantsQuery /
+// buildResolveMappedQuery). The other Athena tables (concept_class, concept_synonym,
+// domain, drug_strength, relationship, vocabulary) are not read by the mapping UI and
+// were dropped from the accepted list to reduce IDB footprint.
 const ATHENA_KNOWN_TABLES = [
-  'concept', 'concept_ancestor', 'concept_class', 'concept_relationship',
-  'concept_synonym', 'domain', 'drug_strength', 'relationship', 'vocabulary',
+  'concept', 'concept_ancestor', 'concept_relationship',
 ]
 
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
@@ -672,36 +677,30 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     try {
       await ensureMounted(project.vocabularyDataSourceId)
 
-      const conditions: string[] = []
-      if (browseSearch.trim()) {
-        const escaped = escSql(browseSearch.trim())
-        conditions.push(`(concept_name ILIKE '%${escaped}%' OR concept_code ILIKE '%${escaped}%' OR CAST(concept_id AS VARCHAR) = '${escaped}')`)
+      // Use the same multi-tier ranked search as the Mapping Editor's target panel
+      // (exact id match → substring on code/name → Jaro-Winkler ≥ 0.8). Far better
+      // relevance than the previous ILIKE-only query.
+      const term = browseSearch.trim()
+      const filters = {
+        vocabularyIds: browseVocab !== '__all__' ? [browseVocab] : undefined,
+        domainIds: browseDomain !== '__all__' ? [browseDomain] : undefined,
+        standardConcepts: browseStandardOnly ? ['S'] : undefined,
       }
-      if (browseVocab !== '__all__') {
-        conditions.push(`vocabulary_id = '${escSql(browseVocab)}'`)
-      }
-      if (browseDomain !== '__all__') {
-        conditions.push(`domain_id = '${escSql(browseDomain)}'`)
-      }
-      if (browseStandardOnly) {
-        conditions.push(`standard_concept = 'S'`)
-      }
-      const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
 
-      const [countResult] = await queryDataSource(
-        project.vocabularyDataSourceId,
-        `SELECT COUNT(*) AS total FROM concept ${where}`,
-      )
+      // The ranked search returns top N rows globally. We over-fetch (page size × pages
+      // visited so far + buffer) so the user can paginate through the most relevant
+      // matches without re-issuing the heavy ranking query each page change.
+      const fetchLimit = Math.max(BROWSE_PAGE_SIZE * (browsePage + 4), 200)
+      const sql = buildStandardConceptSearchQuery(ATHENA_SCHEMA_MAPPING, term, filters, fetchLimit)
+
+      const countSql = buildStandardConceptSearchCountQuery(ATHENA_SCHEMA_MAPPING, term, filters)
+      const [countResult] = await queryDataSource(project.vocabularyDataSourceId, countSql)
       setBrowseTotal(Number(countResult?.total ?? 0))
 
-      const rows = await queryDataSource(
-        project.vocabularyDataSourceId,
-        `SELECT concept_id, concept_name, concept_code, vocabulary_id, domain_id, concept_class_id, standard_concept
-         FROM concept ${where}
-         ORDER BY concept_name
-         LIMIT ${BROWSE_PAGE_SIZE} OFFSET ${browsePage * BROWSE_PAGE_SIZE}`,
-      )
-      setBrowseResults(rows)
+      const allRows = sql ? await queryDataSource(project.vocabularyDataSourceId, sql) : []
+      // Slice to the requested page (the ranked query already returned top N globally).
+      const offset = browsePage * BROWSE_PAGE_SIZE
+      setBrowseResults(allRows.slice(offset, offset + BROWSE_PAGE_SIZE))
     } catch (err) {
       console.error('Browse vocabulary query failed:', err)
       setBrowseResults([])
