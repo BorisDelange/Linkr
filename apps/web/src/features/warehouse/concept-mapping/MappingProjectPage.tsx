@@ -131,20 +131,24 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
-        <TabsContent value="progress" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <ProgressTab project={project} dataSource={dataSource} />
+        {/* Render only the active tab. Previously all tabs used `forceMount` which kept
+            ProgressTab + ExportTab subscribed to mappings even when hidden — every vote
+            in MappingsTab triggered their heavy aggregation memos in the background,
+            blocking the main thread for several hundred ms on large projects. */}
+        <TabsContent value="progress" className="flex-1 overflow-hidden">
+          {activeTab === 'progress' && <ProgressTab project={project} dataSource={dataSource} />}
         </TabsContent>
-        <TabsContent value="concept-sets" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <ConceptSetsTab project={project} dataSource={dataSource} />
+        <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
+          {activeTab === 'concept-sets' && <ConceptSetsTab project={project} dataSource={dataSource} />}
         </TabsContent>
-        <TabsContent value="editor" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
+        <TabsContent value="editor" className="flex-1 overflow-hidden">
+          {activeTab === 'editor' && <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />}
         </TabsContent>
-        <TabsContent value="mappings" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <MappingsTab project={project} dataSource={dataSource} />
+        <TabsContent value="mappings" className="flex-1 overflow-hidden">
+          {activeTab === 'mappings' && <MappingsTab project={project} dataSource={dataSource} />}
         </TabsContent>
-        <TabsContent value="export" forceMount className="flex-1 overflow-hidden data-[state=inactive]:hidden">
-          <ExportTab project={project} dataSource={dataSource} />
+        <TabsContent value="export" className="flex-1 overflow-hidden">
+          {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
         </TabsContent>
       </Tabs>
     </div>

@@ -19,6 +19,7 @@ linkr/
 ├── package.json, turbo.json      # Monorepo config (Turborepo)
 ├── docs/                         # Documentation
 │   ├── vision-roadmap.md         # Long-term vision: monitoring, deployment
+│   ├── perf-phase-2.md           # Performance roadmap: status of Phase 1 + Phase 2 (lazy-seed) plan
 │   ├── shadcn-components.md      # Available shadcn/ui components
 │   └── health-dcat-ap.md         # DCAT-AP specification for health data catalogs
 ├── apps/

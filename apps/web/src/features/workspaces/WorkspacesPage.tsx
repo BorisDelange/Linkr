@@ -550,17 +550,23 @@ export function WorkspacesPage() {
     useDqStore.setState({ dqRuleSetsLoaded: false })
     // Concept mapping: also clear the in-memory `mappings` array — leftover entries from a
     // previously-deleted workspace would otherwise pollute the new project view.
-    useConceptMappingStore.setState({
-      mappingProjectsLoaded: false,
-      conceptSetsLoaded: false,
-      mappings: [],
-      mappingsLoaded: false,
-      activeProjectId: null,
-      otherProjectsMappedKeys: new Set(),
-      otherProjectsMappings: new Map(),
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
-    })
+    {
+      const cm = useConceptMappingStore.getState()
+      useConceptMappingStore.setState({
+        mappingProjectsLoaded: false,
+        conceptSetsLoaded: false,
+        mappings: [],
+        mappingsById: new Map(),
+        mappingsVersion: cm.mappingsVersion + 1,
+        mappingsStructureVersion: cm.mappingsStructureVersion + 1,
+        mappingsLoaded: false,
+        activeProjectId: null,
+        otherProjectsMappedKeys: new Set(),
+        otherProjectsMappings: new Map(),
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      })
+    }
     await useWorkspaceStore.getState().loadWorkspaces()
     await loadProjects()
   }, [loadProjects])

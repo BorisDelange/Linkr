@@ -264,12 +264,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     // project views. Dynamic import to avoid a circular module dependency.
     try {
       const { useConceptMappingStore } = await import('./concept-mapping-store')
+      const cm = useConceptMappingStore.getState()
       useConceptMappingStore.setState({
         mappings: [],
+        mappingsById: new Map(),
+        mappingsVersion: cm.mappingsVersion + 1,
+        mappingsStructureVersion: cm.mappingsStructureVersion + 1,
         mappingsLoaded: false,
         activeProjectId: null,
-        mappingProjects: useConceptMappingStore.getState().mappingProjects.filter((p) => p.workspaceId !== id),
-        conceptSets: useConceptMappingStore.getState().conceptSets.filter((cs) => cs.workspaceId !== id),
+        mappingProjects: cm.mappingProjects.filter((p) => p.workspaceId !== id),
+        conceptSets: cm.conceptSets.filter((cs) => cs.workspaceId !== id),
         otherProjectsMappedKeys: new Set(),
         otherProjectsMappings: new Map(),
         _otherKeysLoadedFor: null,

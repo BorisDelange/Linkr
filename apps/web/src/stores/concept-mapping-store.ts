@@ -36,6 +36,16 @@ interface ConceptMappingState {
 
   // --- Concept Mappings (scoped to active project) ---
   mappings: ConceptMapping[]
+  /** O(1) index over `mappings`. Mutated in place by updateMapping so consumers can
+   *  read the latest entry without forcing the whole `mappings` array reference to change. */
+  mappingsById: Map<string, ConceptMapping>
+  /** Bumped on every mapping mutation (vote, comment, status change…). Memos that
+   *  derive per-row content (vote counts, effective status) should depend on this. */
+  mappingsVersion: number
+  /** Bumped only when the *set* of mappings changes (create / delete / batch import).
+   *  Memos that derive aggregations over the full set (filter options, status counts)
+   *  should depend on this — voting on a row should NOT invalidate them. */
+  mappingsStructureVersion: number
   mappingsLoaded: boolean
   activeProjectId: string | null
   loadProjectMappings: (projectId: string, options?: { force?: boolean }) => Promise<void>
@@ -173,6 +183,9 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
 
   // --- Concept Mappings ---
   mappings: [],
+  mappingsById: new Map(),
+  mappingsVersion: 0,
+  mappingsStructureVersion: 0,
   mappingsLoaded: false,
   activeProjectId: null,
 
@@ -201,12 +214,36 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         return migrated
       }))
     }
-    set({ mappings, mappingsLoaded: true, activeProjectId: projectId })
+    // Build the id index in lockstep with the array, then bump the structure version
+    // (the *set* of rows changed) and the content version (each row's content is fresh too).
+    const mappingsById = new Map<string, ConceptMapping>()
+    for (const m of mappings) mappingsById.set(m.id, m)
+    set((s) => ({
+      mappings,
+      mappingsById,
+      mappingsVersion: s.mappingsVersion + 1,
+      mappingsStructureVersion: s.mappingsStructureVersion + 1,
+      mappingsLoaded: true,
+      activeProjectId: projectId,
+    }))
   },
 
   createMapping: async (mapping) => {
     await getStorage().conceptMappings.create(mapping)
-    set((s) => ({ mappings: [...s.mappings, mapping], _otherKeysLoadedFor: null, _otherDetailsLoadedFor: null }))
+    set((s) => {
+      // Rebuild the array (reference change is desired — set membership changed).
+      // Mutate the id index in place: the Map's identity stays stable and consumers
+      // that subscribed to `mappingsById` keep their reference, but the new entry is
+      // visible via Map.get().
+      s.mappingsById.set(mapping.id, mapping)
+      return {
+        mappings: [...s.mappings, mapping],
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
     void get().recomputeProjectStats(mapping.projectId).catch(() => {})
   },
 
@@ -229,11 +266,16 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     }
     if (filtered.length === 0) return
     await getStorage().conceptMappings.createBatch(filtered)
-    set((s) => ({
-      mappings: [...s.mappings, ...filtered],
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
-    }))
+    set((s) => {
+      for (const m of filtered) s.mappingsById.set(m.id, m)
+      return {
+        mappings: [...s.mappings, ...filtered],
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
     // Recompute stats for each affected project (usually one, but bulk imports may span several)
     const affectedProjects = new Set(filtered.map((m) => m.projectId))
     for (const pid of affectedProjects) {
@@ -242,7 +284,6 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   },
 
   updateMapping: async (id, changes) => {
-    let affectedProjectId: string | undefined
     // Invalidate the cross-project cache only when a field that affects "is mapped
     // elsewhere?" changes — i.e. status (especially `ignored`) or targetConceptId.
     // Pure review/comment updates leave the cache valid.
@@ -251,31 +292,55 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       Object.prototype.hasOwnProperty.call(changes, 'targetConceptId') ||
       Object.prototype.hasOwnProperty.call(changes, 'sourceVocabularyId') ||
       Object.prototype.hasOwnProperty.call(changes, 'sourceConceptCode')
-    // Optimistic update: apply to in-memory store first so the UI reacts immediately,
-    // then persist to IDB in the background. If the IDB write fails, the in-memory
-    // state will diverge until the next reload — acceptable for a vote/comment update.
-    set((s) => ({
-      mappings: s.mappings.map((m) => {
-        if (m.id !== id) return m
-        affectedProjectId = m.projectId
-        return { ...m, ...changes, updatedAt: new Date().toISOString() }
-      }),
-      ...(invalidatesXProject ? { _otherKeysLoadedFor: null, _otherDetailsLoadedFor: null } : {}),
-    }))
-    await getStorage().conceptMappings.update(id, changes)
-    if (affectedProjectId) {
-      void get().recomputeProjectStats(affectedProjectId).catch(() => {})
+
+    const existing = get().mappingsById.get(id)
+    if (!existing) {
+      // Persist the change anyway (caller may know about a row not yet loaded), but
+      // skip the in-memory update — there's nothing to surgically patch.
+      await getStorage().conceptMappings.update(id, changes)
+      return
     }
+    const updated: ConceptMapping = { ...existing, ...changes, updatedAt: new Date().toISOString() }
+    const affectedProjectId = existing.projectId
+    // Hot path fast-skip: if the only fields changing are `reviews` and the bookkeeping
+    // ones (reviewedBy / reviewedOn / updatedAt), bump only `mappingsVersion` and let
+    // the rendering pick up fresh data via `mappingsById`. Any other field change might
+    // be displayed by the table cell directly — bump structureVersion to refresh the
+    // memo chain so the cell sees the new value.
+    const HOT_FIELDS = new Set(['reviews', 'reviewedBy', 'reviewedOn', 'updatedAt'])
+    const onlyHotFields = Object.keys(changes).every((k) => HOT_FIELDS.has(k))
+
+    // Optimistic surgical update: mutate the id index in place, replace the array entry
+    // at the correct position so iterators keep working — but DO NOT swap the `mappings`
+    // array reference. Memos depending on `mappingsStructureVersion` re-run only if the
+    // change touches a field other than the hot-path review/comment fields.
+    set((s) => {
+      s.mappingsById.set(id, updated)
+      const idx = s.mappings.findIndex((m) => m.id === id)
+      if (idx >= 0) s.mappings[idx] = updated
+      return {
+        mappingsVersion: s.mappingsVersion + 1,
+        ...(onlyHotFields ? {} : { mappingsStructureVersion: s.mappingsStructureVersion + 1 }),
+        ...(invalidatesXProject ? { _otherKeysLoadedFor: null, _otherDetailsLoadedFor: null } : {}),
+      }
+    })
+    await getStorage().conceptMappings.update(id, changes)
+    void get().recomputeProjectStats(affectedProjectId).catch(() => {})
   },
 
   deleteMapping: async (id) => {
-    const affectedProjectId = get().mappings.find((m) => m.id === id)?.projectId
+    const affectedProjectId = get().mappingsById.get(id)?.projectId
     await getStorage().conceptMappings.delete(id)
-    set((s) => ({
-      mappings: s.mappings.filter((m) => m.id !== id),
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
-    }))
+    set((s) => {
+      s.mappingsById.delete(id)
+      return {
+        mappings: s.mappings.filter((m) => m.id !== id),
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
     if (affectedProjectId) {
       void get().recomputeProjectStats(affectedProjectId).catch(() => {})
     }
@@ -285,19 +350,30 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     const now = new Date().toISOString()
     const changes: Partial<ConceptMapping> = { status, mappedOn: now }
     if (updatedBy) changes.mappedBy = updatedBy
+    const idSet = new Set(ids)
     const affectedProjects = new Set<string>()
     for (const id of ids) {
       await getStorage().conceptMappings.update(id, changes)
     }
-    set((s) => ({
-      mappings: s.mappings.map((m) => {
-        if (!ids.includes(m.id)) return m
+    // bulkUpdateStatus changes `m.status` for many rows at once, so it affects both
+    // per-row memos (mappingsVersion) AND aggregations like statusCounts that read
+    // `m.status` directly (mappingsStructureVersion). Bump both.
+    set((s) => {
+      for (let i = 0; i < s.mappings.length; i++) {
+        const m = s.mappings[i]
+        if (!idSet.has(m.id)) continue
         affectedProjects.add(m.projectId)
-        return { ...m, ...changes, updatedAt: now }
-      }),
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
-    }))
+        const updated = { ...m, ...changes, updatedAt: now }
+        s.mappings[i] = updated
+        s.mappingsById.set(m.id, updated)
+      }
+      return {
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
     for (const pid of affectedProjects) {
       void get().recomputeProjectStats(pid).catch(() => {})
     }
@@ -344,7 +420,14 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     // Reload mappings if this is the active project
     if (get().activeProjectId === projectId) {
       const refreshed = await getStorage().conceptMappings.getByProject(projectId)
-      set({ mappings: refreshed })
+      const mappingsById = new Map<string, ConceptMapping>()
+      for (const m of refreshed) mappingsById.set(m.id, m)
+      set((s) => ({
+        mappings: refreshed,
+        mappingsById,
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+      }))
     }
 
     return updatedCount
@@ -441,7 +524,8 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   importExternalMapping: async (info, targetProjectId, options) => {
     const now = new Date().toISOString()
     const { mapping } = info
-    // Skip if a mapping with the same target already exists for this source in the project
+    // Skip if a mapping with the same (project, source vocab+code, target) already exists.
+    // Iterate the array directly — there's no faster index for this composite key.
     const existing = get().mappings.find((m) =>
       m.projectId === targetProjectId &&
       m.sourceVocabularyId === mapping.sourceVocabularyId &&
@@ -462,11 +546,16 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       updatedAt: now,
     }
     await getStorage().conceptMappings.create(local)
-    set((s) => ({
-      mappings: [...s.mappings, local],
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
-    }))
+    set((s) => {
+      s.mappingsById.set(local.id, local)
+      return {
+        mappings: [...s.mappings, local],
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
     return local
   },
 

@@ -828,7 +828,22 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
-  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsDetails, loadProjectMappings } = useConceptMappingStore()
+  // Subscribe to version counters instead of the `mappings` array directly. This lets
+  // memos depend on `mappingsStructureVersion` (set membership / aggregations) or
+  // `mappingsVersion` (per-row content) explicitly, so a vote on a single row no
+  // longer invalidates the filterOptions / external-rows / sorted memos.
+  const updateMapping = useConceptMappingStore((s) => s.updateMapping)
+  const deleteMapping = useConceptMappingStore((s) => s.deleteMapping)
+  const createMappingsBatch = useConceptMappingStore((s) => s.createMappingsBatch)
+  const importExternalMapping = useConceptMappingStore((s) => s.importExternalMapping)
+  const loadOtherProjectsDetails = useConceptMappingStore((s) => s.loadOtherProjectsDetails)
+  const loadProjectMappings = useConceptMappingStore((s) => s.loadProjectMappings)
+  const mappingsVersion = useConceptMappingStore((s) => s.mappingsVersion)
+  const mappingsStructureVersion = useConceptMappingStore((s) => s.mappingsStructureVersion)
+  // `mappings` is read from the store via getState() inside memos that depend on the
+  // appropriate version counter — never as a hook subscription, to avoid re-rendering
+  // the whole component on every Zustand state change.
+  const mappings = useConceptMappingStore.getState().mappings
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -976,7 +991,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
-  const projectMappings = mappings.filter((m) => m.projectId === project.id)
+  // Set-level memo: only re-derives when the *structure* of mappings changes
+  // (create / delete / batch import / reload). A vote that just updates a single row
+  // does NOT bump structureVersion, so this memo keeps its cached array reference.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const projectMappings = useMemo(
+    () => mappings.filter((m) => m.projectId === project.id),
+    [mappingsStructureVersion, project.id],
+  )
 
   // Build synthetic "external" rows for source concepts mapped only in other projects.
   // Each external mapping gets a sentinel id prefixed with EXTERNAL_PREFIX so we can detect it.
@@ -1048,9 +1070,18 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     flaggedCount: number
     myReviewStatus: MappingStatus | undefined
   }
+  // rowDerived is rebuilt on every per-row mutation (mappingsVersion bump). We look up
+  // each row by id in the store's `mappingsById` index — that index sees the latest
+  // content even when the `allDisplayMappings` array reference is stable for memos
+  // depending on `mappingsStructureVersion`.
   const rowDerived = useMemo(() => {
     const map = new Map<string, RowDerived>()
-    for (const m of allDisplayMappings) {
+    const byId = useConceptMappingStore.getState().mappingsById
+    for (const stale of allDisplayMappings) {
+      // Local rows have a fresh entry in `byId`. External rows (synthetic, prefixed)
+      // are not in the index — fall back to the row from the iteration since they
+      // never get mutated by votes in this view.
+      const m = byId.get(stale.id) ?? stale
       const reviews = m.reviews
       let approvedCount = 0
       let rejectedCount = 0
@@ -1076,7 +1107,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       map.set(m.id, { eff, approvedCount, rejectedCount, flaggedCount, myReviewStatus })
     }
     return map
-  }, [allDisplayMappings, currentUser])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDisplayMappings, currentUser, mappingsVersion])
 
   // Backwards-compatible accessor used elsewhere in the component.
   const effectiveStatus = useCallback((m: ConceptMapping): MappingStatus => {
