@@ -242,17 +242,27 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   },
 
   updateMapping: async (id, changes) => {
-    await getStorage().conceptMappings.update(id, changes)
     let affectedProjectId: string | undefined
+    // Invalidate the cross-project cache only when a field that affects "is mapped
+    // elsewhere?" changes — i.e. status (especially `ignored`) or targetConceptId.
+    // Pure review/comment updates leave the cache valid.
+    const invalidatesXProject =
+      Object.prototype.hasOwnProperty.call(changes, 'status') ||
+      Object.prototype.hasOwnProperty.call(changes, 'targetConceptId') ||
+      Object.prototype.hasOwnProperty.call(changes, 'sourceVocabularyId') ||
+      Object.prototype.hasOwnProperty.call(changes, 'sourceConceptCode')
+    // Optimistic update: apply to in-memory store first so the UI reacts immediately,
+    // then persist to IDB in the background. If the IDB write fails, the in-memory
+    // state will diverge until the next reload — acceptable for a vote/comment update.
     set((s) => ({
       mappings: s.mappings.map((m) => {
         if (m.id !== id) return m
         affectedProjectId = m.projectId
         return { ...m, ...changes, updatedAt: new Date().toISOString() }
       }),
-      _otherKeysLoadedFor: null,
-      _otherDetailsLoadedFor: null,
+      ...(invalidatesXProject ? { _otherKeysLoadedFor: null, _otherDetailsLoadedFor: null } : {}),
     }))
+    await getStorage().conceptMappings.update(id, changes)
     if (affectedProjectId) {
       void get().recomputeProjectStats(affectedProjectId).catch(() => {})
     }

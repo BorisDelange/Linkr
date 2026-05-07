@@ -1038,18 +1038,50 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return counts
   }, [projectMappings])
 
-  // Compute effective status per mapping (based on reviews majority vote)
+  // Per-mapping derived view: computed once when `allDisplayMappings` changes, then
+  // looked up O(1) in filters, sort, and column cells. This avoids re-walking each
+  // mapping's `reviews` array on every render (5+ filters × thousands of rows).
+  interface RowDerived {
+    eff: MappingStatus
+    approvedCount: number
+    rejectedCount: number
+    flaggedCount: number
+    myReviewStatus: MappingStatus | undefined
+  }
+  const rowDerived = useMemo(() => {
+    const map = new Map<string, RowDerived>()
+    for (const m of allDisplayMappings) {
+      const reviews = m.reviews
+      let approvedCount = 0
+      let rejectedCount = 0
+      let flaggedCount = 0
+      let myReviewStatus: MappingStatus | undefined
+      if (reviews && reviews.length > 0) {
+        for (const r of reviews) {
+          if (r.status === 'approved') approvedCount++
+          else if (r.status === 'rejected') rejectedCount++
+          else if (r.status === 'flagged') flaggedCount++
+          if (r.reviewerId === currentUser) myReviewStatus = r.status
+        }
+      }
+      // Effective status: majority among decisive votes. With ties, approved wins,
+      // then rejected, then flagged. Falls back to the stored `status` when no vote.
+      let eff: MappingStatus = m.status
+      if (approvedCount + rejectedCount + flaggedCount > 0) {
+        const max = Math.max(approvedCount, rejectedCount, flaggedCount)
+        if (approvedCount === max) eff = 'approved'
+        else if (rejectedCount === max) eff = 'rejected'
+        else eff = 'flagged'
+      }
+      map.set(m.id, { eff, approvedCount, rejectedCount, flaggedCount, myReviewStatus })
+    }
+    return map
+  }, [allDisplayMappings, currentUser])
+
+  // Backwards-compatible accessor used elsewhere in the component.
   const effectiveStatus = useCallback((m: ConceptMapping): MappingStatus => {
-    const reviews = m.reviews ?? []
-    if (reviews.length === 0) return m.status
-    const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
-    for (const r of reviews) counts[r.status] = (counts[r.status] ?? 0) + 1
-    const max = Math.max(...Object.values(counts))
-    if (counts.approved === max) return 'approved'
-    if (counts.rejected === max) return 'rejected'
-    if (counts.flagged === max) return 'flagged'
-    return m.status
-  }, [])
+    return rowDerived.get(m.id)?.eff ?? m.status
+  }, [rowDerived])
 
   // Apply column filters + status popover filter (client-side)
   const filtered = useMemo(() => allDisplayMappings.filter((m) => {
@@ -1068,9 +1100,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     const isExternalRow = m.id.startsWith(EXTERNAL_PREFIX)
     if (originFilter === 'local' && isExternalRow) return false
     if (originFilter === 'external' && !isExternalRow) return false
+    // Pre-computed derived view (eff status, vote counts, my review) — O(1) lookup.
+    const d = rowDerived.get(m.id)
     // "My review" filter (under the Review column)
     if (myReviewFilter !== 'all') {
-      const myStatus = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status
+      const myStatus = d?.myReviewStatus
       if (myReviewFilter === 'unchecked') {
         if (myStatus) return false
       } else if (myStatus !== myReviewFilter) {
@@ -1078,18 +1112,17 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       }
     }
     // Status popover filter
-    const eff = effectiveStatus(m)
+    const eff = d?.eff ?? m.status
     if (!includedStatuses.has(eff)) return false
     // Approval rule sub-filter
     if (eff === 'approved' && includedStatuses.has('approved') && approvalRule !== 'at_least_one') {
-      const reviews = m.reviews ?? []
-      const approvedCount = reviews.filter((r) => r.status === 'approved').length
-      const rejectedCount = reviews.filter((r) => r.status === 'rejected').length
+      const approvedCount = d?.approvedCount ?? 0
+      const rejectedCount = d?.rejectedCount ?? 0
       if (approvalRule === 'majority' && !(approvedCount > rejectedCount)) return false
       if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
     }
     return true
-  }), [allDisplayMappings, colFilters, originFilter, myReviewFilter, currentUser, includedStatuses, approvalRule, effectiveStatus])
+  }), [allDisplayMappings, colFilters, originFilter, myReviewFilter, includedStatuses, approvalRule, rowDerived])
 
   // Apply sorting
   const sorted = useMemo(() => {
@@ -1362,24 +1395,40 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           .filter((m) => m.projectId === project.id)
           .map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
       )
-      let imported = 0
+      // Build the full batch in memory first — no await, no React updates per row.
+      // Then hand it to createMappingsBatch which writes IDB in a single transaction
+      // and triggers exactly one Zustand set() at the end. This avoids the N×re-render
+      // pattern that made the Mappings table freeze for several seconds during bulk imports.
+      const now = new Date().toISOString()
+      const toImport: ConceptMapping[] = []
       let skipped = 0
       for (const list of otherProjectsMappings.values()) {
         for (const info of list) {
           if (!selected.has(info.sourceProjectId)) continue
           const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
           if (localKeys.has(key)) { skipped++; continue }
-          const local = await importExternalMapping(info, project.id)
-          if (local) { imported++; localKeys.add(key) } else { skipped++ }
+          // Mirror importExternalMapping shape: full preservation of status / reviews / comments,
+          // only identity fields (id, projectId) and timestamps are rewritten.
+          toImport.push({
+            ...info.mapping,
+            id: crypto.randomUUID(),
+            projectId: project.id,
+            createdAt: now,
+            updatedAt: now,
+          })
+          localKeys.add(key)
         }
       }
-      setBulkResult({ imported, skipped })
+      if (toImport.length > 0) {
+        await createMappingsBatch(toImport)
+      }
+      setBulkResult({ imported: toImport.length, skipped })
       setBulkImportOpen(false)
       setBulkSelectedProjects([])
     } finally {
       setBulkImporting(false)
     }
-  }, [bulkImporting, bulkSelectedProjects, bulkProjectOptions, mappings, project.id, otherProjectsMappings, importExternalMapping])
+  }, [bulkImporting, bulkSelectedProjects, bulkProjectOptions, mappings, project.id, otherProjectsMappings, createMappingsBatch])
 
   const handleImportMappings = async (file: File) => {
     if (importing) return
@@ -1821,11 +1870,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         minSize: 90,
       },
       // ── Votes ───────────────────────────────────────────────────────
+      // Counts come from the pre-computed `rowDerived` map — the cell only does an O(1)
+      // Map.get() instead of allocating a filtered array on every render.
       {
         id: '_votes_approved',
         header: () => <span className="text-green-600" title={t('concept_mapping.approve')}>✓</span>,
         cell: ({ row }) => {
-          const count = (row.original.reviews ?? []).filter((r) => r.status === 'approved').length
+          const count = rowDerived.get(row.original.id)?.approvedCount ?? 0
           return count > 0 ? <span className="text-xs font-medium text-green-600">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
         },
         size: 36,
@@ -1836,7 +1887,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         id: '_votes_flagged',
         header: () => <span className="text-orange-500" title={t('concept_mapping.flag')}>⚑</span>,
         cell: ({ row }) => {
-          const count = (row.original.reviews ?? []).filter((r) => r.status === 'flagged').length
+          const count = rowDerived.get(row.original.id)?.flaggedCount ?? 0
           return count > 0 ? <span className="text-xs font-medium text-orange-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
         },
         size: 36,
@@ -1847,7 +1898,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         id: '_votes_rejected',
         header: () => <span className="text-red-500" title={t('concept_mapping.reject')}>✗</span>,
         cell: ({ row }) => {
-          const count = (row.original.reviews ?? []).filter((r) => r.status === 'rejected').length
+          const count = rowDerived.get(row.original.id)?.rejectedCount ?? 0
           return count > 0 ? <span className="text-xs font-medium text-red-500">{count}</span> : <span className="text-xs text-muted-foreground/40">—</span>
         },
         size: 36,
@@ -1924,7 +1975,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
                 <TooltipContent side="top" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}</TooltipContent>
               </Tooltip>
               {(() => {
-                const myReview = (m.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
+                const myReview = rowDerived.get(m.id)?.myReviewStatus ?? 'unchecked'
                 const isOwn = m.mappedBy === currentUser
                 return (
                   <>
@@ -1983,7 +2034,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, visibleItems, effectiveStatus, resolveExternal, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, toggleSelect, setReviewsMappingId, setCommentsMappingId, currentUser, rowDerived, resolveExternal, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,

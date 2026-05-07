@@ -1195,22 +1195,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
                       </p>
                       <div className="space-y-1">
-                        {vocabFiles.map((f) => {
-                          const base = f.name.replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '').toLowerCase()
-                          return (
-                            <div key={f.name} className="flex items-center gap-2 text-xs">
-                              <span className="truncate flex-1">{f.name}</span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {(f.size / 1024 / 1024).toFixed(1)} MB
-                              </span>
-                              {base === 'concept' && (
-                                <Badge variant="secondary" className="text-[9px]">
-                                  {t('concept_mapping.vocab_import_required')}
-                                </Badge>
-                              )}
-                            </div>
-                          )
-                        })}
+                        {vocabFiles.map((f) => (
+                          <div key={f.name} className="flex items-center gap-2 text-xs">
+                            <span className="truncate flex-1">{f.name}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {(f.size / 1024 / 1024).toFixed(1)} MB
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}

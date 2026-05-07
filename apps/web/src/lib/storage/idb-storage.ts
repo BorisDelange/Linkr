@@ -902,9 +902,17 @@ class IDBFileStorage implements FileStorage {
   async findByHash(contentHash: string): Promise<StoredFile | undefined> {
     if (!contentHash) return undefined
     const db = await getDB()
-    const candidates = await db.getAllFromIndex('files', 'by-content-hash', contentHash)
-    // Prefer a row that holds the actual bytes (not a dedupRef) and has non-empty data.
-    return candidates.find((f) => !f.dedupRef && f.data && f.data.byteLength > 0)
+    // Defensive: the by-content-hash index was added in DB v30. If the upgrade hasn't
+    // completed yet (e.g. another tab held the old version open and blocked the upgrade)
+    // a query against the missing index throws NotFoundError. Fall back to a full scan in
+    // that rare case rather than crashing the import.
+    try {
+      const candidates = await db.getAllFromIndex('files', 'by-content-hash', contentHash)
+      return candidates.find((f) => !f.dedupRef && f.data && f.data.byteLength > 0)
+    } catch {
+      const all = await db.getAll('files')
+      return all.find((f) => f.contentHash === contentHash && !f.dedupRef && f.data && f.data.byteLength > 0)
+    }
   }
 }
 
