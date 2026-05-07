@@ -558,6 +558,8 @@ export function WorkspacesPage() {
       activeProjectId: null,
       otherProjectsMappedKeys: new Set(),
       otherProjectsMappings: new Map(),
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
     })
     await useWorkspaceStore.getState().loadWorkspaces()
     await loadProjects()

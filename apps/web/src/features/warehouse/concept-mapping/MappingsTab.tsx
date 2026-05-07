@@ -828,17 +828,18 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
-  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsMappedKeys, loadProjectMappings } = useConceptMappingStore()
+  const { mappings, updateMapping, deleteMapping, createMappingsBatch, importExternalMapping, loadOtherProjectsDetails, loadProjectMappings } = useConceptMappingStore()
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
-  // Load cross-project mappings on mount
+  // Load cross-project mapping details (needed to render synthetic external rows in this tab).
+  // Cached in the store so this is a no-op if Editor tab already triggered it.
   useEffect(() => {
-    if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
-  }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
+    if (project.workspaceId) loadOtherProjectsDetails(project.id, project.workspaceId)
+  }, [project.id, project.workspaceId, loadOtherProjectsDetails])
 
   // Source-concept-id registry: resolve `(vocabulary, code) → assigned id` via the project's badges.
   // First badge in the project's badge list wins on conflict.
@@ -1316,7 +1317,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
       // Reload mappings from IDB to make sure we see the current state.
       // Necessary after a workspace re-import where the in-memory store may be stale.
-      await loadProjectMappings(project.id)
+      await loadProjectMappings(project.id, { force: true })
       const freshLocal = useConceptMappingStore.getState().mappings.filter((m) => m.projectId === project.id)
 
       // Build map: (sourceVocabularyId, sourceConceptCode, targetConceptId) → existing mapping

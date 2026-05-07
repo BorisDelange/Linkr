@@ -95,7 +95,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject, recomputeProjectStats } = useConceptMappingStore()
+  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
   const loadConceptSets = useConceptMappingStore((s) => s.loadConceptSets)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -105,13 +105,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   }, [mappingProjectsLoaded, loadMappingProjects])
 
   const projects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
-
-  // Refresh stats once per project on mount (counts mapped/approved from IndexedDB).
-  useEffect(() => {
-    if (!mappingProjectsLoaded || projects.length === 0) return
-    Promise.all(projects.map((p) => recomputeProjectStats(p.id))).catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mappingProjectsLoaded, activeWorkspaceId])
+  // Stats are persisted in MappingProject.stats and refreshed on every mapping mutation
+  // (via createMapping / updateMapping / deleteMapping in the store). No need to recompute
+  // them on every list-page mount.
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('concept_mapping.unknown_source')
 

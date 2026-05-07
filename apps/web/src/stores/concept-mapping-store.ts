@@ -38,7 +38,7 @@ interface ConceptMappingState {
   mappings: ConceptMapping[]
   mappingsLoaded: boolean
   activeProjectId: string | null
-  loadProjectMappings: (projectId: string) => Promise<void>
+  loadProjectMappings: (projectId: string, options?: { force?: boolean }) => Promise<void>
   createMapping: (mapping: ConceptMapping) => Promise<void>
   createMappingsBatch: (mappings: ConceptMapping[]) => Promise<void>
   updateMapping: (id: string, changes: Partial<ConceptMapping>) => Promise<void>
@@ -53,12 +53,18 @@ interface ConceptMappingState {
   recomputeProjectStats: (projectId: string) => Promise<MappingProjectStats>
 
   // --- Cross-project "mapped elsewhere" ---
-  /** Set of `vocabulary:code` keys mapped in other projects. */
+  /** Set of `vocabulary:code` keys mapped in other projects. Cheap, used everywhere. */
   otherProjectsMappedKeys: Set<string>
-  /** Detailed cross-project mappings keyed by `vocabulary:code`. */
+  /** Detailed cross-project mappings keyed by `vocabulary:code`. Heavier, populated on demand. */
   otherProjectsMappings: Map<string, ExternalMappingInfo[]>
-  /** Load mapped keys from all other projects in the same workspace. */
+  /** Cache markers so we don't redo the same scan twice in the same session. */
+  _otherKeysLoadedFor: string | null
+  _otherDetailsLoadedFor: string | null
+  /** Cheap path: builds only `otherProjectsMappedKeys`. Use from views that just need the badge. */
   loadOtherProjectsMappedKeys: (currentProjectId: string, workspaceId: string) => Promise<void>
+  /** Heavy path: also fills `otherProjectsMappings` with the full `ExternalMappingInfo[]`.
+   *  Use only from views that render external rows or need per-mapping detail (MappingsTab). */
+  loadOtherProjectsDetails: (currentProjectId: string, workspaceId: string) => Promise<void>
   /** Import an external mapping into the active project as a local copy.
    *  Returns the newly-created local mapping, or null if it could not be imported. */
   importExternalMapping: (
@@ -170,31 +176,38 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   mappingsLoaded: false,
   activeProjectId: null,
 
-  loadProjectMappings: async (projectId) => {
+  loadProjectMappings: async (projectId, options) => {
+    // Skip if this project's mappings are already loaded (unless force=true).
+    if (!options?.force && get().activeProjectId === projectId && get().mappingsLoaded) return
     const raw = await getStorage().conceptMappings.getByProject(projectId)
-    // Migrate: mappings created before the reviews[] system have status set but no reviews entry.
-    // Synthesize a review from the original mapper so vote counts are correct.
-    const now = new Date().toISOString()
-    const mappings = await Promise.all(raw.map(async (m) => {
-      if ((m.reviews ?? []).length > 0) return m
-      if (!m.status || m.status === 'unchecked') return m
-      const reviewer = m.mappedBy ?? m.reviewedBy ?? 'Unknown'
-      const review = {
-        id: crypto.randomUUID(),
-        reviewerId: reviewer,
-        status: m.status,
-        createdAt: m.reviewedOn ?? m.updatedAt ?? now,
-      }
-      const migrated = { ...m, reviews: [review] }
-      await getStorage().conceptMappings.update(m.id, { reviews: [review] })
-      return migrated
-    }))
+    // Quick scan: only run the legacy migration if at least one row needs it.
+    // Most projects have already been migrated, so we avoid creating 100k+ promises for nothing.
+    const needsMigration = raw.some((m) => (m.reviews ?? []).length === 0 && m.status && m.status !== 'unchecked')
+    let mappings = raw
+    if (needsMigration) {
+      const now = new Date().toISOString()
+      mappings = await Promise.all(raw.map(async (m) => {
+        if ((m.reviews ?? []).length > 0) return m
+        if (!m.status || m.status === 'unchecked') return m
+        const reviewer = m.mappedBy ?? m.reviewedBy ?? 'Unknown'
+        const review = {
+          id: crypto.randomUUID(),
+          reviewerId: reviewer,
+          status: m.status,
+          createdAt: m.reviewedOn ?? m.updatedAt ?? now,
+        }
+        const migrated = { ...m, reviews: [review] }
+        await getStorage().conceptMappings.update(m.id, { reviews: [review] })
+        return migrated
+      }))
+    }
     set({ mappings, mappingsLoaded: true, activeProjectId: projectId })
   },
 
   createMapping: async (mapping) => {
     await getStorage().conceptMappings.create(mapping)
-    set((s) => ({ mappings: [...s.mappings, mapping] }))
+    set((s) => ({ mappings: [...s.mappings, mapping], _otherKeysLoadedFor: null, _otherDetailsLoadedFor: null }))
+    void get().recomputeProjectStats(mapping.projectId).catch(() => {})
   },
 
   createMappingsBatch: async (mappings) => {
@@ -216,35 +229,68 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     }
     if (filtered.length === 0) return
     await getStorage().conceptMappings.createBatch(filtered)
-    set((s) => ({ mappings: [...s.mappings, ...filtered] }))
+    set((s) => ({
+      mappings: [...s.mappings, ...filtered],
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
+    }))
+    // Recompute stats for each affected project (usually one, but bulk imports may span several)
+    const affectedProjects = new Set(filtered.map((m) => m.projectId))
+    for (const pid of affectedProjects) {
+      void get().recomputeProjectStats(pid).catch(() => {})
+    }
   },
 
   updateMapping: async (id, changes) => {
     await getStorage().conceptMappings.update(id, changes)
+    let affectedProjectId: string | undefined
     set((s) => ({
-      mappings: s.mappings.map((m) =>
-        m.id === id ? { ...m, ...changes, updatedAt: new Date().toISOString() } : m,
-      ),
+      mappings: s.mappings.map((m) => {
+        if (m.id !== id) return m
+        affectedProjectId = m.projectId
+        return { ...m, ...changes, updatedAt: new Date().toISOString() }
+      }),
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
     }))
+    if (affectedProjectId) {
+      void get().recomputeProjectStats(affectedProjectId).catch(() => {})
+    }
   },
 
   deleteMapping: async (id) => {
+    const affectedProjectId = get().mappings.find((m) => m.id === id)?.projectId
     await getStorage().conceptMappings.delete(id)
-    set((s) => ({ mappings: s.mappings.filter((m) => m.id !== id) }))
+    set((s) => ({
+      mappings: s.mappings.filter((m) => m.id !== id),
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
+    }))
+    if (affectedProjectId) {
+      void get().recomputeProjectStats(affectedProjectId).catch(() => {})
+    }
   },
 
   bulkUpdateStatus: async (ids, status, updatedBy) => {
     const now = new Date().toISOString()
     const changes: Partial<ConceptMapping> = { status, mappedOn: now }
     if (updatedBy) changes.mappedBy = updatedBy
+    const affectedProjects = new Set<string>()
     for (const id of ids) {
       await getStorage().conceptMappings.update(id, changes)
     }
     set((s) => ({
-      mappings: s.mappings.map((m) =>
-        ids.includes(m.id) ? { ...m, ...changes, updatedAt: now } : m,
-      ),
+      mappings: s.mappings.map((m) => {
+        if (!ids.includes(m.id)) return m
+        affectedProjects.add(m.projectId)
+        return { ...m, ...changes, updatedAt: now }
+      }),
+      _otherKeysLoadedFor: null,
+      _otherDetailsLoadedFor: null,
     }))
+    for (const pid of affectedProjects) {
+      void get().recomputeProjectStats(pid).catch(() => {})
+    }
   },
 
   reconcileMappingsToFile: async (projectId, newFileData) => {
@@ -336,7 +382,29 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   // --- Cross-project "mapped elsewhere" ---
   otherProjectsMappedKeys: new Set(),
   otherProjectsMappings: new Map(),
+  _otherKeysLoadedFor: null,
+  _otherDetailsLoadedFor: null,
   loadOtherProjectsMappedKeys: async (currentProjectId, workspaceId) => {
+    const cacheKey = `${workspaceId}::${currentProjectId}`
+    if (get()._otherKeysLoadedFor === cacheKey) return
+    const storage = getStorage()
+    const projects = get().mappingProjects.filter((p) => p.workspaceId === workspaceId && p.id !== currentProjectId)
+    const keys = new Set<string>()
+    for (const p of projects) {
+      // Use the project's stats array if available to avoid scanning every mapping. Fallback to a
+      // mappings scan that pulls only the columns we need from IDB. Either way, no full record
+      // is held in memory beyond what's needed for the Set.
+      const mappings = await storage.conceptMappings.getByProject(p.id)
+      for (const m of mappings) {
+        if (m.status === 'ignored' || m.targetConceptId === 0) continue
+        keys.add(`${m.sourceVocabularyId}:${m.sourceConceptCode}`)
+      }
+    }
+    set({ otherProjectsMappedKeys: keys, _otherKeysLoadedFor: cacheKey })
+  },
+  loadOtherProjectsDetails: async (currentProjectId, workspaceId) => {
+    const cacheKey = `${workspaceId}::${currentProjectId}`
+    if (get()._otherDetailsLoadedFor === cacheKey) return
     const storage = getStorage()
     const projects = get().mappingProjects.filter((p) => p.workspaceId === workspaceId && p.id !== currentProjectId)
     const keys = new Set<string>()
@@ -352,7 +420,12 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         detailMap.set(key, list)
       }
     }
-    set({ otherProjectsMappedKeys: keys, otherProjectsMappings: detailMap })
+    set({
+      otherProjectsMappedKeys: keys,
+      otherProjectsMappings: detailMap,
+      _otherKeysLoadedFor: cacheKey,
+      _otherDetailsLoadedFor: cacheKey,
+    })
   },
 
   importExternalMapping: async (info, targetProjectId, options) => {

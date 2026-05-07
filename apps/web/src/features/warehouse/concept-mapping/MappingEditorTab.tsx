@@ -50,13 +50,20 @@ const EMPTY_CONCEPT_DICTS: import('@/types/schema-mapping').ConceptDictionary[] 
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys, loadOtherProjectsDetails } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
-  // Load "mapped elsewhere" keys for cross-project detection
+  // Load "mapped elsewhere" keys (cheap — just a Set<string>) for cross-project detection.
+  // The full detail Map (used by tooltips and external rows in MappingsTab) is loaded lazily
+  // after the page paints, since the badge itself only needs the keys.
   useEffect(() => {
-    if (project.workspaceId) loadOtherProjectsMappedKeys(project.id, project.workspaceId)
-  }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys])
+    if (!project.workspaceId) return
+    loadOtherProjectsMappedKeys(project.id, project.workspaceId)
+    const timer = setTimeout(() => {
+      if (project.workspaceId) loadOtherProjectsDetails(project.id, project.workspaceId)
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [project.id, project.workspaceId, loadOtherProjectsMappedKeys, loadOtherProjectsDetails])
 
   // Source-concept-id registry: resolve `(vocabulary, code) → assigned id` from the project's badges.
   // When the same key exists under multiple badges, the FIRST badge in the project's badge list wins.

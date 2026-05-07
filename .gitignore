@@ -28,6 +28,9 @@ build/
 # Logs
 *.log
 
+# Local notes / roadmaps (not shared with the team)
+*.local.md
+
 # Data files
 *.db
 *.sqlite

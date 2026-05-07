@@ -272,6 +272,8 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
         conceptSets: useConceptMappingStore.getState().conceptSets.filter((cs) => cs.workspaceId !== id),
         otherProjectsMappedKeys: new Set(),
         otherProjectsMappings: new Map(),
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
       })
     } catch { /* ignore */ }
 
