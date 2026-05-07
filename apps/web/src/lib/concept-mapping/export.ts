@@ -563,10 +563,9 @@ export async function buildMappingProjectFolder(
   zip.file(`${prefix}project.json`, JSON.stringify(projectJson, null, 2))
   zip.file(`${prefix}mappings.json`, JSON.stringify(mappings, null, 2))
 
-  // Formatted export files
-  zip.file(`${prefix}sssom.tsv`, exportToSssomTsv(mappings, project))
-  zip.file(`${prefix}source-to-concept-map.csv`, exportToSourceToConceptMap(mappings, project))
-  zip.file(`${prefix}usagi.csv`, exportToUsagiCsv(mappings))
+  // SSSOM / Usagi / source-to-concept-map are derivable from mappings.json — they
+  // were dropped from the project ZIP to keep it lean. Use the dedicated buttons in
+  // the Export tab when the user actually wants those formatted files.
 
   // Source concepts (file-based or DB-based)
   if (!options.skipSourceConcepts && project.sourceType === 'file' && project.fileSourceData) {

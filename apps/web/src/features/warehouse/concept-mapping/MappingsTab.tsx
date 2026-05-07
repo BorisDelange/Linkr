@@ -1259,32 +1259,94 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return true
   }), [allDisplayMappings, colFilters, originFilter, myReviewFilter, includedStatuses, approvalRule, rowDerived])
 
-  // Apply sorting
+  /** "Frozen order": the visible row order is captured the first time a filter/sort
+   *  setting is applied, and reused as long as those settings stay the same. This
+   *  prevents a row from jumping when its sort key changes mid-session — typical
+   *  case: voting on a blue (external) row turns it green (local), which would
+   *  otherwise reshuffle the row's position. We key on (sourceVocab, sourceCode,
+   *  targetConceptId) instead of `id` because voting on an external row creates a
+   *  new local mapping with a different uuid but the same source/target tuple. */
+  const stableOrderRef = useRef<{ key: string; rowKeys: string[] } | null>(null)
+  const rowKey = useCallback((m: ConceptMapping) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`, [])
+
   const sorted = useMemo(() => {
-    if (!sorting) return filtered
-    const { columnId, desc } = sorting
-    const dir = desc ? -1 : 1
-    // Synthetic columns (vote counts, origin) aren't on the mapping object — resolve
-    // them through `rowDerived` and the EXTERNAL_PREFIX sentinel.
-    const accessor = (m: ConceptMapping): unknown => {
-      switch (columnId) {
-        case '_votes_approved': return rowDerived.get(m.id)?.approvedCount ?? 0
-        case '_votes_flagged': return rowDerived.get(m.id)?.flaggedCount ?? 0
-        case '_votes_rejected': return rowDerived.get(m.id)?.rejectedCount ?? 0
-        case '_status': return m.id.startsWith(EXTERNAL_PREFIX) ? 1 : 0
-        default: return (m as unknown as Record<string, unknown>)[columnId]
+    const orderKey = JSON.stringify({
+      sorting,
+      colFilters,
+      originFilter,
+      myReviewFilter,
+      includedStatuses: [...includedStatuses].sort(),
+      approvalRule,
+    })
+
+    let baseOrder: ConceptMapping[]
+    if (!sorting) {
+      baseOrder = filtered
+    } else {
+      const { columnId, desc } = sorting
+      const dir = desc ? -1 : 1
+      // Synthetic columns (vote counts, origin) aren't on the mapping object — resolve
+      // them through `rowDerived` and the EXTERNAL_PREFIX sentinel.
+      const accessor = (m: ConceptMapping): unknown => {
+        switch (columnId) {
+          case '_votes_approved': return rowDerived.get(m.id)?.approvedCount ?? 0
+          case '_votes_flagged': return rowDerived.get(m.id)?.flaggedCount ?? 0
+          case '_votes_rejected': return rowDerived.get(m.id)?.rejectedCount ?? 0
+          case '_status': return m.id.startsWith(EXTERNAL_PREFIX) ? 1 : 0
+          default: return (m as unknown as Record<string, unknown>)[columnId]
+        }
+      }
+      baseOrder = [...filtered].sort((a, b) => {
+        const av = accessor(a)
+        const bv = accessor(b)
+        if (av == null && bv == null) return 0
+        if (av == null) return 1
+        if (bv == null) return -1
+        if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+        return dir * String(av).localeCompare(String(bv))
+      })
+    }
+
+    // If the user changed a filter/sort, reset the freeze and capture the new order.
+    if (!stableOrderRef.current || stableOrderRef.current.key !== orderKey) {
+      stableOrderRef.current = { key: orderKey, rowKeys: baseOrder.map(rowKey) }
+      return baseOrder
+    }
+
+    // Same settings as last render. Reuse the captured row-key order. New rows
+    // (e.g. truly novel mappings) are appended at the end in baseOrder's natural
+    // order. The (vocab, code, target) key is stable across the external→local
+    // transition that happens when voting on a blue-dot row.
+    const knownKeys = new Set(stableOrderRef.current.rowKeys)
+    const filteredByKey = new Map<string, ConceptMapping>()
+    for (const m of filtered) {
+      // Prefer local rows over external ones when they have the same row key
+      // (an external row that was just voted on now exists in both forms during
+      // the brief render window between import and the external Map update).
+      const k = rowKey(m)
+      const existing = filteredByKey.get(k)
+      if (!existing || (existing.id.startsWith(EXTERNAL_PREFIX) && !m.id.startsWith(EXTERNAL_PREFIX))) {
+        filteredByKey.set(k, m)
       }
     }
-    return [...filtered].sort((a, b) => {
-      const av = accessor(a)
-      const bv = accessor(b)
-      if (av == null && bv == null) return 0
-      if (av == null) return 1
-      if (bv == null) return -1
-      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
-      return dir * String(av).localeCompare(String(bv))
-    })
-  }, [filtered, sorting, rowDerived])
+    const out: ConceptMapping[] = []
+    const seenKeys = new Set<string>()
+    for (const k of stableOrderRef.current.rowKeys) {
+      const m = filteredByKey.get(k)
+      if (m && !seenKeys.has(k)) {
+        out.push(m)
+        seenKeys.add(k)
+      }
+    }
+    for (const m of baseOrder) {
+      const k = rowKey(m)
+      if (!knownKeys.has(k) && !seenKeys.has(k)) {
+        out.push(m)
+        seenKeys.add(k)
+      }
+    }
+    return out
+  }, [filtered, sorting, rowDerived, colFilters, originFilter, myReviewFilter, includedStatuses, approvalRule, rowKey])
 
   const visibleItems = sorted.slice(0, visibleCount)
   const hasMore = visibleCount < sorted.length

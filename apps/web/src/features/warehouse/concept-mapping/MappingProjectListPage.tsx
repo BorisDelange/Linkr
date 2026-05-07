@@ -137,8 +137,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     })
   }, [projects, searchQuery, statusFilter, badgeFilter])
 
-  const activeFilterCount = statusFilter.size + badgeFilter.size + (searchQuery ? 1 : 0)
-
   type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
@@ -449,17 +447,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
               </DropdownMenu>
             )}
 
-            {activeFilterCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1 text-xs text-muted-foreground"
-                onClick={() => { setSearchQuery(''); setStatusFilter(new Set()); setBadgeFilter(new Set()) }}
-              >
-                <X size={12} />
-                {t('concept_mapping.filter_reset')}
-              </Button>
-            )}
           </div>
         }
         renderCardBody={(project) => {
