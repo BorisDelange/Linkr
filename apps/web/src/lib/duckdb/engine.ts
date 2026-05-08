@@ -74,7 +74,10 @@ async function tryInstantiate(
     console.error(`[DuckDB:${label}] Worker error:`, e.message)
   })
 
-  const logger = new duckdb.ConsoleLogger()
+  // WARNING level by default — DuckDB-WASM otherwise logs every INSERT/SELECT to
+  // the browser console, which on a 300k-row populateTable adds up to thousands
+  // of console.log calls and slows DevTools (and the main thread) to a crawl.
+  const logger = new duckdb.ConsoleLogger(duckdb.LogLevel.WARNING)
   const db = new duckdb.AsyncDuckDB(logger, worker)
 
   // Wrap instantiate with a timeout — worker may crash silently

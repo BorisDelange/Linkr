@@ -318,7 +318,10 @@ function buildDedupWhere(f: GlobalTableFilters): string {
 }
 
 function buildOrderBy(sorting: { columnId: string; desc: boolean } | null, mode: 'flat' | 'dedup'): string {
-  if (!sorting) return ' ORDER BY source_concept_name ASC'
+  // Default order: mapped concepts first (is_unmapped ASC), then by name. This puts
+  // the user's actual mappings at the top instead of the (often huge) tail of
+  // unmapped source concepts.
+  if (!sorting) return ' ORDER BY is_unmapped ASC, source_concept_name ASC'
   const colMap: Record<string, string> = {
     status: 'is_unmapped',
     groupLabel: 'project_name',

@@ -48,6 +48,7 @@ import {
   downloadFile,
 } from '@/lib/concept-mapping/export'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
+import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -124,17 +125,17 @@ interface GroupStat {
   projectIds: Set<string>
 }
 
-/** Returns a label → stat map, with items beyond TOP_N merged into "__other__". */
+/** Resolve the displayable status of a mapping, reusing the store helper so the
+ *  Global Summary stays consistent with what's shown in MappingsTab cells.
+ *  effectiveMappingStatus may return 'disputed' when reviews disagree — for the
+ *  purpose of summing into per-status buckets, we count 'disputed' separately
+ *  (it falls into `unchecked` by current grouping; could grow its own bucket later). */
 function effectiveStatus(m: ConceptMapping): MappingStatus {
-  const reviews = m.reviews ?? []
-  if (reviews.length === 0) return m.status
-  const counts = { approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0 }
-  for (const r of reviews) counts[r.status as MappingStatus] = (counts[r.status as MappingStatus] ?? 0) + 1
-  const max = Math.max(...Object.values(counts))
-  if (counts.approved === max) return 'approved'
-  if (counts.rejected === max) return 'rejected'
-  if (counts.flagged === max) return 'flagged'
-  return m.status
+  const eff = effectiveMappingStatus(m)
+  // 'disputed' is a display-only state; it's not one of the five buckets the
+  // summary aggregates into. Treat it as 'unchecked' until the UI grows a
+  // dedicated bucket.
+  return eff === 'disputed' ? 'unchecked' : eff
 }
 
 function computeGroupStats(
@@ -396,6 +397,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [tableLoading, setTableLoading] = useState(false)
   const [tableHasMore, setTableHasMore] = useState(false)
   const [tableReady, setTableReady] = useState(false)
+  // True while populateTable is inserting rows into the DuckDB temp table. Can take
+  // tens of seconds to minutes for large workspaces (~300k+ rows). The body shows
+  // a loading row in this state instead of "Aucun résultat".
+  const [tablePopulating, setTablePopulating] = useState(false)
   const tablePage = useRef(0)
   const tableLoadingRef = useRef(false)
 
@@ -502,6 +507,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const populateTable = useCallback(async () => {
     if (loadingMappings) return
     invalidateGlobalTables()
+    setTablePopulating(true)
     try {
       if (groupMode === 'badge') {
         await populateDedupTable(allMappings, allSourceConceptsByProject, projects, registryMap)
@@ -511,6 +517,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       setTableReady(true)
     } catch (err) {
       console.error('Failed to populate global summary table:', err)
+    } finally {
+      setTablePopulating(false)
     }
   }, [loadingMappings, allMappings, allSourceConceptsByProject, projects, registryMap, groupMode])
 
@@ -555,15 +563,26 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     if (activeTab === 'table' || activeTab === 'export') loadRegistry()
   }, [activeTab, loadRegistry])
 
-  // Populate DuckDB table when switching to table tab or when groupMode/data changes
+  // Populate DuckDB table the first time the user opens the Table tab, or when
+  // the underlying data / grouping changes. We do NOT re-populate on every tab
+  // switch — once the temp table exists, it stays valid until allMappings or
+  // groupMode change. Switching from Summary → Table → Summary → Table is a no-op.
+  const lastPopulateKey = useRef<string | null>(null)
   useEffect(() => {
     if (activeTab !== 'table' || loadingMappings) return
+    // Key on the inputs that actually require a rebuild of the temp table.
+    // allMappings / allSourceConceptsByProject are state arrays — their reference
+    // changes whenever a mapping is created / updated / deleted, which is the
+    // signal we want for a rebuild.
+    const key = `${groupMode}::${allMappings.length}::${allMappings.length > 0 ? allMappings[allMappings.length - 1].updatedAt : ''}`
+    if (lastPopulateKey.current === key && tableReady) return
+    lastPopulateKey.current = key
     invalidateGlobalTables()
     setTableReady(false)
     setTableRows([])
     populateTable()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, loadingMappings, groupMode])
+  }, [activeTab, loadingMappings, groupMode, allMappings])
 
   // Load first page when table is ready or filters/sorting change
   useEffect(() => {
@@ -1322,9 +1341,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 <Card className="p-4 text-center">
                   <p className="text-2xl font-bold text-green-600">
                     {totals.approved.toLocaleString()}
-                    {totals.totalSourceConcepts > 0 && (
+                    {totals.uniqueMapped > 0 && (
                       <span className="ml-1 text-sm font-normal text-muted-foreground">
-                        ({Math.round((totals.approved / totals.totalSourceConcepts) * 100)}%)
+                        ({Math.round((totals.approved / totals.uniqueMapped) * 100)}%)
                       </span>
                     )}
                   </p>
@@ -1376,7 +1395,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">{groupModeLabel}</TableHead>
-                      <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_projects')}</TableHead>
+                      {groupMode === 'badge' && (
+                        <TableHead className="text-right text-xs capitalize">{t('concept_mapping.global_projects')}</TableHead>
+                      )}
                       <TableHead className="text-right text-xs capitalize">{t('concept_mapping.prog_source_concepts')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_approved')}</TableHead>
                       <TableHead className="text-right text-xs">{t('concept_mapping.prog_flagged')}</TableHead>
@@ -1387,12 +1408,18 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   <TableBody>
                     {groupNames.map((name) => {
                       const g = groupStats.get(name)!
-                      const denominator = g.totalSourceConceptsFromStats > 0 ? g.totalSourceConceptsFromStats : g.uniqueSourceConcepts
-                      const pct = denominator > 0 ? Math.round((g.approved / denominator) * 100) : 0
+                      // % alignment progress = aligned / total source concepts of the
+                      // group. Indicates how much of the source CSV has at least one
+                      // mapping created (regardless of approval state).
+                      const pct = g.totalSourceConceptsFromStats > 0
+                        ? Math.round((g.uniqueSourceConcepts / g.totalSourceConceptsFromStats) * 100)
+                        : 0
                       return (
                         <TableRow key={name} className="text-xs">
                           <TableCell className="font-medium">{getDisplayName(name)}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">{g.projectCount}</TableCell>
+                          {groupMode === 'badge' && (
+                            <TableCell className="text-right text-muted-foreground">{g.projectCount}</TableCell>
+                          )}
                           <TableCell className="text-right">{g.uniqueSourceConcepts.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-green-600">{g.approved.toLocaleString()}</TableCell>
                           <TableCell className="text-right text-orange-500">{g.flagged.toLocaleString()}</TableCell>
@@ -1470,7 +1497,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(loadingMappings || (tableLoading && tableRows.length === 0)) ? (
+                {(loadingMappings || tablePopulating || (tableLoading && tableRows.length === 0)) ? (
                   <TableRow>
                     <TableCell colSpan={activeColumns.length} className="h-24 text-center text-muted-foreground">
                       {t('concept_mapping.global_loading')}
@@ -1534,14 +1561,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             </DropdownMenu>
 
             <span className="ml-2 text-[10px] text-muted-foreground">
-              {tableTotalCount.toLocaleString()} {t('datasets.rows')}
+              {t('concept_mapping.global_showing', { shown: tableRows.length.toLocaleString(), total: tableTotalCount.toLocaleString() } as Record<string, string>)}
             </span>
-
-            {tableHasMore && (
-              <span className="ml-auto text-[10px] text-muted-foreground">
-                {t('concept_mapping.global_showing', { shown: tableRows.length.toLocaleString(), total: tableTotalCount.toLocaleString() } as Record<string, string>)}
-              </span>
-            )}
           </div>
         </TabsContent>
 
