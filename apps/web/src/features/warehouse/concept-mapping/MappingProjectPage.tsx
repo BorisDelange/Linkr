@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { ArrowLeft, FileSpreadsheet, Database, Settings2 } from 'lucide-react'
@@ -26,6 +26,12 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { wsUid } = useParams()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('progress')
+  // Once the editor has been opened at least once, keep its component mounted so
+  // its (expensive) source-concepts query and DuckDB cache survive tab switches.
+  // The other tabs stay lazy — their store subscriptions are too heavy to leave
+  // running in the background.
+  const editorEverOpened = useRef(false)
+  if (activeTab === 'editor') editorEverOpened.current = true
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
@@ -131,18 +137,21 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
             <TabsTrigger value="export">{t('concept_mapping.tab_export')}</TabsTrigger>
           </TabsList>
         </div>
-        {/* Render only the active tab. Previously all tabs used `forceMount` which kept
-            ProgressTab + ExportTab subscribed to mappings even when hidden — every vote
-            in MappingsTab triggered their heavy aggregation memos in the background,
-            blocking the main thread for several hundred ms on large projects. */}
+        {/* Render only the active tab — except the editor, which is kept mounted
+            once first opened so the source-concepts table (a multi-second DuckDB
+            query for large projects) doesn't reload on every tab switch. The
+            other tabs stay lazy because their subscriptions to the mappings
+            store would otherwise stall the UI on every vote. */}
         <TabsContent value="progress" className="flex-1 overflow-hidden">
           {activeTab === 'progress' && <ProgressTab project={project} dataSource={dataSource} />}
         </TabsContent>
         <TabsContent value="concept-sets" className="flex-1 overflow-hidden">
           {activeTab === 'concept-sets' && <ConceptSetsTab project={project} dataSource={dataSource} />}
         </TabsContent>
-        <TabsContent value="editor" className="flex-1 overflow-hidden">
-          {activeTab === 'editor' && <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />}
+        <TabsContent value="editor" forceMount className={`flex-1 overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
+          {(activeTab === 'editor' || editorEverOpened.current) && (
+            <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
+          )}
         </TabsContent>
         <TabsContent value="mappings" className="flex-1 overflow-hidden">
           {activeTab === 'mappings' && <MappingsTab project={project} dataSource={dataSource} />}

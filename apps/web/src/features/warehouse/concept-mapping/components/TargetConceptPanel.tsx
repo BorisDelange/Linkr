@@ -744,6 +744,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const CS_FILTER_TRIGGER = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-left text-[10px] outline-none truncate focus:border-primary'
 
   const renderCsFilter = (columnId: string) => {
+    // No concept sets linked → no rows to filter against, so suppress every filter
+    // input. Mirrors the implicit behavior of the multi-selects which already hide
+    // when their option lists are empty.
+    if (linkedSets.length === 0) return null
     if (columnId === 'category' && csCategoryOptions.length > 0) return (
       <ResolvedMultiSelect options={csCategoryOptions} selected={csFilterCategory} onChange={setCsFilterCategory} triggerClass={CS_FILTER_TRIGGER} />
     )
@@ -1440,6 +1444,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     return id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
   }
 
+  // Disable the search row entirely when no vocabulary reference or data source is
+  // available — there's nothing to search against. Mirrors the empty-state hint
+  // shown below in the results area.
+  const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
+
   const renderSearchMode = () => (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Search bar + filter + search button */}
@@ -1449,7 +1458,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className={`h-8 w-8 shrink-0 ${(searchFilterVocabs.size + searchFilterDomains.size + searchFilterClasses.size + searchFilterStandard.size > 0) ? 'text-primary' : ''}`}>
+                <Button variant="ghost" size="icon-sm" disabled={noVocabAvailable} className={`h-8 w-8 shrink-0 ${(searchFilterVocabs.size + searchFilterDomains.size + searchFilterClasses.size + searchFilterStandard.size > 0) ? 'text-primary' : ''}`}>
                   <SlidersHorizontal size={14} />
                 </Button>
               </PopoverTrigger>
@@ -1524,8 +1533,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-xs"
-            placeholder={t('concept_mapping.search_omop')}
+            placeholder={noVocabAvailable ? t('concept_mapping.no_vocab_for_search_short') : t('concept_mapping.search_omop')}
             value={searchTerm}
+            disabled={noVocabAvailable}
             onChange={(e) => setSearchTerm(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -1538,7 +1548,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             }}
           />
         </div>
-        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching}>
+        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={handleSearch} disabled={searching || noVocabAvailable}>
           {searching ? <Loader2 size={14} className="animate-spin" /> : t('common.search')}
         </Button>
       </div>

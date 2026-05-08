@@ -532,7 +532,28 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       m.sourceConceptCode === mapping.sourceConceptCode &&
       m.targetConceptId === mapping.targetConceptId,
     )
-    if (existing) return existing
+    if (existing) {
+      // If we have a local source concept id and the existing record is anchored
+      // to a foreign one, repair it in-place so the row dot turns green. This
+      // happens with file-source projects where row ids are project-local.
+      if (
+        options?.sourceConceptId != null
+        && existing.sourceConceptId !== options.sourceConceptId
+      ) {
+        const repaired = { ...existing, sourceConceptId: options.sourceConceptId, updatedAt: now }
+        await getStorage().conceptMappings.update(existing.id, { sourceConceptId: options.sourceConceptId })
+        set((s) => {
+          s.mappingsById.set(repaired.id, repaired)
+          return {
+            mappings: s.mappings.map((m) => (m.id === repaired.id ? repaired : m)),
+            mappingsVersion: s.mappingsVersion + 1,
+            mappingsStructureVersion: s.mappingsStructureVersion + 1,
+          }
+        })
+        return repaired
+      }
+      return existing
+    }
 
     // Full preservation: status, reviews, comments, reviewedBy/reviewedOn — everything
     // from the source project is copied as-is. Only identity-bound fields (id, projectId,

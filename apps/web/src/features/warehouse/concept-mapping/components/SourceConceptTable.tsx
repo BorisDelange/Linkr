@@ -16,7 +16,18 @@ import {
   Loader2,
   Search,
   X,
+  Download,
+  Check,
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -92,6 +103,10 @@ interface SourceConceptTableProps {
   initialScrollTop?: number
   /** Called on every scroll so the parent can persist the position. */
   onScrollTopChange?: (scrollTop: number) => void
+  /** Import a single external mapping into the active project. The local
+   *  source concept id is required so the imported row is wired to the current
+   *  project's concept dictionary (and the dot turns green immediately). */
+  onImportExternal?: (info: ExternalMappingInfo, localSourceConceptId: number) => Promise<void> | void
 }
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -196,9 +211,48 @@ export function SourceConceptTable({
   onShowDetail,
   initialScrollTop,
   onScrollTopChange,
+  onImportExternal,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
+  // When the user clicks "View list" on a blue dot, this holds the list of
+  // external mappings to display in a dedicated modal (always opens via the modal,
+  // even when there are <5 — keeps interaction consistent regardless of list size).
+  const [externalListModal, setExternalListModal] = useState<{
+    list: ExternalMappingInfo[]
+    sourceLabel: string
+    localSourceConceptId: number
+  } | null>(null)
+  // Per-info importing state so the inline import buttons show a spinner.
+  const [importingInfoIds, setImportingInfoIds] = useState<Set<string>>(new Set())
+  // After a successful import the modal swaps to a "✓ Alignement importé"
+  // confirmation panel for ~1s before closing.
+  const [justImportedIds, setJustImportedIds] = useState<Set<string>>(new Set())
+  // Standalone transient confirmation dialog used by the popover import flow:
+  // pops open for ~1s after a successful import, then auto-closes. Decoupled
+  // from the popover so we don't have to wrestle with Radix open/close state.
+  const [importConfirmationOpen, setImportConfirmationOpen] = useState(false)
+  const handleImportInfo = async (
+    info: ExternalMappingInfo,
+    localSourceConceptId: number,
+    opts?: { closeModal?: boolean; showConfirmation?: boolean },
+  ) => {
+    if (!onImportExternal) return
+    const k = `${info.sourceProjectId}::${info.mapping.id}`
+    setImportingInfoIds((prev) => { const s = new Set(prev); s.add(k); return s })
+    try {
+      await onImportExternal(info, localSourceConceptId)
+      setJustImportedIds((prev) => { const s = new Set(prev); s.add(k); return s })
+      if (opts?.showConfirmation) setImportConfirmationOpen(true)
+      window.setTimeout(() => {
+        setJustImportedIds((prev) => { const s = new Set(prev); s.delete(k); return s })
+        if (opts?.closeModal) setExternalListModal(null)
+        if (opts?.showConfirmation) setImportConfirmationOpen(false)
+      }, 1000)
+    } finally {
+      setImportingInfoIds((prev) => { const s = new Set(prev); s.delete(k); return s })
+    }
+  }
 
   // Infinite scroll via scroll event on the container
   const onLoadMoreRef = useRef(onLoadMore)
@@ -419,44 +473,110 @@ export function SourceConceptTable({
             }
           }
 
+          // Blue dot — mapped in other projects. Popover shows a preview of up
+          // to 5 external mappings with inline import buttons + a "View full
+          // list" link to the modal. Confirmation after import is shown via a
+          // dedicated transient modal (`importConfirmation`) so we don't have
+          // to fight Radix's popover open/close behavior.
           if (status === 'mapped_elsewhere' && externalMappingsByKey) {
             const key = `${row.original.vocabulary_id ?? ''}:${row.original.concept_code ?? ''}`
             const list = externalMappingsByKey.get(key) ?? []
             if (list.length > 0) {
-              tooltipContent = (
-                <div className="max-w-xs space-y-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t('concept_mapping.status_tip_mapped_elsewhere', { count: list.length })}
-                  </p>
-                  {list.slice(0, 5).map((info) => {
-                    const m = info.mapping
-                    const a = (m.reviews ?? []).filter((r) => r.status === 'approved').length
-                    const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
-                    const f = (m.reviews ?? []).filter((rv) => rv.status === 'flagged').length
-                    return (
-                      <div key={m.id} className="space-y-0.5 border-l-2 border-blue-400/60 pl-2">
-                        <p className="truncate text-xs font-medium" title={m.targetConceptName}>
-                          → {m.targetConceptName || `#${m.targetConceptId}`}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">
-                          {info.sourceProjectName} · {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
-                        </p>
-                        {(a + r + f) > 0 && (
-                          <p className="flex gap-2 text-[10px]">
-                            {a > 0 && <span className="text-green-600">✓ {a}</span>}
-                            {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
-                            {r > 0 && <span className="text-red-500">✗ {r}</span>}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                  {list.length > 5 && (
-                    <p className="text-[10px] italic text-muted-foreground">
-                      +{list.length - 5} {t('concept_mapping.status_tip_more')}
+              const sourceLabel = row.original.concept_name
+                ? `${row.original.concept_name} (${row.original.vocabulary_id ?? ''} · ${row.original.concept_code ?? ''})`
+                : `${row.original.vocabulary_id ?? ''} · ${row.original.concept_code ?? ''}`
+              const localSourceConceptId = row.original.concept_id
+              return (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button type="button" className="flex w-full justify-center" onClick={(e) => e.stopPropagation()}>
+                      {dot}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="right"
+                    align="start"
+                    className="w-[340px] p-3 text-xs"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t('concept_mapping.status_tip_mapped_elsewhere_plural', { count: list.length })}
                     </p>
-                  )}
-                </div>
+                    <div className="mt-2 space-y-2">
+                      {list.slice(0, 5).map((info) => {
+                        const m = info.mapping
+                        const a = (m.reviews ?? []).filter((rv) => rv.status === 'approved').length
+                        const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
+                        const f = (m.reviews ?? []).filter((rv) => rv.status === 'flagged').length
+                        const importKey = `${info.sourceProjectId}::${m.id}`
+                        const isImporting = importingInfoIds.has(importKey)
+                        const alreadyImported = !!projectMappings?.some((pm) =>
+                          pm.sourceConceptId === localSourceConceptId &&
+                          pm.sourceVocabularyId === m.sourceVocabularyId &&
+                          pm.sourceConceptCode === m.sourceConceptCode &&
+                          pm.targetConceptId === m.targetConceptId
+                        )
+                        return (
+                          <div key={m.id} className="flex items-start gap-2 border-l-2 border-blue-400/60 pl-2">
+                            <div className="min-w-0 flex-1 space-y-0.5">
+                              <p className="truncate text-xs font-medium" title={m.targetConceptName}>
+                                → {m.targetConceptName || `#${m.targetConceptId}`}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground">
+                                {info.sourceProjectName} · {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
+                              </p>
+                              {(a + r + f) > 0 && (
+                                <p className="flex gap-2 text-[10px]">
+                                  {a > 0 && <span className="text-green-600">✓ {a}</span>}
+                                  {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
+                                  {r > 0 && <span className="text-red-500">✗ {r}</span>}
+                                </p>
+                              )}
+                            </div>
+                            {alreadyImported ? (
+                              <span title={t('concept_mapping.imported')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
+                                <Check size={11} />
+                              </span>
+                            ) : onImportExternal && (
+                              <button
+                                type="button"
+                                title={t('concept_mapping.import_this_mapping')}
+                                onClick={(e) => { e.stopPropagation(); handleImportInfo(info, localSourceConceptId, { showConfirmation: true }) }}
+                                disabled={isImporting}
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border bg-background hover:bg-accent disabled:opacity-50"
+                              >
+                                {isImporting ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                      {list.length > 5 && (
+                        <p className="text-[10px] italic text-muted-foreground">
+                          +{list.length - 5} {t('concept_mapping.status_tip_more')}
+                        </p>
+                      )}
+                    </div>
+                    {onImportExternal && (
+                      <div className="mt-3 flex justify-center">
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          className="h-7 gap-1 text-[11px]"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setExternalListModal({ list, sourceLabel, localSourceConceptId })
+                          }}
+                        >
+                          <Download size={11} />
+                          {list.length > 5
+                            ? t('concept_mapping.status_tip_open_import_modal_with_count', { count: list.length })
+                            : t('concept_mapping.status_tip_open_import_modal')}
+                        </Button>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
               )
             }
           }
@@ -634,8 +754,10 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail, onImportExternal, importingInfoIds])
 
+  // The mapping-status filter is now applied SQL-side by the parent. The rows
+  // arriving here are already filtered, so we can hand them straight to TanStack.
   const table = useReactTable({
     data: rows,
     columns,
@@ -863,6 +985,111 @@ export function SourceConceptTable({
           </DropdownMenu>
         </div>
       </div>
+      {/* External-list modal: lists every external mapping for a single source
+          row. Clicking Import closes the modal after a short confirmation —
+          we deliberately don't toggle each row to "Imported" so the user can
+          import multiple in sequence (one click → confirm → modal closes →
+          reopen if needed) without ambiguity. */}
+      <Dialog
+        open={!!externalListModal}
+        onOpenChange={(open) => { if (!open) setExternalListModal(null) }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          {/* Compute whether ANY row in this modal session has been just-imported.
+              If so, show the confirmation overlay instead of the list. */}
+          {(() => {
+            const hasJustImported = externalListModal?.list.some((info) =>
+              justImportedIds.has(`${info.sourceProjectId}::${info.mapping.id}`)
+            ) ?? false
+            if (hasJustImported) {
+              return (
+                <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+                  <span className="flex size-10 items-center justify-center rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+                    <Check size={22} />
+                  </span>
+                  <p className="text-sm font-medium">{t('concept_mapping.import_confirmation')}</p>
+                </div>
+              )
+            }
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>{t('concept_mapping.external_list_title')}</DialogTitle>
+                  <DialogDescription className="truncate">{externalListModal?.sourceLabel}</DialogDescription>
+                </DialogHeader>
+                <div className="max-h-[60vh] space-y-2 overflow-auto">
+                  {externalListModal?.list.map((info) => {
+                    const m = info.mapping
+                    const a = (m.reviews ?? []).filter((rv) => rv.status === 'approved').length
+                    const r = (m.reviews ?? []).filter((rv) => rv.status === 'rejected').length
+                    const f = (m.reviews ?? []).filter((rv) => rv.status === 'flagged').length
+                    const importKey = `${info.sourceProjectId}::${m.id}`
+                    const isImporting = importingInfoIds.has(importKey)
+                    return (
+                      <div key={m.id} className="flex items-start gap-2 rounded border-l-2 border-blue-400/60 bg-muted/30 p-2">
+                        <div className="min-w-0 flex-1 space-y-0.5">
+                          <p className="truncate text-xs font-medium" title={m.targetConceptName}>
+                            → {m.targetConceptName || `#${m.targetConceptId}`}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground">
+                            {info.sourceProjectName} · {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
+                          </p>
+                          {(a + r + f) > 0 && (
+                            <p className="flex gap-2 text-[10px]">
+                              {a > 0 && <span className="text-green-600">✓ {a}</span>}
+                              {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
+                              {r > 0 && <span className="text-red-500">✗ {r}</span>}
+                            </p>
+                          )}
+                        </div>
+                        {onImportExternal && (
+                          <Button
+                            size="xs"
+                            variant="outline"
+                            className="h-6 gap-1 text-[10px]"
+                            disabled={isImporting}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              const modalState = externalListModal
+                              if (!modalState) return
+                              handleImportInfo(info, modalState.localSourceConceptId, { closeModal: true })
+                            }}
+                          >
+                            {isImporting ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
+                            {t('concept_mapping.import')}
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" size="sm" onClick={() => setExternalListModal(null)}>
+                    {t('common.close')}
+                  </Button>
+                </DialogFooter>
+              </>
+            )
+          })()}
+        </DialogContent>
+      </Dialog>
+      {/* Transient confirmation dialog shown when importing from the popover.
+          Auto-closes after ~1s. Same visual model as the in-modal confirmation.
+          No close button — the dialog dismisses itself after the timeout. */}
+      <Dialog open={importConfirmationOpen} onOpenChange={setImportConfirmationOpen}>
+        <DialogContent className="sm:max-w-xs" showCloseButton={false}>
+          <DialogHeader className="sr-only">
+            <DialogTitle>{t('concept_mapping.import_confirmation')}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
+            <span className="flex size-10 items-center justify-center rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+              <Check size={22} />
+            </span>
+            <p className="text-sm font-medium">{t('concept_mapping.import_confirmation')}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

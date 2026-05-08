@@ -11,7 +11,8 @@ import {
   Check, Flag, X, MessageSquare, EyeOff, Eye,
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
-  Upload, Download, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
+  Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
+  FileJson, FolderInput,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -45,6 +46,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
@@ -59,7 +68,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card } from '@/components/ui/card'
 import { SectionRenderer, extractSections, extractTextFields } from './components/ConceptDetailView'
 import { useRequireIdentity } from './components/IdentityRequiredDialog'
-import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useConceptMappingStore, type ExternalMappingInfo } from '@/stores/concept-mapping-store'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
@@ -135,7 +144,6 @@ interface MappingColumnFilters {
 }
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
-type OriginFilter = 'all' | 'local' | 'external'
 const FILTER_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -943,9 +951,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const loadProjectMappings = useConceptMappingStore((s) => s.loadProjectMappings)
   const mappingsVersion = useConceptMappingStore((s) => s.mappingsVersion)
   const mappingsStructureVersion = useConceptMappingStore((s) => s.mappingsStructureVersion)
-  // `mappings` is read from the store via getState() inside memos that depend on the
-  // appropriate version counter — never as a hook subscription, to avoid re-rendering
-  // the whole component on every Zustand state change.
+  // `mappings` is read via getState() rather than a hook subscription to avoid
+  // re-rendering on every cell-level update (votes, comments). To stay correct,
+  // the component DOES subscribe to `mappingsStructureVersion` and `mappingsVersion`
+  // (below) — when either bumps, React re-renders this component and this line
+  // re-reads the latest `mappings` snapshot from the store.
   const mappings = useConceptMappingStore.getState().mappings
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
@@ -1078,7 +1088,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [reviewsMappingId, setReviewsMappingId] = useState<string | null>(null)
   const [filterOpen, setFilterOpen] = useState(false)
   const [includedStatuses, setIncludedStatuses] = useState<Set<MappingStatus>>(new Set(FILTER_STATUSES))
-  const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
   // Filter by current user's review on each mapping. 'all' = no filter.
   // 'unchecked' = the current user has NOT voted yet.
   const [myReviewFilter, setMyReviewFilter] = useState<'all' | 'approved' | 'rejected' | 'flagged' | 'unchecked'>('all')
@@ -1103,30 +1112,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     [mappingsStructureVersion, project.id],
   )
 
-  // Build synthetic "external" rows for source concepts mapped only in other projects.
-  // Each external mapping gets a sentinel id prefixed with EXTERNAL_PREFIX so we can detect it.
-  const externalMappings = useMemo<ConceptMapping[]>(() => {
-    if (!otherProjectsMappings || otherProjectsMappings.size === 0) return []
-    // Skip external mappings whose (vocab, code, target) already exists locally to avoid duplicates
-    const localKeys = new Set(
-      projectMappings.map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
-    )
-    const result: ConceptMapping[] = []
-    for (const list of otherProjectsMappings.values()) {
-      for (const info of list) {
-        const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
-        if (localKeys.has(key)) continue
-        result.push({ ...info.mapping, id: `${EXTERNAL_PREFIX}${info.sourceProjectId}::${info.mapping.id}` })
-      }
-    }
-    return result
-  }, [otherProjectsMappings, projectMappings])
-
-  // Combined list: local + external (used for display)
-  const allDisplayMappings = useMemo(
-    () => [...projectMappings, ...externalMappings],
-    [projectMappings, externalMappings],
-  )
+  // The MappingsTab evaluation table shows only local rows. External (other-projects)
+  // mappings are imported via the dedicated Import dialog (see bulk-import modal) and
+  // surfaced inline in MappingEditor's blue-dot tooltip — they don't pollute the
+  // evaluation list anymore.
+  const allDisplayMappings = projectMappings
 
   /** Resolve a display row id back to the underlying ExternalMappingInfo (or null for local rows). */
   const resolveExternal = useCallback((id: string) => {
@@ -1231,10 +1221,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
     if (f.equivalence?.length && !f.equivalence.includes(m.equivalence)) return false
     if (f.mappedBy && !(m.mappedBy ?? '').toLowerCase().includes(f.mappedBy.toLowerCase())) return false
-    // Origin filter (status dot quick filter)
-    const isExternalRow = m.id.startsWith(EXTERNAL_PREFIX)
-    if (originFilter === 'local' && isExternalRow) return false
-    if (originFilter === 'external' && !isExternalRow) return false
     // Pre-computed derived view (eff status, vote counts, my review) — O(1) lookup.
     const d = rowDerived.get(m.id)
     // "My review" filter (under the Review column)
@@ -1257,7 +1243,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
     }
     return true
-  }), [allDisplayMappings, colFilters, originFilter, myReviewFilter, includedStatuses, approvalRule, rowDerived])
+  }), [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived])
 
   /** "Frozen order": the visible row order is captured the first time a filter/sort
    *  setting is applied, and reused as long as those settings stay the same. This
@@ -1273,7 +1259,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     const orderKey = JSON.stringify({
       sorting,
       colFilters,
-      originFilter,
       myReviewFilter,
       includedStatuses: [...includedStatuses].sort(),
       approvalRule,
@@ -1346,13 +1331,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       }
     }
     return out
-  }, [filtered, sorting, rowDerived, colFilters, originFilter, myReviewFilter, includedStatuses, approvalRule, rowKey])
+  }, [filtered, sorting, rowDerived, colFilters, myReviewFilter, includedStatuses, approvalRule, rowKey])
 
   const visibleItems = sorted.slice(0, visibleCount)
   const hasMore = visibleCount < sorted.length
 
   // Reset visible count when filters/sorting change
-  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule, originFilter, myReviewFilter])
+  useEffect(() => { setVisibleCount(PAGE_SIZE) }, [colFilters, sorting, includedStatuses, approvalRule, myReviewFilter])
 
   // Infinite scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -1391,43 +1376,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
-    if (columnId === '_status') {
-      const triggerDot = originFilter === 'external'
-        ? 'bg-blue-500'
-        : originFilter === 'local'
-          ? 'bg-green-500'
-          : null
-      return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className={`flex h-6 w-full items-center justify-center rounded border border-dashed hover:bg-accent ${originFilter !== 'all' ? 'border-primary' : ''}`}>
-              {triggerDot ? (
-                <span className={`inline-block size-2 rounded-full ${triggerDot}`} />
-              ) : (
-                <span className="text-[10px] text-muted-foreground">●</span>
-              )}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-48" onCloseAutoFocus={(e) => e.preventDefault()}>
-            {(['all', 'local', 'external'] as OriginFilter[]).map((opt) => (
-              <DropdownMenuCheckboxItem
-                key={opt}
-                checked={originFilter === opt}
-                onCheckedChange={() => setOriginFilter(opt)}
-                onSelect={(e) => e.preventDefault()}
-                className="text-xs"
-              >
-                <span className="flex items-center gap-2">
-                  {opt === 'external' && <span className="inline-block size-2 rounded-full bg-blue-500" />}
-                  {opt === 'local' && <span className="inline-block size-2 rounded-full bg-green-500" />}
-                  {t(`concept_mapping.filter_origin_${opt}`)}
-                </span>
-              </DropdownMenuCheckboxItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      )
-    }
+    if (columnId === '_status') return null
     // Text inputs
     if (columnId === 'sourceConceptName') {
       return <input className={FILTER_INPUT_CLASS} placeholder="..." value={colFilters.sourceConceptName ?? ''} onChange={(e) => updateFilter('sourceConceptName', e.target.value || null)} />
@@ -1537,6 +1486,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   // ─── Import / Export mappings.json ──────────────────────────────────
 
+  // Top-level "where do you want to import from?" picker. Opened by the unified
+  // Import button in the toolbar; the user then selects a file or another project.
+  const [importSourceOpen, setImportSourceOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{
@@ -1551,92 +1503,431 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // ─── Bulk import from other projects ────────────────────────────────
 
   const [bulkImportOpen, setBulkImportOpen] = useState(false)
-  const [bulkSelectedProjects, setBulkSelectedProjects] = useState<string[]>([])
   const [bulkImporting, setBulkImporting] = useState(false)
   const [bulkResult, setBulkResult] = useState<{ imported: number; skipped: number } | null>(null)
+  // Selection set keyed by mapping.id (the original id from the source project).
+  // Uses Set semantics: present = selected. Initial state is empty (no rows pre-checked).
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set())
+  // Per-column filters for the bulk-import datatable.
+  const [bulkFilters, setBulkFilters] = useState<{
+    sourceProjectIds: string[]
+    sourceVocabIds: string[]
+    sourceCode: string
+    sourceName: string
+    targetVocabIds: string[]
+    targetId: string
+    targetName: string
+    statuses: MappingStatus[]
+    equivalences: string[]
+  }>({
+    sourceProjectIds: [],
+    sourceVocabIds: [],
+    sourceCode: '',
+    sourceName: '',
+    targetVocabIds: [],
+    targetId: '',
+    targetName: '',
+    statuses: [],
+    equivalences: [],
+  })
 
-  // Distinct source projects across externalMappings (sorted by name).
-  const bulkProjectOptions = useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const list of otherProjectsMappings.values()) {
-      for (const info of list) {
-        if (!seen.has(info.sourceProjectId)) seen.set(info.sourceProjectId, info.sourceProjectName)
-      }
-    }
-    return [...seen.entries()]
-      .map(([value, label]) => ({ value, label }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [otherProjectsMappings])
-
-  // Number of mappings that would be imported with the current project selection.
-  const bulkImportPreviewCount = useMemo(() => {
-    if (bulkProjectOptions.length === 0) return 0
-    const selected = bulkSelectedProjects.length === 0
-      ? new Set(bulkProjectOptions.map((o) => o.value)) // empty selection = all (matches MultiSelectFilter convention)
-      : new Set(bulkSelectedProjects)
-    let count = 0
+  // Candidate rows for the bulk-import datatable. Shape is intentionally aligned
+  // with the columns shown in the MappingsTab table so the bulk-import view feels
+  // like the same table — same column order, same visibility defaults — plus the
+  // sourceProjectName which is the bulk-specific contextual info.
+  interface BulkCandidateRow {
+    info: ExternalMappingInfo
+    /** Selection key (uses the original mapping.id from the source project). */
+    key: string
+    sourceProjectId: string
+    sourceProjectName: string
+    sourceVocabularyId: string
+    sourceConceptCode: string
+    sourceConceptId: number
+    sourceConceptName: string
+    sourceCategoryId: string
+    targetVocabularyId: string
+    targetConceptId: number
+    targetConceptName: string
+    equivalence: string
+    status: MappingStatus
+    mappedBy: string
+    votesApproved: number
+    votesFlagged: number
+    votesRejected: number
+  }
+  const bulkCandidates = useMemo<BulkCandidateRow[]>(() => {
     const localKeys = new Set(
       mappings
         .filter((m) => m.projectId === project.id)
         .map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
     )
+    const out: BulkCandidateRow[] = []
     for (const list of otherProjectsMappings.values()) {
       for (const info of list) {
-        if (!selected.has(info.sourceProjectId)) continue
-        const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
-        if (localKeys.has(key)) continue
-        count++
+        const dedupKey = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
+        if (localKeys.has(dedupKey)) continue
+        const reviews = info.mapping.reviews ?? []
+        let va = 0, vf = 0, vr = 0
+        for (const r of reviews) {
+          if (r.status === 'approved') va++
+          else if (r.status === 'flagged') vf++
+          else if (r.status === 'rejected') vr++
+        }
+        out.push({
+          info,
+          key: info.mapping.id,
+          sourceProjectId: info.sourceProjectId,
+          sourceProjectName: info.sourceProjectName,
+          sourceVocabularyId: info.mapping.sourceVocabularyId ?? '',
+          sourceConceptCode: info.mapping.sourceConceptCode ?? String(info.mapping.sourceConceptId ?? ''),
+          sourceConceptId: info.mapping.sourceConceptId ?? 0,
+          sourceConceptName: info.mapping.sourceConceptName ?? '',
+          sourceCategoryId: info.mapping.sourceCategoryId ?? '',
+          targetVocabularyId: info.mapping.targetVocabularyId ?? '',
+          targetConceptId: info.mapping.targetConceptId ?? 0,
+          targetConceptName: info.mapping.targetConceptName ?? '',
+          equivalence: info.mapping.equivalence ?? '',
+          status: info.mapping.status,
+          mappedBy: info.mapping.mappedBy ?? '',
+          votesApproved: va,
+          votesFlagged: vf,
+          votesRejected: vr,
+        })
       }
     }
-    return count
-  }, [otherProjectsMappings, bulkProjectOptions, bulkSelectedProjects, mappings, project.id])
+    return out
+  }, [otherProjectsMappings, mappings, project.id])
+
+  // Distinct values for filter dropdowns, computed from candidates.
+  const bulkFilterOptions = useMemo(() => {
+    const projects = new Map<string, string>()
+    const sourceVocabs = new Set<string>()
+    const targetVocabs = new Set<string>()
+    const equivs = new Set<string>()
+    const statuses = new Set<MappingStatus>()
+    for (const r of bulkCandidates) {
+      if (!projects.has(r.sourceProjectId)) projects.set(r.sourceProjectId, r.sourceProjectName)
+      if (r.sourceVocabularyId) sourceVocabs.add(r.sourceVocabularyId)
+      if (r.targetVocabularyId) targetVocabs.add(r.targetVocabularyId)
+      if (r.equivalence) equivs.add(r.equivalence)
+      if (r.status) statuses.add(r.status)
+    }
+    return {
+      projects: [...projects.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)),
+      sourceVocabs: [...sourceVocabs].sort(),
+      targetVocabs: [...targetVocabs].sort(),
+      equivalences: [...equivs].sort(),
+      statuses: [...statuses].sort(),
+    }
+  }, [bulkCandidates])
+
+  // Filtered candidate rows.
+  const bulkFilteredCandidates = useMemo<BulkCandidateRow[]>(() => {
+    const f = bulkFilters
+    return bulkCandidates.filter((r) => {
+      if (f.sourceProjectIds.length > 0 && !f.sourceProjectIds.includes(r.sourceProjectId)) return false
+      if (f.sourceVocabIds.length > 0 && !f.sourceVocabIds.includes(r.sourceVocabularyId)) return false
+      if (f.sourceCode && !r.sourceConceptCode.toLowerCase().includes(f.sourceCode.toLowerCase())) return false
+      if (f.sourceName && !textMatch(r.sourceConceptName, f.sourceName)) return false
+      if (f.targetVocabIds.length > 0 && !f.targetVocabIds.includes(r.targetVocabularyId)) return false
+      if (f.targetId && !String(r.targetConceptId).includes(f.targetId)) return false
+      if (f.targetName && !textMatch(r.targetConceptName, f.targetName)) return false
+      if (f.statuses.length > 0 && !f.statuses.includes(r.status)) return false
+      if (f.equivalences.length > 0 && !f.equivalences.includes(r.equivalence)) return false
+      return true
+    })
+  }, [bulkCandidates, bulkFilters])
+
+  // Column visibility for the bulk-import datatable. Defaults mirror MappingsTab:
+  // verbose source/target id/code columns are hidden, the user-displayed essentials
+  // (name, vocab, equivalence, status) are shown. Toggleable from the modal header.
+  const [bulkColumnVisibility, setBulkColumnVisibility] = useState<VisibilityState>({
+    sourceConceptCode: false,
+    sourceConceptId: false,
+    sourceCategoryId: false,
+    targetConceptId: false,
+    mappedBy: false,
+    _votes_approved: false,
+    _votes_flagged: false,
+    _votes_rejected: false,
+  })
+
+  // Chunked rendering: render `bulkChunkSize` rows at a time, grow on near-bottom scroll.
+  // Avoids paying the full N-row paint cost on open or when toggling a checkbox.
+  const BULK_CHUNK = 100
+  const [bulkChunkSize, setBulkChunkSize] = useState(BULK_CHUNK)
+  // Reset to first chunk when filters change or modal reopens.
+  useEffect(() => { setBulkChunkSize(BULK_CHUNK) }, [bulkFilters, bulkImportOpen])
+
+  const bulkSelectAllFiltered = useCallback(() => {
+    setBulkSelectedIds(new Set(bulkFilteredCandidates.map((r) => r.key)))
+  }, [bulkFilteredCandidates])
+  const bulkClearSelection = useCallback(() => setBulkSelectedIds(new Set()), [])
+  const bulkToggleOne = useCallback((key: string) => {
+    setBulkSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }, [])
 
   const handleBulkImport = useCallback(async () => {
     if (bulkImporting) return
     setBulkImporting(true)
     try {
-      const selected = bulkSelectedProjects.length === 0
-        ? new Set(bulkProjectOptions.map((o) => o.value))
-        : new Set(bulkSelectedProjects)
+      // Build the full batch in memory first — single createMappingsBatch call,
+      // single Zustand set() at the end, no per-row React render storm.
+      const now = new Date().toISOString()
+      const toImport: ConceptMapping[] = []
+      // Re-check local keys at submit time in case the user voted in the background
+      // since the modal opened and a row is now local.
       const localKeys = new Set(
         mappings
           .filter((m) => m.projectId === project.id)
           .map((m) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`),
       )
-      // Build the full batch in memory first — no await, no React updates per row.
-      // Then hand it to createMappingsBatch which writes IDB in a single transaction
-      // and triggers exactly one Zustand set() at the end. This avoids the N×re-render
-      // pattern that made the Mappings table freeze for several seconds during bulk imports.
-      const now = new Date().toISOString()
-      const toImport: ConceptMapping[] = []
-      let skipped = 0
-      for (const list of otherProjectsMappings.values()) {
-        for (const info of list) {
-          if (!selected.has(info.sourceProjectId)) continue
-          const key = `${info.mapping.sourceVocabularyId}\0${info.mapping.sourceConceptCode}\0${info.mapping.targetConceptId}`
-          if (localKeys.has(key)) { skipped++; continue }
-          // Mirror importExternalMapping shape: full preservation of status / reviews / comments,
-          // only identity fields (id, projectId) and timestamps are rewritten.
-          toImport.push({
-            ...info.mapping,
-            id: crypto.randomUUID(),
-            projectId: project.id,
-            createdAt: now,
-            updatedAt: now,
-          })
-          localKeys.add(key)
+      // Re-anchor each imported row to the local source concept_id so the row
+      // dot turns green immediately. For OMOP sources the concept_id is canonical
+      // across projects, but file sources use artificial ids.
+      const localIdByKey = new Map<string, number>()
+      try {
+        if (project.sourceType === 'file' && project.fileSourceData) {
+          const dsId = fileSourceDataSourceId(project.id)
+          if (!isFileSourceMounted(project.id)) {
+            await mountFileSourceIntoDuckDB(
+              project.id,
+              project.fileSourceData.rows,
+              project.fileSourceData.columnMapping,
+              project.fileSourceData.rawFileBuffer,
+            )
+          }
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          for (const r of rows as Record<string, unknown>[]) {
+            const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`
+            const cid = Number(r.concept_id)
+            if (Number.isFinite(cid)) localIdByKey.set(k, cid)
+          }
         }
+      } catch {
+        // Ignore — fall through and use the foreign sourceConceptId as before.
+      }
+      let skipped = 0
+      for (const r of bulkCandidates) {
+        if (!bulkSelectedIds.has(r.key)) continue
+        const dk = `${r.sourceVocabularyId}\0${r.sourceConceptCode}\0${r.targetConceptId}`
+        if (localKeys.has(dk)) { skipped++; continue }
+        const sourceKey = `${r.sourceVocabularyId}\0${r.sourceConceptCode}`
+        const localId = localIdByKey.get(sourceKey)
+        // Full preservation: status / reviews / comments / mappedBy; rewrite identity
+        // fields (id, projectId) and timestamps.
+        toImport.push({
+          ...r.info.mapping,
+          id: crypto.randomUUID(),
+          projectId: project.id,
+          sourceConceptId: localId ?? r.info.mapping.sourceConceptId,
+          createdAt: now,
+          updatedAt: now,
+        })
+        localKeys.add(dk)
       }
       if (toImport.length > 0) {
         await createMappingsBatch(toImport)
       }
       setBulkResult({ imported: toImport.length, skipped })
       setBulkImportOpen(false)
-      setBulkSelectedProjects([])
+      setBulkSelectedIds(new Set())
     } finally {
       setBulkImporting(false)
     }
-  }, [bulkImporting, bulkSelectedProjects, bulkProjectOptions, mappings, project.id, otherProjectsMappings, createMappingsBatch])
+  }, [bulkImporting, bulkCandidates, bulkSelectedIds, mappings, project.id, project.sourceType, project.fileSourceData, createMappingsBatch])
+
+  // Ref-mirror of the selection set so the _select cell can read latest selection
+  // without making `bulkColumns` depend on `bulkSelectedIds` — that would invalidate
+  // every TanStack memo on every checkbox click.
+  const bulkSelectedIdsRef = useRef(bulkSelectedIds)
+  bulkSelectedIdsRef.current = bulkSelectedIds
+
+  /** Columns for the bulk-import datatable. Order and visibility defaults mirror
+   *  MappingsTab so the bulk view feels like the same data, with the source-project
+   *  context surfaced as the first column. */
+  const bulkColumns = useMemo<ColumnDef<BulkCandidateRow>[]>(() => [
+    {
+      id: '_select',
+      header: () => null,
+      // Reads selection from the ref. We force a re-render of just this cell via
+      // a per-row `selected` lookup at render time using the closed-over `bulkSelectedIds`.
+      // The closure captures the *current* value at column-build time, so when selection
+      // changes, the column array stays stable but the cell function re-evaluates from
+      // the ref on each TanStack render pass.
+      cell: ({ row }) => {
+        const k = row.original.key
+        const selected = bulkSelectedIdsRef.current.has(k)
+        return (
+          <button
+            onClick={(e) => { e.stopPropagation(); bulkToggleOne(k) }}
+            className="flex w-full justify-center"
+          >
+            {selected
+              ? <CheckSquare size={14} className="text-primary" />
+              : <Square size={14} className="text-muted-foreground" />}
+          </button>
+        )
+      },
+      size: 32,
+      minSize: 32,
+      enableHiding: false,
+    },
+    {
+      id: 'sourceProjectName',
+      header: () => t('concept_mapping.col_source_project'),
+      accessorFn: (r) => r.sourceProjectName,
+      cell: ({ row }) => <span className="truncate" title={row.original.sourceProjectName}>{row.original.sourceProjectName}</span>,
+      size: 120,
+      minSize: 80,
+    },
+    {
+      id: 'sourceVocabularyId',
+      header: () => t('concept_mapping.col_source_vocabulary'),
+      accessorFn: (r) => r.sourceVocabularyId,
+      cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.sourceVocabularyId}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'sourceConceptCode',
+      header: () => t('concept_mapping.col_source_concept_code'),
+      accessorFn: (r) => r.sourceConceptCode,
+      cell: ({ row }) => <span className="truncate font-mono text-[10px] text-muted-foreground">{row.original.sourceConceptCode}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'sourceConceptId',
+      header: () => t('concept_mapping.col_source_concept_id'),
+      accessorFn: (r) => r.sourceConceptId,
+      cell: ({ row }) => <span className="truncate font-mono text-[10px] text-muted-foreground">{row.original.sourceConceptId}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'sourceConceptName',
+      header: () => t('concept_mapping.col_source_concept_name'),
+      accessorFn: (r) => r.sourceConceptName,
+      cell: ({ row }) => <span className="truncate" title={row.original.sourceConceptName}>{row.original.sourceConceptName}</span>,
+      size: 200,
+      minSize: 100,
+    },
+    {
+      id: 'sourceCategoryId',
+      header: () => t('concept_mapping.col_source_category'),
+      accessorFn: (r) => r.sourceCategoryId,
+      cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.sourceCategoryId}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'equivalence',
+      header: () => t('concept_mapping.col_equivalence'),
+      accessorFn: (r) => r.equivalence,
+      cell: ({ row }) => {
+        const equiv = row.original.equivalence
+        const badge = EQUIV_BADGE[equiv]
+        if (!badge) return <span className="text-[10px] text-muted-foreground">{equiv}</span>
+        return (
+          <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`} title={equiv}>
+            {badge.label}
+          </Badge>
+        )
+      },
+      size: 70,
+      minSize: 50,
+    },
+    {
+      id: 'targetVocabularyId',
+      header: () => t('concept_mapping.col_target_vocabulary'),
+      accessorFn: (r) => r.targetVocabularyId,
+      cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.targetVocabularyId}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'targetConceptId',
+      header: () => t('concept_mapping.col_target_concept_id'),
+      accessorFn: (r) => r.targetConceptId,
+      cell: ({ row }) => <span className="truncate font-mono text-[10px] text-muted-foreground">{row.original.targetConceptId}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'targetConceptName',
+      header: () => t('concept_mapping.col_target_concept_name'),
+      accessorFn: (r) => r.targetConceptName,
+      cell: ({ row }) => <span className="truncate" title={row.original.targetConceptName}>{row.original.targetConceptName}</span>,
+      size: 200,
+      minSize: 100,
+    },
+    {
+      id: 'status',
+      header: () => t('concept_mapping.col_status'),
+      accessorFn: (r) => r.status,
+      cell: ({ row }) => (
+        <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${STATUS_BADGE[row.original.status] ?? ''}`}>
+          {t(`concept_mapping.status_${row.original.status}`)}
+        </span>
+      ),
+      size: 80,
+      minSize: 60,
+    },
+    {
+      id: 'mappedBy',
+      header: () => t('concept_mapping.col_mapped_by'),
+      accessorFn: (r) => r.mappedBy,
+      cell: ({ row }) => <span className="truncate text-muted-foreground">{row.original.mappedBy}</span>,
+      size: 100,
+      minSize: 60,
+    },
+    {
+      id: '_votes_approved',
+      header: () => <span className="text-green-600" title={t('concept_mapping.approve')}>✓</span>,
+      accessorFn: (r) => r.votesApproved,
+      cell: ({ row }) => row.original.votesApproved > 0
+        ? <span className="text-xs font-medium text-green-600">{row.original.votesApproved}</span>
+        : <span className="text-xs text-muted-foreground/40">—</span>,
+      size: 36,
+      minSize: 36,
+    },
+    {
+      id: '_votes_flagged',
+      header: () => <span className="text-orange-500" title={t('concept_mapping.flag')}>⚑</span>,
+      accessorFn: (r) => r.votesFlagged,
+      cell: ({ row }) => row.original.votesFlagged > 0
+        ? <span className="text-xs font-medium text-orange-500">{row.original.votesFlagged}</span>
+        : <span className="text-xs text-muted-foreground/40">—</span>,
+      size: 36,
+      minSize: 36,
+    },
+    {
+      id: '_votes_rejected',
+      header: () => <span className="text-red-500" title={t('concept_mapping.reject')}>✗</span>,
+      accessorFn: (r) => r.votesRejected,
+      cell: ({ row }) => row.original.votesRejected > 0
+        ? <span className="text-xs font-medium text-red-500">{row.original.votesRejected}</span>
+        : <span className="text-xs text-muted-foreground/40">—</span>,
+      size: 36,
+      minSize: 36,
+    },
+    // bulkSelectedIds intentionally NOT in deps — see the _select cell comment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [t, bulkToggleOne])
+
+  const bulkTable = useReactTable({
+    data: bulkFilteredCandidates,
+    columns: bulkColumns,
+    state: { columnVisibility: bulkColumnVisibility },
+    onColumnVisibilityChange: setBulkColumnVisibility,
+    getCoreRowModel: getCoreRowModel(),
+  })
 
   const handleImportMappings = async (file: File) => {
     if (importing) return
@@ -1657,8 +1948,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         existingByKey.set(`${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`, m)
       }
 
-      // Load valid source concept codes from the project's source data
+      // Load valid source concept codes from the project's source data, plus a
+      // (vocab, code) → local concept_id resolver. The local id is what the
+      // mapping must point to so the row's status badge turns green — using the
+      // foreign id from `mappings.json` would leave the dot grey.
       let validSourceKeys: Set<string> | null = null
+      const localIdByKey = new Map<string, number>()
       try {
         if (project.sourceType === 'file' && project.fileSourceData) {
           const dsId = fileSourceDataSourceId(project.id)
@@ -1670,10 +1965,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
               project.fileSourceData.rawFileBuffer,
             )
           }
-          const rows = await queryDataSource(dsId, 'SELECT concept_code, vocabulary_id FROM source_concepts')
-          validSourceKeys = new Set(
-            rows.map((r: Record<string, unknown>) => `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`),
-          )
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          validSourceKeys = new Set()
+          for (const r of rows as Record<string, unknown>[]) {
+            const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`
+            validSourceKeys.add(k)
+            const cid = Number(r.concept_id)
+            if (Number.isFinite(cid)) localIdByKey.set(k, cid)
+          }
         }
       } catch {
         // If source validation fails, skip it — still import with duplicates check only
@@ -1741,11 +2040,17 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
           ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? now }]
           : m.comments
+        // Re-anchor sourceConceptId to the local project's row id (file sources
+        // use artificial ids; OMOP sources share canonical ids so this is a no-op
+        // when localIdByKey is empty).
+        const sourceKey = `${m.sourceVocabularyId}\0${m.sourceConceptCode}`
+        const localId = localIdByKey.get(sourceKey)
         const newMapping: ConceptMapping = {
           ...m,
           comments: migratedComments,
           id: crypto.randomUUID(),
           projectId: project.id,
+          sourceConceptId: localId ?? m.sourceConceptId,
           updatedAt: now,
         }
         toImport.push(newMapping)
@@ -2282,7 +2587,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     />
     {/* Import result dialog */}
     <AlertDialog open={!!importResult} onOpenChange={(open) => { if (!open) setImportResult(null) }}>
-      <AlertDialogContent>
+      <AlertDialogContent className="sm:max-w-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('concept_mapping.import_mappings_result_title')}</AlertDialogTitle>
           <AlertDialogDescription asChild>
@@ -2308,43 +2613,277 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-    {/* Bulk import from other projects — dialog */}
-    <AlertDialog open={bulkImportOpen} onOpenChange={(open) => { if (!open) { setBulkImportOpen(false); setBulkSelectedProjects([]) } }}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{t('concept_mapping.bulk_import_title')}</AlertDialogTitle>
-          <AlertDialogDescription asChild>
-            <div className="space-y-3 text-sm">
-              <p>{t('concept_mapping.bulk_import_description')}</p>
-              <div className="space-y-1.5">
-                <p className="text-xs font-medium">{t('concept_mapping.bulk_import_select_projects')}</p>
-                <MultiSelectFilter
-                  value={bulkSelectedProjects}
-                  options={bulkProjectOptions}
-                  placeholder={t('concept_mapping.bulk_import_all_projects')}
-                  onChange={setBulkSelectedProjects}
-                  popoverWidthClass="w-[var(--radix-popover-trigger-width)]"
-                  triggerClass="h-8 w-full justify-start text-xs"
-                />
-              </div>
+    {/* Step 1 — choose where to import from. Two cards: file vs other projects. */}
+    <Dialog open={importSourceOpen} onOpenChange={setImportSourceOpen}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t('concept_mapping.import_source_title')}</DialogTitle>
+          <DialogDescription>{t('concept_mapping.import_source_description')}</DialogDescription>
+        </DialogHeader>
+        {/* Two cards styled like the Export tab widgets: a coloured icon+title
+            header, then a neutral description block below. Clicking the card
+            picks the source. */}
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            className="group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition hover:border-primary"
+            onClick={() => {
+              setImportSourceOpen(false)
+              fileInputRef.current?.click()
+            }}
+          >
+            <div className="flex items-center gap-2.5 bg-amber-50 px-4 py-3 dark:bg-amber-950/30">
+              <FileJson size={16} className="shrink-0 text-amber-500" />
+              <span className="text-sm font-medium">{t('concept_mapping.import_source_file')}</span>
+            </div>
+            <div className="px-4 py-2.5">
+              <p className="text-xs text-muted-foreground">{t('concept_mapping.import_source_file_desc')}</p>
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`group flex flex-col overflow-hidden rounded-lg border bg-card text-left transition hover:border-primary ${bulkCandidates.length === 0 ? 'cursor-not-allowed opacity-50 hover:border-border' : ''}`}
+            disabled={bulkCandidates.length === 0}
+            onClick={() => {
+              setImportSourceOpen(false)
+              setBulkImportOpen(true)
+            }}
+          >
+            <div className="flex items-center gap-2.5 bg-blue-50 px-4 py-3 dark:bg-blue-950/30">
+              <FolderInput size={16} className="shrink-0 text-blue-500" />
+              <span className="text-sm font-medium">{t('concept_mapping.import_source_other_projects')}</span>
+            </div>
+            <div className="px-4 py-2.5">
               <p className="text-xs text-muted-foreground">
-                {t('concept_mapping.bulk_import_count', { count: bulkImportPreviewCount })}
+                {bulkCandidates.length === 0
+                  ? t('concept_mapping.import_source_other_projects_empty')
+                  : t('concept_mapping.import_source_other_projects_desc', { count: bulkCandidates.length })}
               </p>
             </div>
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={handleBulkImport} disabled={bulkImporting || bulkImportPreviewCount === 0}>
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+
+    {/* Step 2a — Bulk import from other projects: full-width datatable with
+        per-column filters, column visibility, select all/none on filtered rows. */}
+    <Dialog open={bulkImportOpen} onOpenChange={(open) => { if (!open) { setBulkImportOpen(false); setBulkSelectedIds(new Set()) } }}>
+      <DialogContent className="sm:max-w-[min(98vw,1500px)] max-h-[92vh] flex flex-col gap-3">
+        <DialogHeader>
+          <DialogTitle>{t('concept_mapping.bulk_import_title')}</DialogTitle>
+          <DialogDescription>{t('concept_mapping.bulk_import_description')}</DialogDescription>
+        </DialogHeader>
+
+        {/* Toolbar: count + columns toggle + select-all/none */}
+        <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-xs">
+          <span className="text-muted-foreground">
+            {t('concept_mapping.bulk_import_filtered_count', {
+              filtered: bulkFilteredCandidates.length,
+              total: bulkCandidates.length,
+              shown: Math.min(bulkChunkSize, bulkFilteredCandidates.length),
+            })}
+          </span>
+          <span className="ml-auto flex items-center gap-1">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="xs" variant="outline" className="h-7 gap-1 text-xs">
+                  <Settings2 size={12} />
+                  {t('concept_mapping.bulk_import_columns')}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="max-h-[60vh] overflow-auto">
+                <DropdownMenuLabel>{t('concept_mapping.bulk_import_columns')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {bulkTable.getAllLeafColumns()
+                  .filter((c) => c.getCanHide())
+                  .map((c) => {
+                    const headerDef = c.columnDef.header
+                    const labelNode = typeof headerDef === 'function' ? headerDef({} as Parameters<typeof headerDef>[0]) : headerDef
+                    return (
+                      <DropdownMenuCheckboxItem
+                        key={c.id}
+                        checked={c.getIsVisible()}
+                        onCheckedChange={(v) => c.toggleVisibility(!!v)}
+                        className="text-xs"
+                      >
+                        <span className="truncate">{typeof labelNode === 'string' ? labelNode : c.id}</span>
+                      </DropdownMenuCheckboxItem>
+                    )
+                  })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button size="xs" variant="outline" className="h-7 text-xs" onClick={bulkSelectAllFiltered} disabled={bulkFilteredCandidates.length === 0}>
+              {t('concept_mapping.bulk_import_select_all_filtered')}
+            </Button>
+            <Button size="xs" variant="outline" className="h-7 text-xs" onClick={bulkClearSelection} disabled={bulkSelectedIds.size === 0}>
+              {t('concept_mapping.bulk_import_clear_selection')}
+            </Button>
+          </span>
+        </div>
+
+        {/* Datatable */}
+        <div
+          className="min-h-0 flex-1 overflow-auto rounded-md border"
+          onScroll={(e) => {
+            const el = e.currentTarget
+            // When scrolled to within ~200px of bottom, expand the rendered chunk.
+            if (
+              el.scrollTop + el.clientHeight >= el.scrollHeight - 200
+              && bulkChunkSize < bulkFilteredCandidates.length
+            ) {
+              setBulkChunkSize((n) => Math.min(n + BULK_CHUNK, bulkFilteredCandidates.length))
+            }
+          }}
+        >
+          <Table style={{ tableLayout: 'fixed', width: '100%' }}>
+            <TableHeader>
+              {bulkTable.getHeaderGroups().map((hg) => (
+                <TableRow key={hg.id}>
+                  {hg.headers.map((header) => {
+                    const colId = header.column.id
+                    const size = header.column.getSize()
+                    if (colId === '_select') {
+                      return (
+                        <TableHead key={header.id} className="text-center" style={{ width: size, maxWidth: size }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const allFilteredSelected = bulkFilteredCandidates.length > 0
+                                && bulkFilteredCandidates.every((r) => bulkSelectedIds.has(r.key))
+                              if (allFilteredSelected) bulkClearSelection()
+                              else bulkSelectAllFiltered()
+                            }}
+                            className="flex w-full justify-center"
+                            title={t('concept_mapping.bulk_import_toggle_all')}
+                          >
+                            {bulkFilteredCandidates.length > 0 && bulkFilteredCandidates.every((r) => bulkSelectedIds.has(r.key))
+                              ? <CheckSquare size={14} />
+                              : <Square size={14} className="text-muted-foreground" />}
+                          </button>
+                        </TableHead>
+                      )
+                    }
+                    return (
+                      <TableHead key={header.id} className="overflow-hidden text-xs" style={{ width: size, maxWidth: size }}>
+                        <span className="truncate block">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
+                      </TableHead>
+                    )
+                  })}
+                </TableRow>
+              ))}
+              {/* Filter row mirroring the visible columns */}
+              <TableRow className="bg-muted/30">
+                {bulkTable.getVisibleLeafColumns().map((c) => {
+                  const colId = c.id
+                  const size = c.getSize()
+                  let filter: ReactNode = null
+                  if (colId === 'sourceProjectName') {
+                    filter = <MultiSelectFilter
+                      value={bulkFilters.sourceProjectIds}
+                      options={bulkFilterOptions.projects}
+                      placeholder={t('concept_mapping.filter_all')}
+                      onChange={(v) => setBulkFilters((p) => ({ ...p, sourceProjectIds: v }))}
+                      triggerClass="h-7 w-full justify-start text-[10px]"
+                    />
+                  } else if (colId === 'sourceVocabularyId') {
+                    filter = <MultiSelectFilter
+                      value={bulkFilters.sourceVocabIds}
+                      options={bulkFilterOptions.sourceVocabs}
+                      placeholder={t('concept_mapping.filter_all')}
+                      onChange={(v) => setBulkFilters((p) => ({ ...p, sourceVocabIds: v }))}
+                      triggerClass="h-7 w-full justify-start text-[10px]"
+                    />
+                  } else if (colId === 'sourceConceptCode') {
+                    filter = <input type="text" className="h-7 w-full rounded border bg-transparent px-1.5 text-[10px] outline-none focus:border-primary" placeholder="…" value={bulkFilters.sourceCode} onChange={(e) => setBulkFilters((p) => ({ ...p, sourceCode: e.target.value }))} />
+                  } else if (colId === 'sourceConceptName') {
+                    filter = <input type="text" className="h-7 w-full rounded border bg-transparent px-1.5 text-[10px] outline-none focus:border-primary" placeholder="…" value={bulkFilters.sourceName} onChange={(e) => setBulkFilters((p) => ({ ...p, sourceName: e.target.value }))} />
+                  } else if (colId === 'targetVocabularyId') {
+                    filter = <MultiSelectFilter
+                      value={bulkFilters.targetVocabIds}
+                      options={bulkFilterOptions.targetVocabs}
+                      placeholder={t('concept_mapping.filter_all')}
+                      onChange={(v) => setBulkFilters((p) => ({ ...p, targetVocabIds: v }))}
+                      triggerClass="h-7 w-full justify-start text-[10px]"
+                    />
+                  } else if (colId === 'targetConceptId') {
+                    filter = <input type="text" className="h-7 w-full rounded border bg-transparent px-1.5 text-[10px] outline-none focus:border-primary" placeholder="…" value={bulkFilters.targetId} onChange={(e) => setBulkFilters((p) => ({ ...p, targetId: e.target.value }))} />
+                  } else if (colId === 'targetConceptName') {
+                    filter = <input type="text" className="h-7 w-full rounded border bg-transparent px-1.5 text-[10px] outline-none focus:border-primary" placeholder="…" value={bulkFilters.targetName} onChange={(e) => setBulkFilters((p) => ({ ...p, targetName: e.target.value }))} />
+                  } else if (colId === 'equivalence') {
+                    filter = <MultiSelectFilter
+                      value={bulkFilters.equivalences}
+                      options={bulkFilterOptions.equivalences}
+                      placeholder={t('concept_mapping.filter_all')}
+                      onChange={(v) => setBulkFilters((p) => ({ ...p, equivalences: v }))}
+                      triggerClass="h-7 w-full justify-start text-[10px]"
+                    />
+                  } else if (colId === 'status') {
+                    filter = <MultiSelectFilter
+                      value={bulkFilters.statuses}
+                      options={bulkFilterOptions.statuses.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))}
+                      placeholder={t('concept_mapping.filter_all')}
+                      onChange={(v) => setBulkFilters((p) => ({ ...p, statuses: v as MappingStatus[] }))}
+                      triggerClass="h-7 w-full justify-start text-[10px]"
+                    />
+                  }
+                  return <TableHead key={`f-${c.id}`} className="py-1" style={{ width: size, maxWidth: size }}>{filter}</TableHead>
+                })}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {bulkFilteredCandidates.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={bulkTable.getVisibleLeafColumns().length} className="h-24 text-center text-xs text-muted-foreground">
+                    {t('common.no_results')}
+                  </TableCell>
+                </TableRow>
+              ) : bulkTable.getRowModel().rows.slice(0, bulkChunkSize).map((row) => (
+                <TableRow
+                  key={row.id}
+                  className="cursor-pointer text-xs"
+                  onClick={() => bulkToggleOne(row.original.key)}
+                >
+                  {row.getVisibleCells().map((cell) => {
+                    const size = cell.column.getSize()
+                    return (
+                      <TableCell key={cell.id} className="overflow-hidden" style={{ width: size, maxWidth: size }}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    )
+                  })}
+                </TableRow>
+              ))}
+              {bulkFilteredCandidates.length > bulkChunkSize && (
+                <TableRow>
+                  <TableCell colSpan={bulkTable.getVisibleLeafColumns().length} className="text-center text-[10px] text-muted-foreground">
+                    {t('concept_mapping.bulk_import_more_on_scroll', { shown: bulkChunkSize, total: bulkFilteredCandidates.length })}
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => setBulkImportOpen(false)}>
+            {t('common.cancel')}
+          </Button>
+          <Button
+            size="sm"
+            onClick={handleBulkImport}
+            disabled={bulkImporting || bulkSelectedIds.size === 0}
+          >
             {bulkImporting ? <Loader2 size={12} className="mr-1 animate-spin" /> : null}
-            {t('concept_mapping.bulk_import_button')}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+            {t('concept_mapping.bulk_import_button')} ({bulkSelectedIds.size})
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
     {/* Bulk import — result dialog */}
     <AlertDialog open={!!bulkResult} onOpenChange={(open) => { if (!open) setBulkResult(null) }}>
-      <AlertDialogContent>
+      <AlertDialogContent className="sm:max-w-2xl">
         <AlertDialogHeader>
           <AlertDialogTitle>{t('concept_mapping.bulk_import_done_title')}</AlertDialogTitle>
           <AlertDialogDescription asChild>
@@ -2379,38 +2918,23 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <div className="ml-auto flex items-center gap-1">
-          {/* Import / Export */}
+          {/* Import — single entry point. Click opens a small dialog where the user
+              picks the source (file or other projects), so we no longer need two
+              separate toolbar buttons that did similar things from different angles. */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="outline"
                 size="icon-sm"
                 className="h-7 w-7"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={importing}
+                onClick={() => setImportSourceOpen(true)}
+                disabled={importing || bulkImporting}
               >
-                {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                {(importing || bulkImporting) ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
           </Tooltip>
-          {/* Bulk import from other projects (only visible when there are external mappings) */}
-          {bulkProjectOptions.length > 0 && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  className="h-7 w-7"
-                  onClick={() => setBulkImportOpen(true)}
-                  disabled={bulkImporting}
-                >
-                  {bulkImporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.bulk_import_external')}</TooltipContent>
-            </Tooltip>
-          )}
           {editMode && selected.size > 0 && (
             <Button variant="destructive" size="sm" className="h-7 gap-1 text-xs" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />

@@ -50,7 +50,7 @@ const EMPTY_CONCEPT_DICTS: import('@/types/schema-mapping').ConceptDictionary[] 
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys, loadOtherProjectsDetails } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys, loadOtherProjectsDetails, importExternalMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   // Load "mapped elsewhere" keys (cheap — just a Set<string>) for cross-project detection.
@@ -120,6 +120,13 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     () => new Set(mappings.filter((m) => m.status === 'ignored').map((m) => m.sourceConceptId)),
     [mappings],
   )
+  // Refs for the SQL-side mapping-status filter — read inside loadConcepts
+  // without making them deps (we don't want every vote to retrigger the query).
+  const mappingStatusFilterRef = useRef<MappingStatusFilter>('all')
+  const mappingStatusMapRef = useRef<Map<number, 'mapped'>>(new Map())
+  const otherProjectsMappedKeysRef = useRef<Set<string> | null>(null)
+  const ignoredConceptIdsRef = useRef<Set<number>>(new Set())
+  ignoredConceptIdsRef.current = ignoredConceptIds
 
   // Cached concept counts: computed once per data source, never recomputed on page/filter change
   const countsCache = useRef<Map<number, { record_count: number; patient_count: number }>>(new Map())
@@ -253,11 +260,35 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
 
       if (!isFileSource) await ensureMounted(dataSource!.id)
 
+      // Inject mapping-status SQL filter: pass the per-status id sets so the
+      // active filter applies across the full paginated dataset (not just the
+      // loaded pages). Read via refs so changes to the underlying mappings
+      // don't retrigger loadConcepts on every vote.
+      // For "mapped_elsewhere" we send (vocab, code) keys — the local concept_id
+      // version of the set is paginated (computed only over loaded rows) and
+      // would under-filter, so we use the canonical cross-project keyset
+      // instead, which lives in the store and covers the full project. The
+      // store keys use `vocab:code`; convert to `vocab\0code` for the SQL builder.
+      const filtersWithStatus: SourceConceptFilters = mappingStatusFilterRef.current === 'all'
+        ? filters
+        : {
+            ...filters,
+            mappingStatus: mappingStatusFilterRef.current,
+            mappedConceptIds: Array.from(mappingStatusMapRef.current.keys()),
+            mappedElsewhereKeys: Array.from(otherProjectsMappedKeysRef.current ?? [])
+              .map((k) => {
+                const sep = k.indexOf(':')
+                return sep < 0 ? '' : `${k.slice(0, sep)}\0${k.slice(sep + 1)}`
+              })
+              .filter((k) => k !== ''),
+            ignoredConceptIds: Array.from(ignoredConceptIdsRef.current),
+          }
+
       // Count (only on first page load)
       if (pageToLoad === 0) {
         const countSql = isFileSource
-          ? buildFileSourceConceptsCountQuery(filters)
-          : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filters)
+          ? buildFileSourceConceptsCountQuery(filtersWithStatus)
+          : buildSourceConceptsCountQuery(dataSource!.schemaMapping!, filtersWithStatus)
         if (!countSql) {
           if (!isStale()) { setLoading(false); loadingRef.current = false }
           return
@@ -270,8 +301,8 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
 
       // Data — always paginated (count sorting is handled SQL-side via JOIN)
       const dataSql = isFileSource
-        ? buildFileSourceConceptsQuery(filters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
-        : buildSourceConceptsQuery(dataSource!.schemaMapping!, filters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
+        ? buildFileSourceConceptsQuery(filtersWithStatus, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
+        : buildSourceConceptsQuery(dataSource!.schemaMapping!, filtersWithStatus, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
 
       const result = await queryDataSource(effectiveDsId, dataSql)
       if (isStale()) return
@@ -312,12 +343,15 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   // Single reset+load effect — triggers when anything that should reset the list changes
   useEffect(() => {
     if (isFileSource && !fileSourceReady) return
+    // Sync the status filter into its ref before kicking off the load so the
+    // SQL builder picks up the latest value.
+    mappingStatusFilterRef.current = mappingStatusFilter
     setPage(0)
     setRows([])
     setHasMore(false)
     loadConceptsRef.current(0)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting])
+  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter])
 
   // Load more when page increments (scroll infinite)
   useEffect(() => {
@@ -378,18 +412,23 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         }
       })
 
-  // Compute mapping status for each source concept (simplified: mapped or not)
+  // Compute mapping status for each source concept (simplified: mapped or not).
+  // Filter to the current project so foreign mappings (loaded for cross-project
+  // detection) don't contaminate the local "mapped" set.
   const mappingStatusMap = useMemo(() => {
     const map = new Map<number, 'mapped'>()
     for (const m of mappings) {
+      if (m.projectId !== project.id) continue
       if (m.status !== 'ignored') map.set(m.sourceConceptId, 'mapped')
     }
     return map
-  }, [mappings])
+  }, [mappings, project.id])
+  mappingStatusMapRef.current = mappingStatusMap
 
   // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
   const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
+  otherProjectsMappedKeysRef.current = otherProjectMappings ?? null
   const mappedElsewhereIds = useMemo(() => {
     const result = new Set<number>()
     if (!otherProjectMappings || otherProjectMappings.size === 0) return result
@@ -449,6 +488,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             onShowDetail={setDetailConcept}
             initialScrollTop={savedScrollTop.current}
             onScrollTopChange={(v) => { savedScrollTop.current = v }}
+            onImportExternal={async (info, localSourceConceptId) => {
+              await importExternalMapping(info, project.id, { sourceConceptId: localSourceConceptId })
+            }}
           />
           )}
         </Allotment.Pane>

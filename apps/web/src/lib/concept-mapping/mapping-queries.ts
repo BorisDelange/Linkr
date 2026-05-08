@@ -23,6 +23,16 @@ export interface SourceConceptFilters {
   subcategory?: string[]
   domainId?: string[]
   conceptClassId?: string[]
+  /** Per-status concept-id sets used to apply the inline mapping-status filter
+   *  ("unmapped" / "mapped" / "mapped_elsewhere") at the SQL level so it remains
+   *  correct across the full paginated dataset, not just the loaded pages. */
+  mappingStatus?: 'unmapped' | 'mapped' | 'mapped_elsewhere'
+  mappedConceptIds?: number[]
+  /** "Mapped elsewhere" can't always be expressed as a concept_id list because
+   *  external mappings are keyed by (vocabulary, code) — the local concept_id
+   *  may not yet be loaded. Pass a list of `vocab\0code` keys instead. */
+  mappedElsewhereKeys?: string[]
+  ignoredConceptIds?: number[]
 }
 
 /** Build the relevance ranking expression and predicate for a fuzzy search term.
@@ -274,6 +284,50 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     inListClause('domain_id', filters.domainId),
     inListClause('concept_class_id', filters.conceptClassId),
   ]) if (c) conditions.push(c)
+  // Mapping-status filter: emit a SQL predicate built from the id/key sets
+  // passed by the caller. Only applied when a non-default status is selected.
+  if (filters.mappingStatus && filters.mappingStatus !== ('all' as string)) {
+    const mapped = filters.mappedConceptIds ?? []
+    const elsewhereKeys = filters.mappedElsewhereKeys ?? []
+    const ignored = filters.ignoredConceptIds ?? []
+    const idList = (ids: number[]) => ids.length > 0 ? ids.map((n) => Number.isFinite(n) ? n : 0).join(',') : 'NULL'
+    /** Build a `(vocabulary_id, concept_code) IN ((...),(...))` predicate from
+     *  `vocab\0code` keys. DuckDB supports tuple IN. */
+    const tupleInClause = (keys: string[]): string | null => {
+      if (keys.length === 0) return null
+      const tuples: string[] = []
+      for (const k of keys) {
+        const sep = k.indexOf('\0')
+        if (sep < 0) continue
+        const vocab = esc(k.slice(0, sep))
+        const code = esc(k.slice(sep + 1))
+        tuples.push(`('${vocab}','${code}')`)
+      }
+      if (tuples.length === 0) return null
+      return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
+    }
+    if (filters.mappingStatus === 'mapped') {
+      conditions.push(`concept_id IN (${idList(mapped)})`)
+    } else if (filters.mappingStatus === 'mapped_elsewhere') {
+      // Mapped-elsewhere: rows whose (vocabulary, code) is in the cross-project
+      // key set, AND whose concept_id is not in the local mapped set (so we
+      // don't leak rows that have already been imported locally).
+      const tupleClause = tupleInClause(elsewhereKeys)
+      if (tupleClause) {
+        conditions.push(tupleClause)
+        if (mapped.length > 0) conditions.push(`concept_id NOT IN (${idList(mapped)})`)
+      } else {
+        // No external keys at all → no rows match this filter.
+        conditions.push('1=0')
+      }
+    } else if (filters.mappingStatus === 'unmapped') {
+      // Unmapped: not in (mapped or ignored) and not in the elsewhere keyset.
+      const all = [...mapped, ...ignored]
+      if (all.length > 0) conditions.push(`concept_id NOT IN (${idList(all)})`)
+      const tupleClause = tupleInClause(elsewhereKeys)
+      if (tupleClause) conditions.push(`NOT ${tupleClause}`)
+    }
+  }
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
   return ''
 }
