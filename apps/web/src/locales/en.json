@@ -2585,6 +2585,7 @@
     "bulk_import_truncated": "Showing first {{shown}} of {{total}} rows — refine filters to see the rest.",
     "bulk_import_more_on_scroll": "Showing {{shown}} of {{total}} rows — scroll to load more.",
     "bulk_import_columns": "Columns",
+    "bulk_import_search_placeholder": "Search in source or target name...",
     "col_source_project": "Source project",
     "unfiltered_search_warning_title": "Unfiltered search",
     "unfiltered_search_warning_desc": "No filter (vocabulary, domain, class or standard) is applied. A text search across the full OHDSI vocabulary can take several seconds. Continue?",

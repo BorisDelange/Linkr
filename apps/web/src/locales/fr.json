@@ -2586,6 +2586,7 @@
     "bulk_import_truncated": "Affichage limité à {{shown}} / {{total}} lignes — affinez les filtres pour voir le reste.",
     "bulk_import_more_on_scroll": "{{shown}} / {{total}} lignes affichées — faites défiler pour en charger plus.",
     "bulk_import_columns": "Colonnes",
+    "bulk_import_search_placeholder": "Rechercher dans nom source ou cible...",
     "col_source_project": "Projet source",
     "unfiltered_search_warning_title": "Recherche sans filtre",
     "unfiltered_search_warning_desc": "Aucun filtre (vocabulaire, domaine, classe ou standard) n'est appliqué. Une recherche textuelle sur l'ensemble du vocabulaire OHDSI peut prendre plusieurs secondes. Voulez-vous continuer ?",

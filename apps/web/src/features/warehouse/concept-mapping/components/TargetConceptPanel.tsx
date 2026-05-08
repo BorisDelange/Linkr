@@ -245,19 +245,6 @@ function ResolvedMultiSelect({
 }
 
 /** Fuzzy match: all query characters appear in order in the target. */
-function fuzzyMatch(target: string, query: string): boolean {
-  let qi = 0
-  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
-    if (target[ti] === query[qi]) qi++
-  }
-  return qi === query.length
-}
-
-function textMatch(text: string, query: string): boolean {
-  const t = text.toLowerCase()
-  const q = query.toLowerCase()
-  return t.includes(q) || fuzzyMatch(t, q)
-}
 
 export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
@@ -348,7 +335,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     const tr = getConceptSetI18n(cs, lang)
     if (csFilterCategory.size > 0 && !csFilterCategory.has(tr.category ?? '')) return false
     if (csFilterSubcategory.size > 0 && !csFilterSubcategory.has(tr.subcategory ?? '')) return false
-    if (csFilterName && !textMatch(tr.name, csFilterName)) return false
+    if (csFilterName && !tr.name.toLowerCase().includes(csFilterName.toLowerCase())) return false
     return true
   })
 
@@ -1249,7 +1236,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const filteredSearchResults = searchResults.filter((r) => {
     const f = searchColFilters
     if (f.concept_id && !String(r.concept_id).includes(f.concept_id)) return false
-    if (f.concept_name && !textMatch(r.concept_name, f.concept_name)) return false
+    if (f.concept_name && !r.concept_name.toLowerCase().includes(f.concept_name.toLowerCase())) return false
     if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
     if (f.vocabulary_id && r.vocabulary_id !== f.vocabulary_id) return false
     if (f.domain_id?.size && !f.domain_id.has(r.domain_id ?? '')) return false
@@ -1797,43 +1784,45 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         <div className="flex items-center justify-end gap-1 border-b px-3 py-1">
           {selectedTarget ? (
               <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
-                  onClick={() => handleAddSelectedMapping('skos:exactMatch')}
-                >
-                  <Plus size={10} />
-                  {t('concept_mapping.skos_exact_match_short')}
-                </Button>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-6 rounded-l-none border-l px-1"
-                    >
-                      <ChevronDown size={10} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="min-w-[180px]">
-                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
-                      <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
-                      <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
-                      <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
-                      <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
-                      <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <div className="flex">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
+                    onClick={() => handleAddSelectedMapping('skos:exactMatch')}
+                  >
+                    <Plus size={10} />
+                    {t('concept_mapping.skos_exact_match_short')}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 rounded-l-none border-l-0 px-1"
+                      >
+                        <ChevronDown size={10} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="min-w-[180px]">
+                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
+                        <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
+                        <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
+                        <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
+                        <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
+                        <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
                 {/* Map with comment button */}
                 <Button
                   variant="outline"

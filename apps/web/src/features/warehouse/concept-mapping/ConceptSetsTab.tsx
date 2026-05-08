@@ -1090,22 +1090,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               </div>
             )}
 
-            {/* DataTable content */}
+            {/* DataTable content. The "no concept sets linked" empty state is
+                an onboarding card; once at least one set is linked, render the
+                full table even when current filters narrow it to zero rows so
+                the user can clear them. */}
             {linkedSets.length === 0 ? (
               <Card>
                 <div className="flex flex-col items-center py-10">
                   <BookOpen size={32} className="text-muted-foreground" />
                   <p className="mt-3 text-sm text-muted-foreground">
                     {t('concept_mapping.cs_empty')}
-                  </p>
-                </div>
-              </Card>
-            ) : filteredSets.length === 0 ? (
-              <Card>
-                <div className="flex flex-col items-center py-10">
-                  <Search size={32} className="text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {t('common.no_results')}
                   </p>
                 </div>
               </Card>
@@ -1183,14 +1177,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {csPageItems.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={csTable.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
-                            {t('common.no_results')}
-                          </TableCell>
-                        </TableRow>
-                      ) : (
-                        csTable.getRowModel().rows.map((row) => {
+                      {csTable.getRowModel().rows.map((row) => {
                           const isSelected = selectedIds.has(row.original.id)
                           return (
                             <TableRow
@@ -1215,8 +1202,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                               })}
                             </TableRow>
                           )
-                        })
-                      )}
+                        })}
                     </TableBody>
                   </Table>
                 </div>

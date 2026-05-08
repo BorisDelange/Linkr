@@ -12,7 +12,7 @@ import {
   Pencil, Trash2, Square, CheckSquare,
   Settings2, ArrowUpDown, ArrowUp, ArrowDown, Users, Filter,
   Upload, ArrowLeft, Loader2, ChevronLeft, ChevronRight,
-  FileJson, FolderInput,
+  FileJson, FolderInput, Search,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -75,6 +75,7 @@ import type { MappingProject, ConceptMapping, MappingComment, MappingReview, Map
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
+import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
 
@@ -144,21 +145,6 @@ type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 const FILTER_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
-
-/** Fuzzy match: all query characters appear in order in the target. */
-function fuzzyMatch(target: string, query: string): boolean {
-  let qi = 0
-  for (let ti = 0; ti < target.length && qi < query.length; ti++) {
-    if (target[ti] === query[qi]) qi++
-  }
-  return qi === query.length
-}
-
-function textMatch(text: string, query: string): boolean {
-  const t = text.toLowerCase()
-  const q = query.toLowerCase()
-  return t.includes(q) || fuzzyMatch(t, q)
-}
 
 /** Sheet showing all comments for a single mapping, with add/edit/delete. */
 function CommentsSheet({ mappingId, open, onOpenChange }: {
@@ -1170,11 +1156,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // Apply column filters + status popover filter (client-side)
   const filtered = useMemo(() => allDisplayMappings.filter((m) => {
     const f = colFilters
-    if (f.sourceConceptName && !textMatch(m.sourceConceptName, f.sourceConceptName)) return false
+    if (f.sourceConceptName && !m.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
     if (f.sourceVocabularyId?.length && !f.sourceVocabularyId.includes(m.sourceVocabularyId)) return false
     if (f.sourceCategoryId?.length && !f.sourceCategoryId.includes(m.sourceCategoryId ?? '')) return false
-    if (f.targetConceptName && !textMatch(m.targetConceptName, f.targetConceptName)) return false
+    if (f.targetConceptName && !m.targetConceptName.toLowerCase().includes(f.targetConceptName.toLowerCase())) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId?.length && !f.targetVocabularyId.includes(m.targetVocabularyId)) return false
     if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
@@ -1455,8 +1441,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // Selection set keyed by mapping.id (the original id from the source project).
   // Uses Set semantics: present = selected. Initial state is empty (no rows pre-checked).
   const [bulkSelectedIds, setBulkSelectedIds] = useState<Set<string>>(new Set())
+  // Search input is decoupled from the applied filter: typing only updates
+  // `bulkPendingSearch`, the actual filter `bulkFilters.globalSearch` only
+  // changes when the user clicks Search or hits Enter.
+  const [bulkPendingSearch, setBulkPendingSearch] = useState('')
   // Per-column filters for the bulk-import datatable.
   const [bulkFilters, setBulkFilters] = useState<{
+    globalSearch: string
     sourceProjectIds: string[]
     sourceVocabIds: string[]
     sourceCode: string
@@ -1467,6 +1458,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     statuses: MappingStatus[]
     equivalences: string[]
   }>({
+    globalSearch: '',
     sourceProjectIds: [],
     sourceVocabIds: [],
     sourceCode: '',
@@ -1572,14 +1564,19 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // Filtered candidate rows.
   const bulkFilteredCandidates = useMemo<BulkCandidateRow[]>(() => {
     const f = bulkFilters
+    const g = f.globalSearch.trim()
     return bulkCandidates.filter((r) => {
+      if (g) {
+        // Fuzzy match on source name OR target name (canonical rules — see lib/fuzzy-search).
+        if (!fuzzyTextMatch(r.sourceConceptName, g) && !fuzzyTextMatch(r.targetConceptName, g)) return false
+      }
       if (f.sourceProjectIds.length > 0 && !f.sourceProjectIds.includes(r.sourceProjectId)) return false
       if (f.sourceVocabIds.length > 0 && !f.sourceVocabIds.includes(r.sourceVocabularyId)) return false
       if (f.sourceCode && !r.sourceConceptCode.toLowerCase().includes(f.sourceCode.toLowerCase())) return false
-      if (f.sourceName && !textMatch(r.sourceConceptName, f.sourceName)) return false
+      if (f.sourceName && !r.sourceConceptName.toLowerCase().includes(f.sourceName.toLowerCase())) return false
       if (f.targetVocabIds.length > 0 && !f.targetVocabIds.includes(r.targetVocabularyId)) return false
       if (f.targetId && !String(r.targetConceptId).includes(f.targetId)) return false
-      if (f.targetName && !textMatch(r.targetConceptName, f.targetName)) return false
+      if (f.targetName && !r.targetConceptName.toLowerCase().includes(f.targetName.toLowerCase())) return false
       if (f.statuses.length > 0 && !f.statuses.includes(r.status)) return false
       if (f.equivalences.length > 0 && !f.equivalences.includes(r.equivalence)) return false
       return true
@@ -2537,12 +2534,119 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     {/* Step 2a — Bulk import from other projects: full-width datatable with
         per-column filters, column visibility, select all/none on filtered rows. */}
-    <Dialog open={bulkImportOpen} onOpenChange={(open) => { if (!open) { setBulkImportOpen(false); setBulkSelectedIds(new Set()) } }}>
+    <Dialog open={bulkImportOpen} onOpenChange={(open) => { if (!open) { setBulkImportOpen(false); setBulkSelectedIds(new Set()); setBulkPendingSearch(''); setBulkFilters((p) => ({ ...p, globalSearch: '' })) } }}>
       <DialogContent className="sm:max-w-[min(98vw,1500px)] max-h-[92vh] flex flex-col gap-3">
         <DialogHeader>
           <DialogTitle>{t('concept_mapping.bulk_import_title')}</DialogTitle>
           <DialogDescription>{t('concept_mapping.bulk_import_description')}</DialogDescription>
         </DialogHeader>
+
+        {/* Filters popover + Search input + Search button. Search applies on
+            click or Enter (typing in the input doesn't filter live). */}
+        <div className="flex items-center gap-1.5">
+          <Popover>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className={`h-8 w-8 shrink-0 ${(bulkFilters.sourceProjectIds.length + bulkFilters.sourceVocabIds.length + bulkFilters.targetVocabIds.length + bulkFilters.statuses.length + bulkFilters.equivalences.length + (bulkFilters.sourceCode ? 1 : 0) + (bulkFilters.sourceName ? 1 : 0) + (bulkFilters.targetId ? 1 : 0) + (bulkFilters.targetName ? 1 : 0)) > 0 ? 'text-primary' : ''}`}
+                  >
+                    <Filter size={14} />
+                  </Button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.search_filters')}</TooltipContent>
+            </Tooltip>
+            <PopoverContent align="start" className="w-[320px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+              {bulkFilterOptions.projects.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_source_project')}</label>
+                  <MultiSelectFilter
+                    value={bulkFilters.sourceProjectIds}
+                    options={bulkFilterOptions.projects}
+                    placeholder={t('concept_mapping.filter_all')}
+                    onChange={(v) => setBulkFilters((p) => ({ ...p, sourceProjectIds: v }))}
+                    triggerClass="h-7 w-full justify-start text-xs"
+                  />
+                </div>
+              )}
+              {bulkFilterOptions.sourceVocabs.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_source_vocabulary')}</label>
+                  <MultiSelectFilter
+                    value={bulkFilters.sourceVocabIds}
+                    options={bulkFilterOptions.sourceVocabs}
+                    placeholder={t('concept_mapping.filter_all')}
+                    onChange={(v) => setBulkFilters((p) => ({ ...p, sourceVocabIds: v }))}
+                    triggerClass="h-7 w-full justify-start text-xs"
+                  />
+                </div>
+              )}
+              {bulkFilterOptions.targetVocabs.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_target_vocabulary')}</label>
+                  <MultiSelectFilter
+                    value={bulkFilters.targetVocabIds}
+                    options={bulkFilterOptions.targetVocabs}
+                    placeholder={t('concept_mapping.filter_all')}
+                    onChange={(v) => setBulkFilters((p) => ({ ...p, targetVocabIds: v }))}
+                    triggerClass="h-7 w-full justify-start text-xs"
+                  />
+                </div>
+              )}
+              {bulkFilterOptions.equivalences.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_equivalence')}</label>
+                  <MultiSelectFilter
+                    value={bulkFilters.equivalences}
+                    options={bulkFilterOptions.equivalences}
+                    placeholder={t('concept_mapping.filter_all')}
+                    onChange={(v) => setBulkFilters((p) => ({ ...p, equivalences: v }))}
+                    triggerClass="h-7 w-full justify-start text-xs"
+                  />
+                </div>
+              )}
+              {bulkFilterOptions.statuses.length > 0 && (
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_status')}</label>
+                  <MultiSelectFilter
+                    value={bulkFilters.statuses}
+                    options={bulkFilterOptions.statuses.map((s) => ({ value: s, label: t(`concept_mapping.status_${s}`) }))}
+                    placeholder={t('concept_mapping.filter_all')}
+                    onChange={(v) => setBulkFilters((p) => ({ ...p, statuses: v as MappingStatus[] }))}
+                    triggerClass="h-7 w-full justify-start text-xs"
+                  />
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+          <div className="relative min-w-0 flex-1">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              className="h-8 w-full rounded border bg-transparent pl-8 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
+              placeholder={t('concept_mapping.bulk_import_search_placeholder')}
+              value={bulkPendingSearch}
+              onChange={(e) => setBulkPendingSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  setBulkFilters((p) => ({ ...p, globalSearch: bulkPendingSearch.trim() }))
+                }
+              }}
+            />
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 text-xs shrink-0"
+            onClick={() => setBulkFilters((p) => ({ ...p, globalSearch: bulkPendingSearch.trim() }))}
+          >
+            {t('common.search')}
+          </Button>
+        </div>
 
         {/* Toolbar: count + columns toggle + select-all/none */}
         <div className="flex flex-wrap items-center gap-2 border-b pb-2 text-xs">
