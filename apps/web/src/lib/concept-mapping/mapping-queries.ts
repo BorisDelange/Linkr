@@ -3,6 +3,7 @@ import {
   getEventTablesForDictionary,
 } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
+import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
 
 // ---------------------------------------------------------------------------
 // Source concept filters
@@ -35,30 +36,13 @@ export interface SourceConceptFilters {
   ignoredConceptIds?: number[]
 }
 
-/** Build the relevance ranking expression and predicate for a fuzzy search term.
- *  Returns `{ rankExpr, where }` where:
- *  - `rankExpr` is a SQL expression evaluating to a number (lower = better match).
- *  - `where` is a SQL predicate that excludes rows with no relevance to the query. */
-function fuzzySearchClauses(term: string): { rankExpr: string; where: string } | null {
-  const trimmed = term.trim()
-  if (!trimmed) return null
-  const escaped = esc(trimmed)
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  // Per-word substring match (all words must appear)
-  const substringConds = words.map((w) => `LOWER(concept_name) LIKE LOWER('%${esc(w)}%')`).join(' AND ')
-  // Per-word fuzzy match: any token in concept_name fuzzy-matches each query word
-  const fuzzyConds = words.map((w) => {
-    const we = esc(w)
-    return `EXISTS (SELECT 1 FROM unnest(string_split(LOWER(concept_name), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8)`
-  }).join(' AND ')
-  // Whole-string similarity: used to score ranking
-  const similarity = `jaro_winkler_similarity(LOWER(concept_name), LOWER('${escaped}'))`
-  // Tier expression: 1.0 if substring match (best), 2.0 if fuzzy-only.
-  // Subtract similarity so that, within a tier, more similar matches rank first.
-  const tierExpr = `CASE WHEN (${substringConds}) THEN 1.0 ELSE 2.0 END`
-  const rankExpr = `(${tierExpr} - ${similarity})`
-  const where = `((${substringConds}) OR (${fuzzyConds}))`
-  return { rankExpr, where }
+/** Local wrapper around the shared `buildFuzzySearchSql` helper for source-
+ *  concepts queries. Source tables only have a single human-readable column
+ *  (`concept_name`); we ignore code/id tiers. */
+function fuzzySearchClauses(term: string, column: string = 'concept_name'): { rankExpr: string; where: string } | null {
+  const sql = buildFuzzySearchSql(term, { nameColumn: column })
+  if (!sql) return null
+  return { rankExpr: sql.rankExpr, where: sql.where }
 }
 
 /** Render a SQL `column IN (...)` predicate for a multi-select filter, or empty string when no filter. */
@@ -453,44 +437,25 @@ export function buildStandardConceptSearchQuery(
     return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} ORDER BY d.${idCol} LIMIT ${limit}`
   }
 
-  const escaped = esc(term)
-  const isNumeric = /^\d+$/.test(term)
-
-  // Build UNION of exact ID match, exact code match, substring name match, and fuzzy name match
-  const parts: string[] = []
-  const groupCols = `concept_id, concept_name, concept_code, vocabulary_id${domainCol ? ', domain_id' : ''}${classCol ? ', concept_class_id' : ''}${stdCol ? ', standard_concept' : ''}`
-
-  // Similarity expression: used for ranking across all match tiers
-  const simExpr = `GREATEST(jaro_winkler_similarity(LOWER(d.${nameCol}), LOWER('${escaped}')), jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${escaped}')))`
-
-  // 1. Exact match on concept_id (if numeric) — tier 0
-  if (isNumeric) {
-    parts.push(`SELECT ${selectCols}, 0.0 AS _rank FROM ${dict.table} d WHERE d.${idCol} = ${escaped}${filterClause}`)
-  }
-
-  // 2. Substring match on concept_code or concept_name — tier 1, sorted by similarity
-  const words = term.split(/\s+/).filter(Boolean)
-  const substringConds = words.map((w) => {
-    const we = esc(w)
-    return `(LOWER(d.${nameCol}) LIKE LOWER('%${we}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${we}%'))`
-  }).join(' AND ')
-  if (substringConds) {
-    parts.push(`SELECT ${selectCols}, (2.0 - ${simExpr}) AS _rank FROM ${dict.table} d WHERE ${substringConds}${filterClause}`)
-  }
-
-  // 3. Fuzzy match via jaro_winkler_similarity on name and code (score > 0.8) — tier 2
-  const fuzzyPerWord = words.map((w) => {
-    const we = esc(w)
-    return `(EXISTS (SELECT 1 FROM unnest(string_split(LOWER(d.${nameCol}), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8) OR jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${we}')) > 0.8)`
+  // Delegate to the shared fuzzy-search helper (see CLAUDE.md → Fuzzy Search).
+  // The single combined WHERE selects every match, and `rankExpr` slots each
+  // row into the right tier so a top-N ORDER BY surfaces the best matches.
+  const fuzzy = buildFuzzySearchSql(term, {
+    nameColumn: nameCol,
+    codeColumn: codeCol,
+    idColumn: idCol,
+    alias: 'd',
   })
-  if (fuzzyPerWord.length > 0) {
-    parts.push(`SELECT ${selectCols}, (3.0 - ${simExpr}) AS _rank FROM ${dict.table} d WHERE ${fuzzyPerWord.join(' AND ')}${filterClause}`)
+  if (!fuzzy) {
+    const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
+    return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} LIMIT ${limit}`
   }
 
-  return `SELECT ${groupCols}
-  FROM (${parts.join(' UNION ALL ')}) sub
-  GROUP BY ${groupCols}
-  ORDER BY MIN(_rank)
+  const where = `${fuzzy.where}${filterClause}`
+  return `SELECT ${selectCols}, ${fuzzy.rankExpr} AS _rank
+  FROM ${dict.table} d
+  WHERE ${where}
+  ORDER BY _rank
   LIMIT ${limit}`
 }
 
@@ -541,32 +506,20 @@ export function buildStandardConceptSearchCountQuery(
     return `SELECT COUNT(*) AS total FROM ${dict.table} d${wherePart}`
   }
 
-  const escaped = esc(term)
-  const isNumeric = /^\d+$/.test(term)
+  // Same matcher as the search query — share the helper so the COUNT and the
+  // ORDER BY query never drift apart.
+  const fuzzy = buildFuzzySearchSql(term, {
+    nameColumn: nameCol,
+    codeColumn: codeCol,
+    idColumn: idCol,
+    alias: 'd',
+  })
   const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
+  const where = fuzzy
+    ? `WHERE ${fuzzy.where}${filterClause}`
+    : (filterConds.length > 0 ? `WHERE ${filterConds.join(' AND ')}` : '')
 
-  // Match if: exact id match (numeric) OR all words appear (substring on name OR code) OR
-  // each word matches via fuzzy similarity > 0.8 on name or code.
-  const words = term.split(/\s+/).filter(Boolean)
-  const substringConds = words.map((w) => {
-    const we = esc(w)
-    return `(LOWER(d.${nameCol}) LIKE LOWER('%${we}%') OR LOWER(d.${codeCol}) LIKE LOWER('%${we}%'))`
-  }).join(' AND ')
-  const fuzzyConds = words.map((w) => {
-    const we = esc(w)
-    return `(EXISTS (SELECT 1 FROM unnest(string_split(LOWER(d.${nameCol}), ' ')) AS t(w) WHERE jaro_winkler_similarity(t.w, LOWER('${we}')) > 0.8) OR jaro_winkler_similarity(LOWER(d.${codeCol}), LOWER('${we}')) > 0.8)`
-  }).join(' AND ')
-
-  const matchClauses: string[] = []
-  if (isNumeric) matchClauses.push(`d.${idCol} = ${escaped}`)
-  if (substringConds) matchClauses.push(`(${substringConds})`)
-  if (fuzzyConds) matchClauses.push(`(${fuzzyConds})`)
-
-  const whereClause = matchClauses.length > 0
-    ? `WHERE (${matchClauses.join(' OR ')})${filterClause}`
-    : filterConds.length > 0 ? `WHERE ${filterConds.join(' AND ')}` : ''
-
-  return `SELECT COUNT(DISTINCT d.${idCol}) AS total FROM ${dict.table} d ${whereClause}`
+  return `SELECT COUNT(DISTINCT d.${idCol}) AS total FROM ${dict.table} d ${where}`
 }
 
 // ---------------------------------------------------------------------------

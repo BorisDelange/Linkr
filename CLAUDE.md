@@ -372,6 +372,25 @@ import { useAppStore } from '@/stores/app-store'
 - Batch counting: `buildBatchCountQuery(domainId, conceptIds[])` uses UNION ALL for efficient counting
 - Measurement domain has additional stats: distribution (min/max/mean/median/std) + histogram (DuckDB binning)
 
+### Fuzzy Search (canonical rules)
+Any user-facing text search that needs typo / accent tolerance must use the shared helper [`buildFuzzySearchSql`](apps/web/src/lib/fuzzy-search.ts). Do not hand-roll new ranking logic — extend the helper instead. The helper emits a SQL predicate + a ranking expression for DuckDB; the caller composes them into its own query.
+
+**Comparison normalisation**: every comparand (column value AND query) is run through `strip_accents(LOWER(...))` before matching, so `é/e`, `É/e`, `ç/c` etc. are treated as equal. Don't add accent stripping at the call site — the helper already handles it.
+
+**Tiers (lower rank = better match)**:
+1. `0` — Exact id (numeric only, when an `idColumn` is configured)
+2. `1` — Exact code (folded equality on `codeColumn`)
+3. `2` — Exact name (folded equality on `nameColumn`)
+4. `3` — Prefix (name starts with the full term, folded)
+5. `4` — Substring (every space-separated word appears in name OR code, folded)
+6. `5` — Fuzzy whole-string Jaro-Winkler ≥ `JW_FUZZY_THRESHOLD` (currently `0.75`) against the folded name OR code
+
+Within a tier, rows are ordered by `jaro_winkler_similarity DESC`.
+
+**Why a low threshold (0.75) is OK**: the design philosophy is high recall — show every plausibly relevant row, even loose matches, and let the higher tiers (exact / prefix / substring) keep the best hits at the top of the list. Per-token JW (matching individual words against individual words) is what produced the bad false positives of the previous implementation ("réa" matching "créatinine"); whole-string JW is much more discriminating and tolerates a low threshold safely.
+
+**Where it's used today**: source-concept search bar in MappingEditorTab (`buildSourceConceptsQuery`, `buildFileSourceConceptsQuery`) and OHDSI target / browse search (`buildStandardConceptSearchQuery`, `buildStandardConceptSearchCountQuery`). All routes go through `buildFuzzySearchSql`; if you add a third fuzzy search anywhere in the app, route it through the same helper so the UX stays consistent.
+
 ### v1 Reference
 The legacy R/Shiny code is in `v1/` for reference. Key files:
 - `v1/R/fct_omop_queries.R` - OMOP query engine (port to Python)
