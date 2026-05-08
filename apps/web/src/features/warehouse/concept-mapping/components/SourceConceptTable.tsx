@@ -228,9 +228,8 @@ export function SourceConceptTable({
   // After a successful import the modal swaps to a "✓ Alignement importé"
   // confirmation panel for ~1s before closing.
   const [justImportedIds, setJustImportedIds] = useState<Set<string>>(new Set())
-  // Standalone transient confirmation dialog used by the popover import flow:
-  // pops open for ~1s after a successful import, then auto-closes. Decoupled
-  // from the popover so we don't have to wrestle with Radix open/close state.
+  // Transient confirmation shown after a popover-initiated import (the popover
+  // itself is left to close on its own).
   const [importConfirmationOpen, setImportConfirmationOpen] = useState(false)
   const handleImportInfo = async (
     info: ExternalMappingInfo,
@@ -473,11 +472,8 @@ export function SourceConceptTable({
             }
           }
 
-          // Blue dot — mapped in other projects. Popover shows a preview of up
-          // to 5 external mappings with inline import buttons + a "View full
-          // list" link to the modal. Confirmation after import is shown via a
-          // dedicated transient modal (`importConfirmation`) so we don't have
-          // to fight Radix's popover open/close behavior.
+          // Blue dot: mapped in other projects. Popover previews up to 5 with
+          // inline import buttons + a "View full list" link to the bulk modal.
           if (status === 'mapped_elsewhere' && externalMappingsByKey) {
             const key = `${row.original.vocabulary_id ?? ''}:${row.original.concept_code ?? ''}`
             const list = externalMappingsByKey.get(key) ?? []
@@ -985,18 +981,14 @@ export function SourceConceptTable({
           </DropdownMenu>
         </div>
       </div>
-      {/* External-list modal: lists every external mapping for a single source
-          row. Clicking Import closes the modal after a short confirmation —
-          we deliberately don't toggle each row to "Imported" so the user can
-          import multiple in sequence (one click → confirm → modal closes →
-          reopen if needed) without ambiguity. */}
+      {/* Bulk-list modal: every external mapping for the source row, each with
+          its own Import button. After a successful import the body swaps to a
+          confirmation overlay for ~1.2s, then the modal auto-closes. */}
       <Dialog
         open={!!externalListModal}
         onOpenChange={(open) => { if (!open) setExternalListModal(null) }}
       >
         <DialogContent className="sm:max-w-lg">
-          {/* Compute whether ANY row in this modal session has been just-imported.
-              If so, show the confirmation overlay instead of the list. */}
           {(() => {
             const hasJustImported = externalListModal?.list.some((info) =>
               justImportedIds.has(`${info.sourceProjectId}::${info.mapping.id}`)
@@ -1074,9 +1066,7 @@ export function SourceConceptTable({
           })()}
         </DialogContent>
       </Dialog>
-      {/* Transient confirmation dialog shown when importing from the popover.
-          Auto-closes after ~1s. Same visual model as the in-modal confirmation.
-          No close button — the dialog dismisses itself after the timeout. */}
+      {/* Transient "Alignement importé" confirmation, auto-dismissed after 1s. */}
       <Dialog open={importConfirmationOpen} onOpenChange={setImportConfirmationOpen}>
         <DialogContent className="sm:max-w-xs" showCloseButton={false}>
           <DialogHeader className="sr-only">

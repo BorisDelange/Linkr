@@ -53,9 +53,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys, loadOtherProjectsDetails, importExternalMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
-  // Load "mapped elsewhere" keys (cheap — just a Set<string>) for cross-project detection.
-  // The full detail Map (used by tooltips and external rows in MappingsTab) is loaded lazily
-  // after the page paints, since the badge itself only needs the keys.
+  // Load cross-project data in two passes: the cheap key Set first (used by the
+  // dot's "mapped elsewhere" badge), then the full detail Map (used by the
+  // popover and the bulk-import modal) after the page has painted.
   useEffect(() => {
     if (!project.workspaceId) return
     loadOtherProjectsMappedKeys(project.id, project.workspaceId)

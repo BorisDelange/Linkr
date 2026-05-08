@@ -78,9 +78,6 @@ import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
 
-// Sentinel id prefix for synthetic rows that represent mappings made in another project.
-const EXTERNAL_PREFIX = 'external::'
-
 interface MappingsTabProps {
   project: MappingProject
   dataSource?: DataSource
@@ -446,14 +443,12 @@ interface SourceCounts { record_count: number; patient_count: number }
 /** undefined = still loading, null = no data available */
 interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
 
-function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, isExternal, externalProjectName, onOpenComments, onOpenReviews, position, onPrev, onNext }: {
+function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, onOpenComments, onOpenReviews, position, onPrev, onNext }: {
   mapping: ConceptMapping
   sourceDetail: SourceDetail
   onBack: () => void
   onReview: (mappingId: string, target: MappingStatus) => void | Promise<void>
   currentUser: string
-  isExternal: boolean
-  externalProjectName?: string
   onOpenComments: (mappingId: string) => void
   onOpenReviews: (mappingId: string) => void
   /** 1-based index in the parent's filtered/sorted list, plus the total count. */
@@ -513,11 +508,6 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
             <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
               {t(`concept_mapping.status_${effectiveStatus}`)}
             </Badge>
-            {isExternal && (
-              <Badge variant="secondary" className="px-1.5 py-0 text-[9px] font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
-                {t('concept_mapping.from_project')}{externalProjectName ? `: ${externalProjectName}` : ''}
-              </Badge>
-            )}
             {mapping.mappedBy && <span>· {mapping.mappedBy}</span>}
             {mapping.mappedOn && <span>· {formatDate(mapping.mappedOn)}</span>}
           </div>
@@ -570,8 +560,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 variant="outline"
                 size="icon-sm"
                 className={`relative size-7 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
-                onClick={() => { if (!isExternal) onOpenComments(mapping.id) }}
-                disabled={isExternal}
+                onClick={() => onOpenComments(mapping.id)}
               >
                 <MessageSquare size={14} />
                 {commentsCount > 0 && (
@@ -581,7 +570,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.comments')}</TooltipContent>
           </Tooltip>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -589,8 +578,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 variant="outline"
                 size="icon-sm"
                 className={`relative size-7 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
-                onClick={() => { if (!isExternal) onOpenReviews(mapping.id) }}
-                disabled={isExternal}
+                onClick={() => onOpenReviews(mapping.id)}
               >
                 <Users size={14} />
                 {reviewsCount > 0 && (
@@ -600,7 +588,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.reviews_title')}</TooltipContent>
           </Tooltip>
           <span className="mx-1 h-5 w-px bg-border" />
           <Tooltip delayDuration={300}>
@@ -610,12 +598,12 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 size="icon-sm"
                 className={`size-7 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
                 onClick={() => onReview(mapping.id, 'approved')}
-                disabled={isOwn && !isExternal}
+                disabled={isOwn}
               >
                 <Check size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{(isOwn && !isExternal) ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
           </Tooltip>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -624,12 +612,12 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 size="icon-sm"
                 className={`size-7 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
                 onClick={() => onReview(mapping.id, 'rejected')}
-                disabled={isOwn && !isExternal}
+                disabled={isOwn}
               >
                 <X size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{(isOwn && !isExternal) ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
           </Tooltip>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -834,18 +822,12 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   )
 }
 
-// ─── Memoized review action buttons (per row) ───────────────────────
-// Extracted as a separate React.memo component so a vote on row X doesn't force the 49
-// other visible rows to re-render their Tooltips and Buttons. With ~6 Radix Tooltips
-// per row × 50 visible rows, that adds up to several hundred ms of needless work on
-// every vote. Memoizing per-row is the standard React table fix.
-//
-// The props are deliberately flat primitives so React.memo's default shallow comparison
-// works; handlers are forwarded from the parent useCallback / setState references,
-// which are stable across renders.
+// React.memo'd row of action buttons. Flat primitive props let the default
+// shallow comparison short-circuit so a vote on one row doesn't re-render the
+// other 49 visible rows. Native title="" tooltips instead of Radix <Tooltip>
+// because per-row portals were the dominant paint cost on vote.
 interface ReviewActionsCellProps {
   mappingId: string
-  isExternal: boolean
   isOwn: boolean
   myReview: MappingStatus | 'unchecked'
   commentsCount: number
@@ -857,12 +839,9 @@ interface ReviewActionsCellProps {
   t: ReturnType<typeof useTranslation>['t']
 }
 const ReviewActionsCell = memo(function ReviewActionsCell({
-  mappingId, isExternal, isOwn, myReview, commentsCount, reviewsCount,
+  mappingId, isOwn, myReview, commentsCount, reviewsCount,
   onOpenDetail, onOpenComments, onOpenReviews, onReview, t,
 }: ReviewActionsCellProps) {
-  // Use native `title=""` HTML tooltips instead of Radix <Tooltip>: 6 buttons × 50
-  // visible rows = 300 portal-managing components is enough to make the browser
-  // spend ~500 ms repainting on every cell update. Native tooltips cost zero.
   return (
     <span className="flex items-center justify-end gap-1">
       <Button
@@ -878,9 +857,8 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
         variant="outline"
         size="icon-sm"
         className={`relative size-6 ${commentsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
-        title={isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.comments')}
-        onClick={(e) => { e.stopPropagation(); if (!isExternal) onOpenComments(mappingId) }}
-        disabled={isExternal}
+        title={t('concept_mapping.comments')}
+        onClick={(e) => { e.stopPropagation(); onOpenComments(mappingId) }}
       >
         <MessageSquare size={12} />
         {commentsCount > 0 && (
@@ -893,9 +871,8 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
         variant="outline"
         size="icon-sm"
         className={`relative size-6 ${reviewsCount > 0 ? 'border-primary/50 text-primary' : ''}`}
-        title={isExternal ? t('concept_mapping.external_action_disabled') : t('concept_mapping.reviews_title')}
-        onClick={(e) => { e.stopPropagation(); if (!isExternal) onOpenReviews(mappingId) }}
-        disabled={isExternal}
+        title={t('concept_mapping.reviews_title')}
+        onClick={(e) => { e.stopPropagation(); onOpenReviews(mappingId) }}
       >
         <Users size={12} />
         {reviewsCount > 0 && (
@@ -939,10 +916,9 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
 
 export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const { t } = useTranslation()
-  // Subscribe to version counters instead of the `mappings` array directly. This lets
-  // memos depend on `mappingsStructureVersion` (set membership / aggregations) or
-  // `mappingsVersion` (per-row content) explicitly, so a vote on a single row no
-  // longer invalidates the filterOptions / external-rows / sorted memos.
+  // Memos depend on `mappingsStructureVersion` (set membership / aggregations)
+  // or `mappingsVersion` (per-row content) instead of the `mappings` array
+  // itself, so a vote on a single row doesn't invalidate filter / sort memos.
   const updateMapping = useConceptMappingStore((s) => s.updateMapping)
   const deleteMapping = useConceptMappingStore((s) => s.deleteMapping)
   const createMappingsBatch = useConceptMappingStore((s) => s.createMappingsBatch)
@@ -951,11 +927,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const loadProjectMappings = useConceptMappingStore((s) => s.loadProjectMappings)
   const mappingsVersion = useConceptMappingStore((s) => s.mappingsVersion)
   const mappingsStructureVersion = useConceptMappingStore((s) => s.mappingsStructureVersion)
-  // `mappings` is read via getState() rather than a hook subscription to avoid
-  // re-rendering on every cell-level update (votes, comments). To stay correct,
-  // the component DOES subscribe to `mappingsStructureVersion` and `mappingsVersion`
-  // (below) — when either bumps, React re-renders this component and this line
-  // re-reads the latest `mappings` snapshot from the store.
+  // Read via getState() rather than a hook subscription so cell-level updates
+  // (votes, comments) don't re-render the whole component. The version-counter
+  // subscriptions above ensure this snapshot stays fresh whenever a structural
+  // change happens.
   const mappings = useConceptMappingStore.getState().mappings
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
@@ -963,8 +938,8 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const currentUser = getUserDisplayName()
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
-  // Load cross-project mapping details (needed to render synthetic external rows in this tab).
-  // Cached in the store so this is a no-op if Editor tab already triggered it.
+  // Load cross-project mapping details for the bulk-import modal. Cached in the
+  // store so the Editor tab and this tab share the same fetch.
   useEffect(() => {
     if (project.workspaceId) loadOtherProjectsDetails(project.id, project.workspaceId)
   }, [project.id, project.workspaceId, loadOtherProjectsDetails])
@@ -1112,26 +1087,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     [mappingsStructureVersion, project.id],
   )
 
-  // The MappingsTab evaluation table shows only local rows. External (other-projects)
-  // mappings are imported via the dedicated Import dialog (see bulk-import modal) and
-  // surfaced inline in MappingEditor's blue-dot tooltip — they don't pollute the
-  // evaluation list anymore.
+  // The evaluation table only displays project-local mappings. Cross-project
+  // alignments are imported via the bulk-import modal and surfaced inline in
+  // MappingEditor's blue-dot popover.
   const allDisplayMappings = projectMappings
-
-  /** Resolve a display row id back to the underlying ExternalMappingInfo (or null for local rows). */
-  const resolveExternal = useCallback((id: string) => {
-    if (!id.startsWith(EXTERNAL_PREFIX)) return null
-    const rest = id.slice(EXTERNAL_PREFIX.length)
-    const sepIdx = rest.indexOf('::')
-    if (sepIdx < 0) return null
-    const sourceProjectId = rest.slice(0, sepIdx)
-    const mappingId = rest.slice(sepIdx + 2)
-    for (const list of otherProjectsMappings.values()) {
-      const info = list.find((i) => i.sourceProjectId === sourceProjectId && i.mapping.id === mappingId)
-      if (info) return info
-    }
-    return null
-  }, [otherProjectsMappings])
 
   // Compute distinct values for dropdown filters
   const filterOptions = useMemo(() => {
@@ -1245,13 +1204,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return true
   }), [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived])
 
-  /** "Frozen order": the visible row order is captured the first time a filter/sort
-   *  setting is applied, and reused as long as those settings stay the same. This
-   *  prevents a row from jumping when its sort key changes mid-session — typical
-   *  case: voting on a blue (external) row turns it green (local), which would
-   *  otherwise reshuffle the row's position. We key on (sourceVocab, sourceCode,
-   *  targetConceptId) instead of `id` because voting on an external row creates a
-   *  new local mapping with a different uuid but the same source/target tuple. */
+  /** Frozen row order: captured the first time a filter/sort combination is applied
+   *  and reused as long as those settings stay the same, so a vote that changes a
+   *  row's effective status doesn't make the row jump position. Keyed on
+   *  (sourceVocab, sourceCode, targetConceptId) so the entry survives mapping-id
+   *  changes (e.g. on import). */
   const stableOrderRef = useRef<{ key: string; rowKeys: string[] } | null>(null)
   const rowKey = useCallback((m: ConceptMapping) => `${m.sourceVocabularyId}\0${m.sourceConceptCode}\0${m.targetConceptId}`, [])
 
@@ -1270,14 +1227,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     } else {
       const { columnId, desc } = sorting
       const dir = desc ? -1 : 1
-      // Synthetic columns (vote counts, origin) aren't on the mapping object — resolve
-      // them through `rowDerived` and the EXTERNAL_PREFIX sentinel.
+      // Synthetic columns (vote counts) aren't on the mapping object — resolve via rowDerived.
       const accessor = (m: ConceptMapping): unknown => {
         switch (columnId) {
           case '_votes_approved': return rowDerived.get(m.id)?.approvedCount ?? 0
           case '_votes_flagged': return rowDerived.get(m.id)?.flaggedCount ?? 0
           case '_votes_rejected': return rowDerived.get(m.id)?.rejectedCount ?? 0
-          case '_status': return m.id.startsWith(EXTERNAL_PREFIX) ? 1 : 0
           default: return (m as unknown as Record<string, unknown>)[columnId]
         }
       }
@@ -1298,21 +1253,13 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       return baseOrder
     }
 
-    // Same settings as last render. Reuse the captured row-key order. New rows
-    // (e.g. truly novel mappings) are appended at the end in baseOrder's natural
-    // order. The (vocab, code, target) key is stable across the external→local
-    // transition that happens when voting on a blue-dot row.
+    // Same settings as last render: reuse the captured row-key order. New rows
+    // are appended at the end in baseOrder's natural order.
     const knownKeys = new Set(stableOrderRef.current.rowKeys)
     const filteredByKey = new Map<string, ConceptMapping>()
     for (const m of filtered) {
-      // Prefer local rows over external ones when they have the same row key
-      // (an external row that was just voted on now exists in both forms during
-      // the brief render window between import and the external Map update).
       const k = rowKey(m)
-      const existing = filteredByKey.get(k)
-      if (!existing || (existing.id.startsWith(EXTERNAL_PREFIX) && !m.id.startsWith(EXTERNAL_PREFIX))) {
-        filteredByKey.set(k, m)
-      }
+      if (!filteredByKey.has(k)) filteredByKey.set(k, m)
     }
     const out: ConceptMapping[] = []
     const seenKeys = new Set<string>()
@@ -1755,11 +1702,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     {
       id: '_select',
       header: () => null,
-      // Reads selection from the ref. We force a re-render of just this cell via
-      // a per-row `selected` lookup at render time using the closed-over `bulkSelectedIds`.
-      // The closure captures the *current* value at column-build time, so when selection
-      // changes, the column array stays stable but the cell function re-evaluates from
-      // the ref on each TanStack render pass.
+      // Read selection from the ref so columns stay stable across clicks.
       cell: ({ row }) => {
         const k = row.original.key
         const selected = bulkSelectedIdsRef.current.has(k)
@@ -1917,7 +1860,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       size: 36,
       minSize: 36,
     },
-    // bulkSelectedIds intentionally NOT in deps — see the _select cell comment.
+    // bulkSelectedIds is read via the ref above to keep columns referentially stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [t, bulkToggleOne])
 
@@ -2077,23 +2020,11 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     }
   }
 
-  /** Toggle review: clicking the same status resets to unchecked.
-   *  For external (cross-project) rows, imports the mapping locally first, then applies the vote. */
+  /** Toggle review: clicking the same status resets to unchecked. */
   const handleReview = useCallback(async (mappingId: string, target: MappingStatus) => {
     if (!requireIdentity()) return
     const reviewer = getUserDisplayName()
-
-    // External row: import as local copy first, then vote on the new local id.
-    let localId = mappingId
-    if (mappingId.startsWith(EXTERNAL_PREFIX)) {
-      const info = resolveExternal(mappingId)
-      if (!info) return
-      const local = await importExternalMapping(info, project.id, { createdBy: reviewer })
-      if (!local) return
-      localId = local.id
-    }
-
-    const m = useConceptMappingStore.getState().mappings.find((x) => x.id === localId)
+    const m = useConceptMappingStore.getState().mappings.find((x) => x.id === mappingId)
     const prevReviews = m?.reviews ?? []
     const currentReviewerStatus = prevReviews.find((r) => r.reviewerId === reviewer)?.status ?? 'unchecked'
     const newStatus = currentReviewerStatus === target ? 'unchecked' : target
@@ -2106,12 +2037,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         createdAt: new Date().toISOString(),
       }] : []),
     ]
-    updateMapping(localId, {
+    updateMapping(mappingId, {
       reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
-  }, [updateMapping, getUserDisplayName, importExternalMapping, project.id, resolveExternal, requireIdentity])
+  }, [updateMapping, getUserDisplayName, requireIdentity])
 
   /** Stable handlers for the memoized ReviewActionsCell. They take a mapping id and
    *  resolve the full mapping via the store's id index — this lets the cell pass only
@@ -2167,35 +2098,17 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       })
     }
 
-    // ── Origin dot column ──────────────────────────────────────────
-    // Blue = mapping comes from another project, green = mapping created in this project.
-    // Voting status (approve/reject/flagged) is shown via the dedicated count columns —
-    // the dot only conveys the row's origin since multiple reviews can disagree.
+    // ── Status dot column ──────────────────────────────────────────
+    // Always green (the evaluation table only displays project-local mappings).
+    // Native title="" instead of Radix Tooltip to avoid per-row portal overhead.
     cols.push({
       id: '_status',
       header: '',
-      cell: ({ row }) => {
-        const m = row.original
-        const isExternal = m.id.startsWith(EXTERNAL_PREFIX)
-        const dotColor = isExternal ? 'bg-blue-500' : 'bg-green-500'
-        // Native title="" instead of Radix Tooltip — same reasoning as the action
-        // buttons: per-row Radix Tooltips were the dominant browser-paint cost on vote.
-        let titleText: string
-        if (isExternal) {
-          const info = resolveExternal(m.id)
-          const lines = [t('concept_mapping.status_tip_mapped_elsewhere_one')]
-          if (info) lines.push(`${t('concept_mapping.from_project')}: ${info.sourceProjectName}`)
-          lines.push(t('concept_mapping.external_vote_hint'))
-          titleText = lines.join('\n')
-        } else {
-          titleText = t('concept_mapping.status_tip_mapped')
-        }
-        return (
-          <span className="flex justify-center" title={titleText}>
-            <span className={`inline-block size-2 rounded-full ${dotColor}`} />
-          </span>
-        )
-      },
+      cell: () => (
+        <span className="flex justify-center" title={t('concept_mapping.status_tip_mapped')}>
+          <span className="inline-block size-2 rounded-full bg-green-500" />
+        </span>
+      ),
       size: 28,
       minSize: 28,
       enableResizing: false,
@@ -2432,10 +2345,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       },
     )
 
-    // Review action buttons (only in review mode). Cell rendering delegates to the
-    // memoized ReviewActionsCell — see top of file. The cell function passes flat
-    // primitive props so React.memo's shallow compare lets unchanged rows skip
-    // re-rendering their tooltips and buttons.
+    // Review action buttons (only in review mode). Delegates to ReviewActionsCell.
     if (!editMode) {
       cols.push({
         id: '_review',
@@ -2446,7 +2356,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           return (
             <ReviewActionsCell
               mappingId={m.id}
-              isExternal={m.id.startsWith(EXTERNAL_PREFIX)}
               isOwn={m.mappedBy === currentUser}
               myReview={d?.myReviewStatus ?? 'unchecked'}
               commentsCount={(m.comments ?? []).length}
@@ -2467,7 +2376,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, resolveExternal, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, onOpenDetail, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
 
   const table = useReactTable({
     data: visibleItems,
@@ -2483,39 +2392,14 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
 
   // Show detail view when a mapping is selected
   if (detailMapping) {
-    const isExternal = detailMapping.id.startsWith(EXTERNAL_PREFIX)
-    const externalInfo = isExternal ? resolveExternal(detailMapping.id) : null
-
-    // Try to find the live counterpart:
-    // 1) For external rows that have been imported locally during this view, find the local copy
-    //    (matched by vocabulary + concept code + target concept id since the import resets the id).
-    // 2) Otherwise read directly from the live store by id.
-    let liveMapping: ConceptMapping | undefined
-    if (isExternal) {
-      liveMapping = mappings.find((m) =>
-        m.projectId === project.id &&
-        m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
-        m.sourceConceptCode === detailMapping.sourceConceptCode &&
-        m.targetConceptId === detailMapping.targetConceptId,
-      )
-    } else {
-      liveMapping = mappings.find((m) => m.id === detailMapping.id)
-    }
+    // Read the live counterpart from the store so vote updates show without
+    // forcing a parent re-render.
+    const liveMapping = mappings.find((m) => m.id === detailMapping.id)
     const effectiveMapping = liveMapping ?? detailMapping
-    const stillExternal = isExternal && !liveMapping
 
-    // Index in the parent filtered+sorted list (1-based for display).
-    // Match by id when possible; for an external row that just got imported, fall back to
-    // (vocabularyId, conceptCode, targetConceptId) so the position stays correct.
+    // 1-based index in the parent filtered+sorted list, for the "X / Y" header.
     const navList = sorted
-    let currentIdx = navList.findIndex((m) => m.id === detailMapping.id)
-    if (currentIdx < 0) {
-      currentIdx = navList.findIndex((m) =>
-        m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
-        m.sourceConceptCode === detailMapping.sourceConceptCode &&
-        m.targetConceptId === detailMapping.targetConceptId,
-      )
-    }
+    const currentIdx = navList.findIndex((m) => m.id === detailMapping.id)
     const goTo = (i: number) => {
       const next = navList[i]
       if (!next) return
@@ -2540,26 +2424,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
           mapping={effectiveMapping}
           sourceDetail={detailSource}
           currentUser={currentUser}
-          isExternal={stillExternal}
-          externalProjectName={externalInfo?.sourceProjectName}
           onOpenComments={(id) => setCommentsMappingId(id)}
           onOpenReviews={(id) => setReviewsMappingId(id)}
           position={currentIdx >= 0 ? { index: currentIdx + 1, total: navList.length } : undefined}
           onPrev={currentIdx > 0 ? () => goTo(currentIdx - 1) : undefined}
           onNext={currentIdx >= 0 && currentIdx < navList.length - 1 ? () => goTo(currentIdx + 1) : undefined}
-          onReview={async (mid, target) => {
-            await handleReview(mid, target)
-            // After voting on an external row, swap to the freshly-created local mapping so subsequent votes update it
-            if (mid.startsWith(EXTERNAL_PREFIX)) {
-              const refreshed = useConceptMappingStore.getState().mappings.find((m) =>
-                m.projectId === project.id &&
-                m.sourceVocabularyId === detailMapping.sourceVocabularyId &&
-                m.sourceConceptCode === detailMapping.sourceConceptCode &&
-                m.targetConceptId === detailMapping.targetConceptId,
-              )
-              if (refreshed) setDetailMapping(refreshed)
-            }
-          }}
+          onReview={handleReview}
           onBack={() => {
             setDetailMapping(null)
             // Restore scroll position after React re-renders the table
@@ -2918,9 +2788,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <div className="ml-auto flex items-center gap-1">
-          {/* Import — single entry point. Click opens a small dialog where the user
-              picks the source (file or other projects), so we no longer need two
-              separate toolbar buttons that did similar things from different angles. */}
+          {/* Import — opens a source picker (file vs. other projects). */}
           <Tooltip>
             <TooltipTrigger asChild>
               <Button

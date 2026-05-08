@@ -201,6 +201,23 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [browseLoading, setBrowseLoading] = useState(false)
   const [browseVocabOptions, setBrowseVocabOptions] = useState<string[]>([])
   const [browseDomainOptions, setBrowseDomainOptions] = useState<string[]>([])
+  // TanStack column visibility / sizing for the browse-results datatable.
+  // `concept_id` and `concept_code` are hidden by default to match TargetConceptPanel.
+  const [browseColVisibility, setBrowseColVisibility] = useState<VisibilityState>({ concept_id: false, concept_code: false })
+  const [browseColSizing, setBrowseColSizing] = useState<Record<string, number>>({})
+  const [browseSorting, setBrowseSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
+  // Inline column filters applied client-side to the visible page (server-side
+  // filters above the search bar narrow the underlying query; these refine
+  // within the loaded page, the same way TargetConceptPanel does it).
+  const [browseColFilters, setBrowseColFilters] = useState<{
+    concept_id?: string
+    concept_name?: string
+    concept_code?: string
+    vocabulary_id?: string[]
+    domain_id?: string[]
+    concept_class_id?: string[]
+    standard_concept?: string
+  }>({})
 
   // Inline column filters
   const [filterCategory, setFilterCategory] = useState('')
@@ -751,6 +768,202 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   const browseTotalPages = Math.max(1, Math.ceil(browseTotal / BROWSE_PAGE_SIZE))
 
+  // ─── OHDSI vocab browse — TanStack column defs (mirrors TargetConceptPanel) ──
+  type BrowseRow = Record<string, unknown>
+  const browseColumns = useMemo<ColumnDef<BrowseRow>[]>(() => [
+    {
+      id: 'vocabulary_id',
+      header: () => t('concept_mapping.col_vocabulary'),
+      accessorFn: (row) => row.vocabulary_id,
+      cell: ({ row }) => String(row.original.vocabulary_id ?? ''),
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'concept_id',
+      header: () => t('concept_mapping.col_concept_id'),
+      accessorFn: (row) => row.concept_id,
+      cell: ({ row }) => <span className="font-mono">{String(row.original.concept_id ?? '')}</span>,
+      size: 80,
+      minSize: 50,
+    },
+    {
+      id: 'concept_name',
+      header: () => t('concept_mapping.col_name'),
+      accessorFn: (row) => row.concept_name,
+      cell: ({ row }) => String(row.original.concept_name ?? ''),
+      size: 220,
+      minSize: 100,
+    },
+    {
+      id: 'concept_code',
+      header: () => t('concept_mapping.col_concept_code'),
+      accessorFn: (row) => row.concept_code,
+      cell: ({ row }) => <span className="font-mono">{String(row.original.concept_code ?? '')}</span>,
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'domain_id',
+      header: () => t('concept_mapping.col_domain'),
+      accessorFn: (row) => row.domain_id,
+      cell: ({ row }) => String(row.original.domain_id ?? ''),
+      size: 90,
+      minSize: 50,
+    },
+    {
+      id: 'concept_class_id',
+      header: () => t('concept_mapping.col_concept_class'),
+      accessorFn: (row) => row.concept_class_id,
+      cell: ({ row }) => String(row.original.concept_class_id ?? ''),
+      size: 100,
+      minSize: 50,
+    },
+    {
+      id: 'standard_concept',
+      header: () => t('concept_mapping.col_std'),
+      accessorFn: (row) => row.standard_concept,
+      cell: ({ row }) => {
+        const sc = row.original.standard_concept
+        if (sc === 'S') return <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge>
+        if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
+        return null
+      },
+      size: 50,
+      minSize: 30,
+    },
+  ], [t])
+
+  // Distinct values for inline column filter dropdowns (computed from the loaded
+  // page, like TargetConceptPanel — filters narrow what's already visible).
+  const browseFilterOptions = useMemo(() => {
+    const unique = (key: string) =>
+      [...new Set(browseResults.map((r) => String(r[key] ?? '')).filter(Boolean))].sort()
+    return {
+      vocabulary_id: unique('vocabulary_id'),
+      domain_id: unique('domain_id'),
+      concept_class_id: unique('concept_class_id'),
+    }
+  }, [browseResults])
+
+  // Apply inline column filters first, then sort.
+  const filteredBrowseResults = useMemo(() => {
+    const f = browseColFilters
+    return browseResults.filter((r) => {
+      if (f.concept_id && !String(r.concept_id ?? '').includes(f.concept_id)) return false
+      if (f.concept_name && !String(r.concept_name ?? '').toLowerCase().includes(f.concept_name.toLowerCase())) return false
+      if (f.concept_code && !String(r.concept_code ?? '').toLowerCase().includes(f.concept_code.toLowerCase())) return false
+      if (f.vocabulary_id?.length && !f.vocabulary_id.includes(String(r.vocabulary_id ?? ''))) return false
+      if (f.domain_id?.length && !f.domain_id.includes(String(r.domain_id ?? ''))) return false
+      if (f.concept_class_id?.length && !f.concept_class_id.includes(String(r.concept_class_id ?? ''))) return false
+      if (f.standard_concept && String(r.standard_concept ?? '') !== f.standard_concept) return false
+      return true
+    })
+  }, [browseResults, browseColFilters])
+
+  const sortedBrowseResults = useMemo(() => {
+    if (!browseSorting) return filteredBrowseResults
+    const { columnId, desc } = browseSorting
+    const dir = desc ? -1 : 1
+    return [...filteredBrowseResults].sort((a, b) => {
+      const av = a[columnId]
+      const bv = b[columnId]
+      if (av == null && bv == null) return 0
+      if (av == null) return 1
+      if (bv == null) return -1
+      if (typeof av === 'number' && typeof bv === 'number') return dir * (av - bv)
+      return dir * String(av).localeCompare(String(bv))
+    })
+  }, [filteredBrowseResults, browseSorting])
+
+  /** Render the inline filter input for a given column id. */
+  const renderBrowseColumnFilter = (columnId: string) => {
+    if (columnId === 'vocabulary_id' && browseFilterOptions.vocabulary_id.length > 0) {
+      return <MultiSelectFilter
+        value={browseColFilters.vocabulary_id ?? []}
+        options={browseFilterOptions.vocabulary_id}
+        placeholder="Vocab"
+        onChange={(v) => setBrowseColFilters((prev) => ({ ...prev, vocabulary_id: v.length ? v : undefined }))}
+        triggerClass={FILTER_INPUT_CLASS}
+      />
+    }
+    if (columnId === 'concept_id') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={browseColFilters.concept_id ?? ''} onChange={(e) => setBrowseColFilters((prev) => ({ ...prev, concept_id: e.target.value || undefined }))} />
+    }
+    if (columnId === 'concept_name') {
+      return <input className={FILTER_INPUT_CLASS} placeholder="..." value={browseColFilters.concept_name ?? ''} onChange={(e) => setBrowseColFilters((prev) => ({ ...prev, concept_name: e.target.value || undefined }))} />
+    }
+    if (columnId === 'concept_code') {
+      return <input className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={browseColFilters.concept_code ?? ''} onChange={(e) => setBrowseColFilters((prev) => ({ ...prev, concept_code: e.target.value || undefined }))} />
+    }
+    if (columnId === 'domain_id' && browseFilterOptions.domain_id.length > 0) {
+      return <MultiSelectFilter
+        value={browseColFilters.domain_id ?? []}
+        options={browseFilterOptions.domain_id}
+        placeholder="Domain"
+        onChange={(v) => setBrowseColFilters((prev) => ({ ...prev, domain_id: v.length ? v : undefined }))}
+        triggerClass={FILTER_INPUT_CLASS}
+      />
+    }
+    if (columnId === 'concept_class_id' && browseFilterOptions.concept_class_id.length > 0) {
+      return <MultiSelectFilter
+        value={browseColFilters.concept_class_id ?? []}
+        options={browseFilterOptions.concept_class_id}
+        placeholder="Class"
+        onChange={(v) => setBrowseColFilters((prev) => ({ ...prev, concept_class_id: v.length ? v : undefined }))}
+        triggerClass={FILTER_INPUT_CLASS}
+      />
+    }
+    if (columnId === 'standard_concept') {
+      return (
+        <Select
+          value={browseColFilters.standard_concept ?? '__all__'}
+          onValueChange={(v) => setBrowseColFilters((prev) => ({ ...prev, standard_concept: v === '__all__' ? undefined : v }))}
+        >
+          <SelectTrigger className="h-6 w-full overflow-hidden border-dashed text-[10px] font-normal [&>svg]:hidden">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">{t('concept_mapping.filter_all')}</SelectItem>
+            <SelectItem value="S" className="text-xs">S</SelectItem>
+            <SelectItem value="C" className="text-xs">C</SelectItem>
+          </SelectContent>
+        </Select>
+      )
+    }
+    return null
+  }
+
+  const handleBrowseSort = (columnId: string) => {
+    if (browseSorting?.columnId === columnId) {
+      if (browseSorting.desc) setBrowseSorting({ columnId, desc: false })
+      else setBrowseSorting(null)
+    } else {
+      setBrowseSorting({ columnId, desc: true })
+    }
+  }
+
+  const browseTable = useReactTable({
+    data: sortedBrowseResults,
+    columns: browseColumns,
+    state: { columnVisibility: browseColVisibility, columnSizing: browseColSizing },
+    onColumnVisibilityChange: setBrowseColVisibility,
+    onColumnSizingChange: setBrowseColSizing,
+    columnResizeMode: 'onChange',
+    getCoreRowModel: getCoreRowModel(),
+    manualPagination: true,
+  })
+
+  /** Human-readable label for a TanStack column. */
+  const getBrowseColLabel = (id: string): string => {
+    const col = browseColumns.find((c) => 'id' in c && c.id === id)
+    if (col && typeof col.header === 'function') {
+      const r = (col.header as () => unknown)()
+      if (typeof r === 'string') return r
+    }
+    return id
+  }
+
   const importBatches = project.importBatches ?? []
 
   return (
@@ -1201,20 +1414,11 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                     </Button>
                   </div>
 
-                  {/* Results table */}
-                  <Card className="overflow-hidden">
-                    {/* Header */}
-                    <div className="grid grid-cols-[60px_1fr_100px_100px_100px_80px] items-center gap-1 border-b bg-muted/30 px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
-                      <span>ID</span>
-                      <span>{t('concept_mapping.col_name')}</span>
-                      <span>Code</span>
-                      <span>{t('concept_mapping.col_vocab')}</span>
-                      <span>{t('concept_mapping.col_domain')}</span>
-                      <span>{t('concept_mapping.col_concept_class')}</span>
-                    </div>
-
-                    {/* Body */}
-                    <div>
+                  {/* Results table — same TanStack pattern as TargetConceptPanel:
+                      sortable resizable headers, hidden-by-default verbose columns,
+                      column-visibility menu in the footer toolbar. */}
+                  <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border">
+                    <div className="min-h-0 flex-1 overflow-auto">
                       {browseLoading ? (
                         <div className="flex h-32 items-center justify-center">
                           <Loader2 size={16} className="animate-spin text-muted-foreground" />
@@ -1224,27 +1428,126 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                           <p className="text-xs text-muted-foreground">{t('common.no_results')}</p>
                         </div>
                       ) : (
-                        browseResults.map((row) => (
-                          <div
-                            key={String(row.concept_id)}
-                            className="grid grid-cols-[60px_1fr_100px_100px_100px_80px] items-center gap-1 border-b border-border/40 px-3 py-1.5 text-xs hover:bg-accent/30"
-                          >
-                            <span className="text-muted-foreground">{String(row.concept_id)}</span>
-                            <span className="truncate" title={String(row.concept_name)}>{String(row.concept_name)}</span>
-                            <span className="truncate text-muted-foreground">{String(row.concept_code ?? '')}</span>
-                            <span className="truncate text-muted-foreground">{String(row.vocabulary_id ?? '')}</span>
-                            <span className="truncate text-muted-foreground">{String(row.domain_id ?? '')}</span>
-                            <span className="truncate text-muted-foreground">{String(row.concept_class_id ?? '')}</span>
-                          </div>
-                        ))
+                        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+                          <TableHeader>
+                            <TableRow>
+                              {browseTable.getHeaderGroups().map((hg) =>
+                                hg.headers.map((header) => {
+                                  const colId = header.column.id
+                                  const sortIcon = !browseSorting || browseSorting.columnId !== colId
+                                    ? <ArrowUpDown size={10} className="shrink-0 text-muted-foreground/30" />
+                                    : browseSorting.desc
+                                      ? <ArrowDown size={10} className="shrink-0 text-primary" />
+                                      : <ArrowUp size={10} className="shrink-0 text-primary" />
+                                  return (
+                                    <TableHead
+                                      key={header.id}
+                                      className="relative select-none text-xs"
+                                      style={{ width: header.getSize() }}
+                                    >
+                                      <button
+                                        type="button"
+                                        className="flex min-w-0 items-center gap-1 hover:text-foreground"
+                                        onClick={() => handleBrowseSort(colId)}
+                                      >
+                                        <span className="truncate">
+                                          {flexRender(header.column.columnDef.header, header.getContext())}
+                                        </span>
+                                        {sortIcon}
+                                      </button>
+                                      {header.column.getCanResize() && (
+                                        <div
+                                          onMouseDown={header.getResizeHandler()}
+                                          onTouchStart={header.getResizeHandler()}
+                                          onDoubleClick={() => header.column.resetSize()}
+                                          className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                                        >
+                                          <div
+                                            className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
+                                              header.column.getIsResizing() ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+                                            }`}
+                                          />
+                                        </div>
+                                      )}
+                                    </TableHead>
+                                  )
+                                })
+                              )}
+                            </TableRow>
+                            {/* Inline column filters */}
+                            <TableRow className="hover:bg-transparent">
+                              {browseTable.getHeaderGroups().map((hg) =>
+                                hg.headers.map((header) => (
+                                  <TableHead
+                                    key={`filter-${header.id}`}
+                                    className="px-1 py-1"
+                                    style={{ width: header.getSize() }}
+                                  >
+                                    {renderBrowseColumnFilter(header.column.id)}
+                                  </TableHead>
+                                ))
+                              )}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {browseTable.getRowModel().rows.map((row) => (
+                              <TableRow key={String(row.original.concept_id)}>
+                                {row.getVisibleCells().map((cell) => {
+                                  const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
+                                  const raw = cell.getValue()
+                                  const title = raw != null ? String(raw) : undefined
+                                  return (
+                                    <TableCell
+                                      key={cell.id}
+                                      className="overflow-hidden truncate text-xs"
+                                      style={{ maxWidth: cell.column.getSize() }}
+                                      title={title}
+                                    >
+                                      {rendered}
+                                    </TableCell>
+                                  )
+                                })}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
                       )}
                     </div>
 
-                    {/* Footer */}
-                    <div className="flex items-center justify-between border-t px-3 py-1.5">
-                      <span className="text-[10px] text-muted-foreground">
-                        {browseTotal.toLocaleString()} {t('concept_mapping.total_concepts')}
-                      </span>
+                    {/* Footer: count + column-visibility toggle + pagination */}
+                    <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground">
+                          {browseTotal.toLocaleString()} {t('concept_mapping.total_concepts')}
+                        </span>
+                        <DropdownMenu>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                                  <Settings2 size={12} />
+                                </Button>
+                              </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
+                          </Tooltip>
+                          <DropdownMenuContent align="start" className="w-[200px]">
+                            <DropdownMenuLabel className="text-xs">{t('common.columns')}</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            {browseTable.getAllColumns().map((col) => (
+                              <DropdownMenuCheckboxItem
+                                key={col.id}
+                                checked={col.getIsVisible()}
+                                onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
+                                onSelect={(e) => e.preventDefault()}
+                                className="text-xs"
+                              >
+                                {getBrowseColLabel(col.id)}
+                              </DropdownMenuCheckboxItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="icon-sm" disabled={browsePage === 0} onClick={() => setBrowsePage(browsePage - 1)}>
                           <ChevronLeft size={14} />
@@ -1257,7 +1560,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         </Button>
                       </div>
                     </div>
-                  </Card>
+                  </div>
                 </div>
               </>
             ) : (
