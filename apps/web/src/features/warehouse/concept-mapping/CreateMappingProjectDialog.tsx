@@ -52,9 +52,9 @@ export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatu
 
 /** Known concept field roles for column mapping, grouped for layout. */
 const COLUMN_ROLE_ROWS: (readonly (keyof FileColumnMapping)[])[] = [
-  ['terminologyColumn', 'categoryColumn'],
-  ['conceptCodeColumn', 'conceptIdColumn'],
-  ['conceptNameColumn'],
+  ['terminologyColumn', 'conceptCodeColumn'],
+  ['conceptNameColumn', 'conceptIdColumn'],
+  ['categoryColumn'],
   ['recordCountColumn', 'patientCountColumn'],
   ['infoJsonColumn'],
 ] as const
@@ -453,7 +453,7 @@ export function CreateMappingProjectDialog({
   const hasExistingFileData = isEdit && sourceType === 'file' && !!(editingProject?.fileSourceData?.rawFileBuffer || editingProject?.fileSourceData?.rows.length)
   const isFileValid = sourceType === 'file' && (
     hasExistingFileData && parsedRows.length === 0  // no new file → existing data is valid
-    || (parsedColumns.length > 0 && parsedRows.length > 0 && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn))
+    || (parsedColumns.length > 0 && parsedRows.length > 0 && !!columnMapping.conceptCodeColumn && !!columnMapping.terminologyColumn)
   )
   const isDatabaseValid = sourceType === 'database' && !!dataSourceId
   const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid) && (isEdit || isEntityIdValid(entityId, existingIds))
@@ -541,7 +541,7 @@ export function CreateMappingProjectDialog({
   const showExcelOptions = file && isExcel(file)
   const isImportSettingsPage = page === 'import-settings'
   const importSettingsValid = parsedColumns.length > 0 && !fileLoading
-    && (!!columnMapping.conceptNameColumn || !!columnMapping.conceptCodeColumn)
+    && !!columnMapping.conceptCodeColumn && !!columnMapping.terminologyColumn
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -688,7 +688,7 @@ export function CreateMappingProjectDialog({
                         <div key={role} className="flex items-center gap-2">
                           <Label className="flex w-28 shrink-0 items-center gap-1 text-[10px] text-muted-foreground">
                             <span>{t(`concept_mapping.col_role_${role}`)}</span>
-                            {(role === 'conceptNameColumn' || role === 'conceptCodeColumn') && (
+                            {(role === 'terminologyColumn' || role === 'conceptCodeColumn') && (
                               <span className="text-destructive">*</span>
                             )}
                             {role === 'conceptIdColumn' && (
