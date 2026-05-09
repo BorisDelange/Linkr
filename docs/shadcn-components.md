@@ -73,15 +73,16 @@ Source repo cloned at: `../shadcn-ui/apps/v4/registry/bases/radix/ui/`
 - **Item** - Generic item component
 
 ## Currently Installed in Linkr v2
-avatar, badge, button, card, dropdown-menu, input, scroll-area, separator, sheet, skeleton, sidebar, tooltip
+alert-dialog, avatar, badge, button, card, checkbox, collapsible, context-menu, dialog, dropdown-menu, input, label, popover, progress, scroll-area, select, separator, sheet, sidebar, skeleton, switch, table, tabs, textarea, tooltip
 
-## Priority Components to Install Next
-1. **Dialog** - For modals (create project, confirm delete, etc.)
-2. **Select** - For dropdowns
-3. **Switch** - For settings toggles (dark mode)
-4. **Tabs** - For tabbed content
-5. **Label + Field** - For forms
-6. **Sonner/Toast** - For notifications
-7. **Data Table + Table** - For data display
-8. **Command** - For command palette (Ctrl+K)
-9. **Breadcrumb** - For Header navigation
+## Custom Components (not from shadcn/ui)
+color-picker-popover, entity-id-field, export-dialog, icon-picker, import-conflict-dialog, linkr-logo, multi-select-filter, palette-editor
+
+## Components Not Yet Installed (candidates)
+- **Command** - For command palette (Ctrl+K)
+- **Breadcrumb** - For Header navigation
+- **Accordion** - Expandable sections
+- **Sonner/Toast** - For notifications
+- **Data Table** - Full TanStack Table integration
+- **Calendar / Date Picker** - For date inputs
+- **Carousel** - Content carousel
