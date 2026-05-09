@@ -492,10 +492,10 @@ export function SourceConceptTable({
                   <PopoverContent
                     side="right"
                     align="start"
-                    className="w-[340px] p-3 text-xs"
+                    className="w-[340px] border-neutral-200 bg-neutral-900 p-3 text-xs text-neutral-100 dark:border-neutral-700 dark:bg-white dark:text-neutral-900"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       {t('concept_mapping.status_tip_mapped_elsewhere_plural', { count: list.length })}
                     </p>
                     <div className="mt-2 space-y-2">
@@ -515,22 +515,22 @@ export function SourceConceptTable({
                         return (
                           <div key={m.id} className="flex items-start gap-2 border-l-2 border-blue-400/60 pl-2">
                             <div className="min-w-0 flex-1 space-y-0.5">
-                              <p className="truncate text-xs font-medium" title={m.targetConceptName}>
+                              <p className="truncate text-xs font-medium text-neutral-100 dark:text-neutral-900" title={m.targetConceptName}>
                                 → {m.targetConceptName || `#${m.targetConceptId}`}
                               </p>
-                              <p className="text-[10px] text-muted-foreground">
+                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
                                 {info.sourceProjectName} · {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
                               </p>
                               {(a + r + f) > 0 && (
                                 <p className="flex gap-2 text-[10px]">
-                                  {a > 0 && <span className="text-green-600">✓ {a}</span>}
-                                  {f > 0 && <span className="text-orange-500">⚑ {f}</span>}
-                                  {r > 0 && <span className="text-red-500">✗ {r}</span>}
+                                  {a > 0 && <span className="text-green-400 dark:text-green-600">✓ {a}</span>}
+                                  {f > 0 && <span className="text-orange-400 dark:text-orange-600">⚑ {f}</span>}
+                                  {r > 0 && <span className="text-red-400 dark:text-red-600">✗ {r}</span>}
                                 </p>
                               )}
                             </div>
                             {alreadyImported ? (
-                              <span title={t('concept_mapping.imported')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-green-500/40 bg-green-500/10 text-green-700 dark:text-green-400">
+                              <span title={t('concept_mapping.imported')} className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-green-500/40 bg-green-500/10 text-green-400 dark:text-green-600">
                                 <Check size={11} />
                               </span>
                             ) : onImportExternal && (
@@ -539,7 +539,7 @@ export function SourceConceptTable({
                                 title={t('concept_mapping.import_this_mapping')}
                                 onClick={(e) => { e.stopPropagation(); handleImportInfo(info, localSourceConceptId, { showConfirmation: true }) }}
                                 disabled={isImporting}
-                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border bg-background hover:bg-accent disabled:opacity-50"
+                                className="flex h-6 w-6 shrink-0 items-center justify-center rounded border border-neutral-600 bg-neutral-800 text-neutral-200 hover:bg-neutral-700 disabled:opacity-50 dark:border-neutral-300 dark:bg-neutral-100 dark:text-neutral-700 dark:hover:bg-neutral-200"
                               >
                                 {isImporting ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
                               </button>
@@ -548,7 +548,7 @@ export function SourceConceptTable({
                         )
                       })}
                       {list.length > 5 && (
-                        <p className="text-[10px] italic text-muted-foreground">
+                        <p className="text-[10px] italic text-neutral-400 dark:text-neutral-500">
                           +{list.length - 5} {t('concept_mapping.status_tip_more')}
                         </p>
                       )}
@@ -558,7 +558,7 @@ export function SourceConceptTable({
                         <Button
                           size="xs"
                           variant="outline"
-                          className="h-7 gap-1 text-[11px]"
+                          className="h-7 gap-1 border-neutral-600 bg-neutral-800 text-[11px] text-neutral-200 hover:bg-neutral-700 hover:text-neutral-100 dark:border-neutral-300 dark:bg-neutral-100 dark:text-neutral-700 dark:hover:bg-neutral-200 dark:hover:text-neutral-900"
                           onClick={(e) => {
                             e.stopPropagation()
                             setExternalListModal({ list, sourceLabel, localSourceConceptId })
