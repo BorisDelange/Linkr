@@ -75,6 +75,7 @@ import type { MappingProject, ConceptMapping, MappingComment, MappingReview, Map
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
+import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
@@ -99,20 +100,7 @@ const STATUS_BADGE: Record<EffectiveMappingStatus, string> = {
 }
 
 // ─── Equivalence badge styling ────────────────────────────────────────
-
-const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
-  'skos:exactMatch':   { label: 'Exact',    className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
-  'skos:closeMatch':   { label: 'Close',    className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' },
-  'skos:broadMatch':   { label: 'Broad',    className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400' },
-  'skos:narrowMatch':  { label: 'Narrow',   className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400' },
-  'skos:relatedMatch': { label: 'Related',  className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-  // Legacy aliases
-  equal: { label: 'Exact', className: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400' },
-  equivalent: { label: 'Close', className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400' },
-  wider: { label: 'Broad', className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400' },
-  narrower: { label: 'Narrow', className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400' },
-  inexact: { label: 'Related', className: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' },
-}
+// (defined in @/lib/concept-mapping/equivalence-badge, imported above)
 
 /** Get human-readable label for a TanStack column def. */
 function getColLabel(colDefs: ColumnDef<ConceptMapping>[], id: string): string {

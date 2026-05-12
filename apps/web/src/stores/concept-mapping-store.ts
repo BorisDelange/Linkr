@@ -58,6 +58,12 @@ interface ConceptMappingState {
    *  Matches by (conceptCode + vocabulary) first, then conceptId.
    *  Returns the number of mappings updated. */
   reconcileMappingsToFile: (projectId: string, newRows: import('@/types').FileSourceData) => Promise<number>
+  /** Promote a suggested mapping to status='unchecked' (ready for review). */
+  approveSuggestion: (id: string, approvedBy?: string) => Promise<void>
+  /** Mark a suggested mapping as rejected. */
+  rejectSuggestion: (id: string, rejectedBy?: string) => Promise<void>
+  /** Delete all suggestions for a given source concept + provider (used before regenerating). */
+  deleteSuggestionsByProvider: (projectId: string, sourceConceptId: number, provider: string) => Promise<void>
 
   // --- Stats ---
   recomputeProjectStats: (projectId: string) => Promise<MappingProjectStats>
@@ -578,6 +584,29 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       }
     })
     return local
+  },
+
+  approveSuggestion: async (id, approvedBy) => {
+    const now = new Date().toISOString()
+    await get().updateMapping(id, { status: 'unchecked', mappedBy: approvedBy, updatedAt: now })
+  },
+
+  rejectSuggestion: async (id, rejectedBy) => {
+    const now = new Date().toISOString()
+    await get().updateMapping(id, { status: 'rejected', mappedBy: rejectedBy, updatedAt: now })
+  },
+
+  deleteSuggestionsByProvider: async (projectId, sourceConceptId, provider) => {
+    const { mappings } = get()
+    const toDelete = mappings.filter(
+      (m) => m.projectId === projectId
+        && m.sourceConceptId === sourceConceptId
+        && m.status === 'suggested'
+        && m.mappedBy === provider,
+    )
+    for (const m of toDelete) {
+      await get().deleteMapping(m.id)
+    }
   },
 
   // --- UI State ---

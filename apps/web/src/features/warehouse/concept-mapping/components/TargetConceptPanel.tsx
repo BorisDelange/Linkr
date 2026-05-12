@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info } from 'lucide-react'
+import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
@@ -57,6 +57,8 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
+import { buildSyntacticSuggestionsQuery, type SuggestionCandidate } from '@/lib/concept-mapping/syntactic-suggestions'
+import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
@@ -249,7 +251,7 @@ function ResolvedMultiSelect({
 export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
+  const { mappings, conceptSets, createMapping, deleteMapping, deleteSuggestionsByProvider } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -271,6 +273,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // "Map with comment" dialog
   const [commentDialogOpen, setCommentDialogOpen] = useState(false)
   const [commentEquivalence, setCommentEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const [selectedEquivalence, setSelectedEquivalence] = useState<MappingEquivalence>('skos:exactMatch')
+  const equivButtonGroupRef = useRef<HTMLDivElement>(null)
+  const [equivDropdownWidth, setEquivDropdownWidth] = useState<number | undefined>(undefined)
   const [commentText, setCommentText] = useState('')
 
   // "Ignore with comment" dialog
@@ -303,7 +308,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [resolvedColVisibility, setResolvedColVisibility] = useState({ vocab: true, id: false, name: true, code: false, domain: false, class: false, std: true })
 
   // Browse mode toggle
-  const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search'>('concept_sets')
+  const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('concept_sets')
+
+  // Suggestions state
+  const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([])
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
+  const [suggestionsGenerated, setSuggestionsGenerated] = useState(false)
+  const suggestionsSourceConceptIdRef = useRef<number | null>(null)
 
   // Selected target concept (for resolved concepts or search results)
   const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
@@ -1436,6 +1448,141 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // shown below in the results area.
   const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
 
+  // ─── Suggestions: syntactic generation ───────────────────────────────────
+  const handleGenerateSuggestions = useCallback(async (regenerate = false) => {
+    if (!sourceConcept) return
+    const targetMapping = dataSource?.schemaMapping ?? (
+      project.vocabularyDataSourceId
+        ? allDataSources.find((s) => s.id === project.vocabularyDataSourceId)?.schemaMapping
+        : undefined
+    )
+    if (!targetMapping) return
+
+    const dsId = project.vocabularyDataSourceId ?? dataSource?.id
+    if (!dsId) return
+
+    setSuggestionsLoading(true)
+    setSuggestionsError(null)
+
+    try {
+      await ensureMounted(dsId)
+      if (regenerate) {
+        await deleteSuggestionsByProvider(project.id, sourceConcept.concept_id, 'Syntactic')
+      }
+      const sql = buildSyntacticSuggestionsQuery(sourceConcept.concept_name, targetMapping)
+      if (!sql) { setSuggestionsLoading(false); return }
+      const rows = await queryDataSource(dsId, sql) as SuggestionCandidate[]
+      setSuggestions(rows)
+      setSuggestionsGenerated(true)
+      suggestionsSourceConceptIdRef.current = sourceConcept.concept_id
+    } catch (err) {
+      setSuggestionsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSuggestionsLoading(false)
+    }
+  }, [sourceConcept, dataSource, project, allDataSources, ensureMounted, deleteSuggestionsByProvider])
+
+  // Reset suggestions when source concept changes
+  useEffect(() => {
+    if (suggestionsSourceConceptIdRef.current !== sourceConcept?.concept_id) {
+      setSuggestions([])
+      setSuggestionsGenerated(false)
+      setSuggestionsError(null)
+    }
+  }, [sourceConcept?.concept_id])
+
+  const renderSuggestionsPanel = () => {
+    const hasSuggestions = suggestions.length > 0
+    const alreadyMappedIds = new Set(
+      mappings
+        .filter((m) => m.projectId === project.id && m.sourceConceptId === sourceConcept?.concept_id && m.status !== 'suggested')
+        .map((m) => m.targetConceptId),
+    )
+
+    return (
+      <div className="flex h-full flex-col overflow-hidden">
+        {/* Table or empty state */}
+        <div className="flex-1 overflow-auto">
+          {suggestionsError ? (
+            <div className="flex h-full items-center justify-center p-4">
+              <p className="text-[11px] text-destructive">{suggestionsError}</p>
+            </div>
+          ) : !suggestionsGenerated || !hasSuggestions ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
+              <Sparkles size={20} className="text-muted-foreground/40" />
+              <p className="text-[11px] font-medium text-muted-foreground">
+                {t('concept_mapping.suggestions_empty')}
+              </p>
+              <p className="text-[10px] text-muted-foreground/70">
+                {t('concept_mapping.suggestions_empty_hint')}
+              </p>
+            </div>
+          ) : (
+            <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <TableHeader>
+                <TableRow>
+                  <TableHead style={{ width: 80 }} className="text-[10px]">{t('concept_mapping.suggestions_col_provider')}</TableHead>
+                  <TableHead style={{ width: 60 }} className="text-[10px]">{t('concept_mapping.suggestions_col_score')}</TableHead>
+                  <TableHead className="text-[10px]">{t('concept_mapping.suggestions_col_target')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {suggestions.map((s) => {
+                  const alreadyMapped = alreadyMappedIds.has(s.concept_id)
+                  const isSelected = selectedTarget?.conceptId === s.concept_id
+                  const pct = Math.round(s.match_score * 100)
+                  return (
+                    <TableRow
+                      key={s.concept_id}
+                      className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-40' : ''}`}
+                      onClick={() => {
+                        if (alreadyMapped || !sourceConcept) return
+                        setSelectedTarget(isSelected ? null : {
+                          conceptId: s.concept_id,
+                          conceptName: s.concept_name,
+                          vocabularyId: s.vocabulary_id,
+                          domainId: s.domain_id ?? '',
+                          conceptCode: s.concept_code,
+                          conceptClassId: s.concept_class_id,
+                          standardConcept: s.standard_concept,
+                        })
+                      }}
+                    >
+                      <TableCell className="py-1.5">
+                        <Badge variant="secondary" className="gap-0.5 px-1.5 py-0 text-[9px] font-medium">
+                          {s.provider}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-emerald-500"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="py-1.5">
+                        <p className="truncate text-[11px] font-medium leading-tight">{s.concept_name}</p>
+                        <div className="mt-0.5 flex gap-1">
+                          <span className="text-[9px] text-muted-foreground">{s.vocabulary_id}</span>
+                          <span className="text-[9px] text-muted-foreground">·</span>
+                          <span className="font-mono text-[9px] text-muted-foreground">{s.concept_code}</span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const renderSearchMode = () => (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Search bar + filter + search button */}
@@ -1753,7 +1900,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       </AlertDialogContent>
     </AlertDialog>
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Row 1 — Mode toggle (Jeux de concepts / Recherche) */}
+      {/* Row 1 — Mode toggle (Jeux de concepts / Recherche / Suggestions) */}
       <div className="flex items-center justify-center border-b px-3 py-1">
         <div className="flex rounded-md bg-muted p-0.5">
           <button
@@ -1776,50 +1923,80 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           >
             {t('concept_mapping.mode_search')}
           </button>
+          <button
+            className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+              browseMode === 'suggestions'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => { setBrowseMode('suggestions'); setSelectedTarget(null) }}
+          >
+            <Sparkles size={9} />
+            {t('concept_mapping.mode_suggestions')}
+          </button>
         </div>
       </div>
 
       {/* Row 2 — Action buttons (only visible when a source concept is selected) */}
       {sourceConcept && (
-        <div className="flex items-center justify-end gap-1 border-b px-3 py-1">
+        <div className="flex items-center justify-between gap-1 border-b px-3 py-1">
+          {browseMode === 'suggestions' && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 gap-1.5 px-2 text-[10px]"
+              disabled={suggestionsLoading}
+              onClick={() => handleGenerateSuggestions(suggestionsGenerated)}
+            >
+              {suggestionsLoading ? (
+                <Loader2 size={10} className="animate-spin" />
+              ) : suggestionsGenerated ? (
+                <RefreshCw size={10} />
+              ) : (
+                <Sparkles size={10} />
+              )}
+              {suggestionsLoading
+                ? t('concept_mapping.suggestions_generating')
+                : suggestionsGenerated
+                  ? t('concept_mapping.suggestions_regenerate')
+                  : t('concept_mapping.suggestions_generate')}
+            </Button>
+          )}
+          <div className="ml-auto flex items-center gap-1">
           {selectedTarget ? (
               <>
-                <div className="flex">
+                <div className="flex" ref={equivButtonGroupRef}>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-6 rounded-r-none gap-1 px-2 text-[10px]"
-                    onClick={() => handleAddSelectedMapping('skos:exactMatch')}
+                    className={`h-6 rounded-r-none gap-1 px-2 text-[10px] border-r-0 ${EQUIV_BADGE[selectedEquivalence].className}`}
+                    onClick={() => handleAddSelectedMapping(selectedEquivalence)}
                   >
                     <Plus size={10} />
-                    {t('concept_mapping.skos_exact_match_short')}
+                    {EQUIV_BADGE[selectedEquivalence].label}
                   </Button>
-                  <DropdownMenu>
+                  <DropdownMenu onOpenChange={(open) => { if (open) setEquivDropdownWidth(equivButtonGroupRef.current?.offsetWidth) }}>
                     <DropdownMenuTrigger asChild>
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-6 rounded-l-none border-l-0 px-1"
+                        className="h-6 rounded-l-none px-1"
                       >
                         <ChevronDown size={10} />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="min-w-[180px]">
-                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:exactMatch')}>
-                        <span className="text-xs">{t('concept_mapping.skos_exact_match')}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:closeMatch')}>
-                        <span className="text-xs">{t('concept_mapping.skos_close_match')}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:broadMatch')}>
-                        <span className="text-xs">{t('concept_mapping.skos_broad_match')}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:narrowMatch')}>
-                        <span className="text-xs">{t('concept_mapping.skos_narrow_match')}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleAddSelectedMapping('skos:relatedMatch')}>
-                        <span className="text-xs">{t('concept_mapping.skos_related_match')}</span>
-                      </DropdownMenuItem>
+                    <DropdownMenuContent
+                      align="end"
+                      style={{ width: equivDropdownWidth }}
+                      className="min-w-0"
+                    >
+                      {(['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] as const).map((pred) => (
+                        <DropdownMenuItem key={pred} onClick={() => setSelectedEquivalence(pred)}>
+                          <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
+                            {EQUIV_BADGE[pred].label}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -1827,7 +2004,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 <Button
                   variant="outline"
                   size="sm"
-                  className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
+                  className="h-6 gap-1 px-1.5 text-[10px]"
                   title={t('concept_mapping.map_with_comment')}
                   onClick={() => setCommentDialogOpen(true)}
                 >
@@ -1851,7 +2028,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                 <Button
                   variant="outline"
                   size="sm"
-                  className="ml-1.5 h-6 gap-1 px-1.5 text-[10px]"
+                  className="h-6 gap-1 px-1.5 text-[10px]"
                   title={t('concept_mapping.ignore_with_comment')}
                   onClick={() => setIgnoreDialogOpen(true)}
                 >
@@ -1860,6 +2037,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               )}
             </>
           )}
+          </div>
         </div>
       )}
 
@@ -1867,6 +2045,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       <div className="flex-1 overflow-hidden">
         {browseMode === 'concept_sets' ? (
           selectedCs ? renderResolvedConcepts() : renderConceptSetsBrowse()
+        ) : browseMode === 'suggestions' ? (
+          renderSuggestionsPanel()
         ) : (
           renderSearchMode()
         )}

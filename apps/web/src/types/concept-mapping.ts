@@ -1,7 +1,7 @@
 // --- Concept Mapping Enums ---
 
 /** Mapping validation status (inspired by OHDSI Usagi). */
-export type MappingStatus = 'unchecked' | 'approved' | 'rejected' | 'flagged' | 'invalid' | 'ignored'
+export type MappingStatus = 'unchecked' | 'approved' | 'rejected' | 'flagged' | 'invalid' | 'ignored' | 'suggested'
 
 /** Display-only status. `disputed` is computed from contradicting reviews and is never stored. */
 export type EffectiveMappingStatus = MappingStatus | 'disputed'
