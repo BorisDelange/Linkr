@@ -57,7 +57,8 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { buildSyntacticSuggestionsQuery, type SuggestionCandidate } from '@/lib/concept-mapping/syntactic-suggestions'
+import { buildSyntacticSuggestionsQuery, rowToCandidate, type SuggestionCandidate } from '@/lib/concept-mapping/syntactic-suggestions'
+import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
@@ -1369,8 +1370,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       accessorFn: (row) => row.standard_concept,
       cell: ({ row }) => {
         const sc = row.original.standard_concept
-        if (sc === 'S') return <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge>
-        if (sc === 'C') return <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge>
+        if (sc === 'S') return <div className="flex justify-center"><Badge variant="default" className="bg-green-600 px-1 py-0.5 text-[8px] leading-none">S</Badge></div>
+        if (sc === 'C') return <div className="flex justify-center"><Badge variant="secondary" className="px-1 py-0.5 text-[8px] leading-none">C</Badge></div>
         return null
       },
       size: 40,
@@ -1471,8 +1472,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       }
       const sql = buildSyntacticSuggestionsQuery(sourceConcept.concept_name, targetMapping)
       if (!sql) { setSuggestionsLoading(false); return }
-      const rows = await queryDataSource(dsId, sql) as SuggestionCandidate[]
-      setSuggestions(rows)
+      const rawRows = await queryDataSource(dsId, sql) as Record<string, unknown>[]
+      setSuggestions(rawRows.map(rowToCandidate))
       setSuggestionsGenerated(true)
       suggestionsSourceConceptIdRef.current = sourceConcept.concept_id
     } catch (err) {
@@ -1491,95 +1492,51 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     }
   }, [sourceConcept?.concept_id])
 
-  const renderSuggestionsPanel = () => {
-    const hasSuggestions = suggestions.length > 0
-    const alreadyMappedIds = new Set(
-      mappings
-        .filter((m) => m.projectId === project.id && m.sourceConceptId === sourceConcept?.concept_id && m.status !== 'suggested')
-        .map((m) => m.targetConceptId),
-    )
+  const suggestionsAlreadyMappedIds = useMemo(() => new Set(
+    mappings
+      .filter((m) => m.projectId === project.id && m.sourceConceptId === sourceConcept?.concept_id && m.status !== 'suggested')
+      .map((m) => m.targetConceptId),
+  ), [mappings, project.id, sourceConcept?.concept_id])
 
-    return (
-      <div className="flex h-full flex-col overflow-hidden">
-        {/* Table or empty state */}
-        <div className="flex-1 overflow-auto">
-          {suggestionsError ? (
-            <div className="flex h-full items-center justify-center p-4">
-              <p className="text-[11px] text-destructive">{suggestionsError}</p>
-            </div>
-          ) : !suggestionsGenerated || !hasSuggestions ? (
-            <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
-              <Sparkles size={20} className="text-muted-foreground/40" />
-              <p className="text-[11px] font-medium text-muted-foreground">
-                {t('concept_mapping.suggestions_empty')}
-              </p>
-              <p className="text-[10px] text-muted-foreground/70">
-                {t('concept_mapping.suggestions_empty_hint')}
-              </p>
-            </div>
-          ) : (
-            <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-              <TableHeader>
-                <TableRow>
-                  <TableHead style={{ width: 80 }} className="text-[10px]">{t('concept_mapping.suggestions_col_provider')}</TableHead>
-                  <TableHead style={{ width: 60 }} className="text-[10px]">{t('concept_mapping.suggestions_col_score')}</TableHead>
-                  <TableHead className="text-[10px]">{t('concept_mapping.suggestions_col_target')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {suggestions.map((s) => {
-                  const alreadyMapped = alreadyMappedIds.has(s.concept_id)
-                  const isSelected = selectedTarget?.conceptId === s.concept_id
-                  const pct = Math.round(s.match_score * 100)
-                  return (
-                    <TableRow
-                      key={s.concept_id}
-                      className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-40' : ''}`}
-                      onClick={() => {
-                        if (alreadyMapped || !sourceConcept) return
-                        setSelectedTarget(isSelected ? null : {
-                          conceptId: s.concept_id,
-                          conceptName: s.concept_name,
-                          vocabularyId: s.vocabulary_id,
-                          domainId: s.domain_id ?? '',
-                          conceptCode: s.concept_code,
-                          conceptClassId: s.concept_class_id,
-                          standardConcept: s.standard_concept,
-                        })
-                      }}
-                    >
-                      <TableCell className="py-1.5">
-                        <Badge variant="secondary" className="gap-0.5 px-1.5 py-0 text-[9px] font-medium">
-                          {s.provider}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <div className="h-1.5 w-8 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className="h-full rounded-full bg-emerald-500"
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          <span className="text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="py-1.5">
-                        <p className="truncate text-[11px] font-medium leading-tight">{s.concept_name}</p>
-                        <div className="mt-0.5 flex gap-1">
-                          <span className="text-[9px] text-muted-foreground">{s.vocabulary_id}</span>
-                          <span className="text-[9px] text-muted-foreground">·</span>
-                          <span className="font-mono text-[9px] text-muted-foreground">{s.concept_code}</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  )
-                })}
-              </TableBody>
-            </Table>
-          )}
+  const renderSuggestionsPanel = () => {
+    if (suggestionsError) {
+      return (
+        <div className="flex h-full items-center justify-center p-4">
+          <p className="text-[11px] text-destructive">{suggestionsError}</p>
         </div>
-      </div>
+      )
+    }
+    if (!suggestionsGenerated || suggestions.length === 0) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
+          <Sparkles size={20} className="text-muted-foreground/40" />
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {t('concept_mapping.suggestions_empty')}
+          </p>
+          <p className="text-[10px] text-muted-foreground/70">
+            {t('concept_mapping.suggestions_empty_hint')}
+          </p>
+        </div>
+      )
+    }
+    return (
+      <SuggestionsTable
+        suggestions={suggestions}
+        alreadyMappedIds={suggestionsAlreadyMappedIds}
+        selectedConceptId={selectedTarget?.conceptId ?? null}
+        onSelect={(s) => {
+          if (!s || !sourceConcept) { setSelectedTarget(null); return }
+          setSelectedTarget({
+            conceptId: s.concept_id,
+            conceptName: s.concept_name,
+            vocabularyId: s.vocabulary_id,
+            domainId: s.domain_id ?? '',
+            conceptCode: s.concept_code,
+            conceptClassId: s.concept_class_id,
+            standardConcept: s.standard_concept,
+          })
+        }}
+      />
     )
   }
 
@@ -1811,7 +1768,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       return (
                         <TableCell
                           key={cell.id}
-                          className="overflow-hidden truncate text-xs"
+                          className="overflow-hidden truncate px-2 py-1 text-xs"
                           style={{ maxWidth: cell.column.getSize() }}
                           title={title}
                         >
