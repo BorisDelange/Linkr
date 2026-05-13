@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Concept Mapping — Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased">
+  <header class="bg-slate-900 text-white">
+    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div>
+        <div class="text-xs uppercase tracking-wider text-slate-400">Concept mapping</div>
+        <h1 id="project-name" class="text-xl font-semibold">Loading…</h1>
+      </div>
+      <div class="text-right text-sm text-slate-300">
+        <div>Last updated</div>
+        <div id="last-updated" class="font-mono text-xs">—</div>
+      </div>
+    </div>
+    <nav class="max-w-6xl mx-auto px-6 flex gap-6 text-sm border-t border-slate-700">
+      <button data-tab="overview"  class="tab-btn py-3 border-b-2 border-transparent">Overview</button>
+      <button data-tab="sessions"  class="tab-btn py-3 border-b-2 border-transparent">Sessions</button>
+      <button data-tab="files"     class="tab-btn py-3 border-b-2 border-transparent">Files</button>
+    </nav>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
+    <div id="error-banner" class="hidden rounded border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm"></div>
+
+    <!-- OVERVIEW -->
+    <section id="tab-overview" class="tab-panel space-y-8">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="card">
+          <div class="card-label">Source concepts</div>
+          <div id="kpi-source" class="card-value">—</div>
+          <div id="kpi-source-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">With scores</div>
+          <div id="kpi-scores" class="card-value">—</div>
+          <div id="kpi-scores-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Source embeddings</div>
+          <div id="kpi-embeddings" class="card-value">—</div>
+          <div id="kpi-embeddings-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Mapped</div>
+          <div id="kpi-mapped" class="card-value">—</div>
+          <div id="kpi-mapped-sub" class="card-sub">—</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="panel">
+          <h2 class="panel-title">Progress</h2>
+          <div id="progress-bars" class="space-y-3"></div>
+        </div>
+
+        <div class="panel">
+          <h2 class="panel-title">Mapping status</h2>
+          <div id="status-breakdown" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">Suggestion methods</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left">
+            <tr><th class="py-2 font-medium">Method</th><th class="font-medium">Computed</th><th class="font-medium">Coverage</th></tr>
+          </thead>
+          <tbody id="methods-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SESSIONS -->
+    <section id="tab-sessions" class="tab-panel hidden">
+      <div class="panel">
+        <h2 class="panel-title">Recent mapping sessions</h2>
+        <p class="text-xs text-slate-500 mb-3">Recorded by the concept-mapping skill at the end of each batch. Last 50 entries.</p>
+        <div id="sessions-list" class="space-y-2 text-sm"></div>
+      </div>
+    </section>
+
+    <!-- FILES -->
+    <section id="tab-files" class="tab-panel hidden">
+      <div class="panel">
+        <h2 class="panel-title">Project files</h2>
+        <table class="w-full text-sm">
+          <thead class="text-slate-500 text-left">
+            <tr>
+              <th class="py-2 font-medium">File</th>
+              <th class="font-medium">Present</th>
+              <th class="font-medium">Details</th>
+            </tr>
+          </thead>
+          <tbody id="files-body"></tbody>
+        </table>
+        <p class="text-xs text-slate-500 mt-4">
+          Project dir: <span id="project-dir" class="font-mono"></span>
+        </p>
+        <p class="text-xs text-slate-500">
+          Vocab dir: <span id="vocab-dir" class="font-mono"></span>
+        </p>
+      </div>
+    </section>
+  </main>
+
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -567,6 +567,24 @@ def main() -> None:
         )
     )
     print(f"\n  -> {n_rows:,} rows, {n_src:,} source concepts, {size_kb:.0f} KB")
+
+    try:
+        import subprocess
+        script_dir = Path(__file__).resolve().parent
+        update_state = script_dir / "update_state.py"
+        if update_state.exists():
+            subprocess.run(
+                [sys.executable, str(update_state),
+                 "--project-dir", str(source_path.parent),
+                 "--vocab-dir",   str(concept_path.parent),
+                 "--methods-event", "scores_done",
+                 "--quiet"],
+                check=False,
+            )
+            print(f"[state] updated {source_path.parent / 'state.json'}")
+    except Exception as e:
+        print(f"  warning: state.json update failed ({e})", file=sys.stderr)
+
     print("Done.")
 
 

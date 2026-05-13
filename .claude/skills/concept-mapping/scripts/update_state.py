@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+"""
+update_state.py — Recomputes <project_dir>/state.json from the project files.
+
+The state file is the shared source of truth between the concept-mapping skill
+and the review/ web app. It is idempotent: running this script always produces
+the same output for the same inputs (it does not accumulate history beyond what
+already exists in state.json).
+
+Usage:
+    python update_state.py --project-dir /path/to/project [options]
+
+Options:
+    --project-dir   Required. Folder containing source-concepts.csv, mappings.json, ...
+    --vocab-dir     Optional. Used to detect concept_embeddings.parquet co-location.
+    --session       Optional JSON string. Appends an entry to state.sessions.
+                    Example: '{"subSkill":"concept-mapping-ai","concepts":["REA/x"],"outcomes":{"accepted":1}}'
+    --methods-event Optional. One of: "embed_done", "scores_done". Updates state.methods accordingly.
+
+Reads (when present):
+    project.json, source-concepts.csv, mappings.json,
+    similarity-scores.parquet, source_embeddings.parquet,
+    <vocab_dir>/concept_embeddings.parquet
+
+Writes:
+    <project_dir>/state.json
+"""
+
+import argparse
+import csv
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+try:
+    import pyarrow.parquet as pq  # type: ignore
+    HAS_PYARROW = True
+except ImportError:
+    HAS_PYARROW = False
+
+
+SCHEMA_VERSION = 1
+
+
+def iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def safe_read_json(path: Path):
+    if not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"  warning: cannot read {path.name}: {e}", file=sys.stderr)
+        return None
+
+
+def count_source_concepts(path: Path) -> tuple[int, list[str]]:
+    """Returns (count, sample of vocabulary_ids). Reads only what's needed."""
+    if not path.exists():
+        return 0, []
+    vocab_set: set[str] = set()
+    count = 0
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            vocab_col = next((c for c in reader.fieldnames or []
+                              if c.lower() in ("terminology", "vocabulary", "source_vocab", "vocabulary_id")), None)
+            for row in reader:
+                count += 1
+                if vocab_col:
+                    v = (row.get(vocab_col) or "").strip()
+                    if v:
+                        vocab_set.add(v)
+    except Exception as e:
+        print(f"  warning: cannot read source CSV: {e}", file=sys.stderr)
+    return count, sorted(vocab_set)
+
+
+def count_mappings_by_status(path: Path) -> tuple[int, dict[str, int]]:
+    """Returns (total, {status: count})."""
+    data = safe_read_json(path)
+    if not isinstance(data, list):
+        return 0, {}
+    counts: dict[str, int] = {}
+    for m in data:
+        s = (m.get("status") or "unchecked") if isinstance(m, dict) else "unchecked"
+        counts[s] = counts.get(s, 0) + 1
+    return len(data), counts
+
+
+def inspect_parquet(path: Path) -> dict | None:
+    """Returns {rows, columns, sample_methods?} or None if unavailable."""
+    if not path.exists():
+        return None
+    if not HAS_PYARROW:
+        return {"rows": None, "columns": None, "note": "pyarrow not installed"}
+    try:
+        pf = pq.ParquetFile(str(path))
+        info = {
+            "rows": pf.metadata.num_rows,
+            "columns": [f.name for f in pf.schema_arrow],
+            "sizeBytes": path.stat().st_size,
+        }
+        if "method" in info["columns"]:
+            tbl = pq.read_table(str(path), columns=["method"])
+            methods = sorted(set(tbl.column("method").to_pylist()))
+            info["methods"] = methods
+        return info
+    except Exception as e:
+        print(f"  warning: cannot inspect {path.name}: {e}", file=sys.stderr)
+        return None
+
+
+def count_unique_source_pairs_in_scores(path: Path) -> int:
+    if not path.exists() or not HAS_PYARROW:
+        return 0
+    try:
+        tbl = pq.read_table(str(path), columns=["source_vocabulary_id", "source_concept_code"])
+        df = tbl.to_pandas().drop_duplicates()
+        return len(df)
+    except Exception:
+        return 0
+
+
+def count_source_embeddings(path: Path) -> int:
+    if not path.exists() or not HAS_PYARROW:
+        return 0
+    try:
+        return pq.ParquetFile(str(path)).metadata.num_rows
+    except Exception:
+        return 0
+
+
+def count_omop_embeddings(path: Path) -> int:
+    if not path.exists() or not HAS_PYARROW:
+        return 0
+    try:
+        return pq.ParquetFile(str(path)).metadata.num_rows
+    except Exception:
+        return 0
+
+
+def build_state(
+    project_dir: Path,
+    vocab_dir: Path | None,
+    previous: dict | None,
+    session_json: str | None,
+    methods_event: str | None,
+) -> dict:
+    project_json = safe_read_json(project_dir / "project.json") or {}
+    project_name = project_json.get("name") or project_dir.name
+
+    source_csv = project_dir / "source-concepts.csv"
+    n_source, vocab_ids = count_source_concepts(source_csv)
+
+    mappings_path = project_dir / "mappings.json"
+    n_mapped, status_counts = count_mappings_by_status(mappings_path)
+
+    scores_path = project_dir / "similarity-scores.parquet"
+    scores_info = inspect_parquet(scores_path)
+    n_with_scores = count_unique_source_pairs_in_scores(scores_path)
+    scored_methods = (scores_info or {}).get("methods", []) if scores_info else []
+
+    src_emb_path = project_dir / "source_embeddings.parquet"
+    n_src_embeddings = count_source_embeddings(src_emb_path)
+
+    omop_emb_path = (vocab_dir / "concept_embeddings.parquet") if vocab_dir else None
+    n_omop_embeddings = count_omop_embeddings(omop_emb_path) if omop_emb_path else 0
+
+    methods = {
+        "syntactic/jaro-winkler": {"computed": "syntactic/jaro-winkler" in scored_methods, "coverage": n_with_scores if "syntactic/jaro-winkler" in scored_methods else 0},
+        "syntactic/token-sort":   {"computed": "syntactic/token-sort"   in scored_methods, "coverage": n_with_scores if "syntactic/token-sort"   in scored_methods else 0},
+        "syntactic/ngram-idf":    {"computed": "syntactic/ngram-idf"    in scored_methods, "coverage": n_with_scores if "syntactic/ngram-idf"    in scored_methods else 0},
+        "semantic/biolord":       {"computed": "semantic/biolord"       in scored_methods, "coverage": n_with_scores if "semantic/biolord"       in scored_methods else 0},
+    }
+
+    sessions = (previous or {}).get("sessions", []) if isinstance(previous, dict) else []
+    if session_json:
+        try:
+            entry = json.loads(session_json)
+            entry.setdefault("recordedAt", iso_now())
+            sessions = sessions + [entry]
+        except Exception as e:
+            print(f"  warning: --session not valid JSON ({e})", file=sys.stderr)
+
+    events = (previous or {}).get("events", []) if isinstance(previous, dict) else []
+    if methods_event:
+        events = events + [{"type": methods_event, "at": iso_now()}]
+
+    state = {
+        "schemaVersion": SCHEMA_VERSION,
+        "projectName": project_name,
+        "projectId": project_json.get("id"),
+        "projectDir": str(project_dir),
+        "vocabDir": str(vocab_dir) if vocab_dir else None,
+        "lastUpdatedAt": iso_now(),
+        "files": {
+            "projectJson":         (project_dir / "project.json").exists(),
+            "sourceConceptsCsv":   source_csv.exists(),
+            "mappingsJson":        mappings_path.exists(),
+            "similarityScores":    scores_path.exists(),
+            "sourceEmbeddings":    src_emb_path.exists(),
+            "omopEmbeddings":      bool(omop_emb_path and omop_emb_path.exists()),
+        },
+        "counts": {
+            "sourceConceptsTotal":   n_source,
+            "sourceVocabularies":    vocab_ids,
+            "withSourceEmbeddings":  n_src_embeddings,
+            "withScores":            n_with_scores,
+            "omopEmbeddings":        n_omop_embeddings,
+            "mapped": {
+                "total":      n_mapped,
+                "byStatus":   status_counts,
+            },
+            "remaining": max(n_source - n_mapped, 0),
+        },
+        "methods":  methods,
+        "scoresInfo": scores_info,
+        "sessions": sessions[-50:],
+        "events":   events[-50:],
+    }
+    return state
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Recompute state.json for a concept-mapping project")
+    parser.add_argument("--project-dir", required=True)
+    parser.add_argument("--vocab-dir",   default=None)
+    parser.add_argument("--session",     default=None,
+                        help="JSON string appended to state.sessions")
+    parser.add_argument("--methods-event", default=None,
+                        choices=["embed_done", "scores_done"],
+                        help="Appended to state.events")
+    parser.add_argument("--quiet", action="store_true")
+    args = parser.parse_args()
+
+    project_dir = Path(args.project_dir).expanduser().resolve()
+    if not project_dir.is_dir():
+        print(f"Error: project dir not found: {project_dir}", file=sys.stderr)
+        sys.exit(1)
+    vocab_dir = Path(args.vocab_dir).expanduser().resolve() if args.vocab_dir else None
+
+    state_path = project_dir / "state.json"
+    previous = safe_read_json(state_path)
+    state = build_state(project_dir, vocab_dir, previous, args.session, args.methods_event)
+
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2, ensure_ascii=False)
+
+    if not args.quiet:
+        c = state["counts"]
+        m = c["mapped"]
+        print(f"[state] {state_path}")
+        print(f"  source concepts:    {c['sourceConceptsTotal']:,}")
+        print(f"  with scores:        {c['withScores']:,}")
+        print(f"  source embeddings:  {c['withSourceEmbeddings']:,}")
+        print(f"  mapped:             {m['total']:,}  by status: {m['byStatus']}")
+        methods_on = [k for k, v in state["methods"].items() if v["computed"]]
+        print(f"  methods computed:   {', '.join(methods_on) or 'none'}")
+
+
+if __name__ == "__main__":
+    main()

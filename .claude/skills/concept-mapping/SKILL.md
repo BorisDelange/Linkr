@@ -13,6 +13,28 @@ argument-hint: [path-to-project-zip-or-folder]
 
 Read `reference.md` in this directory for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
 
+## Step 0: Check existing state and offer review page
+
+Before anything else, if a project is already known (from a prior session in the same conversation, or because the user names a project), check whether `<project_dir>/state.json` exists. If it does, read it and tell the user where things stand in one sentence:
+
+> "MIMIC-IV → OMOP — 320/1234 mapped (26%), scores computed (jaro-winkler + biolord), last session 2h ago on Measurement."
+
+Then ask: **"Do you want me to launch the review server so you can browse the dashboard?"** If yes, run:
+
+```bash
+python -m http.server 8765 --directory <project_dir>
+```
+
+with `Bash` + `run_in_background: true`, and tell the user to open `http://localhost:8765/review/`. The review page reads `state.json` (one level up from `/review/`) and shows progress, methods computed, recent sessions, and file status.
+
+If `<project_dir>/review/` does not exist yet, copy the template:
+
+```bash
+cp -R .claude/skills/concept-mapping/review-template <project_dir>/review
+```
+
+If `state.json` is missing or stale, run `update_state.py` first (see Step 4 hook).
+
 ## Step 1: Load configuration
 
 Read `config.local.json` at the **project root** (not in the skill folder). If it exists and has a `concept-mapping` section, use those values silently. Fall back to prompting for any missing path.
@@ -214,6 +236,14 @@ After the sub-skill returns approved mappings, write them to `mappings.json`.
 2. Append new mappings — **never overwrite existing ones**
 3. Write back the full array
 4. Report: N new mappings added, N concepts still unmapped
+5. Refresh `state.json` and record the session:
+
+```bash
+python .claude/skills/concept-mapping/scripts/update_state.py \
+  --project-dir <project_dir> \
+  --vocab-dir   <vocab_dir> \
+  --session '{"subSkill":"concept-mapping-ai","concepts":["REA/x","REA/y"],"outcomes":{"accepted":8,"flagged":1,"skipped":1}}'
+```
 
 Source concept uniqueness key: `(sourceVocabularyId, sourceConceptCode)`. Check existing mappings before adding.
 
