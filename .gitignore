@@ -61,3 +61,6 @@ tests-etl/
 .Rhistory
 .RData
 .Ruserdata
+
+# Local skill configuration (machine-specific paths, never commit)
+config.local.json

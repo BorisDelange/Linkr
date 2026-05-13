@@ -1,0 +1,140 @@
+---
+name: concept-mapping-ai
+description: >-
+  Agentic sub-skill for OMOP concept mapping. Maps source clinical concepts
+  (measurements, conditions, procedures, observations) to OMOP standard concepts
+  using DuckDB search, web search, and clinical reasoning. Called by the
+  concept-mapping orchestrator — do not invoke directly unless you already have
+  a loaded DuckDB session and project context.
+---
+
+# Concept Mapping — Agentic (Claude)
+
+Read `.claude/skills/concept-mapping/reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+
+## Context expected from the orchestrator
+
+By the time this skill runs, the following are already in place:
+- DuckDB session at `/tmp/concept-mapping-session.duckdb` with tables: `concept`, `concept_synonym`, `concept_relationship`, `concept_ancestor`, `source_concepts`, `existing_mappings`
+- `project.json` read → `projectId` known
+- Source concept batch selected and previewed
+- `scores.parquet` path (may be absent if not precomputed)
+
+## Step 1: Load pre-computed scores (if available)
+
+If `scores.parquet` was provided, load it:
+
+```sql
+CREATE TABLE precomputed_scores AS
+  SELECT * FROM read_parquet('<scores_dir>/<project>-scores.parquet')
+  WHERE source_vocabulary_id = '<vocab>' AND source_concept_code IN (<batch_codes>);
+```
+
+Use these scores to prioritize DuckDB search candidates. A concept with `semantic/biolord` score > 0.90 is a strong lead — verify it, don't skip the reasoning step.
+
+## Step 2: Process concepts in batches
+
+Default batch size: 10. Ask the user if they want a different size.
+
+For each source concept in the batch:
+
+### 2a. Understand the source concept
+
+1. Read `concept_name` — translate to English if in French or abbreviated
+2. Read `info_json` fields:
+   - `full_name`: hierarchical path (e.g., "Laboratoire / Labo_GDS / PaO2")
+   - `data_types`: "numerical" or "categorical"
+   - `numerical_data`: unit, min, max, mean — validates the mapping
+   - `categorical_data`: possible values — reveals what the concept represents
+   - `hospital_units`: clinical context (ICU, step-down, etc.)
+3. Infer OMOP domain (see domain heuristics in `reference.md`)
+
+### 2b. Search for candidates
+
+Apply strategies in order. Stop when you have ≥ 3 strong candidates.
+
+**Strategy 1 — Pre-computed scores**
+If `scores.parquet` loaded, retrieve top candidates for this concept. High `semantic/biolord` score (> 0.85) with matching domain is a strong signal.
+
+**Strategy 2 — Direct name search**
+Search `concept` and `concept_synonym` with the English translation. See DuckDB patterns in `reference.md`.
+
+**Strategy 3 — Keyword decomposition**
+Break the name into clinical keywords. Search combinations. Useful for compound terms (e.g., "Pression artérielle systolique" → "systolic" + "arterial" + "pressure").
+
+**Strategy 4 — Web search**
+Use WebSearch when:
+- The concept is a specific lab test with a known LOINC panel
+- The concept refers to a clinical score or index (SOFA, GCS, APACHE)
+- The local name is an abbreviation with multiple possible meanings
+Search for: `LOINC "heart rate"`, `SNOMED CT "respiratory rate"`, `OMOP concept "SpO2"`.
+
+**Strategy 5 — Hierarchy traversal**
+Once a candidate is found, explore ancestors/descendants via `concept_ancestor` and `concept_relationship` (relationship_id = 'Maps to') to find the right specificity level.
+
+### 2c. Evaluate and rank candidates
+
+For each candidate:
+1. **Semantic equivalence** — does it mean the same thing?
+2. **Granularity** — right level of specificity for the source?
+3. **Domain consistency** — OMOP domain matches data_type?
+4. **Unit compatibility** — for measurements: does the LOINC expect the same unit as `numerical_data.unit`?
+5. **Standard status** — prefer `standard_concept = 'S'` over `'C'` or non-standard
+
+Assign SSSOM equivalence level (see `reference.md` for full guidelines):
+- `skos:exactMatch` — truly identical meaning, no information loss
+- `skos:closeMatch` — very similar but some qualifier lost (method, device, location, timing)
+- `skos:broadMatch` — target is more general
+- `skos:narrowMatch` — target is more specific
+- `skos:relatedMatch` — related but different angle
+
+**Be rigorous: default to `closeMatch`, not `exactMatch`.** Use exactMatch only when concepts are fully equivalent with no qualifiers lost.
+
+### 2d. Present to user
+
+For each source concept, show:
+
+```
+Source: <concept_name> [<terminology>/<code>]
+  Category: <full_name from info_json>
+  Type: <numerical|categorical> | Unit: <unit> | Freq: <record_count> records
+
+Candidate 1 (recommended):
+  <concept_id> — <concept_name> [<vocabulary_id>]
+  Domain: <domain_id> | Class: <concept_class_id> | Standard: <S|C>
+  Equivalence: skos:<level>
+  Reasoning: <one or two sentences explaining what is preserved and what is lost>
+  Pre-computed scores: syntactic/jaro-winkler=0.92, semantic/biolord=0.89
+
+Candidate 2 (alternative):
+  ...
+
+→ Options: [1] Accept candidate 1  [2] Accept candidate 2  [3] Enter custom concept_id  [4] Flag for review  [5] Mark as ignored  [6] Skip
+```
+
+Never write a mapping without explicit user confirmation.
+
+### 2e. Handle edge cases
+
+- **No good match**: explain why (too specific, administrative concept, no equivalent in OMOP), suggest `status: ignored` or `status: flagged`
+- **Multiple equally good candidates**: present both, ask user to choose
+- **Non-standard concept found**: use `concept_relationship` with `Maps to` to find the standard equivalent
+- **Drug concept in non-drug batch**: note it, defer to `/concept-mapping-drug`
+
+## Step 3: Return approved mappings to orchestrator
+
+Return a list of approved `ConceptMapping` objects (see `reference.md` for full structure). The orchestrator writes them to `mappings.json`.
+
+Key fields to populate:
+- `mappedBy`: "Claude Sonnet 4.6" (use actual model name from session context)
+- `status`: "unchecked" (user approved during session, but not yet reviewed by a second person)
+- `comments`: one comment with two lines — description of the mapping, then equivalence justification
+- `matchScore`: 0.0–1.0 based on your confidence (exactMatch + strong pre-computed score → 0.95+; closeMatch with uncertainty → 0.6–0.75)
+
+## Guidelines
+
+- **Translate before searching** — French concept names must be translated to English before DuckDB queries
+- **info_json is gold** — units, ranges, and categorical values often disambiguate between two near-identical LOINC codes
+- **Don't re-map** — always check `existing_mappings` before processing a concept
+- **One concept at a time** — present one source concept fully before moving to the next
+- **Cite your reasoning** — the comment field is read by human reviewers; make it useful
