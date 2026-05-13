@@ -87,13 +87,43 @@ CREATE INDEX idx_rel_c2       ON concept_relationship(concept_id_2);
 
 For CSV vocabularies, replace `read_parquet` with `read_csv(..., auto_detect=true)`.
 
+## Step 3b: Normalize source CSV columns
+
+Before passing the source CSV to `compute_scores.py`, verify that it contains the three required columns: `terminology`, `concept_code`, `concept_name`.
+
+If any are missing, inspect the actual columns and apply this heuristic to propose a mapping:
+
+| Required column | Candidate patterns (case-insensitive) |
+|---|---|
+| `terminology` | `terminology`, `terminology_code`, `vocab`, `vocabulary`, `source_vocab` |
+| `concept_code` | `concept_code`, `code`, `source_code`, `local_code` |
+| `concept_name` | `concept_name`, `concept_label`, `label`, `name`, `description` |
+
+Show the user a mapping table like this and ask for confirmation:
+
+```
+Columns found in the file:
+  terminology_code → terminology   ✓ (auto-detected)
+  concept_code     → concept_code  ✓ (exact match)
+  concept_label    → concept_name  ✓ (auto-detected)
+
+Other columns (category, patients_count, …) will be ignored.
+Is this correct?
+```
+
+If the user confirms, generate a temporary normalized CSV (`/tmp/<original-name>-normalized.csv`) with only the three renamed columns, and use that path as `--source` for the script. If the user corrects the mapping, apply their corrections before writing the temp file.
+
+If a required column cannot be matched even heuristically, list the actual columns and ask the user to specify the mapping explicitly.
+
 ## Step 4: Precompute similarity scores (optional but recommended)
 
 These two Python scripts live in `.claude/skills/concept-mapping/scripts/`. Run them when the user wants fresh scores, or when `scores.parquet` is missing/stale.
 
+Both scripts print structured progress lines to stdout. Use the `Monitor` tool with `persistent: true` (no timeout) to stream their output to the user in real time — do NOT use `run_in_background`.
+
 ### Script 1 — embed_concepts.py (run once per vocabulary release)
 
-Generates BioLORD-2023-M embeddings for all OMOP concepts.
+Generates BioLORD-2023-M embeddings for all OMOP concepts. **Supports resume**: if the output file already exists, already-encoded concepts are skipped automatically. Safe to interrupt and restart.
 
 ```bash
 TRANSFORMERS_CACHE=<models_dir> python \
@@ -101,10 +131,18 @@ TRANSFORMERS_CACHE=<models_dir> python \
   --concept <vocab_dir>/CONCEPT.parquet \
   --output  <embeddings_file>
 # Optional filters: --only-standard --only-valid --domain Measurement Condition --vocabulary LOINC SNOMED
+# Optional: --flush-every 50  (append to parquet every N batches, default 50 = ~25k concepts)
 ```
 
 Output: `concept_embeddings.parquet` — columns: `concept_id`, `encoded_text`, `model_id`, `embedding`.
-Runtime: 30–120 min on CPU. Skip if `embeddings_file` already exists and vocabulary hasn't changed.
+Runtime: can be several hours on CPU for large vocabularies (~4M concepts). The file is written incrementally every 50 batches, so progress is never lost on interrupt.
+
+The script prints progress lines every 10 batches and flush confirmations every 50 batches:
+```
+[embed] batch 10/7991 — 5,120/4,091,099 concepts (0.1%) — 201 concepts/s — ETA 338m46s
+[flush] 5,120 embeddings saved to concept_embeddings.parquet
+```
+Use `Monitor` with `persistent: true` so it never times out. Filter for `[embed]`, `[flush]`, `Done`, and error keywords.
 
 ### Script 2 — compute_scores.py (run per project)
 
@@ -117,15 +155,30 @@ TRANSFORMERS_CACHE=<models_dir> python \
   --concept    <vocab_dir>/CONCEPT.parquet \
   --embeddings <embeddings_file> \
   --output     <scores_dir>/<project-name>-scores.parquet
-# Optional: --top-k 50 --methods syntactic/jaro-winkler syntactic/token-sort syntactic/ngram-idf semantic/biolord
+# Optional: --top-k 50 --flush-every 100
+# Optional: --methods syntactic/jaro-winkler syntactic/token-sort syntactic/ngram-idf semantic/biolord
 # Optional filters: --only-standard --only-valid --domain --vocabulary
 ```
 
+Default methods: `syntactic/jaro-winkler` + `semantic/biolord`. **Do not add `syntactic/ngram-idf` unless the user explicitly asks** — it requires building a full bigram IDF index over all OMOP concepts (~4M), which takes ~1 hour on CPU.
+
 Output: `scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score`.
+**Supports resume**: if the output file already exists, already-scored `(source_vocabulary_id, source_concept_code)` pairs are skipped. Safe to interrupt and restart.
 
 The user loads this file in Linkr (Suggestions tab → "Load scores file") to populate pre-computed suggestions.
 
 Inform the user of estimated runtime based on source concept count × OMOP concept count.
+
+Progress tags emitted by the script:
+- `[syntactic]` — every 10 source concepts (jaro-winkler, token-sort)
+- `[index]` — every 500k concepts during ngram-idf index build
+- `[semantic]` — every 50 source concepts (biolord)
+- `[flush]` — every `--flush-every` source concepts (default 100)
+
+Use `Monitor` with `persistent: true`. Filter grep pattern:
+```
+\[syntactic\]|\[semantic\]|\[flush\]|\[index\]|Done|Error|Traceback|warning|Warning|->|Loading|Computing|Building|Encoding
+```
 
 ## Step 5: Route to sub-skill
 

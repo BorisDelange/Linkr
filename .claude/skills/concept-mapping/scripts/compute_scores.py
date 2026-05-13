@@ -20,17 +20,22 @@ Output:
         syntactic/ngram-idf      Character bigram IDF-cosine (Usagi's method)
         semantic/biolord         Cosine similarity on BioLORD embeddings
 
+Supports incremental writing and resume: if the output file already exists,
+already-scored (source_vocabulary_id, source_concept_code) pairs are skipped
+automatically. Safe to interrupt and restart at any time.
+
 The output is loaded by the Linkr frontend to populate the Suggestions panel.
 Source concept uniqueness key: (source_vocabulary_id, source_concept_code).
 
 Dependencies:
-    pip install rapidfuzz pandas pyarrow numpy tqdm
+    pip install rapidfuzz pandas pyarrow numpy
     pip install sentence-transformers  # only needed for semantic/biolord
 """
 
 import argparse
 import math
 import sys
+import time
 import unicodedata
 from collections import Counter
 from pathlib import Path
@@ -41,10 +46,18 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from rapidfuzz import fuzz as rfuzz
 from rapidfuzz.distance import JaroWinkler
-from tqdm import tqdm
 
 TOP_K = 50
+FLUSH_EVERY = 100
 DEFAULT_OUTPUT = "scores.parquet"
+
+PARQUET_SCHEMA = pa.schema([
+    pa.field("source_vocabulary_id", pa.string()),
+    pa.field("source_concept_code",  pa.string()),
+    pa.field("concept_id",           pa.int64()),
+    pa.field("method",               pa.string()),
+    pa.field("score",                pa.float32()),
+])
 
 
 # ---------------------------------------------------------------------------
@@ -85,11 +98,23 @@ class NgramIdfIndex:
         N = len(names)
         df_counts: Counter = Counter()
         self._doc_vecs: list[dict[str, float]] = []
-        for name in names:
+        t_start = time.time()
+        for i, name in enumerate(names):
             grams = self._ngrams(name)
             counts = Counter(grams)
             df_counts.update(counts.keys())
             self._doc_vecs.append(counts)
+            if (i + 1) % 500_000 == 0 or (i + 1) == N:
+                elapsed = time.time() - t_start
+                pct = (i + 1) / N * 100
+                speed = (i + 1) / elapsed if elapsed > 0 else 0
+                eta = (N - i - 1) / speed if speed > 0 else 0
+                eta_min, eta_sec = divmod(int(eta), 60)
+                print(
+                    f"[index] {i + 1:,}/{N:,} concepts ({pct:.1f}%) — "
+                    f"{speed:,.0f} concepts/s — ETA {eta_min}m{eta_sec:02d}s",
+                    flush=True,
+                )
 
         # IDF = log(N / df), matching Usagi's formula
         self._idf: dict[str, float] = {
@@ -118,6 +143,47 @@ class NgramIdfIndex:
             scores.append((idx, dot / (qnorm * dnorm)))
         scores.sort(key=lambda x: -x[1])
         return scores[:k]
+
+
+# ---------------------------------------------------------------------------
+# Incremental parquet I/O
+# ---------------------------------------------------------------------------
+
+def load_already_scored(output_path: Path) -> set[tuple[str, str]]:
+    """Returns set of (source_vocabulary_id, source_concept_code) already in output."""
+    if not output_path.exists():
+        return set()
+    try:
+        existing = pq.read_table(
+            str(output_path),
+            columns=["source_vocabulary_id", "source_concept_code"],
+        )
+        df = existing.to_pandas().drop_duplicates()
+        done = set(zip(df["source_vocabulary_id"], df["source_concept_code"]))
+        print(f"  -> resuming: {len(done):,} source concepts already scored, skipping them")
+        return done
+    except Exception as e:
+        print(f"  -> warning: could not read existing output ({e}), starting fresh")
+        return set()
+
+
+def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
+    table = pa.table(
+        {
+            "source_vocabulary_id": pa.array([r["source_vocabulary_id"] for r in buf], type=pa.string()),
+            "source_concept_code":  pa.array([r["source_concept_code"]  for r in buf], type=pa.string()),
+            "concept_id":           pa.array([r["concept_id"]           for r in buf], type=pa.int64()),
+            "method":               pa.array([r["method"]               for r in buf], type=pa.string()),
+            "score":                pa.array([r["score"]                for r in buf], type=pa.float32()),
+        },
+        schema=PARQUET_SCHEMA,
+    )
+    if output_path.exists():
+        existing = pq.read_table(str(output_path))
+        combined = pa.concat_tables([existing, table])
+        pq.write_table(combined, str(output_path), compression="snappy")
+    else:
+        pq.write_table(table, str(output_path), compression="snappy")
 
 
 # ---------------------------------------------------------------------------
@@ -166,51 +232,109 @@ def load_embeddings(path: Path) -> tuple[np.ndarray, pd.Series, str]:
 # Semantic scores
 # ---------------------------------------------------------------------------
 
-def compute_semantic_scores(source_df: pd.DataFrame, emb_matrix: np.ndarray,
-                             emb_concept_ids: pd.Series, model_id: str,
-                             k: int) -> list[dict]:
+def compute_semantic_scores(
+    source_df: pd.DataFrame,
+    emb_matrix: np.ndarray,
+    emb_concept_ids: pd.Series,
+    model_id: str,
+    k: int,
+    output_path: Path,
+    flush_every: int,
+    already_done: set[tuple[str, str]],
+    n_already_flushed: int,
+) -> int:
+    """Returns total number of source concepts scored (including previously flushed)."""
     from sentence_transformers import SentenceTransformer
+
+    remaining = source_df[
+        ~source_df.apply(lambda r: (r["source_vocabulary_id"], r["source_concept_code"]) in already_done, axis=1)
+    ].reset_index(drop=True)
+
+    if remaining.empty:
+        print("  [semantic] all source concepts already scored, skipping")
+        return n_already_flushed
 
     print(f"  Loading model {model_id} ...")
     model = SentenceTransformer(model_id)
 
-    texts = source_df["source_concept_name"].tolist()
-    print(f"  Encoding {len(texts)} source concepts ...")
-    query_vecs = model.encode(texts, batch_size=64, show_progress_bar=True,
+    texts = remaining["source_concept_name"].tolist()
+    print(f"  Encoding {len(texts)} source concepts ...", flush=True)
+    query_vecs = model.encode(texts, batch_size=64, show_progress_bar=False,
                               convert_to_numpy=True, normalize_embeddings=True)
+    print(f"  [semantic] source concepts encoded", flush=True)
 
-    # emb_matrix is already L2-normalized (embed_concepts.py uses normalize_embeddings=True)
-    # so cosine similarity = dot product
-    print(f"  Computing cosine similarity ({len(texts)} x {len(emb_concept_ids)}) ...")
+    # emb_matrix is already L2-normalized → cosine similarity = dot product
+    print(f"  Computing cosine similarity ({len(texts)} x {len(emb_concept_ids)}) ...", flush=True)
     scores_matrix = query_vecs @ emb_matrix.T  # shape: (n_source, n_omop)
+    print(f"  [semantic] cosine similarity matrix computed", flush=True)
 
-    rows = []
     concept_ids_arr = emb_concept_ids.to_numpy()
+    total = len(remaining)
+    t_start = time.time()
+    buf: list[dict] = []
+    n_flushed = n_already_flushed
 
-    for i, src_row in enumerate(source_df.itertuples(index=False)):
+    for i, src_row in enumerate(remaining.itertuples(index=False)):
         sims = scores_matrix[i]
         top_idx = np.argpartition(sims, -k)[-k:]
         top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
         for idx in top_idx:
-            rows.append({
+            buf.append({
                 "source_vocabulary_id": src_row.source_vocabulary_id,
                 "source_concept_code":  src_row.source_concept_code,
                 "concept_id":           int(concept_ids_arr[idx]),
                 "method":               "semantic/biolord",
-                "score":                float(round(float(sims[idx]), 5)),
+                "score":                round(float(sims[idx]), 3),
             })
-    return rows
+
+        done = i + 1
+        if done % flush_every == 0 or done == total:
+            flush_to_parquet(output_path, buf)
+            n_flushed += done - (n_flushed - n_already_flushed)
+            total_written = n_already_flushed + done
+            print(f"[flush] {total_written:,} source concepts saved to {output_path}", flush=True)
+            buf = []
+
+        if done % 50 == 0 or done == total:
+            elapsed = time.time() - t_start
+            pct = done / total * 100
+            speed = done / elapsed if elapsed > 0 else 0
+            eta = (total - done) / speed if speed > 0 else 0
+            eta_min, eta_sec = divmod(int(eta), 60)
+            print(
+                f"[semantic] {done}/{total} concepts ({pct:.1f}%) — "
+                f"{speed:.1f} concepts/s — ETA {eta_min}m{eta_sec:02d}s",
+                flush=True,
+            )
+
+    return n_already_flushed + total
 
 
 # ---------------------------------------------------------------------------
 # Syntactic scores
 # ---------------------------------------------------------------------------
 
-def compute_syntactic_scores(source_df: pd.DataFrame, concept_df: pd.DataFrame,
-                             k: int, methods: list[str]) -> list[dict]:
+def compute_syntactic_scores(
+    source_df: pd.DataFrame,
+    concept_df: pd.DataFrame,
+    k: int,
+    methods: list[str],
+    output_path: Path,
+    flush_every: int,
+    already_done: set[tuple[str, str]],
+    n_already_flushed: int,
+) -> int:
+    """Returns total number of source concepts scored (including previously flushed)."""
+    remaining = source_df[
+        ~source_df.apply(lambda r: (r["source_vocabulary_id"], r["source_concept_code"]) in already_done, axis=1)
+    ].reset_index(drop=True)
+
+    if remaining.empty:
+        print("  [syntactic] all source concepts already scored, skipping")
+        return n_already_flushed
+
     concept_names = concept_df["concept_name"].tolist()
     concept_ids = concept_df["concept_id"].tolist()
-    rows = []
 
     use_jw = "syntactic/jaro-winkler" in methods
     use_ts = "syntactic/token-sort" in methods
@@ -218,11 +342,15 @@ def compute_syntactic_scores(source_df: pd.DataFrame, concept_df: pd.DataFrame,
 
     ngram_index = None
     if use_ng:
-        print("  Building n-gram IDF index ...")
+        print("  Building n-gram IDF index ...", flush=True)
         ngram_index = NgramIdfIndex(concept_names, n=2)
+        print("  [syntactic] n-gram IDF index ready", flush=True)
 
-    for src_row in tqdm(source_df.itertuples(index=False), total=len(source_df),
-                        desc="Source concepts", unit="concept"):
+    total = len(remaining)
+    t_start = time.time()
+    buf: list[dict] = []
+
+    for i, src_row in enumerate(remaining.itertuples(index=False)):
         query = src_row.source_concept_name
         vocab_id = src_row.source_vocabulary_id
         code = src_row.source_concept_code
@@ -232,12 +360,12 @@ def compute_syntactic_scores(source_df: pd.DataFrame, concept_df: pd.DataFrame,
                          for name, cid in zip(concept_names, concept_ids)]
             jw_scores.sort(reverse=True)
             for score, cid in jw_scores[:k]:
-                rows.append({
+                buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
                     "concept_id":           cid,
                     "method":               "syntactic/jaro-winkler",
-                    "score":                round(score, 5),
+                    "score":                round(score, 3),
                 })
 
         if use_ts:
@@ -245,25 +373,44 @@ def compute_syntactic_scores(source_df: pd.DataFrame, concept_df: pd.DataFrame,
                          for name, cid in zip(concept_names, concept_ids)]
             ts_scores.sort(reverse=True)
             for score, cid in ts_scores[:k]:
-                rows.append({
+                buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
                     "concept_id":           cid,
                     "method":               "syntactic/token-sort",
-                    "score":                round(score, 5),
+                    "score":                round(score, 3),
                 })
 
         if use_ng and ngram_index is not None:
             for idx, score in ngram_index.top_k(query, k):
-                rows.append({
+                buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
                     "concept_id":           concept_ids[idx],
                     "method":               "syntactic/ngram-idf",
-                    "score":                round(score, 5),
+                    "score":                round(score, 3),
                 })
 
-    return rows
+        done = i + 1
+        if done % flush_every == 0 or done == total:
+            flush_to_parquet(output_path, buf)
+            total_written = n_already_flushed + done
+            print(f"[flush] {total_written:,} source concepts saved to {output_path}", flush=True)
+            buf = []
+
+        if done % 10 == 0 or done == total:
+            elapsed = time.time() - t_start
+            pct = done / total * 100
+            speed = done / elapsed if elapsed > 0 else 0
+            eta = (total - done) / speed if speed > 0 else 0
+            eta_min, eta_sec = divmod(int(eta), 60)
+            print(
+                f"[syntactic] {done}/{total} concepts ({pct:.1f}%) — "
+                f"{speed:.1f} concepts/s — ETA {eta_min}m{eta_sec:02d}s",
+                flush=True,
+            )
+
+    return n_already_flushed + total
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +432,11 @@ def main() -> None:
                         help=f"Output file (default: {DEFAULT_OUTPUT})")
     parser.add_argument("--top-k", type=int, default=TOP_K,
                         help=f"Candidates to keep per source concept per method (default: {TOP_K})")
+    parser.add_argument("--flush-every", type=int, default=FLUSH_EVERY,
+                        help=f"Append to parquet every N source concepts (default: {FLUSH_EVERY})")
     parser.add_argument("--methods", nargs="+",
-                        default=["syntactic/jaro-winkler", "syntactic/token-sort",
-                                 "syntactic/ngram-idf", "semantic/biolord"],
-                        help="Methods to compute (default: all)")
+                        default=["syntactic/jaro-winkler", "semantic/biolord"],
+                        help="Methods to compute (default: jaro-winkler + biolord)")
     parser.add_argument("--only-standard", action="store_true",
                         help="Restrict target concepts to standard concepts (standard_concept='S')")
     parser.add_argument("--only-valid", action="store_true",
@@ -319,7 +467,7 @@ def main() -> None:
 
     print(f"Loading source concepts from {source_path} ...")
     source_df = load_source_concepts(source_path)
-    print(f"  -> {len(source_df)} unique source concepts")
+    print(f"  -> {len(source_df):,} unique source concepts")
 
     print(f"Loading CONCEPT from {concept_path} ...")
     concept_df = load_concept_table(concept_path)
@@ -342,34 +490,57 @@ def main() -> None:
         print("No target concepts remaining after filtering.", file=sys.stderr)
         sys.exit(1)
 
-    all_rows: list[dict] = []
+    # Resume: find already-scored (vocab_id, concept_code) pairs across all methods.
+    # A pair is considered done only if ALL requested methods are present for it.
+    already_done: set[tuple[str, str]] = set()
+    if output_path.exists():
+        try:
+            existing = pq.read_table(
+                str(output_path),
+                columns=["source_vocabulary_id", "source_concept_code", "method"],
+            ).to_pandas()
+            requested_methods = set(syntactic_methods + (["semantic/biolord"] if has_semantic else []))
+            grouped = existing.groupby(["source_vocabulary_id", "source_concept_code"])["method"].apply(set)
+            already_done = {
+                (vid, code)
+                for (vid, code), methods_present in grouped.items()
+                if requested_methods.issubset(methods_present)
+            }
+            if already_done:
+                print(f"  -> resuming: {len(already_done):,} source concepts fully scored, skipping them")
+        except Exception as e:
+            print(f"  -> warning: could not read existing output ({e}), starting fresh")
+
+    n_flushed = len(already_done)
 
     if syntactic_methods:
         print(f"\nComputing syntactic scores ({', '.join(syntactic_methods)}) ...")
-        syn_rows = compute_syntactic_scores(source_df, concept_df, args.top_k, syntactic_methods)
-        print(f"  -> {len(syn_rows):,} syntactic scores")
-        all_rows.extend(syn_rows)
+        n_flushed = compute_syntactic_scores(
+            source_df, concept_df, args.top_k, syntactic_methods,
+            output_path, args.flush_every, already_done, n_flushed,
+        )
 
     if has_semantic and emb_path is not None:
         print(f"\nComputing semantic scores from {emb_path} ...")
         emb_matrix, emb_ids, model_id = load_embeddings(emb_path)
-        sem_rows = compute_semantic_scores(source_df, emb_matrix, emb_ids, model_id, args.top_k)
-        print(f"  -> {len(sem_rows):,} semantic scores")
-        all_rows.extend(sem_rows)
+        n_flushed = compute_semantic_scores(
+            source_df, emb_matrix, emb_ids, model_id, args.top_k,
+            output_path, args.flush_every, already_done, n_flushed,
+        )
 
-    if not all_rows:
+    if not output_path.exists():
         print("No scores computed.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"\nWriting to {output_path} ...")
-    result_df = pd.DataFrame(all_rows)
-    table = pa.Table.from_pandas(result_df, preserve_index=False)
-    pq.write_table(table, str(output_path), compression="snappy")
-
     size_kb = output_path.stat().st_size / 1024
-    print(f"  -> {len(result_df):,} rows, "
-          f"{result_df['source_concept_code'].nunique()} source concepts, "
-          f"{size_kb:.0f} KB")
+    final = pq.read_table(str(output_path))
+    n_rows = len(final)
+    n_src = len(
+        pa.compute.unique(
+            pa.chunked_array([final.column("source_concept_code")])
+        )
+    )
+    print(f"\n  -> {n_rows:,} rows, {n_src:,} source concepts, {size_kb:.0f} KB")
     print("Done.")
 
 

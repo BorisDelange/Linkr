@@ -6,11 +6,11 @@ Usage:
     python embed_concepts.py --concept /path/to/CONCEPT.parquet [options]
 
 Output:
-    concept_embeddings.parquet  (concept_id, embedding, model_id, encoded_text)
+    concept_embeddings.parquet  (concept_id, encoded_text, model_id, embedding)
 
-This script is slow (30-120 min depending on concept count and hardware).
-Run it once per OMOP vocabulary release. The output is reused by
-compute_scores.py for all mapping projects.
+Supports incremental writing and resume: if the output file already exists,
+already-encoded concept_ids are skipped and new rows are appended. Safe to
+interrupt and restart at any time.
 
 Dependencies:
     pip install sentence-transformers pandas pyarrow tqdm
@@ -26,11 +26,12 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 from sentence_transformers import SentenceTransformer
-from tqdm import tqdm
 
 MODEL_ID = "FremyCompany/BioLORD-2023-M"
 BATCH_SIZE = 512
 DEFAULT_OUTPUT = "concept_embeddings.parquet"
+PROGRESS_EVERY = 10   # print a progress line every N batches
+FLUSH_EVERY = 50      # append to parquet every N batches (~25k concepts)
 
 
 def load_concept_table(path: Path) -> pd.DataFrame:
@@ -65,15 +66,43 @@ def build_encoded_text(row: pd.Series) -> str:
     return " ".join(parts)
 
 
-def encode_in_batches(model: SentenceTransformer, texts: list[str],
-                      batch_size: int) -> np.ndarray:
-    all_vecs = []
-    for i in tqdm(range(0, len(texts), batch_size), desc="Encoding", unit="batch"):
-        batch = texts[i : i + batch_size]
-        vecs = model.encode(batch, batch_size=batch_size, show_progress_bar=False,
-                            convert_to_numpy=True, normalize_embeddings=True)
-        all_vecs.append(vecs)
-    return np.vstack(all_vecs)
+def load_already_encoded(output_path: Path) -> set[int]:
+    if not output_path.exists():
+        return set()
+    try:
+        existing = pq.read_table(str(output_path), columns=["concept_id"])
+        ids = set(existing["concept_id"].to_pylist())
+        print(f"  -> resuming: {len(ids):,} concepts already encoded, skipping them")
+        return ids
+    except Exception as e:
+        print(f"  -> warning: could not read existing output ({e}), starting fresh")
+        return set()
+
+
+PARQUET_SCHEMA = pa.schema([
+    pa.field("concept_id",   pa.int64()),
+    pa.field("encoded_text", pa.string()),
+    pa.field("model_id",     pa.string()),
+    pa.field("embedding",    pa.list_(pa.float32())),
+])
+
+
+def flush_to_parquet(output_path: Path, buf_ids: list, buf_texts: list,
+                     buf_model: list, buf_vecs: list) -> None:
+    table = pa.table({
+        "concept_id":   pa.array(buf_ids,   type=pa.int64()),
+        "encoded_text": pa.array(buf_texts, type=pa.string()),
+        "model_id":     pa.array(buf_model, type=pa.string()),
+        "embedding":    pa.array([v.tolist() for v in buf_vecs],
+                                 type=pa.list_(pa.float32())),
+    }, schema=PARQUET_SCHEMA)
+
+    if output_path.exists():
+        existing = pq.read_table(str(output_path))
+        combined = pa.concat_tables([existing, table])
+        pq.write_table(combined, str(output_path), compression="snappy")
+    else:
+        pq.write_table(table, str(output_path), compression="snappy")
 
 
 def main() -> None:
@@ -86,6 +115,8 @@ def main() -> None:
                         help=f"sentence-transformers model (default: {MODEL_ID})")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,
                         help=f"Encoding batch size (default: {BATCH_SIZE})")
+    parser.add_argument("--flush-every", type=int, default=FLUSH_EVERY,
+                        help=f"Append to parquet every N batches (default: {FLUSH_EVERY})")
     parser.add_argument("--only-standard", action="store_true",
                         help="Only process standard concepts (standard_concept = 'S')")
     parser.add_argument("--only-valid", action="store_true",
@@ -131,9 +162,14 @@ def main() -> None:
             df = df[df["vocabulary_id"].isin(args.vocabulary)]
             print(f"  -> vocab filter:   {len(df):,} concepts")
 
+    already_done = load_already_encoded(output_path)
+    if already_done:
+        df = df[~df["concept_id"].isin(already_done)]
+        print(f"  -> {len(df):,} concepts remaining to encode")
+
     if df.empty:
-        print("No concepts remaining after filtering. Check your filters.", file=sys.stderr)
-        sys.exit(1)
+        print("No concepts remaining to encode.")
+        sys.exit(0)
 
     print(f"\n{len(df):,} concepts to encode with {args.model}")
     print("Loading model ...")
@@ -142,25 +178,59 @@ def main() -> None:
     print(f"  -> embedding dimension: {dim}")
 
     df["encoded_text"] = df.apply(build_encoded_text, axis=1)
+
+    concept_ids = df["concept_id"].tolist()
     texts = df["encoded_text"].tolist()
+    total = len(texts)
+    n_batches = (total + args.batch_size - 1) // args.batch_size
 
-    t0 = time.time()
-    embeddings = encode_in_batches(model, texts, args.batch_size)
-    elapsed = time.time() - t0
-    print(f"\nEncoding done in {elapsed:.0f}s ({len(texts) / elapsed:.0f} concepts/s)")
+    buf_ids: list = []
+    buf_texts: list = []
+    buf_model: list = []
+    buf_vecs: list = []
 
-    print(f"Writing to {output_path} ...")
-    table = pa.table({
-        "concept_id":   pa.array(df["concept_id"].tolist(), type=pa.int64()),
-        "encoded_text": pa.array(df["encoded_text"].tolist(), type=pa.string()),
-        "model_id":     pa.array([args.model] * len(df), type=pa.string()),
-        "embedding":    pa.array([e.tolist() for e in embeddings],
-                                 type=pa.list_(pa.float32())),
-    })
-    pq.write_table(table, str(output_path), compression="snappy")
+    t_start = time.time()
 
+    for batch_idx, i in enumerate(range(0, total, args.batch_size)):
+        batch_texts = texts[i : i + args.batch_size]
+        batch_ids   = concept_ids[i : i + args.batch_size]
+        batch_encoded = df["encoded_text"].tolist()[i : i + args.batch_size]
+
+        vecs = model.encode(batch_texts, batch_size=args.batch_size, show_progress_bar=False,
+                            convert_to_numpy=True, normalize_embeddings=True)
+
+        buf_ids.extend(batch_ids)
+        buf_texts.extend(batch_encoded)
+        buf_model.extend([args.model] * len(batch_ids))
+        buf_vecs.extend(vecs)
+
+        done = min(i + args.batch_size, total)
+        now = time.time()
+
+        if (batch_idx + 1) % PROGRESS_EVERY == 0 or done == total:
+            elapsed = now - t_start
+            pct = done / total * 100
+            speed = done / elapsed if elapsed > 0 else 0
+            eta = (total - done) / speed if speed > 0 else 0
+            eta_min, eta_sec = divmod(int(eta), 60)
+            print(
+                f"[embed] batch {batch_idx + 1}/{n_batches} — "
+                f"{done:,}/{total:,} concepts ({pct:.1f}%) — "
+                f"{speed:.0f} concepts/s — "
+                f"ETA {eta_min}m{eta_sec:02d}s",
+                flush=True,
+            )
+
+        if (batch_idx + 1) % args.flush_every == 0 or done == total:
+            flush_to_parquet(output_path, buf_ids, buf_texts, buf_model, buf_vecs)
+            total_written = len(already_done) + done
+            print(f"[flush] {total_written:,} embeddings saved to {output_path}", flush=True)
+            buf_ids, buf_texts, buf_model, buf_vecs = [], [], [], []
+
+    elapsed = time.time() - t_start
+    print(f"\nEncoding done in {elapsed:.0f}s ({total / elapsed:.0f} concepts/s)")
     size_mb = output_path.stat().st_size / 1_048_576
-    print(f"  -> {len(df):,} embeddings written ({size_mb:.0f} MB)")
+    print(f"  -> {len(already_done) + total:,} total embeddings in file ({size_mb:.0f} MB)")
     print("Done.")
 
 
