@@ -380,7 +380,7 @@
     "engine_group_local": "Local (available in static mode)",
     "engine_group_server": "Server (requires backend)",
     "engine_requires_server": "requires server mode",
-    "engine_via_odbc": "via ODBC \u2022 requires server mode",
+    "engine_via_odbc": "via ODBC • requires server mode",
     "field_host": "Host",
     "field_port": "Port",
     "field_database": "Database",
@@ -632,7 +632,6 @@
     "remove": "Delete",
     "execute": "Run query",
     "executing": "Running...",
-
     "create_title": "Create a cohort",
     "create_description": "Define a new cohort with inclusion criteria.",
     "field_name": "Cohort name",
@@ -640,7 +639,6 @@
     "field_description": "Description",
     "field_description_placeholder": "Brief description of this cohort...",
     "field_level": "Inclusion level",
-
     "level_patient": "Patient",
     "level_patient_desc": "One row per unique patient",
     "level_visit": "Hospitalization",
@@ -649,9 +647,7 @@
     "level_visit_detail_desc": "One row per unit stay (ICU, ward, etc.)",
     "level_event": "Event",
     "level_event_desc": "One row per clinical event",
-
     "view_criteria": "Criteria",
-
     "criteria_age": "Age",
     "criteria_sex": "Sex",
     "criteria_death": "Death",
@@ -660,26 +656,21 @@
     "criteria_care_site": "Care location",
     "criteria_concept": "Concept",
     "criteria_text": "Free text",
-
     "age_reference": "Age reference",
     "age_current": "Current age",
     "age_admission": "At admission",
     "age_min": "Minimum age",
     "age_max": "Maximum age",
-
     "sex_male": "Male",
     "sex_female": "Female",
     "sex_unknown": "Unknown",
-
     "death_deceased": "Deceased",
     "death_alive": "Alive",
     "death_reference": "Period",
     "death_visit": "During hospitalization",
     "death_visit_detail": "During unit stay",
-
     "period_start": "Start date",
     "period_end": "End date",
-
     "duration_level": "Level",
     "duration_unit": "Unit",
     "duration_min": "Minimum",
@@ -692,15 +683,12 @@
     "duration_max_days": "Maximum days",
     "duration_visit": "Hospitalization",
     "duration_visit_detail": "Unit stay",
-
     "care_site_level": "Level",
     "care_site_values": "Care locations",
     "care_site_placeholder": "Select care locations...",
     "care_site_search": "Search...",
     "care_site_no_values": "No care locations found",
-
     "text_description": "Description",
-
     "concept_event_table": "Event table",
     "concept_selected": "Selected concepts",
     "concept_pick": "Select concepts",
@@ -708,7 +696,6 @@
     "concept_add_value_filter": "Add value filter",
     "concept_occurrence": "Occurrence count",
     "concept_occurrence_hint": "At the cohort extraction level (patient, hospitalization, or unit stay)",
-
     "toggle_operator": "Toggle AND / OR",
     "group_label_placeholder": "Group label...",
     "group_default_label": "Criteria group",
@@ -719,7 +706,6 @@
     "add_group": "Add group (AND/OR)",
     "section_criteria": "Criteria",
     "section_logic": "Logic",
-
     "sql_modified": "Modified",
     "sql_unsaved": "Unsaved changes (Cmd+S to save)",
     "sql_reset": "Reset",
@@ -727,20 +713,15 @@
     "sql_overwrite_title": "Overwrite custom SQL?",
     "sql_overwrite_description": "You have manually edited the SQL. Changing criteria will regenerate the SQL and discard your edits.",
     "sql_overwrite_confirm": "Overwrite",
-
     "results_empty": "Run the query to see results.",
     "results_table": "Results",
     "results_attrition": "Attrition",
-
     "attrition_empty": "No attrition data",
     "attrition_count": "count",
-
     "criterion_delete_title": "Delete criterion",
     "criterion_delete_description": "Are you sure you want to delete this criterion?",
-
     "remove_confirm_title": "Delete cohort",
     "remove_confirm_description": "Are you sure you want to delete this cohort? This action cannot be undone.",
-
     "atlas_import_title": "Import ATLAS cohort",
     "atlas_import_description": "Import a cohort definition from an OHDSI ATLAS JSON file.",
     "atlas_drop_file": "Drop an ATLAS JSON file or click to browse",
@@ -940,7 +921,6 @@
     "criteria_sex": "Sex",
     "criteria_period": "Time period",
     "criteria_duration": "Length of stay",
-
     "criteria_concept": "Concept (coming soon)",
     "age_min": "Min",
     "age_max": "Max",
@@ -1623,7 +1603,7 @@
     "save": "Save",
     "saved": "Saved",
     "unsaved_changes": "Unsaved",
-    "system_plugin": "System plugin",
+    "system_plugin": "System",
     "back_to_list": "Back",
     "no_plugins": "No plugins yet.",
     "files": "Files",
@@ -1684,7 +1664,6 @@
     "scope_warehouse": "Data Warehouse",
     "scope_lab": "Lab",
     "scope_locked": "Scope cannot be changed after creation.",
-    "system_plugin": "System",
     "name_label": "Name",
     "name_en": "Name (EN)",
     "name_fr": "Name (FR)",
@@ -1963,7 +1942,10 @@
     "auto": "Auto",
     "validate": "Validate",
     "ok": "OK",
-    "columns": "Columns"
+    "columns": "Columns",
+    "reset": "Reset",
+    "added": "added",
+    "replaced": "replaced"
   },
   "user_menu": {
     "profile": "Settings",
@@ -2351,7 +2333,7 @@
     "mapped_count": "{{count}} mapped",
     "card_progress_label": "{{mapped}} of {{total}} mapped",
     "card_approved_label": "{{approved}} / {{total}} approved",
-    "delete_confirm_title": "Delete mapping project?",
+    "delete_confirm_title": "Delete mappings",
     "delete_confirm_description": "This will permanently delete the project \"{{name}}\" and all its mappings. This action cannot be undone.",
     "project_not_found": "Mapping project not found.",
     "tab_concept_sets": "Target Concepts",
@@ -2547,18 +2529,12 @@
     "mode_concept_sets": "Concept sets",
     "mode_search": "Search",
     "mode_suggestions": "Suggestions",
-    "suggestions_generate": "Generate syntactic suggestions",
-    "suggestions_regenerate": "Regenerate",
-    "suggestions_generating": "Generating…",
     "suggestions_empty": "No suggestions for this concept",
-    "suggestions_empty_hint": "Click \"Generate\" to run syntactic analysis.",
     "suggestions_col_provider": "Method",
     "suggestions_col_score": "Score",
     "suggestions_col_target": "Target concept",
     "suggestions_approve": "Approve",
     "suggestions_reject": "Reject",
-    "suggestions_provider_syntactic": "Syntactic",
-    "suggestions_no_vocab": "No OHDSI vocabulary configured for this project.",
     "no_source_selected": "Select a source concept to see suggestions.",
     "mode_mappings": "Mappings",
     "mappings_filter": "Filter mappings…",
@@ -2610,7 +2586,6 @@
     "edit_mode": "Edit",
     "done_editing": "Done",
     "delete_selected": "Delete ({{count}})",
-    "delete_confirm_title": "Delete mappings",
     "delete_confirm_desc": "Are you sure you want to delete {{count}} mapping(s)? This action cannot be undone.",
     "col_review": "Review",
     "col_concept_class": "Concept Class",
@@ -2656,8 +2631,6 @@
     "col_target_concept_id": "Target concept ID",
     "col_target_concept_name": "Target concept name",
     "col_code": "Code",
-    "col_category": "Category",
-    "col_subcategory": "Subcategory",
     "col_concept_class_id": "Concept Class",
     "col_domain_id": "Domain",
     "source_type": "Source type",
@@ -2826,7 +2799,21 @@
     "concept_info_btn": "Info",
     "concept_info_hierarchy_large": "This concept has {{count}} nodes. Loading may be slow.",
     "concept_info_hierarchy_large_desc": "Large hierarchies may take time to load and display.",
-    "concept_info_hierarchy_load_anyway": "Load anyway"
+    "concept_info_hierarchy_load_anyway": "Load anyway",
+    "suggestions_empty_hint": "No scores match this concept in the imported file.",
+    "suggestions_import": "Import scores file",
+    "suggestions_importing": "Importing…",
+    "suggestions_no_scores": "No scores file imported",
+    "suggestions_no_scores_hint": "Import a precomputed scores file (.parquet or .csv) to see suggestions.",
+    "suggestions_scores_count": "scores",
+    "suggestions_delete_all": "Delete all imported scores for this project",
+    "suggestions_delete_confirm_title": "Delete suggestions?",
+    "suggestions_delete_confirm_desc": "This will delete {{count}} imported scores for this project. This cannot be undone.",
+    "suggestions_import_result": "+{{added}} added, {{replaced}} replaced",
+    "suggestions_weights_tooltip": "Configure score weights",
+    "suggestions_weights_title": "Score weights",
+    "suggestions_manage": "Manage suggestions",
+    "suggestions_section_import": "Import"
   },
   "data_catalog": {
     "title": "Data Catalog",
@@ -2946,7 +2933,7 @@
     "export_concepts": "concepts",
     "export_download_html": "Download HTML",
     "export_download_zip": "Download ZIP",
-    "export_generating": "Generating\u2026",
+    "export_generating": "Generating…",
     "export_zip_contents": "ZIP contains: catalog.html, concepts.csv, dimensions.csv, metadata.jsonld",
     "export_preview": "Preview",
     "export_preview_title": "HTML Preview",

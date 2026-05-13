@@ -380,7 +380,7 @@
     "engine_group_local": "Local (disponible en mode statique)",
     "engine_group_server": "Serveur (nécessite le backend)",
     "engine_requires_server": "nécessite le mode serveur",
-    "engine_via_odbc": "via ODBC \u2022 nécessite le mode serveur",
+    "engine_via_odbc": "via ODBC • nécessite le mode serveur",
     "field_host": "Hôte",
     "field_port": "Port",
     "field_database": "Base de données",
@@ -632,7 +632,6 @@
     "remove": "Supprimer",
     "execute": "Exécuter",
     "executing": "Exécution...",
-
     "create_title": "Créer une cohorte",
     "create_description": "Définir une nouvelle cohorte avec des critères d'inclusion.",
     "field_name": "Nom de la cohorte",
@@ -640,7 +639,6 @@
     "field_description": "Description",
     "field_description_placeholder": "Brève description de cette cohorte...",
     "field_level": "Niveau d'inclusion",
-
     "level_patient": "Patient",
     "level_patient_desc": "Une ligne par patient unique",
     "level_visit": "Hospitalisation",
@@ -649,9 +647,7 @@
     "level_visit_detail_desc": "Une ligne par séjour en unité (réa, service, etc.)",
     "level_event": "Événement",
     "level_event_desc": "Une ligne par événement clinique",
-
     "view_criteria": "Critères",
-
     "criteria_age": "Âge",
     "criteria_sex": "Sexe",
     "criteria_death": "Décès",
@@ -660,26 +656,21 @@
     "criteria_care_site": "Lieu de soins",
     "criteria_concept": "Concept",
     "criteria_text": "Texte libre",
-
     "age_reference": "Référence d'âge",
     "age_current": "Âge actuel",
     "age_admission": "À l'admission",
     "age_min": "Âge minimum",
     "age_max": "Âge maximum",
-
     "sex_male": "Homme",
     "sex_female": "Femme",
     "sex_unknown": "Inconnu",
-
     "death_deceased": "Décédé",
     "death_alive": "Vivant",
     "death_reference": "Période",
     "death_visit": "Durant l'hospitalisation",
     "death_visit_detail": "Durant le séjour en unité",
-
     "period_start": "Date de début",
     "period_end": "Date de fin",
-
     "duration_level": "Niveau",
     "duration_unit": "Unité",
     "duration_min": "Minimum",
@@ -692,15 +683,12 @@
     "duration_max_days": "Jours maximum",
     "duration_visit": "Hospitalisation",
     "duration_visit_detail": "Séjour en unité",
-
     "care_site_level": "Niveau",
     "care_site_values": "Lieux de soins",
     "care_site_placeholder": "Sélectionner des lieux...",
     "care_site_search": "Rechercher...",
     "care_site_no_values": "Aucun lieu trouvé",
-
     "text_description": "Description",
-
     "concept_event_table": "Table d'événements",
     "concept_selected": "Concepts sélectionnés",
     "concept_pick": "Sélectionner des concepts",
@@ -708,7 +696,6 @@
     "concept_add_value_filter": "Ajouter un filtre de valeur",
     "concept_occurrence": "Nombre d'occurrences",
     "concept_occurrence_hint": "Au niveau d'extraction de la cohorte (patient, hospitalisation ou unité)",
-
     "toggle_operator": "Basculer ET / OU",
     "group_label_placeholder": "Nom du groupe...",
     "group_default_label": "Groupe de critères",
@@ -719,7 +706,6 @@
     "add_group": "Ajouter un groupe (ET/OU)",
     "section_criteria": "Critères",
     "section_logic": "Logique",
-
     "sql_modified": "Modifié",
     "sql_unsaved": "Modifications non enregistrées (Cmd+S pour sauvegarder)",
     "sql_reset": "Réinitialiser",
@@ -727,20 +713,15 @@
     "sql_overwrite_title": "Écraser le SQL personnalisé ?",
     "sql_overwrite_description": "Vous avez modifié le SQL manuellement. Modifier les critères va régénérer le SQL et écraser vos modifications.",
     "sql_overwrite_confirm": "Écraser",
-
     "results_empty": "Exécutez la requête pour voir les résultats.",
     "results_table": "Résultats",
     "results_attrition": "Attrition",
-
     "attrition_empty": "Aucune donnée d'attrition",
     "attrition_count": "effectif",
-
     "criterion_delete_title": "Supprimer le critère",
     "criterion_delete_description": "Voulez-vous vraiment supprimer ce critère ?",
-
     "remove_confirm_title": "Supprimer la cohorte",
     "remove_confirm_description": "Voulez-vous vraiment supprimer cette cohorte ? Cette action est irréversible.",
-
     "atlas_import_title": "Importer une cohorte ATLAS",
     "atlas_import_description": "Importer une définition de cohorte depuis un fichier JSON OHDSI ATLAS.",
     "atlas_drop_file": "Déposez un fichier JSON ATLAS ou cliquez pour parcourir",
@@ -940,7 +921,6 @@
     "criteria_sex": "Sexe",
     "criteria_period": "Période",
     "criteria_duration": "Durée de séjour",
-
     "criteria_concept": "Concept (bientôt)",
     "age_min": "Min",
     "age_max": "Max",
@@ -1276,7 +1256,6 @@
   "summary": {
     "tab_overview": "Vue d'ensemble",
     "tab_readme": "Readme",
-
     "tab_tasks": "Tâches",
     "readme": "Readme",
     "edit": "Modifier",
@@ -1624,7 +1603,7 @@
     "save": "Enregistrer",
     "saved": "Enregistré",
     "unsaved_changes": "Non enregistré",
-    "system_plugin": "Plugin système",
+    "system_plugin": "Système",
     "back_to_list": "Retour",
     "no_plugins": "Aucun plugin.",
     "files": "Fichiers",
@@ -1685,7 +1664,6 @@
     "scope_warehouse": "Data Warehouse",
     "scope_lab": "Laboratoire",
     "scope_locked": "La portée ne peut pas être modifiée après la création.",
-    "system_plugin": "Système",
     "name_label": "Nom",
     "name_en": "Nom (EN)",
     "name_fr": "Nom (FR)",
@@ -1964,7 +1942,10 @@
     "auto": "Auto",
     "validate": "Valider",
     "ok": "OK",
-    "columns": "Colonnes"
+    "columns": "Colonnes",
+    "reset": "Réinitialiser",
+    "added": "ajouté(s)",
+    "replaced": "remplacé(s)"
   },
   "user_menu": {
     "profile": "Paramètres",
@@ -2352,7 +2333,7 @@
     "mapped_count": "{{count}} aligné(s)",
     "card_progress_label": "{{mapped}} sur {{total}} alignés",
     "card_approved_label": "{{approved}} / {{total}} approuvés",
-    "delete_confirm_title": "Supprimer le projet d'alignement ?",
+    "delete_confirm_title": "Supprimer des alignements",
     "delete_confirm_description": "Cela supprimera définitivement le projet « {{name}} » et tous ses alignements. Cette action est irréversible.",
     "project_not_found": "Projet d'alignement introuvable.",
     "tab_concept_sets": "Concepts cibles",
@@ -2548,18 +2529,12 @@
     "mode_concept_sets": "Jeux de concepts",
     "mode_search": "Rechercher",
     "mode_suggestions": "Suggestions",
-    "suggestions_generate": "Générer les suggestions syntactiques",
-    "suggestions_regenerate": "Regénérer",
-    "suggestions_generating": "Génération en cours…",
     "suggestions_empty": "Aucune suggestion pour ce concept",
-    "suggestions_empty_hint": "Cliquez sur \"Générer\" pour lancer l'analyse syntactique.",
     "suggestions_col_provider": "Méthode",
     "suggestions_col_score": "Score",
     "suggestions_col_target": "Concept cible",
     "suggestions_approve": "Approuver",
     "suggestions_reject": "Rejeter",
-    "suggestions_provider_syntactic": "Syntactique",
-    "suggestions_no_vocab": "Aucun vocabulaire OHDSI configuré pour ce projet.",
     "no_source_selected": "Sélectionnez un concept source pour voir les suggestions.",
     "mode_mappings": "Alignements",
     "mappings_filter": "Filtrer les alignements…",
@@ -2611,7 +2586,6 @@
     "edit_mode": "Éditer",
     "done_editing": "Terminé",
     "delete_selected": "Supprimer ({{count}})",
-    "delete_confirm_title": "Supprimer des alignements",
     "delete_confirm_desc": "Voulez-vous vraiment supprimer {{count}} alignement(s) ? Cette action est irréversible.",
     "col_review": "Évaluation",
     "col_concept_class": "Classe de concept",
@@ -2657,8 +2631,6 @@
     "col_target_concept_id": "ID concept cible",
     "col_target_concept_name": "Nom concept cible",
     "col_code": "Code",
-    "col_category": "Catégorie",
-    "col_subcategory": "Sous-catégorie",
     "col_concept_class_id": "Classe de concept",
     "col_domain_id": "Domaine",
     "source_type": "Type de source",
@@ -2827,7 +2799,21 @@
     "concept_info_btn": "Infos",
     "concept_info_hierarchy_large": "Ce concept a {{count}} nœuds. Le chargement peut être lent.",
     "concept_info_hierarchy_large_desc": "Les grandes hiérarchies peuvent prendre du temps à charger et à afficher.",
-    "concept_info_hierarchy_load_anyway": "Charger quand même"
+    "concept_info_hierarchy_load_anyway": "Charger quand même",
+    "suggestions_empty_hint": "Aucun score ne correspond à ce concept dans le fichier importé.",
+    "suggestions_import": "Importer un fichier de scores",
+    "suggestions_importing": "Import en cours…",
+    "suggestions_no_scores": "Aucun fichier de scores importé",
+    "suggestions_no_scores_hint": "Importez un fichier de scores préalculés (.parquet ou .csv) pour voir les suggestions.",
+    "suggestions_scores_count": "scores",
+    "suggestions_delete_all": "Supprimer tous les scores importés pour ce projet",
+    "suggestions_delete_confirm_title": "Supprimer les suggestions ?",
+    "suggestions_delete_confirm_desc": "Cela supprimera {{count}} scores importés pour ce projet. Cette action est irréversible.",
+    "suggestions_import_result": "+{{added}} ajoutés, {{replaced}} remplacés",
+    "suggestions_weights_tooltip": "Configurer les pondérations",
+    "suggestions_weights_title": "Pondérations",
+    "suggestions_manage": "Gérer les suggestions",
+    "suggestions_section_import": "Importer"
   },
   "data_catalog": {
     "title": "Catalogue de données",
@@ -2947,7 +2933,7 @@
     "export_concepts": "concepts",
     "export_download_html": "Télécharger HTML",
     "export_download_zip": "Télécharger ZIP",
-    "export_generating": "Génération\u2026",
+    "export_generating": "Génération…",
     "export_zip_contents": "Le ZIP contient : catalog.html, concepts.csv, dimensions.csv, metadata.jsonld",
     "export_preview": "Aperçu",
     "export_preview_title": "Aperçu HTML",

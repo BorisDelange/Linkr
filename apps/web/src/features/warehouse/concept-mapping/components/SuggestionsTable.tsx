@@ -35,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { type SuggestionCandidate, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, METHOD_DOT_COLORS, getMethodLabel, computeCombinedScore } from '@/lib/concept-mapping/syntactic-suggestions'
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
@@ -64,10 +64,12 @@ interface Filters {
   domain_id?: Set<string>
   concept_class_id?: Set<string>
   standard_concept?: string | null
+  providers?: Set<string>
 }
 
 interface SuggestionsTableProps {
   suggestions: SuggestionCandidate[]
+  weights: Record<string, number>
   alreadyMappedIds: Set<number>
   selectedConceptId: number | null
   onSelect: (s: SuggestionCandidate | null) => void
@@ -86,7 +88,7 @@ function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string
   return id.replace(/_/g, ' ')
 }
 
-export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConceptId, onSelect, onInfo }: SuggestionsTableProps) {
+export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selectedConceptId, onSelect, onInfo }: SuggestionsTableProps) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>({ columnId: 'combined_score', desc: true })
   const [filters, setFilters] = useState<Filters>({})
@@ -111,10 +113,19 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
     vocabulary_id: [...new Set(suggestions.map((s) => s.vocabulary_id).filter(Boolean))].sort(),
     domain_id: [...new Set(suggestions.map((s) => s.domain_id ?? '').filter(Boolean))].sort(),
     concept_class_id: [...new Set(suggestions.map((s) => s.concept_class_id ?? '').filter(Boolean))].sort(),
+    providers: [...new Set(suggestions.flatMap((s) => s.scores.map((sc) => sc.provider)))].sort(),
   }), [suggestions])
 
+  const reweighted = useMemo(() =>
+    suggestions.map((s) => ({
+      ...s,
+      scores: s.scores.map((sc) => ({ ...sc, weight: weights[sc.provider] ?? sc.weight })),
+      combined_score: computeCombinedScore(s.scores, weights),
+    })),
+  [suggestions, weights])
+
   const filtered = useMemo(() => {
-    let rows = suggestions
+    let rows = reweighted
     if (filters.concept_id) rows = rows.filter((s) => String(s.concept_id).includes(filters.concept_id!))
     if (filters.concept_name) {
       const q = filters.concept_name.toLowerCase()
@@ -128,6 +139,7 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
     if (filters.domain_id?.size) rows = rows.filter((s) => filters.domain_id!.has(s.domain_id ?? ''))
     if (filters.concept_class_id?.size) rows = rows.filter((s) => filters.concept_class_id!.has(s.concept_class_id ?? ''))
     if (filters.standard_concept) rows = rows.filter((s) => (s.standard_concept ?? '') === filters.standard_concept)
+    if (filters.providers?.size) rows = rows.filter((s) => s.scores.some((sc) => filters.providers!.has(sc.provider)))
 
     if (sorting) {
       rows = [...rows].sort((a, b) => {
@@ -143,7 +155,7 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
       })
     }
     return rows
-  }, [suggestions, filters, sorting])
+  }, [reweighted, filters, sorting])
 
   const renderFilter = (columnId: string) => {
     if (columnId === 'concept_id') return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.concept_id ?? ''} onChange={(v) => setFilters((f) => ({ ...f, concept_id: v || undefined }))} />
@@ -157,6 +169,9 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
     }
     if (columnId === 'concept_class_id' && filterOptions.concept_class_id.length > 0) {
       return <MultiSelectFilter value={filters.concept_class_id ? [...filters.concept_class_id] : []} options={filterOptions.concept_class_id} placeholder="Class" onChange={(v) => setFilters((f) => ({ ...f, concept_class_id: v.length ? new Set(v) : undefined }))} />
+    }
+    if (columnId === 'methods' && filterOptions.providers.length > 1) {
+      return <MultiSelectFilter value={filters.providers ? [...filters.providers] : []} options={filterOptions.providers} placeholder="Méthode" onChange={(v) => setFilters((f) => ({ ...f, providers: v.length ? new Set(v) : undefined }))} />
     }
     if (columnId === 'standard_concept') {
       return (
@@ -200,18 +215,23 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
       header: () => t('concept_mapping.suggestions_col_provider'),
       cell: ({ row }) => (
         <div className="flex items-center gap-1.5">
-          {row.original.scores.map(({ provider, score }) => {
+          {row.original.scores.map(({ provider, method, score }) => {
             const pct = Math.round(score * 100)
             const dot = METHOD_DOT_COLORS[provider] ?? 'bg-gray-400'
+            const label = getMethodLabel(method)
             return (
-              <Tooltip key={provider}>
+              <Tooltip key={method}>
                 <TooltipTrigger asChild>
                   <span className="inline-flex cursor-default items-center gap-0.5">
                     <span className={`inline-block h-2 w-2 shrink-0 rounded-full ${dot}`} />
                     <span className="text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{provider} — {pct}%</TooltipContent>
+                <TooltipContent side="top" className="space-y-0.5 text-xs">
+                  <p className="font-medium">{provider}</p>
+                  <p className="text-muted-foreground">{label}</p>
+                  <p>{pct}%</p>
+                </TooltipContent>
               </Tooltip>
             )
           })}

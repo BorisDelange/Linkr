@@ -275,6 +275,23 @@ export interface ConceptMapping {
   updatedAt: string
 }
 
+// --- Suggestion Scores (imported from precomputed scores file) ---
+
+/**
+ * A single precomputed similarity score row, scoped to a mapping project.
+ * Key: `${projectId}__${sourceVocabularyId}__${sourceConceptCode}__${conceptId}__${method}`
+ */
+export interface SuggestionScore {
+  id: string
+  projectId: string
+  sourceVocabularyId: string
+  sourceConceptCode: string
+  conceptId: number
+  method: string
+  score: number
+  importedAt: string
+}
+
 // --- Source Concept ID Registry (OMOP custom IDs > 2,000,000,000) ---
 
 /**

@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, RefreshCw } from 'lucide-react'
+import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { buildSyntacticSuggestionsQuery, rowToCandidate, type SuggestionCandidate } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, DEFAULT_WEIGHTS, ALL_PROVIDERS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -65,6 +65,7 @@ import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
 import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { useRequireIdentity } from './IdentityRequiredDialog'
@@ -284,7 +285,7 @@ function ResolvedMultiSelect({
 export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { mappings, conceptSets, createMapping, deleteMapping, deleteSuggestionsByProvider } = useConceptMappingStore()
+  const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -343,12 +344,14 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Browse mode toggle
   const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('concept_sets')
 
-  // Suggestions state
-  const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([])
-  const [suggestionsLoading, setSuggestionsLoading] = useState(false)
-  const [suggestionsError, setSuggestionsError] = useState<string | null>(null)
-  const [suggestionsGenerated, setSuggestionsGenerated] = useState(false)
-  const suggestionsSourceConceptIdRef = useRef<number | null>(null)
+  // Suggestions state (from imported scores)
+  const [suggestionsImporting, setSuggestionsImporting] = useState(false)
+  const [suggestionsImportError, setSuggestionsImportError] = useState<string | null>(null)
+  const [suggestionsImportResult, setSuggestionsImportResult] = useState<{ added: number; replaced: number } | null>(null)
+  const suggestionsFileInputRef = useRef<HTMLInputElement>(null)
+  const [weights, setWeights] = useState<Record<string, number>>({ ...DEFAULT_WEIGHTS })
+  const [suggestionsSettingsOpen, setSuggestionsSettingsOpen] = useState(false)
+  const [suggestionsDeleteConfirmOpen, setSuggestionsDeleteConfirmOpen] = useState(false)
 
   // Concept detail sheet
   const [conceptDetailOpen, setConceptDetailOpen] = useState(false)
@@ -1524,48 +1527,112 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // shown below in the results area.
   const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
 
-  // ─── Suggestions: syntactic generation ───────────────────────────────────
-  const handleGenerateSuggestions = useCallback(async (regenerate = false) => {
-    if (!sourceConcept) return
+  // ─── Suggestions: from imported scores ───────────────────────────────────
+  const { scores: allProjectScores, loadProjectScores, importScores, deleteProjectScores } = useSuggestionScoresStore()
+
+  useEffect(() => {
+    loadProjectScores(project.id)
+  }, [project.id, loadProjectScores])
+
+  const suggestions = useMemo<SuggestionCandidate[]>(() => {
+    if (!sourceConcept) return []
+    const vocabId = sourceConcept.vocabulary_id ?? sourceConcept.terminology ?? ''
+    const code = sourceConcept.concept_code ?? ''
+    const relevant = allProjectScores.filter(
+      (s) => s.sourceVocabularyId === vocabId && s.sourceConceptCode === code,
+    )
+    if (relevant.length === 0) return []
+
+    const byConceptId = new Map<number, typeof relevant>()
+    for (const s of relevant) {
+      const arr = byConceptId.get(s.conceptId) ?? []
+      arr.push(s)
+      byConceptId.set(s.conceptId, arr)
+    }
+
+    return [...byConceptId.entries()].map(([conceptId, rows]) => {
+      const scores = rows.map((r) => {
+        const provider = getProviderForMethod(r.method)
+        return { provider, method: r.method, score: r.score, weight: weights[provider] ?? 1 }
+      })
+      const combined_score = computeCombinedScore(scores)
+      return {
+        concept_id: conceptId,
+        concept_name: '',
+        concept_code: '',
+        vocabulary_id: '',
+        scores,
+        combined_score,
+      } satisfies SuggestionCandidate
+    }).sort((a, b) => b.combined_score - a.combined_score)
+  }, [allProjectScores, sourceConcept, weights])
+
+  const [enrichedSuggestions, setEnrichedSuggestions] = useState<SuggestionCandidate[]>([])
+  useEffect(() => {
+    if (suggestions.length === 0) { setEnrichedSuggestions([]); return }
+    const dsId = project.vocabularyDataSourceId ?? dataSource?.id
     const targetMapping = dataSource?.schemaMapping ?? (
       project.vocabularyDataSourceId
         ? allDataSources.find((s) => s.id === project.vocabularyDataSourceId)?.schemaMapping
         : undefined
     )
-    if (!targetMapping) return
+    if (!dsId || !targetMapping) { setEnrichedSuggestions(suggestions); return }
 
-    const dsId = project.vocabularyDataSourceId ?? dataSource?.id
-    if (!dsId) return
+    const dict = (targetMapping.conceptTables ?? [])[0]
+    if (!dict) { setEnrichedSuggestions(suggestions); return }
 
-    setSuggestionsLoading(true)
-    setSuggestionsError(null)
+    const ids = suggestions.map((s) => s.concept_id).join(', ')
+    const table = dict.table
+    const idCol = dict.idColumn ?? 'concept_id'
+    const nameCol = dict.nameColumn ?? 'concept_name'
+    const codeCol = dict.codeColumn ?? 'concept_code'
+    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
+    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
+    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
+    const stdCol = dict.extraColumns?.standard_concept
+    const extraCols = [
+      domainCol ? `${domainCol} AS domain_id` : null,
+      classCol ? `${classCol} AS concept_class_id` : null,
+      stdCol ? `${stdCol} AS standard_concept` : null,
+    ].filter(Boolean).join(', ')
+    const sql = `SELECT ${idCol} AS concept_id, ${nameCol} AS concept_name, ${codeCol} AS concept_code, ${vocabCol} AS vocabulary_id${extraCols ? ', ' + extraCols : ''} FROM ${table} WHERE ${idCol} IN (${ids})`
 
+    ensureMounted(dsId).then(() =>
+      queryDataSource(dsId, sql) as Promise<Record<string, unknown>[]>
+    ).then((rows) => {
+      const byId = new Map(rows.map((r) => [Number(r.concept_id), r]))
+      setEnrichedSuggestions(suggestions.map((s) => {
+        const info = byId.get(s.concept_id)
+        if (!info) return s
+        return {
+          ...s,
+          concept_name: String(info.concept_name ?? ''),
+          concept_code: String(info.concept_code ?? ''),
+          vocabulary_id: String(info.vocabulary_id ?? ''),
+          domain_id: info.domain_id != null ? String(info.domain_id) : undefined,
+          concept_class_id: info.concept_class_id != null ? String(info.concept_class_id) : undefined,
+          standard_concept: info.standard_concept != null ? String(info.standard_concept) : undefined,
+        }
+      }))
+    }).catch(() => setEnrichedSuggestions(suggestions))
+  }, [suggestions, project.vocabularyDataSourceId, dataSource, allDataSources, ensureMounted])
+
+  const handleImportScoresFile = useCallback(async (file: File) => {
+    setSuggestionsImporting(true)
+    setSuggestionsImportError(null)
+    setSuggestionsImportResult(null)
     try {
-      await ensureMounted(dsId)
-      if (regenerate) {
-        await deleteSuggestionsByProvider(project.id, sourceConcept.concept_id, 'Syntactic')
-      }
-      const sql = buildSyntacticSuggestionsQuery(sourceConcept.concept_name, targetMapping)
-      if (!sql) { setSuggestionsLoading(false); return }
-      const rawRows = await queryDataSource(dsId, sql) as Record<string, unknown>[]
-      setSuggestions(rawRows.map(rowToCandidate))
-      setSuggestionsGenerated(true)
-      suggestionsSourceConceptIdRef.current = sourceConcept.concept_id
+      const { parseScoresFile, scoresToSuggestionScores } = await import('@/lib/concept-mapping/scores-parser')
+      const rows = await parseScoresFile(file)
+      const toImport = scoresToSuggestionScores(rows)
+      const result = await importScores(project.id, toImport)
+      setSuggestionsImportResult(result)
     } catch (err) {
-      setSuggestionsError(err instanceof Error ? err.message : String(err))
+      setSuggestionsImportError(err instanceof Error ? err.message : String(err))
     } finally {
-      setSuggestionsLoading(false)
+      setSuggestionsImporting(false)
     }
-  }, [sourceConcept, dataSource, project, allDataSources, ensureMounted, deleteSuggestionsByProvider])
-
-  // Reset suggestions when source concept changes
-  useEffect(() => {
-    if (suggestionsSourceConceptIdRef.current !== sourceConcept?.concept_id) {
-      setSuggestions([])
-      setSuggestionsGenerated(false)
-      setSuggestionsError(null)
-    }
-  }, [sourceConcept?.concept_id])
+  }, [project.id, importScores])
 
   const suggestionsAlreadyMappedIds = useMemo(() => new Set(
     mappings
@@ -1573,15 +1640,23 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       .map((m) => m.targetConceptId),
   ), [mappings, project.id, sourceConcept?.concept_id])
 
+  const totalProjectScores = allProjectScores.length
+
   const renderSuggestionsPanel = () => {
-    if (suggestionsError) {
+    if (totalProjectScores === 0) {
       return (
-        <div className="flex h-full items-center justify-center p-4">
-          <p className="text-[11px] text-destructive">{suggestionsError}</p>
+        <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
+          <Sparkles size={20} className="text-muted-foreground/40" />
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {t('concept_mapping.suggestions_no_scores')}
+          </p>
+          <p className="text-[10px] text-muted-foreground/70">
+            {t('concept_mapping.suggestions_no_scores_hint')}
+          </p>
         </div>
       )
     }
-    if (!suggestionsGenerated || suggestions.length === 0) {
+    if (suggestions.length === 0) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
           <Sparkles size={20} className="text-muted-foreground/40" />
@@ -1596,7 +1671,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     }
     return (
       <SuggestionsTable
-        suggestions={suggestions}
+        suggestions={enrichedSuggestions}
+        weights={weights}
         alreadyMappedIds={suggestionsAlreadyMappedIds}
         selectedConceptId={selectedTarget?.conceptId ?? null}
         onSelect={(s) => {
@@ -1929,6 +2005,107 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   return (
     <>
     {identityDialog}
+    {/* Suggestions settings dialog */}
+    <Dialog open={suggestionsSettingsOpen} onOpenChange={setSuggestionsSettingsOpen}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-sm">{t('concept_mapping.suggestions_manage')}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          {/* Import */}
+          <div className="space-y-2">
+            {totalProjectScores > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {totalProjectScores.toLocaleString()} {t('concept_mapping.suggestions_scores_count')}
+              </p>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 w-full gap-1.5 px-2.5 text-xs"
+              disabled={suggestionsImporting}
+              onClick={() => suggestionsFileInputRef.current?.click()}
+            >
+              {suggestionsImporting ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+              {suggestionsImporting ? t('concept_mapping.suggestions_importing') : t('concept_mapping.suggestions_import')}
+            </Button>
+            {suggestionsImportResult && !suggestionsImporting && (
+              <p className="text-[11px] text-muted-foreground">
+                +{suggestionsImportResult.added} {t('common.added').toLowerCase()}, {suggestionsImportResult.replaced} {t('common.replaced').toLowerCase()}
+              </p>
+            )}
+            {suggestionsImportError && (
+              <p className="text-[11px] text-destructive">{suggestionsImportError}</p>
+            )}
+          </div>
+          {/* Weights */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{t('concept_mapping.suggestions_weights_title')}</p>
+              {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
+                <button
+                  type="button"
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => setWeights({ ...DEFAULT_WEIGHTS })}
+                >
+                  {t('common.reset')}
+                </button>
+              )}
+            </div>
+            {ALL_PROVIDERS.map((provider) => (
+              <div key={provider} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-xs text-foreground">{provider}</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={5}
+                  step={0.5}
+                  value={weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1}
+                  onChange={(e) => setWeights((w) => ({ ...w, [provider]: Number(e.target.value) }))}
+                  className="h-1 flex-1 accent-primary"
+                />
+                <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">
+                  ×{weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1}
+                </span>
+              </div>
+            ))}
+          </div>
+          {/* Delete */}
+          {totalProjectScores > 0 && (
+            <Button
+              size="sm"
+              className="h-7 w-full gap-1.5 bg-destructive px-2.5 text-xs text-white hover:bg-destructive/90"
+              onClick={() => setSuggestionsDeleteConfirmOpen(true)}
+            >
+              <Trash2 size={11} />
+              {t('concept_mapping.suggestions_delete_all')}
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+    <AlertDialog open={suggestionsDeleteConfirmOpen} onOpenChange={setSuggestionsDeleteConfirmOpen}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('concept_mapping.suggestions_delete_confirm_title')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('concept_mapping.suggestions_delete_confirm_desc', { count: totalProjectScores })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-white hover:bg-destructive/90"
+            onClick={() => {
+              deleteProjectScores(project.id)
+              setSuggestionsDeleteConfirmOpen(false)
+            }}
+          >
+            {t('common.delete')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <AlertDialog open={searchWarningOpen} onOpenChange={setSearchWarningOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -1981,107 +2158,107 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         </div>
       </div>
 
-      {/* Row 2 — Action buttons (only visible when a source concept is selected) */}
-      {sourceConcept && (
-        <div className="flex items-center justify-between gap-1 border-b px-3 py-1">
+      {/* Row 2 — single action bar (suggestions manage btn + mapping buttons) */}
+      {(browseMode === 'suggestions' || sourceConcept) && (
+        <div className="flex items-center gap-1 border-b px-3 py-1">
           {browseMode === 'suggestions' && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 gap-1.5 px-2 text-[10px]"
-              disabled={suggestionsLoading}
-              onClick={() => handleGenerateSuggestions(suggestionsGenerated)}
-            >
-              {suggestionsLoading ? (
-                <Loader2 size={10} className="animate-spin" />
-              ) : suggestionsGenerated ? (
-                <RefreshCw size={10} />
-              ) : (
-                <Sparkles size={10} />
-              )}
-              {suggestionsLoading
-                ? t('concept_mapping.suggestions_generating')
-                : suggestionsGenerated
-                  ? t('concept_mapping.suggestions_regenerate')
-                  : t('concept_mapping.suggestions_generate')}
-            </Button>
+            <>
+              <input
+                ref={suggestionsFileInputRef}
+                type="file"
+                accept=".parquet,.pq,.csv"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleImportScoresFile(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 gap-1.5 px-2 text-[10px]"
+                onClick={() => setSuggestionsSettingsOpen(true)}
+              >
+                <SlidersHorizontal size={10} />
+                {t('concept_mapping.suggestions_manage')}
+                {totalProjectScores > 0 && (
+                  <span className="ml-0.5 rounded bg-muted px-1 font-mono text-[9px] tabular-nums text-muted-foreground">
+                    {totalProjectScores.toLocaleString()}
+                  </span>
+                )}
+              </Button>
+            </>
           )}
-          <div className="ml-auto flex items-center gap-1">
-          {selectedTarget ? (
-              <>
-                <div className="flex" ref={equivButtonGroupRef}>
+          {sourceConcept && (
+            <div className="ml-auto flex items-center gap-1">
+              {selectedTarget ? (
+                <>
+                  <div className="flex" ref={equivButtonGroupRef}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={`h-6 rounded-r-none gap-1 px-2 text-[10px] border-r-0 ${EQUIV_BADGE[selectedEquivalence].className}`}
+                      onClick={() => handleAddSelectedMapping(selectedEquivalence)}
+                    >
+                      <Plus size={10} />
+                      {EQUIV_BADGE[selectedEquivalence].label}
+                    </Button>
+                    <DropdownMenu onOpenChange={(open) => { if (open) setEquivDropdownWidth(equivButtonGroupRef.current?.offsetWidth) }}>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-6 rounded-l-none px-1">
+                          <ChevronDown size={10} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" style={{ width: equivDropdownWidth }} className="min-w-0">
+                        {(['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] as const).map((pred) => (
+                          <DropdownMenuItem key={pred} onClick={() => setSelectedEquivalence(pred)}>
+                            <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
+                              {EQUIV_BADGE[pred].label}
+                            </span>
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    className={`h-6 rounded-r-none gap-1 px-2 text-[10px] border-r-0 ${EQUIV_BADGE[selectedEquivalence].className}`}
-                    onClick={() => handleAddSelectedMapping(selectedEquivalence)}
+                    className="h-6 gap-1 px-1.5 text-[10px]"
+                    title={t('concept_mapping.map_with_comment')}
+                    onClick={() => setCommentDialogOpen(true)}
                   >
-                    <Plus size={10} />
-                    {EQUIV_BADGE[selectedEquivalence].label}
+                    <MessageSquare size={10} />
                   </Button>
-                  <DropdownMenu onOpenChange={(open) => { if (open) setEquivDropdownWidth(equivButtonGroupRef.current?.offsetWidth) }}>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-6 rounded-l-none px-1"
-                      >
-                        <ChevronDown size={10} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="end"
-                      style={{ width: equivDropdownWidth }}
-                      className="min-w-0"
+                </>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant={ignoredConceptIds.has(sourceConcept.concept_id) ? 'default' : 'outline'}
+                    className={`h-6 gap-1 px-2 text-[10px] ${ignoredConceptIds.has(sourceConcept.concept_id) ? 'bg-gray-500 hover:bg-gray-600' : ''}`}
+                    onClick={() => handleToggleIgnored()}
+                  >
+                    <EyeOff size={10} />
+                    {ignoredConceptIds.has(sourceConcept.concept_id)
+                      ? t('concept_mapping.unignore')
+                      : t('concept_mapping.ignore')}
+                  </Button>
+                  {!ignoredConceptIds.has(sourceConcept.concept_id) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-1.5 text-[10px]"
+                      title={t('concept_mapping.ignore_with_comment')}
+                      onClick={() => setIgnoreDialogOpen(true)}
                     >
-                      {(['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] as const).map((pred) => (
-                        <DropdownMenuItem key={pred} onClick={() => setSelectedEquivalence(pred)}>
-                          <span className={`inline-flex w-full items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium ${EQUIV_BADGE[pred].className}`}>
-                            {EQUIV_BADGE[pred].label}
-                          </span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                {/* Map with comment button */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-1.5 text-[10px]"
-                  title={t('concept_mapping.map_with_comment')}
-                  onClick={() => setCommentDialogOpen(true)}
-                >
-                  <MessageSquare size={10} />
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button
-                  size="sm"
-                  variant={ignoredConceptIds.has(sourceConcept.concept_id) ? 'default' : 'outline'}
-                  className={`h-6 gap-1 px-2 text-[10px] ${ignoredConceptIds.has(sourceConcept.concept_id) ? 'bg-gray-500 hover:bg-gray-600' : ''}`}
-                  onClick={() => handleToggleIgnored()}
-                >
-                  <EyeOff size={10} />
-                  {ignoredConceptIds.has(sourceConcept.concept_id)
-                    ? t('concept_mapping.unignore')
-                    : t('concept_mapping.ignore')}
-                </Button>
-                {!ignoredConceptIds.has(sourceConcept.concept_id) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-6 gap-1 px-1.5 text-[10px]"
-                  title={t('concept_mapping.ignore_with_comment')}
-                  onClick={() => setIgnoreDialogOpen(true)}
-                >
-                  <MessageSquare size={10} />
-                </Button>
+                      <MessageSquare size={10} />
+                    </Button>
+                  )}
+                </>
               )}
-            </>
+            </div>
           )}
-          </div>
         </div>
       )}
 

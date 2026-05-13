@@ -1,9 +1,7 @@
-import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
-import { escSql as esc } from '@/lib/format-helpers'
-import type { SchemaMapping } from '@/types/schema-mapping'
-
 export interface MethodScore {
   provider: string
+  /** Raw method string from the scores file, e.g. "syntactic/jaro-winkler". */
+  method: string
   score: number
   weight: number
 }
@@ -36,68 +34,52 @@ export const METHOD_DOT_COLORS: Record<string, string> = {
   IA:          'bg-emerald-500',
 }
 
-export const SYNTACTIC_PROVIDER = 'Syntaxique'
-const TOP_N = 20
-
-/**
- * Build a DuckDB SQL query that returns the top-N syntactic candidates for
- * `sourceName` using the same multi-tier Jaro-Winkler fuzzy search as the
- * rest of the app.
- */
-export function buildSyntacticSuggestionsQuery(
-  sourceName: string,
-  mapping: SchemaMapping,
-): string | null {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0 || !sourceName.trim()) return null
-
-  const dict = dicts[0]
-  const idCol = dict.idColumn ?? 'concept_id'
-  const nameCol = dict.nameColumn ?? 'concept_name'
-  const codeCol = dict.codeColumn ?? 'concept_code'
-  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-  const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-  const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-  const stdCol = dict.extraColumns?.standard_concept
-
-  const fuzzy = buildFuzzySearchSql(sourceName.trim(), {
-    nameColumn: nameCol,
-    codeColumn: codeCol,
-    idColumn: idCol,
-    alias: 'd',
-  })
-  if (!fuzzy) return null
-
-  const selectCols = [
-    `d.${idCol} AS concept_id`,
-    `d.${nameCol} AS concept_name`,
-    `d.${codeCol} AS concept_code`,
-    `d.${vocabCol} AS vocabulary_id`,
-    domainCol ? `d.${domainCol} AS domain_id` : null,
-    classCol ? `d.${classCol} AS concept_class_id` : null,
-    stdCol ? `d.${stdCol} AS standard_concept` : null,
-    `ROUND(GREATEST(0.0, 1.0 - (${fuzzy.rankExpr}) / 6.0), 3) AS syntactic_score`,
-  ].filter(Boolean).join(', ')
-
-  return `SELECT ${selectCols}
-FROM ${dict.table} d
-WHERE ${fuzzy.where}
-ORDER BY syntactic_score DESC
-LIMIT ${TOP_N}`
+/** Map raw method strings (from scores file) to display provider names + colors. */
+export const METHOD_PROVIDER_MAP: Record<string, string> = {
+  'syntactic/jaro-winkler': 'Syntaxique',
+  'syntactic/token-sort':   'Syntaxique',
+  'syntactic/ngram-idf':    'Syntaxique',
+  'semantic/biolord':       'Sémantique',
+  'semantic/tfidf':         'Statistique',
 }
 
-/** Convert a raw SQL row (with `syntactic_score`) into a `SuggestionCandidate`. */
-export function rowToCandidate(row: Record<string, unknown>): SuggestionCandidate {
-  const syntScore = Number(row.syntactic_score ?? 0)
-  return {
-    concept_id: Number(row.concept_id),
-    concept_name: String(row.concept_name ?? ''),
-    concept_code: String(row.concept_code ?? ''),
-    vocabulary_id: String(row.vocabulary_id ?? ''),
-    domain_id: row.domain_id != null ? String(row.domain_id) : undefined,
-    concept_class_id: row.concept_class_id != null ? String(row.concept_class_id) : undefined,
-    standard_concept: row.standard_concept != null ? String(row.standard_concept) : undefined,
-    scores: [{ provider: SYNTACTIC_PROVIDER, score: syntScore, weight: 1 }],
-    combined_score: syntScore,
-  }
+/** Human-readable labels for raw method strings. */
+export const METHOD_LABELS: Record<string, string> = {
+  'syntactic/jaro-winkler': 'Jaro-Winkler',
+  'syntactic/token-sort':   'Token Sort',
+  'syntactic/ngram-idf':    'N-gram IDF',
+  'semantic/biolord':       'BioLORD-2023-M',
+  'semantic/tfidf':         'TF-IDF',
+}
+
+/** Default per-provider weights for the combined score. */
+export const DEFAULT_WEIGHTS: Record<string, number> = {
+  Syntaxique:  1,
+  Sémantique:  2,
+  Statistique: 1,
+  IA:          3,
+}
+
+export const ALL_PROVIDERS = ['Syntaxique', 'Sémantique', 'Statistique', 'IA'] as const
+export type Provider = typeof ALL_PROVIDERS[number]
+
+export function getProviderForMethod(method: string): string {
+  return METHOD_PROVIDER_MAP[method] ?? method
+}
+
+export function getMethodLabel(method: string): string {
+  return METHOD_LABELS[method] ?? method
+}
+
+export function computeCombinedScore(scores: MethodScore[], weights?: Record<string, number>): number {
+  if (scores.length === 0) return 0
+  const effectiveScores = scores.map((s) => ({
+    ...s,
+    weight: weights ? (weights[s.provider] ?? s.weight) : s.weight,
+  }))
+  const referenceWeights = weights ?? DEFAULT_WEIGHTS
+  const maxWeight = Math.max(0, ...Object.values(referenceWeights))
+  if (maxWeight === 0) return 0
+  const sum = effectiveScores.reduce((acc, s) => acc + s.score * s.weight, 0) / maxWeight
+  return Math.min(1, sum)
 }

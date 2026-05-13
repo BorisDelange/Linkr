@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SuggestionScoreStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -255,10 +255,18 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
+  suggestion_scores: {
+    /** Composite key: `${projectId}__${sourceVocabularyId}__${sourceConceptCode}__${conceptId}__${method}` */
+    key: string
+    value: SuggestionScore
+    indexes: {
+      'by-project': string
+    }
+  }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 30
+const DB_VERSION = 31
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -694,6 +702,11 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         if (!filesStore.indexNames.contains('by-content-hash')) {
           filesStore.createIndex('by-content-hash', 'contentHash')
         }
+      }
+      // Version 31: suggestion_scores store for precomputed similarity scores
+      if (oldVersion < 31) {
+        const scoresStore = db.createObjectStore('suggestion_scores', { keyPath: 'id' })
+        scoresStore.createIndex('by-project', 'projectId')
       }
     },
   })
@@ -2044,6 +2057,33 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
   }
 }
 
+class IDBSuggestionScoreStorage implements SuggestionScoreStorage {
+  async getByProject(projectId: string): Promise<SuggestionScore[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('suggestion_scores', 'by-project', projectId)
+  }
+
+  async upsertBatch(scores: SuggestionScore[]): Promise<void> {
+    if (scores.length === 0) return
+    const db = await getDB()
+    const tx = db.transaction('suggestion_scores', 'readwrite')
+    for (const score of scores) {
+      tx.store.put(score)
+    }
+    await tx.done
+  }
+
+  async deleteByProject(projectId: string): Promise<void> {
+    const db = await getDB()
+    const items = await db.getAllFromIndex('suggestion_scores', 'by-project', projectId)
+    const tx = db.transaction('suggestion_scores', 'readwrite')
+    for (const item of items) {
+      tx.store.delete(item.id)
+    }
+    await tx.done
+  }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
@@ -2083,5 +2123,6 @@ export function createIDBStorage(): Storage {
     serviceMappings: new IDBServiceMappingStorage(),
     sourceConceptIdRanges: new IDBSourceConceptIdRangeStorage(),
     sourceConceptIdEntries: new IDBSourceConceptIdEntryStorage(),
+    suggestionScores: new IDBSuggestionScoreStorage(),
   }
 }

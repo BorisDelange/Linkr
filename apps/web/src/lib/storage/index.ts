@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -364,6 +364,13 @@ export interface SourceConceptIdEntryStorage {
   deleteByWorkspace(workspaceId: string): Promise<void>
 }
 
+/** Storage interface for precomputed suggestion scores (imported from parquet/CSV). */
+export interface SuggestionScoreStorage {
+  getByProject(projectId: string): Promise<SuggestionScore[]>
+  upsertBatch(scores: SuggestionScore[]): Promise<void>
+  deleteByProject(projectId: string): Promise<void>
+}
+
 /** Top-level storage facade. Extensible for future entity types. */
 export interface Storage {
   organizations: OrganizationStorage
@@ -403,6 +410,7 @@ export interface Storage {
   serviceMappings: ServiceMappingStorage
   sourceConceptIdRanges: SourceConceptIdRangeStorage
   sourceConceptIdEntries: SourceConceptIdEntryStorage
+  suggestionScores: SuggestionScoreStorage
 }
 
 let _storage: Storage | null = null
