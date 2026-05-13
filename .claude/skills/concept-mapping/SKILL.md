@@ -20,14 +20,18 @@ Read `config.local.json` at the **project root** (not in the skill folder). If i
 ```json
 {
   "concept-mapping": {
-    "vocab_dir":        "/path/to/ohdsi-vocabularies",
-    "models_dir":       "/path/to/bert-models-cache",
-    "embeddings_file":  "/path/to/concept_embeddings.parquet",
-    "scores_dir":       "/path/to/scores-output-dir",
-    "export_dir":       "/path/to/mapping-exports"
+    "vocab_dir":     "/path/to/ohdsi-vocabularies",
+    "models_dir":    "/path/to/bert-models-cache",
+    "projects_dir":  "/path/to/mapping-projects"
   }
 }
 ```
+
+Derived paths (never ask the user for these — compute them automatically):
+- `embeddings_file` = `vocab_dir/concept_embeddings.parquet` (co-located with CONCEPT.parquet)
+- `project_dir` = `projects_dir/<project-name>` (folder for the current project)
+- `similarity_scores` = `project_dir/similarity-scores.parquet`
+- `source_embeddings` = `project_dir/source_embeddings.parquet`
 
 Tell the user which values were loaded from config and which will be prompted.
 
@@ -128,13 +132,13 @@ Generates BioLORD-2023-M embeddings for all OMOP concepts. **Supports resume**: 
 ```bash
 TRANSFORMERS_CACHE=<models_dir> python \
   .claude/skills/concept-mapping/scripts/embed_concepts.py \
-  --concept <vocab_dir>/CONCEPT.parquet \
-  --output  <embeddings_file>
+  --concept <vocab_dir>/CONCEPT.parquet
+  # output defaults to <vocab_dir>/concept_embeddings.parquet (co-located with CONCEPT.parquet)
 # Optional filters: --only-standard --only-valid --domain Measurement Condition --vocabulary LOINC SNOMED
 # Optional: --flush-every 50  (append to parquet every N batches, default 50 = ~25k concepts)
 ```
 
-Output: `concept_embeddings.parquet` — columns: `concept_id`, `encoded_text`, `model_id`, `embedding`.
+Output: `<vocab_dir>/concept_embeddings.parquet` — columns: `concept_id`, `encoded_text`, `model_id`, `embedding`.
 Runtime: can be several hours on CPU for large vocabularies (~4M concepts). The file is written incrementally every 50 batches, so progress is never lost on interrupt.
 
 The script prints progress lines every 10 batches and flush confirmations every 50 batches:
@@ -146,15 +150,16 @@ Use `Monitor` with `persistent: true` so it never times out. Filter for `[embed]
 
 ### Script 2 — compute_scores.py (run per project)
 
-Computes syntactic and semantic similarity scores for all source concepts in the project.
+Computes syntactic and semantic similarity scores for all source concepts in the project. Also saves source concept embeddings alongside the scores.
 
 ```bash
 TRANSFORMERS_CACHE=<models_dir> python \
   .claude/skills/concept-mapping/scripts/compute_scores.py \
-  --source     <project>/source-concepts.csv \
+  --source     <project_dir>/source-concepts.csv \
   --concept    <vocab_dir>/CONCEPT.parquet \
-  --embeddings <embeddings_file> \
-  --output     <scores_dir>/<project-name>-scores.parquet
+  --embeddings <vocab_dir>/concept_embeddings.parquet
+  # output defaults to <project_dir>/similarity-scores.parquet
+  # source embeddings default to <project_dir>/source_embeddings.parquet
 # Optional: --top-k 50 --flush-every 100
 # Optional: --methods syntactic/jaro-winkler syntactic/token-sort syntactic/ngram-idf semantic/biolord
 # Optional filters: --only-standard --only-valid --domain --vocabulary
@@ -162,7 +167,9 @@ TRANSFORMERS_CACHE=<models_dir> python \
 
 Default methods: `syntactic/jaro-winkler` + `semantic/biolord`. **Do not add `syntactic/ngram-idf` unless the user explicitly asks** — it requires building a full bigram IDF index over all OMOP concepts (~4M), which takes ~1 hour on CPU.
 
-Output: `scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score`.
+Output written to `<project_dir>/`:
+- `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score`
+- `source_embeddings.parquet` — BioLORD embeddings of the source concepts (reused if scores are extended)
 **Supports resume**: if the output file already exists, already-scored `(source_vocabulary_id, source_concept_code)` pairs are skipped. Safe to interrupt and restart.
 
 The user loads this file in Linkr (Suggestions tab → "Load scores file") to populate pre-computed suggestions.

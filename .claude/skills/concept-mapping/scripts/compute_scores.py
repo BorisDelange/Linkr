@@ -49,7 +49,7 @@ from rapidfuzz.distance import JaroWinkler
 
 TOP_K = 50
 FLUSH_EVERY = 100
-DEFAULT_OUTPUT = "scores.parquet"
+DEFAULT_OUTPUT = None  # derived from --source path: same folder, similarity-scores.parquet
 
 PARQUET_SCHEMA = pa.schema([
     pa.field("source_vocabulary_id", pa.string()),
@@ -242,6 +242,7 @@ def compute_semantic_scores(
     flush_every: int,
     already_done: set[tuple[str, str]],
     n_already_flushed: int,
+    source_embeddings_path: Path | None = None,
 ) -> int:
     """Returns total number of source concepts scored (including previously flushed)."""
     from sentence_transformers import SentenceTransformer
@@ -262,6 +263,21 @@ def compute_semantic_scores(
     query_vecs = model.encode(texts, batch_size=64, show_progress_bar=False,
                               convert_to_numpy=True, normalize_embeddings=True)
     print(f"  [semantic] source concepts encoded", flush=True)
+
+    if source_embeddings_path is not None:
+        src_table = pa.table({
+            "source_vocabulary_id": pa.array(remaining["source_vocabulary_id"].tolist(), type=pa.string()),
+            "source_concept_code":  pa.array(remaining["source_concept_code"].tolist(),  type=pa.string()),
+            "source_concept_name":  pa.array(remaining["source_concept_name"].tolist(),  type=pa.string()),
+            "model_id":             pa.array([model_id] * len(remaining),                type=pa.string()),
+            "embedding":            pa.array([v.tolist() for v in query_vecs],
+                                             type=pa.list_(pa.float32())),
+        })
+        if source_embeddings_path.exists():
+            existing_src = pq.read_table(str(source_embeddings_path))
+            src_table = pa.concat_tables([existing_src, src_table])
+        pq.write_table(src_table, str(source_embeddings_path), compression="snappy")
+        print(f"  [semantic] source embeddings saved to {source_embeddings_path}", flush=True)
 
     # emb_matrix is already L2-normalized → cosine similarity = dot product
     print(f"  Computing cosine similarity ({len(texts)} x {len(emb_concept_ids)}) ...", flush=True)
@@ -428,8 +444,11 @@ def main() -> None:
     parser.add_argument("--embeddings",
                         help="concept_embeddings.parquet from embed_concepts.py. "
                              "If absent, semantic scores are skipped.")
-    parser.add_argument("--output", default=DEFAULT_OUTPUT,
-                        help=f"Output file (default: {DEFAULT_OUTPUT})")
+    parser.add_argument("--output", default=None,
+                        help="Output file (default: similarity-scores.parquet next to --source)")
+    parser.add_argument("--source-embeddings", default=None,
+                        help="Where to save source concept embeddings "
+                             "(default: source_embeddings.parquet next to --source)")
     parser.add_argument("--top-k", type=int, default=TOP_K,
                         help=f"Candidates to keep per source concept per method (default: {TOP_K})")
     parser.add_argument("--flush-every", type=int, default=FLUSH_EVERY,
@@ -449,7 +468,13 @@ def main() -> None:
 
     source_path = Path(args.source)
     concept_path = Path(args.concept)
-    output_path = Path(args.output)
+    output_path = Path(args.output) if args.output else source_path.parent / "similarity-scores.parquet"
+    source_embeddings_path = (
+        Path(args.source_embeddings) if args.source_embeddings
+        else source_path.parent / "source_embeddings.parquet"
+    )
+    print(f"Output scores:            {output_path}")
+    print(f"Output source embeddings: {source_embeddings_path}")
 
     for p in [source_path, concept_path]:
         if not p.exists():
@@ -526,6 +551,7 @@ def main() -> None:
         n_flushed = compute_semantic_scores(
             source_df, emb_matrix, emb_ids, model_id, args.top_k,
             output_path, args.flush_every, already_done, n_flushed,
+            source_embeddings_path=source_embeddings_path,
         )
 
     if not output_path.exists():

@@ -29,7 +29,7 @@ from sentence_transformers import SentenceTransformer
 
 MODEL_ID = "FremyCompany/BioLORD-2023-M"
 BATCH_SIZE = 512
-DEFAULT_OUTPUT = "concept_embeddings.parquet"
+DEFAULT_OUTPUT = None  # derived from --concept path: same folder, concept_embeddings.parquet
 PROGRESS_EVERY = 10   # print a progress line every N batches
 FLUSH_EVERY = 50      # append to parquet every N batches (~25k concepts)
 
@@ -109,8 +109,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Generate BioLORD embeddings for CONCEPT.parquet")
     parser.add_argument("--concept", required=True,
                         help="Path to CONCEPT.parquet or CONCEPT.csv")
-    parser.add_argument("--output", default=DEFAULT_OUTPUT,
-                        help=f"Output file (default: {DEFAULT_OUTPUT})")
+    parser.add_argument("--output", default=None,
+                        help="Output file (default: concept_embeddings.parquet next to --concept)")
     parser.add_argument("--model", default=MODEL_ID,
                         help=f"sentence-transformers model (default: {MODEL_ID})")
     parser.add_argument("--batch-size", type=int, default=BATCH_SIZE,
@@ -132,7 +132,8 @@ def main() -> None:
         print(f"Error: file not found: {concept_path}", file=sys.stderr)
         sys.exit(1)
 
-    output_path = Path(args.output)
+    output_path = Path(args.output) if args.output else concept_path.parent / "concept_embeddings.parquet"
+    print(f"Output: {output_path}")
 
     print(f"Loading {concept_path} ...")
     df = load_concept_table(concept_path)
