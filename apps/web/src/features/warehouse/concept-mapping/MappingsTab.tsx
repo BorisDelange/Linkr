@@ -76,6 +76,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
@@ -705,7 +706,10 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                   {renderField(t('concept_mapping.col_source_concept_code'), mapping.targetConceptCode, true)}
                   {renderField(t('concept_mapping.col_domain_id'), mapping.targetDomainId)}
                   {renderField(t('concept_mapping.col_concept_class_id'), mapping.targetConceptClassId)}
-                  {renderField(t('concept_mapping.col_std'), mapping.targetStandardConcept)}
+                  <tr>
+                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{t('concept_mapping.col_std')}</td>
+                    <td className="py-1 text-xs"><StandardConceptBadge value={mapping.targetStandardConcept ?? null} /></td>
+                  </tr>
                 </tbody>
               </table>
             )}

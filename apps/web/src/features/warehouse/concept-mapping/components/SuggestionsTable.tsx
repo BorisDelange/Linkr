@@ -7,10 +7,9 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Settings2, Check } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Settings2, Check, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Badge } from '@/components/ui/badge'
 import {
   Table,
   TableBody,
@@ -28,6 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import {
   Select,
   SelectContent,
@@ -71,6 +71,7 @@ interface SuggestionsTableProps {
   alreadyMappedIds: Set<number>
   selectedConceptId: number | null
   onSelect: (s: SuggestionCandidate | null) => void
+  onInfo: (s: SuggestionCandidate) => void
 }
 
 function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string {
@@ -85,7 +86,7 @@ function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string
   return id.replace(/_/g, ' ')
 }
 
-export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConceptId, onSelect }: SuggestionsTableProps) {
+export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConceptId, onSelect, onInfo }: SuggestionsTableProps) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>({ columnId: 'combined_score', desc: true })
   const [filters, setFilters] = useState<Filters>({})
@@ -278,27 +279,36 @@ export function SuggestionsTable({ suggestions, alreadyMappedIds, selectedConcep
       id: 'standard_concept',
       header: () => t('concept_mapping.col_std'),
       accessorFn: (r) => r.standard_concept,
-      cell: ({ row }) => {
-        const sc = row.original.standard_concept
-        if (sc === 'S') return <div className="flex justify-center"><Badge variant="default" className="bg-green-600 px-1 py-0.5 text-[8px] leading-none">S</Badge></div>
-        if (sc === 'C') return <div className="flex justify-center"><Badge variant="secondary" className="px-1 py-0.5 text-[8px] leading-none">C</Badge></div>
-        return null
-      },
+      cell: ({ row }) => <StandardConceptBadge value={row.original.standard_concept} />,
       size: 40,
       minSize: 30,
       enableResizing: true,
     },
     {
-      id: '_check',
+      id: '_actions',
       header: '',
-      cell: ({ row }) => alreadyMappedIds.has(row.original.concept_id)
-        ? <Check size={12} className="text-green-600" />
-        : null,
-      size: 28,
-      minSize: 28,
+      cell: ({ row }) => (
+        <div className="flex items-center justify-end gap-0.5">
+          {alreadyMappedIds.has(row.original.concept_id) && <Check size={11} className="text-green-600 shrink-0" />}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={(e) => { e.stopPropagation(); onInfo(row.original) }}
+              >
+                <Info size={11} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">{t('concept_mapping.concept_info_btn')}</TooltipContent>
+          </Tooltip>
+        </div>
+      ),
+      size: 48,
+      minSize: 48,
       enableResizing: false,
     },
-  ], [t, alreadyMappedIds])
+  ], [t, alreadyMappedIds, onInfo])
 
   const table = useReactTable({
     data: filtered,

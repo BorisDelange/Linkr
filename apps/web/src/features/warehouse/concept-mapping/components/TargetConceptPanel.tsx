@@ -62,6 +62,8 @@ import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
+import { ConceptDetailSheet, type ConceptInfoTarget } from './ConceptDetailSheet'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
@@ -113,35 +115,52 @@ function ColumnFilterSelect({
   triggerClass?: string
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
+
+  const select = (v: string | null) => { onChange(v); setOpen(false) }
+
   return (
-    <DropdownMenu onOpenChange={() => setSearch('')}>
+    <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
       <DropdownMenuTrigger asChild>
         <button className={triggerClass ?? 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-left text-[10px] outline-none truncate focus:border-primary'}>
           <span className={`truncate ${value ? 'text-foreground' : 'text-muted-foreground'}`}>{value ?? placeholder}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="px-2 pb-1.5">
+      <DropdownMenuContent
+        align="start"
+        className="w-[200px]"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => { e.detail.originalEvent.stopPropagation() }}
+      >
+        <div className="px-2 py-1.5">
           <input
+            autoFocus
             className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
             placeholder={t('common.search')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter') {
+                if (filtered.length === 1) select(filtered[0])
+                else if (filtered.length === 0) select(null)
+                else setOpen(false)
+              }
+            }}
           />
         </div>
         <DropdownMenuSeparator />
         <div className="max-h-72 overflow-auto">
-          <DropdownMenuItem className="text-xs" onSelect={() => onChange(null)}>
+          <DropdownMenuItem className="text-xs" onSelect={() => select(null)}>
             {t('concepts.filter_all')}
           </DropdownMenuItem>
           {filtered.map((opt) => (
             <DropdownMenuItem
               key={opt}
               className={`text-xs ${value === opt ? 'bg-accent font-medium' : ''}`}
-              onSelect={() => onChange(opt)}
+              onSelect={() => select(opt)}
             >
               {opt}
             </DropdownMenuItem>
@@ -170,32 +189,51 @@ function ResolvedMultiSelect({
   triggerClass?: string
 }) {
   const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   if (options.length === 0) return <span />
   const count = selected?.size ?? 0
   const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
+
+  const selectAll = () => onChange(new Set(filtered))
+  const deselectFiltered = () => {
+    if (!selected) { onChange(new Set()); return }
+    const next = new Set(selected)
+    for (const o of filtered) next.delete(o)
+    onChange(next)
+  }
+
   return (
-    <DropdownMenu onOpenChange={() => setSearch('')}>
+    <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
       <DropdownMenuTrigger asChild>
         <button className={`${triggerClass ?? RESOLVED_FILTER_INPUT} flex items-center justify-between truncate ${count > 0 ? 'border-primary text-foreground' : ''}`}>
           <span className="truncate">{count > 0 ? `(${count})` : '...'}</span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]" onCloseAutoFocus={(e) => e.preventDefault()}>
-        <div className="flex items-center gap-1 px-2 pb-1.5">
+      <DropdownMenuContent
+        align="start"
+        className="w-[200px]"
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onPointerDownOutside={(e) => { e.detail.originalEvent.stopPropagation() }}
+      >
+        <div className="flex items-center gap-1 px-2 py-1.5">
           <input
+            autoFocus
             className="h-6 min-w-0 flex-1 rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
             placeholder={t('common.search')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              if (e.key === 'Enter') { selectAll(); setOpen(false) }
+            }}
           />
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                onMouseDown={(e) => { e.preventDefault(); onChange(new Set(filtered)) }}
+                onMouseDown={(e) => { e.preventDefault(); selectAll() }}
               >
                 <CheckCheck size={13} />
               </button>
@@ -207,13 +245,7 @@ function ResolvedMultiSelect({
               <button
                 type="button"
                 className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  if (!selected) { onChange(new Set()); return }
-                  const next = new Set(selected)
-                  for (const o of filtered) next.delete(o)
-                  onChange(next)
-                }}
+                onMouseDown={(e) => { e.preventDefault(); deselectFiltered() }}
               >
                 <XSquare size={13} />
               </button>
@@ -318,6 +350,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [suggestionsGenerated, setSuggestionsGenerated] = useState(false)
   const suggestionsSourceConceptIdRef = useRef<number | null>(null)
 
+  // Concept detail sheet
+  const [conceptDetailOpen, setConceptDetailOpen] = useState(false)
+  const [conceptDetailTarget, setConceptDetailTarget] = useState<ConceptInfoTarget | null>(null)
+
   // Selected target concept (for resolved concepts or search results)
   const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
 
@@ -325,6 +361,17 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   useEffect(() => {
     setSelectedTarget(null)
   }, [sourceConcept?.concept_id])
+
+  // Active vocabulary data source + concept table name (shared for detail sheet)
+  const vocabDsInfo = useMemo(() => {
+    const vocabDs = project.vocabularyDataSourceId
+      ? allDataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
+      : null
+    const ds = vocabDs ?? dataSource
+    const mapping = ds?.schemaMapping
+    const dict = (mapping?.conceptTables ?? [])[0]
+    return { dsId: ds?.id, conceptTable: dict?.table ?? 'concept' }
+  }, [project.vocabularyDataSourceId, allDataSources, dataSource])
 
   // Linked concept sets
   const linkedSets = conceptSets.filter((cs) => (project.conceptSetIds ?? []).includes(cs.id))
@@ -1155,7 +1202,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       {cols.code && <span className="truncate text-muted-foreground" title={rc.conceptCode}>{rc.conceptCode}</span>}
                       {cols.domain && <span className="truncate text-muted-foreground" title={rc.domainId}>{rc.domainId}</span>}
                       {cols.class && <span className="truncate text-muted-foreground" title={rc.conceptClassId}>{rc.conceptClassId}</span>}
-                      {cols.std && <span className="flex justify-center">{rc.standardConcept === 'S' ? <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge> : rc.standardConcept === 'C' ? <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge> : null}</span>}
+                      {cols.std && <StandardConceptBadge value={rc.standardConcept} />}
                       <span className="flex justify-center">
                         {alreadyMapped && <Check size={12} className="text-green-600" />}
                       </span>
@@ -1370,27 +1417,55 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       accessorFn: (row) => row.standard_concept,
       cell: ({ row }) => {
         const sc = row.original.standard_concept
-        if (sc === 'S') return <div className="flex justify-center"><Badge variant="default" className="bg-green-600 px-1 py-0.5 text-[8px] leading-none">S</Badge></div>
-        if (sc === 'C') return <div className="flex justify-center"><Badge variant="secondary" className="px-1 py-0.5 text-[8px] leading-none">C</Badge></div>
-        return null
+        return <StandardConceptBadge value={sc} />
       },
       size: 40,
       minSize: 30,
     },
     {
-      id: '_check',
+      id: '_actions',
       header: '',
       cell: ({ row }) => {
         const alreadyMapped = sourceConcept
           ? existingMappings.some((m) => m.targetConceptId === row.original.concept_id)
           : false
-        return alreadyMapped ? <Check size={12} className="text-green-600" /> : null
+        return (
+          <div className="flex items-center justify-end gap-0.5">
+            {alreadyMapped && <Check size={11} className="text-green-600 shrink-0" />}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const r = row.original
+                    setConceptDetailTarget({
+                      concept_id: r.concept_id,
+                      concept_name: r.concept_name,
+                      concept_code: r.concept_code ?? undefined,
+                      vocabulary_id: r.vocabulary_id ?? undefined,
+                      domain_id: r.domain_id ?? undefined,
+                      concept_class_id: r.concept_class_id ?? undefined,
+                      standard_concept: r.standard_concept ?? undefined,
+                      invalid_reason: r.invalid_reason ?? undefined,
+                    })
+                    setConceptDetailOpen(true)
+                  }}
+                >
+                  <Info size={11} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs">{t('concept_mapping.concept_info_btn')}</TooltipContent>
+            </Tooltip>
+          </div>
+        )
       },
-      size: 28,
-      minSize: 28,
+      size: 48,
+      minSize: 48,
       enableResizing: false,
     },
-  ], [t, sourceConcept, existingMappings])
+  ], [t, sourceConcept, existingMappings, setConceptDetailTarget])
 
   // Apply sorting to filtered search results
   const sortedSearchResults = useMemo(() => {
@@ -1536,6 +1611,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             standardConcept: s.standard_concept,
           })
         }}
+        onInfo={(s) => {
+          setConceptDetailTarget({
+            concept_id: s.concept_id,
+            concept_name: s.concept_name,
+            concept_code: s.concept_code,
+            vocabulary_id: s.vocabulary_id,
+            domain_id: s.domain_id,
+            concept_class_id: s.concept_class_id,
+            standard_concept: s.standard_concept,
+          })
+          setConceptDetailOpen(true)
+        }}
       />
     )
   }
@@ -1645,7 +1732,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       </div>
 
       {/* Results table */}
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         {searchResults.length === 0 ? (
           <div className="flex h-40 flex-col items-center justify-center gap-2 px-4">
             {searching ? (
@@ -2110,6 +2197,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         conceptSet={detailSheetCs}
         open={detailSheetOpen}
         onOpenChange={setDetailSheetOpen}
+      />
+
+      {/* Concept detail sheet (OMOP concept info) */}
+      <ConceptDetailSheet
+        target={conceptDetailTarget}
+        open={conceptDetailOpen}
+        onOpenChange={setConceptDetailOpen}
+        dataSourceId={vocabDsInfo.dsId}
+        conceptTable={vocabDsInfo.conceptTable}
       />
     </div>
     </>

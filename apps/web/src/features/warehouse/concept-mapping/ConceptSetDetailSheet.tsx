@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/sheet'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 import {
   Table,
   TableBody,
@@ -130,171 +131,174 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="p-0"
-        style={{ width, maxWidth: width }}
+        showCloseButton
+        className="flex flex-col p-0 gap-0"
+        style={{ width, maxWidth: MAX_WIDTH, minWidth: MIN_WIDTH }}
       >
         {/* Resize handle */}
         <div
-          className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-primary/20 active:bg-primary/30"
+          className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize hover:bg-primary/30 active:bg-primary/50"
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
         />
 
-        <div className="flex h-full flex-col overflow-hidden pl-2">
-          <SheetHeader>
-            <SheetTitle className="truncate">{csI18n!.name}</SheetTitle>
-            <div className="flex flex-wrap gap-1">
-              {csI18n!.category && (
-                <Badge variant="outline" className="text-[10px]">{csI18n!.category}</Badge>
-              )}
-              {csI18n!.subcategory && (
-                <Badge variant="outline" className="text-[10px]">{csI18n!.subcategory}</Badge>
-              )}
-              {conceptSet.provenance && (
-                <Badge variant="secondary" className="text-[10px]">{conceptSet.provenance}</Badge>
-              )}
-              <Badge variant="secondary" className="text-[10px]">
-                {conceptSet.expression.items.length} {t('concept_mapping.cs_concepts')}
-              </Badge>
+        <SheetHeader className="shrink-0 border-b px-4 py-3">
+          <SheetTitle className="text-sm font-semibold leading-tight truncate">{csI18n!.name}</SheetTitle>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {csI18n!.category && (
+              <Badge variant="outline" className="text-[10px]">{csI18n!.category}</Badge>
+            )}
+            {csI18n!.subcategory && (
+              <Badge variant="outline" className="text-[10px]">{csI18n!.subcategory}</Badge>
+            )}
+            {conceptSet.provenance && (
+              <Badge variant="secondary" className="text-[10px]">{conceptSet.provenance}</Badge>
+            )}
+            <Badge variant="secondary" className="text-[10px]">
+              {conceptSet.expression.items.length} {t('concept_mapping.cs_concepts')}
+            </Badge>
+          </div>
+          {csI18n!.description && (
+            <div className="prose prose-sm max-w-none text-xs text-muted-foreground mt-1">
+              <MarkdownRenderer content={csI18n!.description} />
             </div>
-            {csI18n!.description && (
-              <div className="prose prose-sm max-w-none text-xs text-muted-foreground">
-                <MarkdownRenderer content={csI18n!.description} />
+          )}
+        </SheetHeader>
+
+        <Tabs defaultValue="description" className="flex flex-col flex-1 min-h-0">
+          <TabsList variant="line" className="shrink-0 w-full justify-start rounded-none border-b px-3 mb-0">
+            <TabsTrigger value="description" className="text-xs px-3">
+              {t('concept_mapping.cs_detail_description')}
+            </TabsTrigger>
+            <TabsTrigger value="statistics" className="text-xs px-3">
+              {t('concept_mapping.cs_detail_statistics')}
+            </TabsTrigger>
+            <TabsTrigger value="resolved" disabled={!resolvedUrl} className="text-xs px-3">
+              {t('concept_mapping.cs_detail_resolved')}
+              {resolvedLoaded && resolvedConcepts.length > 0 && (
+                <Badge variant="secondary" className="ml-1.5 text-[10px]">{resolvedConcepts.length}</Badge>
+              )}
+            </TabsTrigger>
+            <TabsTrigger value="expression" className="text-xs px-3">
+              {t('concept_mapping.cs_detail_expression')}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="description" className="flex-1 overflow-hidden m-0">
+            {csI18n!.longDescription ? (
+              <ScrollArea className="h-full px-4 py-3">
+                <div className="prose prose-sm max-w-none">
+                  <MarkdownRenderer content={csI18n!.longDescription} />
+                </div>
+              </ScrollArea>
+            ) : (
+              <div className="flex h-40 items-center justify-center">
+                <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_no_description')}</p>
               </div>
             )}
-          </SheetHeader>
+          </TabsContent>
 
-          <Tabs defaultValue="description" className="flex flex-1 flex-col overflow-hidden px-4 pb-4">
-            <TabsList className="mb-2 w-fit">
-              <TabsTrigger value="description">
-                {t('concept_mapping.cs_detail_description')}
-              </TabsTrigger>
-              <TabsTrigger value="statistics">{t('concept_mapping.cs_detail_statistics')}</TabsTrigger>
-              <TabsTrigger value="resolved" disabled={!resolvedUrl}>
-                {t('concept_mapping.cs_detail_resolved')}
-                {resolvedLoaded && resolvedConcepts.length > 0 && (
-                  <Badge variant="secondary" className="ml-1.5 text-[10px]">{resolvedConcepts.length}</Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger value="expression">{t('concept_mapping.cs_detail_expression')}</TabsTrigger>
-            </TabsList>
+          <TabsContent value="statistics" className="flex-1 overflow-hidden m-0">
+            <ScrollArea className="h-full px-4 py-3">
+              <Card className="flex flex-col items-center justify-center py-12">
+                <BarChart3 size={32} className="text-muted-foreground" />
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {t('concept_mapping.cs_detail_statistics_coming_soon')}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground/60">
+                  {t('concept_mapping.cs_detail_statistics_coming_soon_desc')}
+                </p>
+              </Card>
+            </ScrollArea>
+          </TabsContent>
 
-            <TabsContent value="description" className="flex-1 overflow-hidden">
-              {csI18n!.longDescription ? (
-                <ScrollArea className="h-full">
-                  <div className="prose prose-sm max-w-none">
-                    <MarkdownRenderer content={csI18n!.longDescription} />
-                  </div>
-                </ScrollArea>
-              ) : (
-                <div className="flex h-40 items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_no_description')}</p>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="statistics" className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <Card className="flex flex-col items-center justify-center py-12">
-                  <BarChart3 size={32} className="text-muted-foreground" />
-                  <p className="mt-3 text-sm text-muted-foreground">
-                    {t('concept_mapping.cs_detail_statistics_coming_soon')}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground/60">
-                    {t('concept_mapping.cs_detail_statistics_coming_soon_desc')}
-                  </p>
-                </Card>
-              </ScrollArea>
-            </TabsContent>
-
-            <TabsContent value="resolved" className="flex-1 overflow-hidden">
-              {!resolvedUrl ? (
-                <div className="flex h-40 items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_unavailable')}</p>
-                </div>
-              ) : resolvedLoading ? (
-                <div className="flex h-40 items-center justify-center">
-                  <Loader2 size={20} className="animate-spin text-muted-foreground" />
-                </div>
-              ) : resolvedError ? (
-                <div className="flex h-40 items-center justify-center">
-                  <p className="text-sm text-destructive">{resolvedError}</p>
-                </div>
-              ) : resolvedConcepts.length === 0 ? (
-                <div className="flex h-40 items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_empty')}</p>
-                </div>
-              ) : (
-                <ScrollArea className="h-full">
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    {resolvedConcepts.length} {t('concept_mapping.cs_detail_resolved_count')}
-                  </p>
-                  <Table>
+          <TabsContent value="resolved" className="flex-1 overflow-hidden m-0">
+            {!resolvedUrl ? (
+              <div className="flex h-40 items-center justify-center">
+                <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_unavailable')}</p>
+              </div>
+            ) : resolvedLoading ? (
+              <div className="flex h-40 items-center justify-center">
+                <Loader2 size={20} className="animate-spin text-muted-foreground" />
+              </div>
+            ) : resolvedError ? (
+              <div className="flex h-40 items-center justify-center">
+                <p className="text-sm text-destructive">{resolvedError}</p>
+              </div>
+            ) : resolvedConcepts.length === 0 ? (
+              <div className="flex h-40 items-center justify-center">
+                <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_empty')}</p>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col overflow-hidden">
+                <p className="shrink-0 px-4 py-1.5 text-xs text-muted-foreground border-b">
+                  {resolvedConcepts.length} {t('concept_mapping.cs_detail_resolved_count')}
+                </p>
+                <div className="flex-1 overflow-auto">
+                  <Table style={{ tableLayout: 'fixed' }}>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{t('concept_mapping.cs_detail_concept_name')}</TableHead>
-                        <TableHead className="w-[70px]">ID</TableHead>
-                        <TableHead>{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
-                        <TableHead>{t('concept_mapping.cs_detail_domain')}</TableHead>
-                        <TableHead>{t('concept_mapping.cs_detail_class')}</TableHead>
-                        <TableHead className="w-[30px]">Std</TableHead>
+                        <TableHead className="text-xs">{t('concept_mapping.cs_detail_concept_name')}</TableHead>
+                        <TableHead className="text-xs w-[70px]">ID</TableHead>
+                        <TableHead className="text-xs w-[80px]">{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
+                        <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_domain')}</TableHead>
+                        <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_class')}</TableHead>
+                        <TableHead className="text-xs w-[40px]">{t('concept_mapping.col_std')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {resolvedConcepts.map((c) => (
                         <TableRow key={c.conceptId}>
-                          <TableCell className="max-w-[200px] truncate text-xs">{c.conceptName}</TableCell>
-                          <TableCell className="text-xs text-muted-foreground">{c.conceptId}</TableCell>
-                          <TableCell className="text-xs">{c.vocabularyId}</TableCell>
-                          <TableCell className="text-xs">{c.domainId}</TableCell>
-                          <TableCell className="text-xs">{c.conceptClassId}</TableCell>
-                          <TableCell className="text-center text-xs">{c.standardConcept === 'S' ? <Badge variant="default" className="bg-green-600 px-1 py-0 text-[8px]">S</Badge> : c.standardConcept === 'C' ? <Badge variant="secondary" className="px-1 py-0 text-[8px]">C</Badge> : null}</TableCell>
+                          <TableCell className="truncate px-2 py-1 text-xs">{c.conceptName}</TableCell>
+                          <TableCell className="px-2 py-1 text-xs text-muted-foreground">{c.conceptId}</TableCell>
+                          <TableCell className="px-2 py-1 text-xs">{c.vocabularyId}</TableCell>
+                          <TableCell className="px-2 py-1 text-xs">{c.domainId}</TableCell>
+                          <TableCell className="px-2 py-1 text-xs">{c.conceptClassId}</TableCell>
+                          <TableCell className="px-2 py-1"><StandardConceptBadge value={c.standardConcept} /></TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
-                </ScrollArea>
-              )}
-            </TabsContent>
+                </div>
+              </div>
+            )}
+          </TabsContent>
 
-            <TabsContent value="expression" className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{t('concept_mapping.cs_detail_concept_name')}</TableHead>
-                      <TableHead className="w-[70px]">ID</TableHead>
-                      <TableHead>{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
-                      <TableHead>{t('concept_mapping.cs_detail_domain')}</TableHead>
-                      <TableHead className="w-[30px]" title={t('concept_mapping.cs_detail_excluded')}>Ex</TableHead>
-                      <TableHead className="w-[30px]" title={t('concept_mapping.cs_detail_descendants')}>De</TableHead>
-                      <TableHead className="w-[30px]" title={t('concept_mapping.cs_detail_mapped')}>Ma</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {conceptSet.expression.items.map((item, i) => {
-                      const checkColor = item.isExcluded ? 'text-destructive' : 'text-green-600'
-                      return (
+          <TabsContent value="expression" className="flex-1 overflow-hidden m-0">
+            <div className="h-full overflow-auto">
+              <Table style={{ tableLayout: 'fixed' }}>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-xs">{t('concept_mapping.cs_detail_concept_name')}</TableHead>
+                    <TableHead className="text-xs w-[70px]">ID</TableHead>
+                    <TableHead className="text-xs w-[80px]">{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
+                    <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_domain')}</TableHead>
+                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_excluded')}>Ex</TableHead>
+                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_descendants')}>De</TableHead>
+                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_mapped')}>Ma</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {conceptSet.expression.items.map((item, i) => {
+                    const checkColor = item.isExcluded ? 'text-destructive' : 'text-green-600'
+                    return (
                       <TableRow key={i}>
-                        <TableCell className="max-w-[200px] truncate text-xs">{item.concept.conceptName}</TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.concept.conceptId}</TableCell>
-                        <TableCell className="text-xs">{item.concept.vocabularyId}</TableCell>
-                        <TableCell className="text-xs">{item.concept.domainId}</TableCell>
-                        <TableCell className={`text-center text-xs ${item.isExcluded ? checkColor : ''}`}>
-                          {item.isExcluded ? '✓' : ''}
-                        </TableCell>
-                        <TableCell className={`text-center text-xs ${item.includeDescendants ? checkColor : ''}`}>{item.includeDescendants ? '✓' : ''}</TableCell>
-                        <TableCell className={`text-center text-xs ${item.includeMapped ? checkColor : ''}`}>{item.includeMapped ? '✓' : ''}</TableCell>
+                        <TableCell className="truncate px-2 py-1 text-xs">{item.concept.conceptName}</TableCell>
+                        <TableCell className="px-2 py-1 text-xs text-muted-foreground">{item.concept.conceptId}</TableCell>
+                        <TableCell className="px-2 py-1 text-xs">{item.concept.vocabularyId}</TableCell>
+                        <TableCell className="px-2 py-1 text-xs">{item.concept.domainId}</TableCell>
+                        <TableCell className={`px-2 py-1 text-center text-xs ${item.isExcluded ? checkColor : ''}`}>{item.isExcluded ? '✓' : ''}</TableCell>
+                        <TableCell className={`px-2 py-1 text-center text-xs ${item.includeDescendants ? checkColor : ''}`}>{item.includeDescendants ? '✓' : ''}</TableCell>
+                        <TableCell className={`px-2 py-1 text-center text-xs ${item.includeMapped ? checkColor : ''}`}>{item.includeMapped ? '✓' : ''}</TableCell>
                       </TableRow>
-                      )
-                    })}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </TabsContent>
-          </Tabs>
-        </div>
+                    )
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </TabsContent>
+        </Tabs>
       </SheetContent>
     </Sheet>
   )

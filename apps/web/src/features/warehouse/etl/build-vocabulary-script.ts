@@ -302,6 +302,14 @@ export function buildVocabularyScript(mappings: ConceptMapping[], vocabSchema: s
   parts.push(`SELECT r.*`)
   parts.push(`FROM ${vs}.relationship r`)
   parts.push(`WHERE r.relationship_id IN (SELECT DISTINCT relationship_id FROM concept_relationship);`)
+  parts.push('')
+
+  // concept_synonym
+  parts.push('DELETE FROM concept_synonym;')
+  parts.push(`INSERT INTO concept_synonym`)
+  parts.push(`SELECT cs.*`)
+  parts.push(`FROM ${vs}.concept_synonym cs`)
+  parts.push(`WHERE cs.concept_id IN (SELECT concept_id FROM concept);`)
 
   return parts.join('\n')
 }
