@@ -74,7 +74,6 @@ export const METHOD_PROVIDER_MAP: Record<string, string> = {
   'syntactic/token-sort':   'Syntaxique',
   'syntactic/ngram-idf':    'Syntaxique',
   'semantic/biolord':       'Sémantique',
-  'semantic/tfidf':         'Statistique',
 }
 
 /** Human-readable labels for raw method strings. */
@@ -83,10 +82,10 @@ export const METHOD_LABELS: Record<string, string> = {
   'syntactic/token-sort':   'Token Sort',
   'syntactic/ngram-idf':    'N-gram IDF',
   'semantic/biolord':       'BioLORD-2023-M',
-  'semantic/tfidf':         'TF-IDF',
 }
 
 const AI_METHOD_PREFIX = 'ai/'
+const STATISTICAL_METHOD_PREFIX = 'statistical/'
 
 /** Default per-provider weights for the combined score. */
 export const DEFAULT_WEIGHTS: Record<string, number> = {
@@ -101,11 +100,13 @@ export type Provider = typeof ALL_PROVIDERS[number]
 
 export function getProviderForMethod(method: string): string {
   if (method.startsWith(AI_METHOD_PREFIX)) return 'IA'
+  if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return 'Statistique'
   return METHOD_PROVIDER_MAP[method] ?? method
 }
 
 export function getMethodLabel(method: string): string {
   if (method.startsWith(AI_METHOD_PREFIX)) return method.slice(AI_METHOD_PREFIX.length)
+  if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return method.slice(STATISTICAL_METHOD_PREFIX.length)
   return METHOD_LABELS[method] ?? method
 }
 

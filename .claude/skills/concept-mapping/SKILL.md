@@ -208,6 +208,7 @@ Output written to `<project_dir>/`:
 - `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score | equivalence | comment | created_at`
   - For `syntactic/*` and `semantic/*` methods: `equivalence` is always `"skos:exactMatch"` and `comment` is `null`.
   - These columns exist so AI-generated rows (method `ai/<model-id>`, written by `/concept-mapping-ai` when the user picks the "suggestions" mode) can carry nuanced SKOS equivalence and a justification.
+  - A `statistical/*` method prefix is reserved for distributional similarity (comparing value distributions, e.g. KS or Wasserstein on `info_json.numerical_data`) — not yet implemented. See `reference.md`.
 - `source_embeddings.parquet` — BioLORD embeddings of the source concepts (reused if scores are extended)
 **Supports resume**: if the output file already exists, already-scored `(source_vocabulary_id, source_concept_code)` pairs are skipped. Safe to interrupt and restart.
 

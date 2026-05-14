@@ -9,13 +9,17 @@ Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) b
 | `source_vocabulary_id` | string | From source-concepts.csv |
 | `source_concept_code` | string | From source-concepts.csv |
 | `concept_id` | int64 | OMOP target |
-| `method` | string | `syntactic/jaro-winkler`, `syntactic/token-sort`, `syntactic/ngram-idf`, `semantic/biolord`, or `ai/<model-id>` (e.g. `ai/claude-opus-4-7`) |
+| `method` | string | `syntactic/jaro-winkler`, `syntactic/token-sort`, `syntactic/ngram-idf`, `semantic/biolord`, `ai/<model-id>` (e.g. `ai/claude-opus-4-7`), or `statistical/<test>` (reserved, not yet implemented) |
 | `score` | float32 | 0.0–1.0 |
 | `equivalence` | string | SKOS predicate — `skos:exactMatch` (default for syntactic/semantic), `skos:closeMatch`, `skos:broadMatch`, `skos:narrowMatch`, `skos:relatedMatch` (AI may nuance) |
 | `comment` | string \| null | Free-text justification (AI rows only; null for syntactic/semantic) |
 | `created_at` | string | ISO 8601 UTC timestamp |
 
 Uniqueness key (resume + idempotency): `(source_vocabulary_id, source_concept_code, concept_id, method)`. Re-running a method overwrites its rows for the same pair.
+
+### Reserved: `statistical/*` (not yet implemented)
+
+The `statistical/` prefix is reserved for **distributional similarity** — comparing the empirical value distributions of a source numerical concept (from `info_json.numerical_data`, e.g. creatinine values) against reference distributions for candidate OMOP concepts. Likely tests when implemented: `statistical/ks` (Kolmogorov–Smirnov), `statistical/wasserstein`, `statistical/percentile-overlap`. This is distinct from semantic similarity (token/embedding-based on names) — two concepts can have identical names but very different value distributions (different units, sites, or definitions), and a low statistical score on a high-semantic match is a strong signal that the mapping is wrong.
 
 ## ConceptMapping type definition
 
