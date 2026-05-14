@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, DEFAULT_WEIGHTS, ALL_PROVIDERS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, DEFAULT_WEIGHTS, ALL_PROVIDERS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -1553,7 +1553,15 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     return [...byConceptId.entries()].map(([conceptId, rows]) => {
       const scores = rows.map((r) => {
         const provider = getProviderForMethod(r.method)
-        return { provider, method: r.method, score: r.score, weight: weights[provider] ?? 1 }
+        return {
+          provider,
+          method: r.method,
+          score: r.score,
+          weight: weights[provider] ?? 1,
+          equivalence: r.equivalence,
+          comment: r.comment,
+          createdAt: r.createdAt,
+        }
       })
       const combined_score = computeCombinedScore(scores)
       return {
@@ -1563,6 +1571,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         vocabulary_id: '',
         scores,
         combined_score,
+        equivalence: pickStrongestEquivalence(scores),
+        comment: pickFirstComment(scores),
       } satisfies SuggestionCandidate
     }).sort((a, b) => b.combined_score - a.combined_score)
   }, [allProjectScores, sourceConcept, weights])

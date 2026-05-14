@@ -18,19 +18,40 @@ By the time this skill runs, the following are already in place:
 - DuckDB session at `/tmp/concept-mapping-session.duckdb` with tables: `concept`, `concept_synonym`, `concept_relationship`, `concept_ancestor`, `source_concepts`, `existing_mappings`
 - `project.json` read → `projectId` known
 - Source concept batch selected and previewed
-- `scores.parquet` path (may be absent if not precomputed)
+- `similarity-scores.parquet` path (may be absent if not precomputed)
+
+## Step 0: Decide where the AI output goes
+
+At the start of every session, ask the user three questions before processing any concept:
+
+**Q1 — Destination** (default: suggestions)
+> "Should my AI matches land in `similarity-scores.parquet` as **suggestions** (a Linkr reviewer accepts/rejects them later in the UI), or directly in `mappings.json` as **authored mappings**?"
+
+- `suggestions` → write rows with `method = "ai/<model-id>"`. Use the actual model ID (e.g. `claude-opus-4-7`).
+- `mappings` → write full `ConceptMapping` objects with `status: "unchecked"`.
+
+**Q2 — Author** (only if `mappings` was chosen)
+> "Author for these mappings: me (Claude, model = `<current-model-id>`) or you?"
+
+- If "Claude" → `mappedBy = "Claude Opus 4.7"` (or whichever model is active).
+- If "user" → ask for first + last name, then `mappedBy = "<First Last>"`.
+
+**Q3 — Top-K** (only if `suggestions` was chosen, default: 5)
+> "How many candidates per source concept should I propose? (default: 5)"
+
+Store these three choices for the whole session — do not re-ask between batches unless the user asks to change them.
 
 ## Step 1: Load pre-computed scores (if available)
 
-If `scores.parquet` was provided, load it:
+If `similarity-scores.parquet` was provided, load it:
 
 ```sql
 CREATE TABLE precomputed_scores AS
-  SELECT * FROM read_parquet('<scores_dir>/<project>-scores.parquet')
+  SELECT * FROM read_parquet('<project_dir>/similarity-scores.parquet')
   WHERE source_vocabulary_id = '<vocab>' AND source_concept_code IN (<batch_codes>);
 ```
 
-Use these scores to prioritize DuckDB search candidates. A concept with `semantic/biolord` score > 0.90 is a strong lead — verify it, don't skip the reasoning step.
+Filter out rows with `method LIKE 'ai/%'` if you only want non-AI signals. Use these scores to prioritize DuckDB search candidates. A concept with `semantic/biolord` score > 0.90 is a strong lead — verify it, don't skip the reasoning step.
 
 ## Step 2: Process concepts in batches
 
@@ -121,13 +142,34 @@ Never write a mapping without explicit user confirmation.
 - **Non-standard concept found**: use `concept_relationship` with `Maps to` to find the standard equivalent
 - **Drug concept in non-drug batch**: note it, defer to `/concept-mapping-drug`
 
-## Step 3: Return approved mappings to orchestrator
+## Step 3: Return the batch to the orchestrator
+
+Return both the `mode` chosen at Step 0 (`"suggestions"` or `"mappings"`) and the rows. The orchestrator handles writing.
+
+### If mode = "suggestions"
+
+Return one or more rows per source concept (up to top-K, per Q3), matching the parquet schema used by `compute_scores.py`:
+
+| Field | Value |
+|---|---|
+| `source_vocabulary_id` | from the source concept |
+| `source_concept_code` | from the source concept |
+| `concept_id` | OMOP target concept id |
+| `method` | `"ai/<model-id>"` (e.g. `"ai/claude-opus-4-7"`) |
+| `score` | 0.0–1.0 confidence (top candidate 0.85+, weaker ones lower) |
+| `equivalence` | one of `skos:exactMatch`, `closeMatch`, `broadMatch`, `narrowMatch`, `relatedMatch` |
+| `comment` | one short sentence justifying the match (free text, can include unit/granularity notes) |
+| `created_at` | ISO 8601 UTC timestamp |
+
+This is the only place in the system where `equivalence` is nuanced — for `syntactic/*` and `semantic/*` it is always `skos:exactMatch` and `comment` is null.
+
+### If mode = "mappings"
 
 Return a list of approved `ConceptMapping` objects (see `reference.md` for full structure). The orchestrator writes them to `mappings.json`.
 
 Key fields to populate:
-- `mappedBy`: "Claude Sonnet 4.6" (use actual model name from session context)
-- `status`: "unchecked" (user approved during session, but not yet reviewed by a second person)
+- `mappedBy`: from Q2 — either `"Claude Opus 4.7"` (use actual current model name) or `"<First Last>"`
+- `status`: `"unchecked"` (user approved during session, but not yet reviewed by a second person)
 - `comments`: one comment with two lines — description of the mapping, then equivalence justification
 - `matchScore`: 0.0–1.0 based on your confidence (exactMatch + strong pre-computed score → 0.95+; closeMatch with uncertainty → 0.6–0.75)
 

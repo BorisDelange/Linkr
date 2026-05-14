@@ -98,6 +98,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
     concept_code: false,
     domain_id: false,
     concept_class_id: false,
+    comment: false,
   })
 
   const handleSort = (columnId: string) => {
@@ -302,6 +303,32 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       cell: ({ row }) => <StandardConceptBadge value={row.original.standard_concept} />,
       size: 40,
       minSize: 30,
+      enableResizing: true,
+    },
+    {
+      id: 'equivalence',
+      header: () => t('concept_mapping.col_equivalence'),
+      accessorFn: (r) => r.equivalence,
+      cell: ({ row }) => {
+        const eq = row.original.equivalence ?? 'skos:exactMatch'
+        const short = eq.startsWith('skos:') ? eq.slice(5) : eq
+        return <span className="text-[10px] tabular-nums text-muted-foreground">{short}</span>
+      },
+      size: 90,
+      minSize: 70,
+      enableResizing: true,
+    },
+    {
+      id: 'comment',
+      header: () => t('concept_mapping.col_comment'),
+      accessorFn: (r) => r.comment ?? '',
+      cell: ({ row }) => (
+        <span className="text-[10px] text-muted-foreground" title={row.original.comment ?? undefined}>
+          {row.original.comment ?? ''}
+        </span>
+      ),
+      size: 180,
+      minSize: 80,
       enableResizing: true,
     },
     {

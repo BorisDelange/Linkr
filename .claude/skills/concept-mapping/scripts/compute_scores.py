@@ -11,8 +11,14 @@ Usage:
         [options]
 
 Output:
-    scores.parquet  — long format:
+    similarity-scores.parquet — long format:
         source_vocabulary_id | source_concept_code | concept_id | method | score
+        | equivalence | comment | created_at
+
+    For syntactic/* and semantic/* methods, equivalence is always
+    "skos:exactMatch" and comment is null. The equivalence column exists so
+    AI-generated rows (method = "ai/<model-id>") can use the full SKOS range
+    (closeMatch, broadMatch, narrowMatch, relatedMatch) and provide a comment.
 
     Methods computed (all by default):
         syntactic/jaro-winkler   Jaro-Winkler on normalized name
@@ -38,6 +44,7 @@ import sys
 import time
 import unicodedata
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -50,6 +57,7 @@ from rapidfuzz.distance import JaroWinkler
 TOP_K = 50
 FLUSH_EVERY = 100
 DEFAULT_OUTPUT = None  # derived from --source path: same folder, similarity-scores.parquet
+DEFAULT_EQUIVALENCE = "skos:exactMatch"
 
 PARQUET_SCHEMA = pa.schema([
     pa.field("source_vocabulary_id", pa.string()),
@@ -57,7 +65,14 @@ PARQUET_SCHEMA = pa.schema([
     pa.field("concept_id",           pa.int64()),
     pa.field("method",               pa.string()),
     pa.field("score",                pa.float32()),
+    pa.field("equivalence",          pa.string()),
+    pa.field("comment",              pa.string()),
+    pa.field("created_at",           pa.string()),
 ])
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ---------------------------------------------------------------------------
@@ -175,6 +190,9 @@ def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
             "concept_id":           pa.array([r["concept_id"]           for r in buf], type=pa.int64()),
             "method":               pa.array([r["method"]               for r in buf], type=pa.string()),
             "score":                pa.array([r["score"]                for r in buf], type=pa.float32()),
+            "equivalence":          pa.array([r["equivalence"]          for r in buf], type=pa.string()),
+            "comment":              pa.array([r["comment"]              for r in buf], type=pa.string()),
+            "created_at":           pa.array([r["created_at"]           for r in buf], type=pa.string()),
         },
         schema=PARQUET_SCHEMA,
     )
@@ -294,6 +312,7 @@ def compute_semantic_scores(
         sims = scores_matrix[i]
         top_idx = np.argpartition(sims, -k)[-k:]
         top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
+        created_at = now_iso()
         for idx in top_idx:
             buf.append({
                 "source_vocabulary_id": src_row.source_vocabulary_id,
@@ -301,6 +320,9 @@ def compute_semantic_scores(
                 "concept_id":           int(concept_ids_arr[idx]),
                 "method":               "semantic/biolord",
                 "score":                round(float(sims[idx]), 3),
+                "equivalence":          DEFAULT_EQUIVALENCE,
+                "comment":              None,
+                "created_at":           created_at,
             })
 
         done = i + 1
@@ -370,6 +392,7 @@ def compute_syntactic_scores(
         query = src_row.source_concept_name
         vocab_id = src_row.source_vocabulary_id
         code = src_row.source_concept_code
+        created_at = now_iso()
 
         if use_jw:
             jw_scores = [(jaro_winkler_score(query, name), cid)
@@ -382,6 +405,9 @@ def compute_syntactic_scores(
                     "concept_id":           cid,
                     "method":               "syntactic/jaro-winkler",
                     "score":                round(score, 3),
+                    "equivalence":          DEFAULT_EQUIVALENCE,
+                    "comment":              None,
+                    "created_at":           created_at,
                 })
 
         if use_ts:
@@ -395,6 +421,9 @@ def compute_syntactic_scores(
                     "concept_id":           cid,
                     "method":               "syntactic/token-sort",
                     "score":                round(score, 3),
+                    "equivalence":          DEFAULT_EQUIVALENCE,
+                    "comment":              None,
+                    "created_at":           created_at,
                 })
 
         if use_ng and ngram_index is not None:
@@ -405,6 +434,9 @@ def compute_syntactic_scores(
                     "concept_id":           concept_ids[idx],
                     "method":               "syntactic/ngram-idf",
                     "score":                round(score, 3),
+                    "equivalence":          DEFAULT_EQUIVALENCE,
+                    "comment":              None,
+                    "created_at":           created_at,
                 })
 
         done = i + 1

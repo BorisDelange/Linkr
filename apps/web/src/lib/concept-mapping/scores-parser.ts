@@ -7,7 +7,12 @@ export interface ParsedScoreRow {
   concept_id: number
   method: string
   score: number
+  equivalence: string
+  comment: string | null
+  created_at: string | null
 }
+
+const DEFAULT_EQUIVALENCE = 'skos:exactMatch'
 
 const TEMP_FILE = '__scores_import_tmp__'
 
@@ -40,7 +45,22 @@ export async function parseScoresFile(file: File): Promise<ParsedScoreRow[]> {
 
       if (!sourceVocabId || !sourceConceptCode || !conceptId || !method) continue
 
-      rows.push({ source_vocabulary_id: sourceVocabId, source_concept_code: sourceConceptCode, concept_id: conceptId, method, score })
+      const equivalence = r.equivalence != null && String(r.equivalence) !== ''
+        ? String(r.equivalence)
+        : DEFAULT_EQUIVALENCE
+      const comment = r.comment != null && String(r.comment) !== '' ? String(r.comment) : null
+      const createdAt = r.created_at != null && String(r.created_at) !== '' ? String(r.created_at) : null
+
+      rows.push({
+        source_vocabulary_id: sourceVocabId,
+        source_concept_code: sourceConceptCode,
+        concept_id: conceptId,
+        method,
+        score,
+        equivalence,
+        comment,
+        created_at: createdAt,
+      })
     }
     return rows
   } finally {
@@ -58,5 +78,8 @@ export function scoresToSuggestionScores(
     conceptId: r.concept_id,
     method: r.method,
     score: r.score,
+    equivalence: r.equivalence,
+    comment: r.comment,
+    createdAt: r.created_at,
   }))
 }

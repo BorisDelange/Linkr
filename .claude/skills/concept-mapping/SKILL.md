@@ -141,11 +141,20 @@ If the user confirms, generate a temporary normalized CSV (`/tmp/<original-name>
 
 If a required column cannot be matched even heuristically, list the actual columns and ask the user to specify the mapping explicitly.
 
-## Step 4: Precompute similarity scores (optional but recommended)
+## Step 4: Precompute suggestions (syntactic + semantic)
 
-These two Python scripts live in `.claude/skills/concept-mapping/scripts/`. Run them when the user wants fresh scores, or when `scores.parquet` is missing/stale.
+These two Python scripts live in `.claude/skills/concept-mapping/scripts/`. Run them when the user wants fresh suggestions, or when `similarity-scores.parquet` is missing/stale.
 
-Both scripts print structured progress lines to stdout. Use the `Monitor` tool with `persistent: true` (no timeout) to stream their output to the user in real time — do NOT use `run_in_background`.
+Both scripts are long-running (minutes to hours). Before launching one, ask the user **how they want to run it**:
+
+> "These scripts can take a long time. Two options:
+>
+> 1. **Run it yourself in a terminal (recommended)** — copy the command below, paste it into your terminal. No extra token cost.
+> 2. **I run it via Monitor** — I stream progress here, but every progress line costs tokens (can be significant over hours)."
+
+If the user picks **option 1**, print the exact command in a copy-paste block and stop. When they come back and say it's done (or interrupted), continue with the next step (verify the output file, refresh `state.json`).
+
+If the user picks **option 2**, launch with `Monitor` and `persistent: true` (no timeout). Filter aggressively to keep token cost down (see grep patterns below). Do NOT use `run_in_background` for these scripts.
 
 ### Script 1 — embed_concepts.py (run once per vocabulary release)
 
@@ -168,7 +177,13 @@ The script prints progress lines every 10 batches and flush confirmations every 
 [embed] batch 10/7991 — 5,120/4,091,099 concepts (0.1%) — 201 concepts/s — ETA 338m46s
 [flush] 5,120 embeddings saved to concept_embeddings.parquet
 ```
-Use `Monitor` with `persistent: true` so it never times out. Filter for `[embed]`, `[flush]`, `Done`, and error keywords.
+
+**Recommended: hand off to the user's terminal.** A full run takes several hours; streaming every `[embed]` line through `Monitor` burns thousands of tokens for no benefit. Tell the user it is safer and cheaper to paste the command in their own terminal and come back when done — the script is resume-safe, so an interrupt loses at most one flush window (~25k concepts).
+
+If the user explicitly wants `Monitor`, use `persistent: true` and filter for `[flush]` only (skip `[embed]`) to cut the notification volume by 5×:
+```
+\[flush\]|Done|Error|Traceback
+```
 
 ### Script 2 — compute_scores.py (run per project)
 
@@ -190,7 +205,9 @@ TRANSFORMERS_CACHE=<models_dir> python \
 Default methods: `syntactic/jaro-winkler` + `semantic/biolord`. **Do not add `syntactic/ngram-idf` unless the user explicitly asks** — it requires building a full bigram IDF index over all OMOP concepts (~4M), which takes ~1 hour on CPU.
 
 Output written to `<project_dir>/`:
-- `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score`
+- `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score | equivalence | comment | created_at`
+  - For `syntactic/*` and `semantic/*` methods: `equivalence` is always `"skos:exactMatch"` and `comment` is `null`.
+  - These columns exist so AI-generated rows (method `ai/<model-id>`, written by `/concept-mapping-ai` when the user picks the "suggestions" mode) can carry nuanced SKOS equivalence and a justification.
 - `source_embeddings.parquet` — BioLORD embeddings of the source concepts (reused if scores are extended)
 **Supports resume**: if the output file already exists, already-scored `(source_vocabulary_id, source_concept_code)` pairs are skipped. Safe to interrupt and restart.
 
@@ -204,12 +221,12 @@ Progress tags emitted by the script:
 - `[semantic]` — every 50 source concepts (biolord)
 - `[flush]` — every `--flush-every` source concepts (default 100)
 
-Use `Monitor` with `persistent: true`. Filter grep pattern:
+**Same trade-off as `embed_concepts.py`**: recommend running it in the user's terminal. If they want `Monitor`, use `persistent: true` with a flush-only filter to limit token cost:
 ```
-\[syntactic\]|\[semantic\]|\[flush\]|\[index\]|Done|Error|Traceback|warning|Warning|->|Loading|Computing|Building|Encoding
+\[flush\]|\[index\]|Done|Error|Traceback
 ```
 
-## Step 5: Route to sub-skill
+## Step 5: AI mapping (route to sub-skill)
 
 Based on the selected concepts' inferred domain, recommend the appropriate sub-skill:
 
@@ -219,18 +236,25 @@ Based on the selected concepts' inferred domain, recommend the appropriate sub-s
 | Drug (medications, prescriptions) | `/concept-mapping-drug` |
 | Mixed batch | Run `/concept-mapping-ai` first, then `/concept-mapping-drug` for Drug concepts |
 
+The sub-skill itself asks the user (at session start) whether its output should land in `similarity-scores.parquet` (as AI suggestions, default) or directly in `mappings.json` (as authored mappings), and who the author is. See the sub-skill's SKILL.md for the exact prompts.
+
 Tell the user which sub-skill will handle the batch and why. Then invoke it.
 
 Pass along:
-- Project files (project.json path, mappings.json path, source-concepts.csv path)
+- Project files (`project.json` path, `mappings.json` path, `source-concepts.csv` path)
 - Vocabulary location
 - Selected concept list (or filter to re-derive it)
-- `scores.parquet` path if available
-- `projectId` from project.json
+- `similarity-scores.parquet` path if available
+- `projectId` from `project.json`
 
-## Step 6: Write mappings
+## Step 6: Persist sub-skill output
 
-After the sub-skill returns approved mappings, write them to `mappings.json`.
+The sub-skill returns a list of rows plus a `mode` flag telling you where to write them:
+
+- `mode = "suggestions"` → append to `similarity-scores.parquet` with `method = "ai/<model-id>"`, populating `equivalence`/`comment`/`created_at`. Use the same parquet schema as `compute_scores.py`. Never overwrite existing rows for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
+- `mode = "mappings"` → append to `mappings.json` (existing flow below).
+
+### Writing mappings.json (mode = "mappings")
 
 1. Read the current `mappings.json`
 2. Append new mappings — **never overwrite existing ones**

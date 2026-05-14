@@ -2384,6 +2384,8 @@
     "col_domain": "Domaine",
     "col_class": "Classe",
     "col_std": "Standard",
+    "col_equivalence": "Équivalence",
+    "col_comment": "Commentaire",
     "col_visibility": "Visibilité des colonnes",
     "col_records": "Lignes",
     "col_patients": "Patients",

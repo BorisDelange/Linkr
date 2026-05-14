@@ -42,7 +42,12 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
       const full: SuggestionScore = { id, projectId, importedAt: now, ...row }
       if (existingById.has(id)) {
         const prev = existingById.get(id)!
-        if (prev.score !== row.score) {
+        const changed =
+          prev.score !== row.score ||
+          prev.equivalence !== row.equivalence ||
+          prev.comment !== row.comment ||
+          prev.createdAt !== row.createdAt
+        if (changed) {
           toUpsert.push(full)
           replaced++
         }

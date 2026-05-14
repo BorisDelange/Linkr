@@ -1,5 +1,22 @@
 # Concept Mapping — Reference
 
+## similarity-scores.parquet schema
+
+Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) by `/concept-mapping-ai`. Loaded by Linkr to populate the Suggestions panel.
+
+| Column | Type | Description |
+|---|---|---|
+| `source_vocabulary_id` | string | From source-concepts.csv |
+| `source_concept_code` | string | From source-concepts.csv |
+| `concept_id` | int64 | OMOP target |
+| `method` | string | `syntactic/jaro-winkler`, `syntactic/token-sort`, `syntactic/ngram-idf`, `semantic/biolord`, or `ai/<model-id>` (e.g. `ai/claude-opus-4-7`) |
+| `score` | float32 | 0.0–1.0 |
+| `equivalence` | string | SKOS predicate — `skos:exactMatch` (default for syntactic/semantic), `skos:closeMatch`, `skos:broadMatch`, `skos:narrowMatch`, `skos:relatedMatch` (AI may nuance) |
+| `comment` | string \| null | Free-text justification (AI rows only; null for syntactic/semantic) |
+| `created_at` | string | ISO 8601 UTC timestamp |
+
+Uniqueness key (resume + idempotency): `(source_vocabulary_id, source_concept_code, concept_id, method)`. Re-running a method overwrites its rows for the same pair.
+
 ## ConceptMapping type definition
 
 ```typescript

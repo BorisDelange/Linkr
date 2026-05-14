@@ -4,6 +4,12 @@ export interface MethodScore {
   method: string
   score: number
   weight: number
+  /** SKOS equivalence predicate (default: skos:exactMatch). */
+  equivalence: string
+  /** Free-text justification (AI rows only). */
+  comment: string | null
+  /** ISO 8601 UTC timestamp from the producing script. */
+  createdAt: string | null
 }
 
 export interface SuggestionCandidate {
@@ -18,6 +24,34 @@ export interface SuggestionCandidate {
   scores: MethodScore[]
   /** Weighted average of all method scores. */
   combined_score: number
+  /** Strongest SKOS equivalence across methods (prefers more specific predicates). */
+  equivalence: string
+  /** First non-null comment across methods, if any. */
+  comment: string | null
+}
+
+const EQUIVALENCE_RANK: Record<string, number> = {
+  'skos:exactMatch':   5,
+  'skos:narrowMatch':  4,
+  'skos:broadMatch':   3,
+  'skos:closeMatch':   2,
+  'skos:relatedMatch': 1,
+}
+
+export function pickStrongestEquivalence(scores: MethodScore[]): string {
+  if (scores.length === 0) return 'skos:exactMatch'
+  return scores.reduce((best, s) => {
+    const a = EQUIVALENCE_RANK[s.equivalence] ?? 0
+    const b = EQUIVALENCE_RANK[best] ?? 0
+    return a > b ? s.equivalence : best
+  }, scores[0].equivalence)
+}
+
+export function pickFirstComment(scores: MethodScore[]): string | null {
+  for (const s of scores) {
+    if (s.comment) return s.comment
+  }
+  return null
 }
 
 export const METHOD_COLORS: Record<string, string> = {
@@ -52,6 +86,8 @@ export const METHOD_LABELS: Record<string, string> = {
   'semantic/tfidf':         'TF-IDF',
 }
 
+const AI_METHOD_PREFIX = 'ai/'
+
 /** Default per-provider weights for the combined score. */
 export const DEFAULT_WEIGHTS: Record<string, number> = {
   Syntaxique:  1,
@@ -64,10 +100,12 @@ export const ALL_PROVIDERS = ['Syntaxique', 'Sémantique', 'Statistique', 'IA'] 
 export type Provider = typeof ALL_PROVIDERS[number]
 
 export function getProviderForMethod(method: string): string {
+  if (method.startsWith(AI_METHOD_PREFIX)) return 'IA'
   return METHOD_PROVIDER_MAP[method] ?? method
 }
 
 export function getMethodLabel(method: string): string {
+  if (method.startsWith(AI_METHOD_PREFIX)) return method.slice(AI_METHOD_PREFIX.length)
   return METHOD_LABELS[method] ?? method
 }
 

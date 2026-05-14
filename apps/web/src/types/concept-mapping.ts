@@ -289,6 +289,12 @@ export interface SuggestionScore {
   conceptId: number
   method: string
   score: number
+  /** SKOS equivalence predicate. Always `skos:exactMatch` for syntactic/semantic rows; AI rows may nuance. */
+  equivalence: string
+  /** Free-text justification. Populated by AI rows only. */
+  comment: string | null
+  /** ISO 8601 UTC timestamp from the producing script. */
+  createdAt: string | null
   importedAt: string
 }
 
