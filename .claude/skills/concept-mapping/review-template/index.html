@@ -31,6 +31,37 @@
 
     <!-- OVERVIEW -->
     <section id="tab-overview" class="tab-panel space-y-8">
+      <div class="panel">
+        <h2 class="panel-title">OMOP vocabulary embeddings</h2>
+        <p class="text-xs text-slate-500 mb-3">
+          Prerequisite for semantic suggestions. Generated once per OHDSI vocabulary release by <span class="font-mono">embed_concepts.py</span>.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="card">
+            <div class="card-label">Status</div>
+            <div id="kpi-omop-status" class="card-value">—</div>
+            <div id="kpi-omop-status-sub" class="card-sub">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Embeddings</div>
+            <div id="kpi-omop-count" class="card-value">—</div>
+            <div id="kpi-omop-count-sub" class="card-sub">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Model</div>
+            <div id="kpi-omop-model" class="card-value text-base font-mono break-all">—</div>
+            <div id="kpi-omop-model-sub" class="card-sub">—</div>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="progress-row">
+            <div class="progress-label">OMOP coverage</div>
+            <div class="progress-track"><div id="omop-progress-fill" class="progress-fill" style="width:0%"></div></div>
+            <div id="omop-progress-num" class="progress-num">—</div>
+          </div>
+        </div>
+      </div>
+
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="card">
           <div class="card-label">Source concepts</div>

@@ -47,6 +47,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
+import duckdb
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -362,7 +363,12 @@ def compute_syntactic_scores(
     already_done: set[tuple[str, str]],
     n_already_flushed: int,
 ) -> int:
-    """Returns total number of source concepts scored (including previously flushed)."""
+    """Returns total number of source concepts scored (including previously flushed).
+
+    Uses DuckDB's native jaro_winkler_similarity for the heavy lifting. The OMOP
+    concept names are normalized once into a temporary DuckDB table; each source
+    concept then runs a single SQL query with ORDER BY ... LIMIT k.
+    """
     remaining = source_df[
         ~source_df.apply(lambda r: (r["source_vocabulary_id"], r["source_concept_code"]) in already_done, axis=1)
     ].reset_index(drop=True)
@@ -371,9 +377,6 @@ def compute_syntactic_scores(
         print("  [syntactic] all source concepts already scored, skipping")
         return n_already_flushed
 
-    concept_names = concept_df["concept_name"].tolist()
-    concept_ids = concept_df["concept_id"].tolist()
-
     use_jw = "syntactic/jaro-winkler" in methods
     use_ts = "syntactic/token-sort" in methods
     use_ng = "syntactic/ngram-idf" in methods
@@ -381,57 +384,99 @@ def compute_syntactic_scores(
     ngram_index = None
     if use_ng:
         print("  Building n-gram IDF index ...", flush=True)
-        ngram_index = NgramIdfIndex(concept_names, n=2)
+        ngram_index = NgramIdfIndex(concept_df["concept_name"].tolist(), n=2)
         print("  [syntactic] n-gram IDF index ready", flush=True)
+
+    con = duckdb.connect()
+    try:
+        con.execute("PRAGMA threads=8")
+    except Exception:
+        pass
+
+    if use_jw or use_ts:
+        print("  Preparing DuckDB concept table (normalize once) ...", flush=True)
+        con.register("concept_df", concept_df[["concept_id", "concept_name"]])
+        con.execute("""
+            CREATE TEMP TABLE concept_norm AS
+            SELECT
+                concept_id,
+                strip_accents(LOWER(concept_name)) AS name_norm
+            FROM concept_df
+        """)
+        con.unregister("concept_df")
+        n_omop = con.execute("SELECT COUNT(*) FROM concept_norm").fetchone()[0]
+        print(f"  [syntactic] {n_omop:,} OMOP concept names normalized", flush=True)
 
     total = len(remaining)
     t_start = time.time()
     buf: list[dict] = []
+    ngram_concept_ids = concept_df["concept_id"].tolist() if use_ng else None
 
     for i, src_row in enumerate(remaining.itertuples(index=False)):
         query = src_row.source_concept_name
         vocab_id = src_row.source_vocabulary_id
         code = src_row.source_concept_code
         created_at = now_iso()
+        query_norm = normalize(query)
 
         if use_jw:
-            jw_scores = [(jaro_winkler_score(query, name), cid)
-                         for name, cid in zip(concept_names, concept_ids)]
-            jw_scores.sort(reverse=True)
-            for score, cid in jw_scores[:k]:
+            rows = con.execute(
+                """
+                SELECT concept_id,
+                       jaro_winkler_similarity(?, name_norm) AS score
+                FROM concept_norm
+                ORDER BY score DESC
+                LIMIT ?
+                """,
+                [query_norm, k],
+            ).fetchall()
+            for cid, score in rows:
                 buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
-                    "concept_id":           cid,
+                    "concept_id":           int(cid),
                     "method":               "syntactic/jaro-winkler",
-                    "score":                round(score, 3),
+                    "score":                round(float(score), 3),
                     "equivalence":          DEFAULT_EQUIVALENCE,
                     "comment":              None,
                     "created_at":           created_at,
                 })
 
         if use_ts:
-            ts_scores = [(token_sort_score(query, name), cid)
-                         for name, cid in zip(concept_names, concept_ids)]
-            ts_scores.sort(reverse=True)
-            for score, cid in ts_scores[:k]:
+            # token-sort: sort whitespace-separated tokens then compare with Jaro-Winkler.
+            # We sort source side in Python; OMOP side is sorted in SQL via list_sort(string_split).
+            query_ts = " ".join(sorted(query_norm.split()))
+            rows = con.execute(
+                """
+                SELECT concept_id,
+                       jaro_winkler_similarity(
+                           ?,
+                           array_to_string(list_sort(string_split(name_norm, ' ')), ' ')
+                       ) AS score
+                FROM concept_norm
+                ORDER BY score DESC
+                LIMIT ?
+                """,
+                [query_ts, k],
+            ).fetchall()
+            for cid, score in rows:
                 buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
-                    "concept_id":           cid,
+                    "concept_id":           int(cid),
                     "method":               "syntactic/token-sort",
-                    "score":                round(score, 3),
+                    "score":                round(float(score), 3),
                     "equivalence":          DEFAULT_EQUIVALENCE,
                     "comment":              None,
                     "created_at":           created_at,
                 })
 
-        if use_ng and ngram_index is not None:
+        if use_ng and ngram_index is not None and ngram_concept_ids is not None:
             for idx, score in ngram_index.top_k(query, k):
                 buf.append({
                     "source_vocabulary_id": vocab_id,
                     "source_concept_code":  code,
-                    "concept_id":           concept_ids[idx],
+                    "concept_id":           ngram_concept_ids[idx],
                     "method":               "syntactic/ngram-idf",
                     "score":                round(score, 3),
                     "equivalence":          DEFAULT_EQUIVALENCE,
@@ -446,7 +491,7 @@ def compute_syntactic_scores(
             print(f"[flush] {total_written:,} source concepts saved to {output_path}", flush=True)
             buf = []
 
-        if done % 10 == 0 or done == total:
+        if done % 100 == 0 or done == total:
             elapsed = time.time() - t_start
             pct = done / total * 100
             speed = done / elapsed if elapsed > 0 else 0
@@ -458,6 +503,7 @@ def compute_syntactic_scores(
                 flush=True,
             )
 
+    con.close()
     return n_already_flushed + total
 
 

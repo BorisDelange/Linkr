@@ -126,6 +126,23 @@ def count_unique_source_pairs_in_scores(path: Path) -> int:
         return 0
 
 
+def count_unique_source_pairs_per_method(path: Path) -> dict[str, int]:
+    """Returns {method: n_distinct_source_pairs_with_at_least_one_score}."""
+    if not path.exists() or not HAS_PYARROW:
+        return {}
+    try:
+        tbl = pq.read_table(
+            str(path),
+            columns=["source_vocabulary_id", "source_concept_code", "method"],
+        )
+        df = tbl.to_pandas().drop_duplicates(
+            subset=["source_vocabulary_id", "source_concept_code", "method"]
+        )
+        return df.groupby("method").size().astype(int).to_dict()
+    except Exception:
+        return {}
+
+
 def count_source_embeddings(path: Path) -> int:
     if not path.exists() or not HAS_PYARROW:
         return 0
@@ -136,6 +153,38 @@ def count_source_embeddings(path: Path) -> int:
 
 
 def count_omop_embeddings(path: Path) -> int:
+    if not path.exists() or not HAS_PYARROW:
+        return 0
+    try:
+        return pq.ParquetFile(str(path)).metadata.num_rows
+    except Exception:
+        return 0
+
+
+def inspect_omop_embeddings(path: Path) -> dict | None:
+    """Returns {rows, model_ids, sizeBytes} or None if unavailable."""
+    if not path.exists():
+        return None
+    if not HAS_PYARROW:
+        return {"rows": None, "model_ids": None, "note": "pyarrow not installed"}
+    try:
+        pf = pq.ParquetFile(str(path))
+        info: dict = {
+            "rows": pf.metadata.num_rows,
+            "sizeBytes": path.stat().st_size,
+        }
+        cols = [f.name for f in pf.schema_arrow]
+        if "model_id" in cols:
+            tbl = pq.read_table(str(path), columns=["model_id"])
+            info["model_ids"] = sorted(set(tbl.column("model_id").to_pylist()))
+        return info
+    except Exception as e:
+        print(f"  warning: cannot inspect {path.name}: {e}", file=sys.stderr)
+        return None
+
+
+def count_omop_concepts_total(path: Path) -> int:
+    """Row count of CONCEPT.parquet — the denominator for OMOP embedding coverage."""
     if not path.exists() or not HAS_PYARROW:
         return 0
     try:
@@ -164,18 +213,31 @@ def build_state(
     scores_info = inspect_parquet(scores_path)
     n_with_scores = count_unique_source_pairs_in_scores(scores_path)
     scored_methods = (scores_info or {}).get("methods", []) if scores_info else []
+    per_method_coverage = count_unique_source_pairs_per_method(scores_path)
 
     src_emb_path = project_dir / "source_embeddings.parquet"
     n_src_embeddings = count_source_embeddings(src_emb_path)
 
     omop_emb_path = (vocab_dir / "concept_embeddings.parquet") if vocab_dir else None
     n_omop_embeddings = count_omop_embeddings(omop_emb_path) if omop_emb_path else 0
+    omop_emb_info = inspect_omop_embeddings(omop_emb_path) if omop_emb_path else None
 
+    omop_concept_path = (vocab_dir / "CONCEPT.parquet") if vocab_dir else None
+    n_omop_concepts_total = count_omop_concepts_total(omop_concept_path) if omop_concept_path else 0
+
+    known_methods = [
+        "syntactic/jaro-winkler",
+        "syntactic/token-sort",
+        "syntactic/ngram-idf",
+        "semantic/biolord",
+    ]
+    extra_methods = [m for m in scored_methods if m not in known_methods]
     methods = {
-        "syntactic/jaro-winkler": {"computed": "syntactic/jaro-winkler" in scored_methods, "coverage": n_with_scores if "syntactic/jaro-winkler" in scored_methods else 0},
-        "syntactic/token-sort":   {"computed": "syntactic/token-sort"   in scored_methods, "coverage": n_with_scores if "syntactic/token-sort"   in scored_methods else 0},
-        "syntactic/ngram-idf":    {"computed": "syntactic/ngram-idf"    in scored_methods, "coverage": n_with_scores if "syntactic/ngram-idf"    in scored_methods else 0},
-        "semantic/biolord":       {"computed": "semantic/biolord"       in scored_methods, "coverage": n_with_scores if "semantic/biolord"       in scored_methods else 0},
+        name: {
+            "computed": name in scored_methods,
+            "coverage": per_method_coverage.get(name, 0),
+        }
+        for name in known_methods + extra_methods
     }
 
     sessions = (previous or {}).get("sessions", []) if isinstance(previous, dict) else []
@@ -212,6 +274,7 @@ def build_state(
             "withSourceEmbeddings":  n_src_embeddings,
             "withScores":            n_with_scores,
             "omopEmbeddings":        n_omop_embeddings,
+            "omopConceptsTotal":     n_omop_concepts_total,
             "mapped": {
                 "total":      n_mapped,
                 "byStatus":   status_counts,
@@ -220,6 +283,7 @@ def build_state(
         },
         "methods":  methods,
         "scoresInfo": scores_info,
+        "omopEmbeddingsInfo": omop_emb_info,
         "sessions": sessions[-50:],
         "events":   events[-50:],
     }

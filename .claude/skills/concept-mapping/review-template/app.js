@@ -97,15 +97,66 @@ function renderSessions(sessions) {
   $("sessions-list").innerHTML = html;
 }
 
+function renderOmopEmbeddings(state) {
+  const c = state.counts || {};
+  const info = state.omopEmbeddingsInfo || null;
+  const present = !!(state.files && state.files.omopEmbeddings);
+  const have = c.omopEmbeddings || 0;
+  const total = c.omopConceptsTotal || 0;
+
+  let status, statusClass, sub;
+  if (!present || have === 0) {
+    status = "Not started";
+    statusClass = "text-slate-500";
+    sub = "Run embed_concepts.py";
+  } else if (total > 0 && have < total) {
+    status = "In progress";
+    statusClass = "text-amber-600";
+    sub = `${fmt(total - have)} concepts remaining`;
+  } else if (total > 0 && have >= total) {
+    status = "Complete";
+    statusClass = "text-emerald-600";
+    sub = "All OMOP concepts embedded";
+  } else {
+    status = "Present";
+    statusClass = "text-emerald-600";
+    sub = "CONCEPT.parquet not found — coverage unknown";
+  }
+
+  const statusEl = $("kpi-omop-status");
+  statusEl.textContent = status;
+  statusEl.className = `card-value ${statusClass}`;
+  $("kpi-omop-status-sub").textContent = sub;
+
+  $("kpi-omop-count").textContent = fmt(have);
+  $("kpi-omop-count-sub").textContent = total > 0 ? `of ${fmt(total)} OMOP concepts` : "OMOP total unknown";
+
+  const models = (info && info.model_ids) || [];
+  $("kpi-omop-model").textContent = models.length ? models.join(", ") : "—";
+  $("kpi-omop-model-sub").textContent = info && info.sizeBytes
+    ? `${(info.sizeBytes / (1024 * 1024 * 1024)).toFixed(2)} GB on disk`
+    : "—";
+
+  const p = total > 0 ? pct(have, total) : (have > 0 ? 100 : 0);
+  $("omop-progress-fill").style.width = `${p}%`;
+  $("omop-progress-num").innerHTML = total > 0
+    ? `${fmt(have)} / ${fmt(total)} <span class="text-slate-400">(${p}%)</span>`
+    : `${fmt(have)} <span class="text-slate-400">embeddings</span>`;
+}
+
 function renderFiles(state) {
   const f = state.files || {};
+  const omopInfo = state.omopEmbeddingsInfo;
+  const omopDetails = omopInfo
+    ? `${fmt(state.counts.omopEmbeddings)} / ${fmt(state.counts.omopConceptsTotal)} embeddings · ${(omopInfo.sizeBytes / (1024*1024*1024)).toFixed(2)} GB${omopInfo.model_ids ? ` · ${omopInfo.model_ids.join(", ")}` : ""}`
+    : `${fmt(state.counts.omopEmbeddings)} OMOP embeddings`;
   const rows = [
     ["project.json",                   f.projectJson,        ""],
     ["source-concepts.csv",            f.sourceConceptsCsv,  `${fmt(state.counts.sourceConceptsTotal)} concepts`],
     ["mappings.json",                  f.mappingsJson,       `${fmt(state.counts.mapped.total)} mappings`],
     ["similarity-scores.parquet",      f.similarityScores,   state.scoresInfo ? `${fmt(state.scoresInfo.rows)} rows, ${(state.scoresInfo.sizeBytes/1024).toFixed(0)} KB` : ""],
     ["source_embeddings.parquet",      f.sourceEmbeddings,   `${fmt(state.counts.withSourceEmbeddings)} embeddings`],
-    ["concept_embeddings.parquet (vocab)", f.omopEmbeddings, `${fmt(state.counts.omopEmbeddings)} OMOP embeddings`],
+    ["concept_embeddings.parquet (vocab)", f.omopEmbeddings, omopDetails],
   ];
   $("files-body").innerHTML = rows.map(([name, present, details]) => `
     <tr class="border-t border-slate-100">
@@ -142,6 +193,7 @@ async function load() {
   $("kpi-mapped").textContent      = fmt(mapped.total);
   $("kpi-mapped-sub").textContent  = `${pct(mapped.total, c.sourceConceptsTotal)}% · ${fmt(c.remaining)} remaining`;
 
+  renderOmopEmbeddings(state);
   renderProgressBars(c);
   renderStatusBreakdown(mapped);
   renderMethods(state.methods || {});
