@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
+import { Badge } from '@/components/ui/badge'
+import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import {
   Select,
   SelectContent,
@@ -311,11 +313,16 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       accessorFn: (r) => r.equivalence,
       cell: ({ row }) => {
         const eq = row.original.equivalence ?? 'skos:exactMatch'
-        const short = eq.startsWith('skos:') ? eq.slice(5) : eq
-        return <span className="text-[10px] tabular-nums text-muted-foreground">{short}</span>
+        const badge = EQUIV_BADGE[eq]
+        if (!badge) return <span className="text-[10px] text-muted-foreground">{eq}</span>
+        return (
+          <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${badge.className}`} title={eq}>
+            {badge.label}
+          </Badge>
+        )
       },
-      size: 90,
-      minSize: 70,
+      size: 70,
+      minSize: 50,
       enableResizing: true,
     },
     {
@@ -371,7 +378,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             <TableRow>
@@ -423,14 +430,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
-                  {t('concept_mapping.suggestions_empty')}
-                </TableCell>
-              </TableRow>
-            ) : (
-              table.getRowModel().rows.map((row) => {
+            {table.getRowModel().rows.map((row) => {
                 const alreadyMapped = alreadyMappedIds.has(row.original.concept_id)
                 const isSelected = selectedConceptId === row.original.concept_id
                 return (
@@ -450,8 +450,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                     ))}
                   </TableRow>
                 )
-              })
-            )}
+              })}
           </TableBody>
         </Table>
       </div>

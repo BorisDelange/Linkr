@@ -2,6 +2,12 @@ import * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
+const resetHooks = new Set<() => void>()
+/** Register a callback invoked from `resetDuckDB()` so dependent modules can drop cached registrations. */
+export function registerResetHook(fn: () => void): void {
+  resetHooks.add(fn)
+}
+
 // DuckDB WASM assets are served from public/duckdb/ to avoid Vite @fs blocking.
 // After `npm install`, run: cp node_modules/@duckdb/duckdb-wasm/dist/{duckdb-mvp.wasm,duckdb-eh.wasm,duckdb-browser-mvp.worker.js,duckdb-browser-eh.worker.js} public/duckdb/
 const duckdb_mvp_wasm = new URL('/duckdb/duckdb-mvp.wasm', import.meta.url).href
@@ -147,6 +153,9 @@ export function resetDuckDB(): void {
   _db = null
   _initPromise = null
   attachedSources.clear()
+  for (const fn of resetHooks) {
+    try { fn() } catch { /* ignore */ }
+  }
 }
 
 // --- Schema naming ---

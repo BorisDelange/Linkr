@@ -899,12 +899,6 @@ export function SourceConceptTable({
                   <p className="mt-1 text-[10px] text-muted-foreground">{queryError}</p>
                 </TableCell>
               </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
-                  {t('concept_mapping.no_concepts')}
-                </TableCell>
-              </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => {
                 const isSelected = row.original.concept_id === selectedConceptId

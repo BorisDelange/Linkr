@@ -1,75 +1,67 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import type { SuggestionScore } from '@/types'
+import type { ScoresIndex } from '@/types'
+import { validateScoresFile, type ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
+import { saveScoresFile, deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
+import { buildIndex, queryScoresForSource, unregisterProject } from '@/lib/concept-mapping/scores-engine'
 
 interface SuggestionScoresState {
-  scores: SuggestionScore[]
-  loaded: boolean
   activeProjectId: string | null
+  index: ScoresIndex | null
+  loaded: boolean
 
-  loadProjectScores: (projectId: string, options?: { force?: boolean }) => Promise<void>
-  importScores: (projectId: string, incoming: Omit<SuggestionScore, 'id' | 'importedAt' | 'projectId'>[]) => Promise<{ added: number; replaced: number }>
+  loadProjectMeta: (projectId: string) => Promise<void>
+  importScores: (projectId: string, file: File) => Promise<ScoresIndex>
   deleteProjectScores: (projectId: string) => Promise<void>
-}
 
-function scoreId(s: Pick<SuggestionScore, 'projectId' | 'sourceVocabularyId' | 'sourceConceptCode' | 'conceptId' | 'method'>): string {
-  return `${s.projectId}__${s.sourceVocabularyId}__${s.sourceConceptCode}__${s.conceptId}__${s.method}`
+  hasSuggestionsFor: (vocabId: string, code: string) => boolean
+  queryScoresForSource: (vocabId: string, code: string) => Promise<ParsedScoreRow[]>
 }
 
 export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get) => ({
-  scores: [],
-  loaded: false,
   activeProjectId: null,
+  index: null,
+  loaded: false,
 
-  async loadProjectScores(projectId, options) {
-    if (get().activeProjectId === projectId && get().loaded && !options?.force) return
-    const scores = await getStorage().suggestionScores.getByProject(projectId)
-    set({ scores, loaded: true, activeProjectId: projectId })
+  async loadProjectMeta(projectId) {
+    if (get().activeProjectId === projectId && get().loaded) return
+    const index = await getStorage().scoresMeta.get(projectId) ?? null
+    set({ activeProjectId: projectId, index, loaded: true })
   },
 
-  async importScores(projectId, incoming) {
-    const now = new Date().toISOString()
-    const existing = await getStorage().suggestionScores.getByProject(projectId)
-    const existingById = new Map(existing.map((s) => [s.id, s]))
+  async importScores(projectId, file) {
+    const validation = await validateScoresFile(file)
+    if (!validation.ok) throw new Error(validation.error)
 
-    let added = 0
-    let replaced = 0
-    const toUpsert: SuggestionScore[] = []
+    await saveScoresFile(projectId, file)
+    await unregisterProject(projectId)
 
-    for (const row of incoming) {
-      const key = { projectId, sourceVocabularyId: row.sourceVocabularyId, sourceConceptCode: row.sourceConceptCode, conceptId: row.conceptId, method: row.method }
-      const id = scoreId(key)
-      const full: SuggestionScore = { id, projectId, importedAt: now, ...row }
-      if (existingById.has(id)) {
-        const prev = existingById.get(id)!
-        const changed =
-          prev.score !== row.score ||
-          prev.equivalence !== row.equivalence ||
-          prev.comment !== row.comment ||
-          prev.createdAt !== row.createdAt
-        if (changed) {
-          toUpsert.push(full)
-          replaced++
-        }
-      } else {
-        toUpsert.push(full)
-        added++
-      }
-    }
+    const index = await buildIndex(projectId)
+    if (!index) throw new Error('Failed to build scores index after save.')
 
-    if (toUpsert.length > 0) {
-      await getStorage().suggestionScores.upsertBatch(toUpsert)
-      const updated = await getStorage().suggestionScores.getByProject(projectId)
-      set({ scores: updated })
-    }
-
-    return { added, replaced }
+    await getStorage().scoresMeta.put(index)
+    set({ activeProjectId: projectId, index, loaded: true })
+    return index
   },
 
   async deleteProjectScores(projectId) {
-    await getStorage().suggestionScores.deleteByProject(projectId)
+    await unregisterProject(projectId)
+    await deleteScoresFile(projectId)
+    await getStorage().scoresMeta.delete(projectId)
     if (get().activeProjectId === projectId) {
-      set({ scores: [], loaded: false })
+      set({ index: null, loaded: true })
     }
+  },
+
+  hasSuggestionsFor(vocabId, code) {
+    const idx = get().index
+    if (!idx) return false
+    return idx.sourceKeys.has(`${vocabId}::${code}`)
+  },
+
+  async queryScoresForSource(vocabId, code) {
+    const projectId = get().activeProjectId
+    if (!projectId) return []
+    return queryScoresForSource(projectId, vocabId, code)
   },
 }))

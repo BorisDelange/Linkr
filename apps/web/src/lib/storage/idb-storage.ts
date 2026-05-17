@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SuggestionScoreStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 
 interface LinkrDB extends DBSchema {
@@ -255,18 +255,26 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
-  suggestion_scores: {
-    /** Composite key: `${projectId}__${sourceVocabularyId}__${sourceConceptCode}__${conceptId}__${method}` */
+  suggestion_scores_blob: {
+    /** Key: projectId. Value: { projectId, blob } — raw scores file when OPFS is unavailable. */
     key: string
-    value: SuggestionScore
-    indexes: {
-      'by-project': string
+    value: { projectId: string; blob: Blob }
+  }
+  suggestion_scores_meta: {
+    /** Key: projectId. Value: serialised ScoresIndex (sourceKeys persisted as string[]). */
+    key: string
+    value: {
+      projectId: string
+      rowCount: number
+      methods: string[]
+      sourceKeys: string[]
+      importedAt: string
     }
   }
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 31
+const DB_VERSION = 32
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -703,10 +711,23 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
           filesStore.createIndex('by-content-hash', 'contentHash')
         }
       }
-      // Version 31: suggestion_scores store for precomputed similarity scores
+      // Version 31: suggestion_scores store for precomputed similarity scores.
+      // Removed from the schema in v32 (cast to never below) — we still create it
+      // here for upgrade-path correctness, then v32 drops it immediately.
       if (oldVersion < 31) {
-        const scoresStore = db.createObjectStore('suggestion_scores', { keyPath: 'id' })
-        scoresStore.createIndex('by-project', 'projectId')
+        const scoresStore = db.createObjectStore('suggestion_scores' as never, { keyPath: 'id' })
+        ;(scoresStore as unknown as { createIndex: (name: string, keyPath: string) => void }).createIndex('by-project', 'projectId')
+      }
+      // Version 32: switch to file-based storage. Drop the per-row `suggestion_scores`
+      // store (1.3M rows blew up memory). Use OPFS for the parquet, IDB blob as
+      // fallback, plus a small meta record per project.
+      if (oldVersion < 32) {
+        if (db.objectStoreNames.contains('suggestion_scores' as never)) {
+          db.deleteObjectStore('suggestion_scores' as never)
+          console.warn('[idb] v32 migration cleared the legacy suggestion_scores store — re-import the scores file if you need suggestions')
+        }
+        db.createObjectStore('suggestion_scores_blob', { keyPath: 'projectId' })
+        db.createObjectStore('suggestion_scores_meta', { keyPath: 'projectId' })
       }
     },
   })
@@ -2057,30 +2078,52 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
   }
 }
 
-class IDBSuggestionScoreStorage implements SuggestionScoreStorage {
-  async getByProject(projectId: string): Promise<SuggestionScore[]> {
+class IDBScoresBlobStorage implements ScoresBlobStorage {
+  async get(projectId: string): Promise<Blob | undefined> {
     const db = await getDB()
-    return db.getAllFromIndex('suggestion_scores', 'by-project', projectId)
+    const entry = await db.get('suggestion_scores_blob', projectId)
+    return entry?.blob
   }
 
-  async upsertBatch(scores: SuggestionScore[]): Promise<void> {
-    if (scores.length === 0) return
+  async put(projectId: string, blob: Blob): Promise<void> {
     const db = await getDB()
-    const tx = db.transaction('suggestion_scores', 'readwrite')
-    for (const score of scores) {
-      tx.store.put(score)
-    }
-    await tx.done
+    await db.put('suggestion_scores_blob', { projectId, blob })
   }
 
-  async deleteByProject(projectId: string): Promise<void> {
+  async delete(projectId: string): Promise<void> {
     const db = await getDB()
-    const items = await db.getAllFromIndex('suggestion_scores', 'by-project', projectId)
-    const tx = db.transaction('suggestion_scores', 'readwrite')
-    for (const item of items) {
-      tx.store.delete(item.id)
+    await db.delete('suggestion_scores_blob', projectId)
+  }
+}
+
+class IDBScoresMetaStorage implements ScoresMetaStorage {
+  async get(projectId: string): Promise<ScoresIndex | undefined> {
+    const db = await getDB()
+    const entry = await db.get('suggestion_scores_meta', projectId)
+    if (!entry) return undefined
+    return {
+      projectId: entry.projectId,
+      rowCount: entry.rowCount,
+      methods: entry.methods,
+      sourceKeys: new Set(entry.sourceKeys),
+      importedAt: entry.importedAt,
     }
-    await tx.done
+  }
+
+  async put(meta: ScoresIndex): Promise<void> {
+    const db = await getDB()
+    await db.put('suggestion_scores_meta', {
+      projectId: meta.projectId,
+      rowCount: meta.rowCount,
+      methods: meta.methods,
+      sourceKeys: [...meta.sourceKeys],
+      importedAt: meta.importedAt,
+    })
+  }
+
+  async delete(projectId: string): Promise<void> {
+    const db = await getDB()
+    await db.delete('suggestion_scores_meta', projectId)
   }
 }
 
@@ -2123,6 +2166,7 @@ export function createIDBStorage(): Storage {
     serviceMappings: new IDBServiceMappingStorage(),
     sourceConceptIdRanges: new IDBSourceConceptIdRangeStorage(),
     sourceConceptIdEntries: new IDBSourceConceptIdEntryStorage(),
-    suggestionScores: new IDBSuggestionScoreStorage(),
+    scoresBlob: new IDBScoresBlobStorage(),
+    scoresMeta: new IDBScoresMetaStorage(),
   }
 }

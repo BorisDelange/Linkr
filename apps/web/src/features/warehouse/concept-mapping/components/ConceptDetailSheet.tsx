@@ -593,6 +593,10 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
   const isValid = !target.invalid_reason
 
   const hierarchyEmpty = !loadingHierarchy && !hierarchyUnavailable && !hierarchySelf && !hierarchyWarn
+  // While the hierarchy tab is active but the first load hasn't kicked in yet,
+  // show the spinner instead of "no hierarchy" — the effect below will set
+  // loadingHierarchy=true on the next tick.
+  const hierarchyPendingFirstLoad = activeTab === 'hierarchy' && !loadingHierarchy && !hierarchySelf && !hierarchyUnavailable && !hierarchyWarn
 
   // originId for graph coloring: the concept we navigated from
   const originId = hierarchyStack.length >= 2
@@ -755,7 +759,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
                 )}
               </div>
               <div className="flex-1 min-h-0 relative">
-                {loadingHierarchy ? (
+                {loadingHierarchy || hierarchyPendingFirstLoad ? (
                   <div className="flex h-full items-center justify-center">
                     <Loader2 size={16} className="animate-spin text-muted-foreground" />
                   </div>

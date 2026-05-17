@@ -347,7 +347,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Suggestions state (from imported scores)
   const [suggestionsImporting, setSuggestionsImporting] = useState(false)
   const [suggestionsImportError, setSuggestionsImportError] = useState<string | null>(null)
-  const [suggestionsImportResult, setSuggestionsImportResult] = useState<{ added: number; replaced: number } | null>(null)
+  const [suggestionsImportResult, setSuggestionsImportResult] = useState<{ rowCount: number; methods: string[] } | null>(null)
   const suggestionsFileInputRef = useRef<HTMLInputElement>(null)
   const [weights, setWeights] = useState<Record<string, number>>({ ...DEFAULT_WEIGHTS })
   const [suggestionsSettingsOpen, setSuggestionsSettingsOpen] = useState(false)
@@ -1528,54 +1528,73 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
 
   // ─── Suggestions: from imported scores ───────────────────────────────────
-  const { scores: allProjectScores, loadProjectScores, importScores, deleteProjectScores } = useSuggestionScoresStore()
+  const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
 
   useEffect(() => {
-    loadProjectScores(project.id)
-  }, [project.id, loadProjectScores])
+    loadProjectMeta(project.id)
+  }, [project.id, loadProjectMeta])
 
-  const suggestions = useMemo<SuggestionCandidate[]>(() => {
-    if (!sourceConcept) return []
+  const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([])
+  // Id of the source concept the current `suggestions` array was resolved for.
+  // Null means "no resolved result yet" — we render a loader until the effect catches up.
+  const [suggestionsForConceptId, setSuggestionsForConceptId] = useState<number | null>(null)
+  useEffect(() => {
+    if (!sourceConcept) { setSuggestions([]); setSuggestionsForConceptId(null); return }
     const vocabId = sourceConcept.vocabulary_id ?? sourceConcept.terminology ?? ''
     const code = sourceConcept.concept_code ?? ''
-    const relevant = allProjectScores.filter(
-      (s) => s.sourceVocabularyId === vocabId && s.sourceConceptCode === code,
-    )
-    if (relevant.length === 0) return []
-
-    const byConceptId = new Map<number, typeof relevant>()
-    for (const s of relevant) {
-      const arr = byConceptId.get(s.conceptId) ?? []
-      arr.push(s)
-      byConceptId.set(s.conceptId, arr)
+    const conceptId = sourceConcept.concept_id
+    if (!vocabId || !code) { setSuggestions([]); setSuggestionsForConceptId(conceptId); return }
+    // Optimistic empty state: the index knows whether any rows match without hitting DuckDB.
+    if (scoresIndex && !hasSuggestionsFor(vocabId, code)) {
+      setSuggestions([])
+      setSuggestionsForConceptId(conceptId)
+      return
     }
-
-    return [...byConceptId.entries()].map(([conceptId, rows]) => {
-      const scores = rows.map((r) => {
-        const provider = getProviderForMethod(r.method)
+    let cancelled = false
+    queryScoresForSource(vocabId, code).then((rows) => {
+      if (cancelled) return
+      if (rows.length === 0) { setSuggestions([]); setSuggestionsForConceptId(conceptId); return }
+      const byConceptId = new Map<number, typeof rows>()
+      for (const r of rows) {
+        const arr = byConceptId.get(r.concept_id) ?? []
+        arr.push(r)
+        byConceptId.set(r.concept_id, arr)
+      }
+      const candidates: SuggestionCandidate[] = [...byConceptId.entries()].map(([targetConceptId, conceptRows]) => {
+        const scores = conceptRows.map((r) => {
+          const provider = getProviderForMethod(r.method)
+          return {
+            provider,
+            method: r.method,
+            score: r.score,
+            weight: weights[provider] ?? 1,
+            equivalence: r.equivalence,
+            comment: r.comment,
+            createdAt: r.created_at,
+          }
+        })
         return {
-          provider,
-          method: r.method,
-          score: r.score,
-          weight: weights[provider] ?? 1,
-          equivalence: r.equivalence,
-          comment: r.comment,
-          createdAt: r.createdAt,
+          concept_id: targetConceptId,
+          concept_name: '',
+          concept_code: '',
+          vocabulary_id: '',
+          scores,
+          combined_score: computeCombinedScore(scores),
+          equivalence: pickStrongestEquivalence(scores),
+          comment: pickFirstComment(scores),
         }
-      })
-      const combined_score = computeCombinedScore(scores)
-      return {
-        concept_id: conceptId,
-        concept_name: '',
-        concept_code: '',
-        vocabulary_id: '',
-        scores,
-        combined_score,
-        equivalence: pickStrongestEquivalence(scores),
-        comment: pickFirstComment(scores),
-      } satisfies SuggestionCandidate
-    }).sort((a, b) => b.combined_score - a.combined_score)
-  }, [allProjectScores, sourceConcept, weights])
+      }).sort((a, b) => b.combined_score - a.combined_score)
+      setSuggestions(candidates)
+      setSuggestionsForConceptId(conceptId)
+    }).catch(() => {
+      if (cancelled) return
+      setSuggestions([])
+      setSuggestionsForConceptId(conceptId)
+    })
+    return () => { cancelled = true }
+  }, [project.id, sourceConcept?.concept_id, sourceConcept?.vocabulary_id, sourceConcept?.concept_code, weights, queryScoresForSource, hasSuggestionsFor, scoresIndex])
+
+  const suggestionsLoading = sourceConcept != null && suggestionsForConceptId !== sourceConcept.concept_id
 
   const [enrichedSuggestions, setEnrichedSuggestions] = useState<SuggestionCandidate[]>([])
   useEffect(() => {
@@ -1632,11 +1651,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     setSuggestionsImportError(null)
     setSuggestionsImportResult(null)
     try {
-      const { parseScoresFile, scoresToSuggestionScores } = await import('@/lib/concept-mapping/scores-parser')
-      const rows = await parseScoresFile(file)
-      const toImport = scoresToSuggestionScores(rows)
-      const result = await importScores(project.id, toImport)
-      setSuggestionsImportResult(result)
+      const index = await importScores(project.id, file)
+      setSuggestionsImportResult({ rowCount: index.rowCount, methods: index.methods })
     } catch (err) {
       setSuggestionsImportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -1650,7 +1666,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       .map((m) => m.targetConceptId),
   ), [mappings, project.id, sourceConcept?.concept_id])
 
-  const totalProjectScores = allProjectScores.length
+  const totalProjectScores = scoresIndex?.rowCount ?? 0
 
   const renderSuggestionsPanel = () => {
     if (totalProjectScores === 0) {
@@ -1663,6 +1679,26 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <p className="text-[10px] text-muted-foreground/70">
             {t('concept_mapping.suggestions_no_scores_hint')}
           </p>
+        </div>
+      )
+    }
+    if (!sourceConcept) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
+          <Sparkles size={20} className="text-muted-foreground/40" />
+          <p className="text-[11px] font-medium text-muted-foreground">
+            {t('concept_mapping.suggestions_no_source_concept')}
+          </p>
+          <p className="text-[10px] text-muted-foreground/70">
+            {t('concept_mapping.suggestions_no_source_concept_hint')}
+          </p>
+        </div>
+      )
+    }
+    if (suggestionsLoading) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-1 p-4 text-center">
+          <Loader2 size={20} className="animate-spin text-muted-foreground/40" />
         </div>
       )
     }
@@ -2041,7 +2077,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             </Button>
             {suggestionsImportResult && !suggestionsImporting && (
               <p className="text-[11px] text-muted-foreground">
-                +{suggestionsImportResult.added} {t('common.added').toLowerCase()}, {suggestionsImportResult.replaced} {t('common.replaced').toLowerCase()}
+                {suggestionsImportResult.rowCount.toLocaleString()} {t('concept_mapping.suggestions_scores_count')}
+                {suggestionsImportResult.methods.length > 0 && (
+                  <> — {suggestionsImportResult.methods.join(', ')}</>
+                )}
               </p>
             )}
             {suggestionsImportError && (

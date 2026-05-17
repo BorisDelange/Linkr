@@ -298,6 +298,20 @@ export interface SuggestionScore {
   importedAt: string
 }
 
+/**
+ * Project-level scores metadata, built once at import time.
+ * Lets the UI answer "does this source concept have suggestions?" in O(1)
+ * without scanning the parquet, and surfaces totals to the management dialog.
+ */
+export interface ScoresIndex {
+  projectId: string
+  rowCount: number
+  methods: string[]
+  /** Set of `${sourceVocabularyId}::${sourceConceptCode}` keys. */
+  sourceKeys: Set<string>
+  importedAt: string
+}
+
 // --- Source Concept ID Registry (OMOP custom IDs > 2,000,000,000) ---
 
 /**

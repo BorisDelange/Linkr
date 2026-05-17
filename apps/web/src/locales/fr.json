@@ -2803,6 +2803,8 @@
     "concept_info_hierarchy_large_desc": "Les grandes hiérarchies peuvent prendre du temps à charger et à afficher.",
     "concept_info_hierarchy_load_anyway": "Charger quand même",
     "suggestions_empty_hint": "Aucun score ne correspond à ce concept dans le fichier importé.",
+    "suggestions_no_source_concept": "Sélectionnez un concept source",
+    "suggestions_no_source_concept_hint": "Choisissez une ligne dans la table pour voir ses meilleurs candidats OMOP.",
     "suggestions_import": "Importer un fichier de scores",
     "suggestions_importing": "Import en cours…",
     "suggestions_no_scores": "Aucun fichier de scores importé",
