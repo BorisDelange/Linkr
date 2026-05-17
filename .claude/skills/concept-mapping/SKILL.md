@@ -137,7 +137,7 @@ Other columns (category, patients_count, …) will be ignored.
 Is this correct?
 ```
 
-If the user confirms, generate a temporary normalized CSV (`/tmp/<original-name>-normalized.csv`) with only the three renamed columns, and use that path as `--source` for the script. If the user corrects the mapping, apply their corrections before writing the temp file.
+If the user confirms, generate a normalized CSV **inside the project folder** at `<project_dir>/source-concepts-normalized.csv` with only the three renamed columns, and use that path as `--source` for the script. If the user corrects the mapping, apply their corrections before writing the file. (The script derives default output paths from `--source`'s parent folder, so keeping the normalized CSV in `<project_dir>/` makes `similarity-scores.parquet` and `source_embeddings.parquet` land in the right place.)
 
 If a required column cannot be matched even heuristically, list the actual columns and ask the user to specify the mapping explicitly.
 
