@@ -60,18 +60,36 @@ function renderStatusBreakdown(mapped) {
   $("status-breakdown").innerHTML = rows;
 }
 
-function renderMethods(methods) {
+function renderMethods(methods, sourceTotal) {
   const order = ["syntactic/jaro-winkler", "syntactic/token-sort", "syntactic/ngram-idf", "semantic/biolord"];
-  const html = order.map((name) => {
+  const extras = Object.keys(methods).filter((k) => !order.includes(k)).sort();
+  const html = order.concat(extras).map((name) => {
     const m = methods[name] || { computed: false, coverage: 0 };
     const dot = m.computed
       ? `<span class="dot-yes">●</span> yes`
       : `<span class="dot-no">○</span> not yet`;
+    const cov = m.coverage || 0;
+    const p = sourceTotal > 0 ? pct(cov, sourceTotal) : 0;
+    const barColor = !m.computed
+      ? "bg-slate-200"
+      : p >= 100
+        ? "bg-emerald-500"
+        : p > 0
+          ? "bg-amber-500"
+          : "bg-slate-200";
+    const coverageCell = m.computed
+      ? `<div class="flex items-center gap-2">
+           <div class="flex-1 max-w-[160px] h-2 bg-slate-100 rounded overflow-hidden">
+             <div class="h-full ${barColor}" style="width:${p}%"></div>
+           </div>
+           <div class="font-mono whitespace-nowrap">${fmt(cov)} / ${fmt(sourceTotal)} <span class="text-slate-400">(${p}%)</span></div>
+         </div>`
+      : `<span class="text-slate-400">—</span>`;
     return `
       <tr class="border-t border-slate-100">
         <td class="py-2 font-mono">${name}</td>
         <td>${dot}</td>
-        <td class="font-mono">${m.computed ? fmt(m.coverage) + " concepts" : "—"}</td>
+        <td>${coverageCell}</td>
       </tr>`;
   }).join("");
   $("methods-body").innerHTML = html;
@@ -196,7 +214,7 @@ async function load() {
   renderOmopEmbeddings(state);
   renderProgressBars(c);
   renderStatusBreakdown(mapped);
-  renderMethods(state.methods || {});
+  renderMethods(state.methods || {}, c.sourceConceptsTotal || 0);
   renderSessions(state.sessions);
   renderFiles(state);
 }
