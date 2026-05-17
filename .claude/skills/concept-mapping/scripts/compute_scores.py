@@ -39,13 +39,25 @@ Dependencies:
 """
 
 import argparse
+import gc
 import math
+import os
 import sys
 import time
 import unicodedata
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+
+# OpenMP runtime conflict workaround for Apple Silicon: importing FAISS after
+# PyTorch (loaded by sentence-transformers) causes segfaults on macOS because
+# both ship their own libomp. Set the env var and import FAISS *first*, before
+# anything that pulls torch, so the FAISS OpenMP runtime wins the symbol race.
+os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+try:
+    import faiss  # noqa: F401  (imported for side effect: lock in libomp)
+except ImportError:
+    faiss = None  # type: ignore[assignment]
 
 import duckdb
 import numpy as np
@@ -199,6 +211,11 @@ def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
     )
     if output_path.exists():
         existing = pq.read_table(str(output_path))
+        # Coerce existing schema to PARQUET_SCHEMA — earlier runs may have
+        # written `comment` as type `null` (when all rows had None), which
+        # is incompatible with the new `string` column.
+        if existing.schema != PARQUET_SCHEMA:
+            existing = existing.cast(PARQUET_SCHEMA)
         combined = pa.concat_tables([existing, table])
         pq.write_table(combined, str(output_path), compression="snappy")
     else:
@@ -240,11 +257,48 @@ def load_concept_table(path: Path) -> pd.DataFrame:
 
 
 def load_embeddings(path: Path) -> tuple[np.ndarray, pd.Series, str]:
-    """Returns (N×D matrix, concept_id series, model_id)."""
-    table = pq.read_table(str(path))
-    df = table.to_pandas()
-    matrix = np.vstack(df["embedding"].tolist()).astype(np.float32)
-    return matrix, df["concept_id"], df["model_id"].iloc[0]
+    """Returns (N×D matrix, concept_id series, model_id).
+
+    Streams the parquet row-group by row-group into a single contiguous
+    float32 array. Avoids the previous `np.vstack(df["embedding"].tolist())`
+    pattern which materialized millions of Python lists at once.
+    """
+    pf = pq.ParquetFile(str(path))
+    n_total = pf.metadata.num_rows
+    # Peek at one batch to discover the embedding dimension.
+    first = next(pf.iter_batches(batch_size=1, columns=["embedding"]))
+    dim = len(first.column("embedding")[0])
+
+    matrix = np.empty((n_total, dim), dtype=np.float32)
+    ids = np.empty(n_total, dtype=np.int64)
+    model_id: str | None = None
+    row = 0
+    t_start = time.time()
+    for batch in pf.iter_batches(
+        batch_size=50_000,
+        columns=["concept_id", "embedding", "model_id"],
+    ):
+        n = batch.num_rows
+        # to_numpy(zero_copy_only=False) on a ListArray of float32 returns an
+        # object array of numpy arrays — fast to stack into one contiguous block.
+        arr = np.stack(batch.column("embedding").to_numpy(zero_copy_only=False)).astype(
+            np.float32, copy=False
+        )
+        matrix[row : row + n] = arr
+        ids[row : row + n] = batch.column("concept_id").to_numpy()
+        if model_id is None:
+            model_id = batch.column("model_id")[0].as_py()
+        row += n
+        if row % 500_000 < 50_000 or row == n_total:
+            elapsed = time.time() - t_start
+            speed = row / elapsed if elapsed > 0 else 0
+            print(
+                f"[embed-load] {row:,}/{n_total:,} ({row / n_total * 100:.1f}%) — "
+                f"{speed:,.0f} rows/s",
+                flush=True,
+            )
+    assert model_id is not None
+    return matrix, pd.Series(ids), model_id
 
 
 # ---------------------------------------------------------------------------
@@ -274,77 +328,174 @@ def compute_semantic_scores(
         print("  [semantic] all source concepts already scored, skipping")
         return n_already_flushed
 
-    print(f"  Loading model {model_id} ...")
-    model = SentenceTransformer(model_id)
+    # Resume optimization: if source embeddings for the remaining concepts are
+    # already on disk (e.g. previous run encoded everything then crashed during
+    # FAISS index build), reload them instead of re-encoding.
+    query_vecs = None
+    existing_src_df: pd.DataFrame | None = None
+    if source_embeddings_path is not None and source_embeddings_path.exists():
+        try:
+            existing_src_df = pq.read_table(str(source_embeddings_path)).to_pandas()
+            existing_keys = set(zip(
+                existing_src_df["source_vocabulary_id"],
+                existing_src_df["source_concept_code"],
+            ))
+            remaining_keys = set(zip(
+                remaining["source_vocabulary_id"],
+                remaining["source_concept_code"],
+            ))
+            if remaining_keys.issubset(existing_keys):
+                idx_df = existing_src_df.set_index(["source_vocabulary_id", "source_concept_code"])
+                ordered = idx_df.loc[list(remaining_keys.intersection(existing_keys))]
+                # Re-order to match `remaining` row order
+                ordered = idx_df.loc[[
+                    (v, c) for v, c in zip(
+                        remaining["source_vocabulary_id"],
+                        remaining["source_concept_code"],
+                    )
+                ]]
+                query_vecs = np.stack(ordered["embedding"].tolist()).astype(np.float32, copy=False)
+                model_id = ordered["model_id"].iloc[0]
+                print(
+                    f"  [semantic] reusing {len(query_vecs)} source embeddings from "
+                    f"{source_embeddings_path}",
+                    flush=True,
+                )
+                del existing_src_df, idx_df, ordered
+                gc.collect()
+        except Exception as e:
+            print(f"  warning: could not reuse source embeddings ({e}), re-encoding", file=sys.stderr)
+            query_vecs = None
 
-    texts = remaining["source_concept_name"].tolist()
-    print(f"  Encoding {len(texts)} source concepts ...", flush=True)
-    query_vecs = model.encode(texts, batch_size=64, show_progress_bar=False,
-                              convert_to_numpy=True, normalize_embeddings=True)
-    print(f"  [semantic] source concepts encoded", flush=True)
+    if query_vecs is None:
+        print(f"  Loading model {model_id} ...")
+        model = SentenceTransformer(model_id)
 
-    if source_embeddings_path is not None:
-        src_table = pa.table({
-            "source_vocabulary_id": pa.array(remaining["source_vocabulary_id"].tolist(), type=pa.string()),
-            "source_concept_code":  pa.array(remaining["source_concept_code"].tolist(),  type=pa.string()),
-            "source_concept_name":  pa.array(remaining["source_concept_name"].tolist(),  type=pa.string()),
-            "model_id":             pa.array([model_id] * len(remaining),                type=pa.string()),
-            "embedding":            pa.array([v.tolist() for v in query_vecs],
-                                             type=pa.list_(pa.float32())),
-        })
-        if source_embeddings_path.exists():
-            existing_src = pq.read_table(str(source_embeddings_path))
-            src_table = pa.concat_tables([existing_src, src_table])
-        pq.write_table(src_table, str(source_embeddings_path), compression="snappy")
-        print(f"  [semantic] source embeddings saved to {source_embeddings_path}", flush=True)
+        texts = remaining["source_concept_name"].tolist()
+        print(f"  Encoding {len(texts)} source concepts ...", flush=True)
+        query_vecs = model.encode(texts, batch_size=64, show_progress_bar=False,
+                                  convert_to_numpy=True, normalize_embeddings=True)
+        print(f"  [semantic] source concepts encoded", flush=True)
+        del texts, model
+        gc.collect()
 
-    # emb_matrix is already L2-normalized → cosine similarity = dot product
-    print(f"  Computing cosine similarity ({len(texts)} x {len(emb_concept_ids)}) ...", flush=True)
-    scores_matrix = query_vecs @ emb_matrix.T  # shape: (n_source, n_omop)
-    print(f"  [semantic] cosine similarity matrix computed", flush=True)
+        if source_embeddings_path is not None:
+            src_table = pa.table({
+                "source_vocabulary_id": pa.array(remaining["source_vocabulary_id"].tolist(), type=pa.string()),
+                "source_concept_code":  pa.array(remaining["source_concept_code"].tolist(),  type=pa.string()),
+                "source_concept_name":  pa.array(remaining["source_concept_name"].tolist(),  type=pa.string()),
+                "model_id":             pa.array([model_id] * len(remaining),                type=pa.string()),
+                "embedding":            pa.array([v.tolist() for v in query_vecs],
+                                                 type=pa.list_(pa.float32())),
+            })
+            if source_embeddings_path.exists():
+                existing_src = pq.read_table(str(source_embeddings_path))
+                src_table = pa.concat_tables([existing_src, src_table])
+            pq.write_table(src_table, str(source_embeddings_path), compression="snappy")
+            print(f"  [semantic] source embeddings saved to {source_embeddings_path}", flush=True)
+
+    # FAISS IndexFlatIP fuses GEMM + top-K → no n_source × n_omop materialization.
+    # Both query and reference vectors must be contiguous float32 and L2-normalized
+    # (cosine = dot product). `normalize_embeddings=True` was used above and
+    # embed_concepts.py normalizes too — we still re-normalize defensively.
+    # FAISS is imported at module top to lock in its libomp before torch loads.
+    if faiss is None:
+        print("Error: faiss is not installed. Run `pip install faiss-cpu`.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    n_omop, dim = emb_matrix.shape
+    print(
+        f"  Building FAISS IndexFlatIP ({n_omop:,} × {dim}, "
+        f"{emb_matrix.nbytes / 1e9:.1f} GB) ...",
+        flush=True,
+    )
+    if not emb_matrix.flags["C_CONTIGUOUS"] or emb_matrix.dtype != np.float32:
+        emb_matrix = np.ascontiguousarray(emb_matrix, dtype=np.float32)
+    try:
+        faiss.omp_set_num_threads(min(4, max(1, faiss.omp_get_max_threads())))
+    except Exception:
+        pass
+
+    # Normalize and add by chunks to avoid OpenMP-related segfaults and to keep
+    # the working set small on machines with limited RAM.
+    ADD_CHUNK = 100_000
+    index = faiss.IndexFlatIP(dim)
+    t_add = time.time()
+    for start in range(0, n_omop, ADD_CHUNK):
+        end = min(start + ADD_CHUNK, n_omop)
+        chunk = np.ascontiguousarray(emb_matrix[start:end])
+        faiss.normalize_L2(chunk)
+        index.add(chunk)
+        if (start // ADD_CHUNK) % 5 == 0 or end == n_omop:
+            elapsed = time.time() - t_add
+            speed = end / elapsed if elapsed > 0 else 0
+            print(
+                f"[index-add] {end:,}/{n_omop:,} ({end / n_omop * 100:.1f}%) — "
+                f"{speed:,.0f} vec/s",
+                flush=True,
+            )
+    # Free the source matrix — FAISS holds its own copy inside the index.
+    # Drops peak RAM from ~2× emb_matrix to ~1× during the search phase.
+    del emb_matrix
+    gc.collect()
+    print(f"  [semantic] FAISS index ready ({index.ntotal:,} vectors)", flush=True)
+
+    if not query_vecs.flags["C_CONTIGUOUS"] or query_vecs.dtype != np.float32:
+        query_vecs = np.ascontiguousarray(query_vecs, dtype=np.float32)
+    faiss.normalize_L2(query_vecs)
 
     concept_ids_arr = emb_concept_ids.to_numpy()
     total = len(remaining)
     t_start = time.time()
     buf: list[dict] = []
-    n_flushed = n_already_flushed
+    SEARCH_BATCH = 256
 
-    for i, src_row in enumerate(remaining.itertuples(index=False)):
-        sims = scores_matrix[i]
-        top_idx = np.argpartition(sims, -k)[-k:]
-        top_idx = top_idx[np.argsort(sims[top_idx])[::-1]]
-        created_at = now_iso()
-        for idx in top_idx:
-            buf.append({
-                "source_vocabulary_id": src_row.source_vocabulary_id,
-                "source_concept_code":  src_row.source_concept_code,
-                "concept_id":           int(concept_ids_arr[idx]),
-                "method":               "semantic/biolord",
-                "score":                round(float(sims[idx]), 3),
-                "equivalence":          DEFAULT_EQUIVALENCE,
-                "comment":              None,
-                "created_at":           created_at,
-            })
+    for batch_start in range(0, total, SEARCH_BATCH):
+        batch_end = min(batch_start + SEARCH_BATCH, total)
+        D, I = index.search(query_vecs[batch_start:batch_end], k)
 
-        done = i + 1
-        if done % flush_every == 0 or done == total:
-            flush_to_parquet(output_path, buf)
-            n_flushed += done - (n_flushed - n_already_flushed)
-            total_written = n_already_flushed + done
-            print(f"[flush] {total_written:,} source concepts saved to {output_path}", flush=True)
-            buf = []
+        for offset in range(batch_end - batch_start):
+            i = batch_start + offset
+            src_row = remaining.iloc[i]
+            created_at = now_iso()
+            for rank in range(k):
+                idx = int(I[offset, rank])
+                if idx < 0:
+                    continue
+                buf.append({
+                    "source_vocabulary_id": src_row["source_vocabulary_id"],
+                    "source_concept_code":  src_row["source_concept_code"],
+                    "concept_id":           int(concept_ids_arr[idx]),
+                    "method":               "semantic/biolord",
+                    "score":                round(float(D[offset, rank]), 3),
+                    "equivalence":          DEFAULT_EQUIVALENCE,
+                    "comment":              None,
+                    "created_at":           created_at,
+                })
 
-        if done % 50 == 0 or done == total:
-            elapsed = time.time() - t_start
-            pct = done / total * 100
-            speed = done / elapsed if elapsed > 0 else 0
-            eta = (total - done) / speed if speed > 0 else 0
-            eta_min, eta_sec = divmod(int(eta), 60)
-            print(
-                f"[semantic] {done}/{total} concepts ({pct:.1f}%) — "
-                f"{speed:.1f} concepts/s — ETA {eta_min}m{eta_sec:02d}s",
-                flush=True,
-            )
+            done = i + 1
+            if done % flush_every == 0 or done == total:
+                flush_to_parquet(output_path, buf)
+                total_written = n_already_flushed + done
+                print(f"[flush] {total_written:,} source concepts saved to {output_path}", flush=True)
+                buf = []
+
+        done = batch_end
+        elapsed = time.time() - t_start
+        pct = done / total * 100
+        speed = done / elapsed if elapsed > 0 else 0
+        eta = (total - done) / speed if speed > 0 else 0
+        eta_min, eta_sec = divmod(int(eta), 60)
+        print(
+            f"[semantic] {done}/{total} concepts ({pct:.1f}%) — "
+            f"{speed:.1f} concepts/s — ETA {eta_min}m{eta_sec:02d}s",
+            flush=True,
+        )
+
+    if buf:
+        flush_to_parquet(output_path, buf)
+        print(f"[flush] {n_already_flushed + total:,} source concepts saved to {output_path}", flush=True)
 
     return n_already_flushed + total
 
