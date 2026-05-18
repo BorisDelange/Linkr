@@ -439,15 +439,23 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                     className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-40' : ''}`}
                     onClick={() => { if (!alreadyMapped) onSelect(isSelected ? null : row.original) }}
                   >
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className="overflow-hidden truncate px-2 py-1 text-xs"
-                        style={{ maxWidth: cell.column.getSize() }}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
+                    {row.getVisibleCells().map((cell) => {
+                      const colId = cell.column.id
+                      const raw = cell.getValue()
+                      const title = (colId === 'concept_name' || colId === 'vocabulary_id') && raw != null
+                        ? String(raw)
+                        : undefined
+                      return (
+                        <TableCell
+                          key={cell.id}
+                          className="overflow-hidden truncate px-2 py-1 text-xs"
+                          style={{ maxWidth: cell.column.getSize() }}
+                          title={title}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      )
+                    })}
                   </TableRow>
                 )
               })}

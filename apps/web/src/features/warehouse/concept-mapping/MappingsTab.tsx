@@ -382,7 +382,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 disabled={isOwnMapping}
               >
                 <Check size={12} />
-                {t('concept_mapping.approve')}
+                {t(myReview?.status === 'approved' ? 'concept_mapping.status_approved' : 'concept_mapping.approve')}
               </Button>
               <Button
                 size="sm"
@@ -392,7 +392,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 disabled={isOwnMapping}
               >
                 <X size={12} />
-                {t('concept_mapping.reject')}
+                {t(myReview?.status === 'rejected' ? 'concept_mapping.status_rejected' : 'concept_mapping.reject')}
               </Button>
               <Button
                 size="sm"
@@ -401,7 +401,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
                 onClick={() => handleReview('flagged')}
               >
                 <Flag size={12} />
-                {t('concept_mapping.flag')}
+                {t(myReview?.status === 'flagged' ? 'concept_mapping.status_flagged' : 'concept_mapping.flag')}
               </Button>
             </div>
           </div>

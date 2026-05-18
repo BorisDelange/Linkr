@@ -55,17 +55,17 @@ export function pickFirstComment(scores: MethodScore[]): string | null {
 }
 
 export const METHOD_COLORS: Record<string, string> = {
-  Syntaxique:  'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400',
+  Syntaxique:  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400',
+  Statistique: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
   Sémantique:  'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-400',
-  Statistique: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-  IA:          'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400',
+  IA:          'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-400',
 }
 
 export const METHOD_DOT_COLORS: Record<string, string> = {
-  Syntaxique:  'bg-sky-500',
+  Syntaxique:  'bg-amber-500',
+  Statistique: 'bg-emerald-500',
   Sémantique:  'bg-violet-500',
-  Statistique: 'bg-orange-500',
-  IA:          'bg-emerald-500',
+  IA:          'bg-fuchsia-500',
 }
 
 /** Map raw method strings (from scores file) to display provider names + colors. */

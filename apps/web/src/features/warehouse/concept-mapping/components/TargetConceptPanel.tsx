@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, DEFAULT_WEIGHTS, ALL_PROVIDERS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -347,7 +347,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Suggestions state (from imported scores)
   const [suggestionsImporting, setSuggestionsImporting] = useState(false)
   const [suggestionsImportError, setSuggestionsImportError] = useState<string | null>(null)
-  const [suggestionsImportResult, setSuggestionsImportResult] = useState<{ rowCount: number; methods: string[] } | null>(null)
   const suggestionsFileInputRef = useRef<HTMLInputElement>(null)
   const [weights, setWeights] = useState<Record<string, number>>({ ...DEFAULT_WEIGHTS })
   const [suggestionsSettingsOpen, setSuggestionsSettingsOpen] = useState(false)
@@ -1649,10 +1648,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const handleImportScoresFile = useCallback(async (file: File) => {
     setSuggestionsImporting(true)
     setSuggestionsImportError(null)
-    setSuggestionsImportResult(null)
     try {
-      const index = await importScores(project.id, file)
-      setSuggestionsImportResult({ rowCount: index.rowCount, methods: index.methods })
+      await importScores(project.id, file)
     } catch (err) {
       setSuggestionsImportError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -2053,81 +2050,83 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     {identityDialog}
     {/* Suggestions settings dialog */}
     <Dialog open={suggestionsSettingsOpen} onOpenChange={setSuggestionsSettingsOpen}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle className="text-sm">{t('concept_mapping.suggestions_manage')}</DialogTitle>
+      <DialogContent className="max-w-md gap-0 p-0">
+        <DialogHeader className="border-b p-4">
+          <DialogTitle className="text-sm font-semibold">{t('concept_mapping.suggestions_manage')}</DialogTitle>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t('concept_mapping.suggestions_manage_subtitle')}</p>
         </DialogHeader>
-        <div className="space-y-4 py-1">
-          {/* Import */}
-          <div className="space-y-2">
-            {totalProjectScores > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {totalProjectScores.toLocaleString()} {t('concept_mapping.suggestions_scores_count')}
-              </p>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 w-full gap-1.5 px-2.5 text-xs"
-              disabled={suggestionsImporting}
-              onClick={() => suggestionsFileInputRef.current?.click()}
-            >
-              {suggestionsImporting ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-              {suggestionsImporting ? t('concept_mapping.suggestions_importing') : t('concept_mapping.suggestions_import')}
-            </Button>
-            {suggestionsImportResult && !suggestionsImporting && (
-              <p className="text-[11px] text-muted-foreground">
-                {suggestionsImportResult.rowCount.toLocaleString()} {t('concept_mapping.suggestions_scores_count')}
-                {suggestionsImportResult.methods.length > 0 && (
-                  <> — {suggestionsImportResult.methods.join(', ')}</>
-                )}
-              </p>
-            )}
-            {suggestionsImportError && (
-              <p className="text-[11px] text-destructive">{suggestionsImportError}</p>
+        <div className="p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('concept_mapping.suggestions_weights_section')}</p>
+            {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
+              <button
+                type="button"
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => setWeights({ ...DEFAULT_WEIGHTS })}
+              >
+                {t('common.reset')}
+              </button>
             )}
           </div>
-          {/* Weights */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">{t('concept_mapping.suggestions_weights_title')}</p>
-              {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
-                <button
-                  type="button"
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => setWeights({ ...DEFAULT_WEIGHTS })}
-                >
-                  {t('common.reset')}
-                </button>
-              )}
-            </div>
-            {ALL_PROVIDERS.map((provider) => (
-              <div key={provider} className="flex items-center gap-3">
-                <span className="w-24 shrink-0 text-xs text-foreground">{provider}</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={5}
-                  step={0.5}
-                  value={weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1}
-                  onChange={(e) => setWeights((w) => ({ ...w, [provider]: Number(e.target.value) }))}
-                  className="h-1 flex-1 accent-primary"
-                />
-                <span className="w-6 text-right text-xs tabular-nums text-muted-foreground">
-                  ×{weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1}
-                </span>
-              </div>
-            ))}
+          <div className="space-y-3">
+            {ALL_PROVIDERS.map((provider) => {
+              const value = weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1
+              const dot = METHOD_DOT_COLORS[provider] ?? 'bg-gray-400'
+              const label = provider === 'IA' ? 'IA agentique' : provider
+              return (
+                <div key={provider} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
+                  <div className="flex w-32 items-center gap-2">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${dot}`} />
+                    <span className="text-xs text-foreground">{label}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={5}
+                    step={0.5}
+                    value={value}
+                    onChange={(e) => setWeights((w) => ({ ...w, [provider]: Number(e.target.value) }))}
+                    className="h-1.5 flex-1 accent-foreground"
+                  />
+                  <span className="w-8 text-right font-mono text-xs tabular-nums text-muted-foreground">×{value.toFixed(1)}</span>
+                </div>
+              )
+            })}
           </div>
-          {/* Delete */}
+          <div className="mt-5 border-t pt-3 text-[11px] text-muted-foreground">
+            {totalProjectScores > 0 ? (
+              <>
+                {t('concept_mapping.suggestions_scores_loaded_from', { count: totalProjectScores.toLocaleString() })}{' '}
+                <code className="font-mono text-foreground">{t('concept_mapping.suggestions_default_filename')}</code>
+              </>
+            ) : (
+              t('concept_mapping.suggestions_no_scores_loaded')
+            )}
+          </div>
+          {suggestionsImportError && (
+            <p className="mt-2 text-[11px] text-destructive">{suggestionsImportError}</p>
+          )}
+        </div>
+        <div className="flex items-center justify-between gap-2 rounded-b-lg border-t bg-muted/30 px-4 py-3">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 gap-1.5 px-3 text-xs"
+            disabled={suggestionsImporting}
+            onClick={() => suggestionsFileInputRef.current?.click()}
+          >
+            {suggestionsImporting ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+            {suggestionsImporting ? t('concept_mapping.suggestions_importing') : t('concept_mapping.suggestions_import_file')}
+          </Button>
           {totalProjectScores > 0 && (
             <Button
               size="sm"
-              className="h-7 w-full gap-1.5 bg-destructive px-2.5 text-xs text-white hover:bg-destructive/90"
+              variant="ghost"
+              className="h-7 gap-1.5 px-3 text-xs text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:text-rose-400 dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
               onClick={() => setSuggestionsDeleteConfirmOpen(true)}
             >
-              <Trash2 size={11} />
-              {t('concept_mapping.suggestions_delete_all')}
+              <Trash2 size={12} />
+              {t('concept_mapping.suggestions_delete_all_btn')}
             </Button>
           )}
         </div>
