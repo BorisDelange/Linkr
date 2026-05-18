@@ -22,7 +22,7 @@ By the time this skill runs, the following are already in place:
 
 ## Step 0: Decide where the AI output goes
 
-At the start of every session, ask the user three questions before processing any concept:
+At the start of every session, ask the user the following questions before processing any concept:
 
 **Q1 — Destination** (default: suggestions)
 > "Should my AI matches land in `similarity-scores.parquet` as **suggestions** (a Linkr reviewer accepts/rejects them later in the UI), or directly in `mappings.json` as **authored mappings**?"
@@ -39,7 +39,15 @@ At the start of every session, ask the user three questions before processing an
 **Q3 — Top-K** (only if `suggestions` was chosen, default: 5)
 > "How many candidates per source concept should I propose? (default: 5)"
 
-Store these three choices for the whole session — do not re-ask between batches unless the user asks to change them.
+**Q4 — Per-batch review** (only if `suggestions` was chosen, default: no)
+> "Do you want to review each batch before I flush it to the parquet, or should I run autonomously?"
+
+- `no` (default) → flush each batch directly without asking. The user reviews everything later in the Linkr UI.
+- `yes` → at the end of each batch, present the table and require confirmation before flushing (same flow as `mappings` mode below).
+
+In `mappings` mode, per-batch confirmation is implicit — every concept always requires explicit user confirmation before being written.
+
+Store these choices for the whole session — do not re-ask between batches unless the user asks to change them.
 
 ## Step 1: Load pre-computed scores (if available)
 
@@ -113,7 +121,9 @@ Assign SSSOM equivalence level (see `reference.md` for full guidelines):
 
 ### 2d. Present to user
 
-For each source concept, show:
+The presentation flow depends on the destination chosen at Step 0:
+
+**Mode `mappings` (authored)** — present each source concept individually and require explicit user confirmation before writing. A mapping written here lands directly in `mappings.json` as `status: unchecked`, so every concept must be accepted by hand.
 
 ```
 Source: <concept_name> [<terminology>/<code>]
@@ -133,7 +143,21 @@ Candidate 2 (alternative):
 → Options: [1] Accept candidate 1  [2] Accept candidate 2  [3] Enter custom concept_id  [4] Flag for review  [5] Mark as ignored  [6] Skip
 ```
 
-Never write a mapping without explicit user confirmation.
+Never write a `mappings.json` row without explicit user confirmation.
+
+**Mode `suggestions`** — behavior depends on Q4 (per-batch review) chosen at Step 0.
+
+- **Q4 = no (default, autonomous)**: present the whole batch as a compact recommendation table for transparency, then flush directly to `similarity-scores.parquet` without asking. The user's approval happens later in the Linkr UI.
+- **Q4 = yes**: present the table and require the user to confirm before flushing each batch — same pattern as the `mappings` mode above.
+
+Recommended format for the batch table:
+
+```
+| # | Source | Top candidate | Equiv | Score | Comment |
+|---|---|---|---|---|---|
+| 1 | <vocab>/<code> <name> | <cid> <concept_name> [<voc> <dom>] | <skos:level> | <0.0–1.0> | <one-line justification> |
+| ... |
+```
 
 ### 2e. Handle edge cases
 
