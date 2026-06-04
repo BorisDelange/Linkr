@@ -333,7 +333,9 @@
     "filter_date_unit_month": "Mois",
     "filter_date_unit_year": "An(s)",
     "settings_tab_style": "Style",
-    "settings_tab_dataset": "Dataset"
+    "settings_tab_dataset": "Dataset",
+    "filter_min": "Min",
+    "filter_max": "Max"
   },
   "concepts": {
     "title": "Concepts",
@@ -932,7 +934,10 @@
     "import_settings_apply": "Ré-importer",
     "import_settings_reimporting": "Ré-importation...",
     "map_select_coords": "Sélectionnez les colonnes latitude et longitude pour commencer.",
-    "map_no_points": "Aucune coordonnée valide à afficher."
+    "map_no_points": "Aucune coordonnée valide à afficher.",
+    "plot_builder_histogram": "Histogramme",
+    "plot_builder_select_x": "Sélectionnez une variable X pour commencer.",
+    "plot_builder_select_y": "Sélectionnez une variable Y."
   },
   "subsets": {
     "title": "Sous-ensembles",

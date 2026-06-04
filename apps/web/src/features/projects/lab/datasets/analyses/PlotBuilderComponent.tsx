@@ -19,7 +19,6 @@ import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PA
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
-const PALETTES = CHART_PALETTES
 
 function parseCustomPalette(input: string): string[] | null {
   if (!input.trim()) return null
@@ -463,7 +462,6 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const bgColorName = (config.bgColor as string) ?? 'none'
   const titleColorName = (config.titleColor as string) ?? 'auto'
   const centerTitle = (config.centerTitle as boolean) ?? false
-  const headerScale = ((config.size as number) ?? 100) / 100
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
   const yCol = config.yColumn as string | undefined
@@ -493,8 +491,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
 
   const opacity = opacityPct / 100
   const paletteColors = paletteName === 'custom'
-    ? (parseCustomPalette(customPaletteStr) ?? PALETTES.default)
-    : (PALETTES[paletteName] ?? PALETTES.default)
+    ? (parseCustomPalette(customPaletteStr) ?? CHART_PALETTES.default)
+    : (CHART_PALETTES[paletteName] ?? CHART_PALETTES.default)
 
   // Resolve colors
   const cardColorResolved = resolveColor(cardColor)
@@ -709,16 +707,12 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     else bgClasses = bgColor.bg
   }
 
-  const titleFontSize = Math.round((compact ? 12 : 14) * headerScale)
   const titleElement = resolvedTitle ? (
-    <span
-      className={cn(
-        'font-medium truncate',
-        titleColor ? titleColor.text : 'text-muted-foreground',
-        !compact && !titleColor && 'text-foreground/80',
-      )}
-      style={{ fontSize: titleFontSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
-    >
+    <span className={cn(
+      'text-xs font-medium truncate',
+      titleColor ? titleColor.text : 'text-muted-foreground',
+      !compact && !titleColor && 'text-sm text-foreground/80',
+    )} style={titleColor?.isCustom ? { color: titleColor.hex } : undefined}>
       {resolvedTitle}
     </span>
   ) : null
@@ -731,7 +725,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     )}>
       {Icon && (
         <Icon
-          size={Math.round((compact ? 16 : 18) * headerScale)}
+          size={compact ? 16 : 18}
           className={hasCardColor ? color.text : 'text-muted-foreground'}
           style={color.isCustom ? { color: color.hex } : undefined}
         />

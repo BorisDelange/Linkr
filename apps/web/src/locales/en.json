@@ -333,7 +333,9 @@
     "filter_date_unit_month": "Month(s)",
     "filter_date_unit_year": "Year(s)",
     "settings_tab_style": "Style",
-    "settings_tab_dataset": "Dataset"
+    "settings_tab_dataset": "Dataset",
+    "filter_min": "Min",
+    "filter_max": "Max"
   },
   "concepts": {
     "title": "Concepts",
@@ -932,7 +934,10 @@
     "import_settings_apply": "Re-import",
     "import_settings_reimporting": "Re-importing...",
     "map_select_coords": "Select latitude and longitude columns to begin.",
-    "map_no_points": "No valid coordinates to display."
+    "map_no_points": "No valid coordinates to display.",
+    "plot_builder_histogram": "Histogram",
+    "plot_builder_select_x": "Select an X variable to begin.",
+    "plot_builder_select_y": "Select a Y variable."
   },
   "subsets": {
     "title": "Subsets",

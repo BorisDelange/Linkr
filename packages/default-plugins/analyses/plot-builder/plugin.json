@@ -264,24 +264,10 @@
       }
     },
 
-    "size": {
-      "type": "number",
-      "label": { "en": "Size (%)", "fr": "Taille (%)" },
-      "default": 100,
-      "min": 50,
-      "max": 200,
-      "row": "sizeIconRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
-      "description": {
-        "en": "Scale of the header icon and title.",
-        "fr": "Échelle de l'icône et du titre de l'en-tête."
-      }
-    },
     "cardIcon": {
       "type": "icon-select",
       "label": { "en": "Icon", "fr": "Icône" },
       "default": "__none__",
-      "row": "sizeIconRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "centerTitle": {

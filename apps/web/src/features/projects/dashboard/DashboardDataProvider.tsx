@@ -55,7 +55,6 @@ export function applyFilters(
           const { from, to } = resolveRelativeWindow(filter.count, filter.unit)
           // Compare on the date part only, so timestamps within the end day still match.
           const dateStr = String(value ?? '').slice(0, 10)
-          if (!dateStr) return false
           if (dateStr < from || dateStr > to) return false
           break
         }

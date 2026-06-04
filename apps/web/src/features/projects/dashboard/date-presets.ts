@@ -12,15 +12,26 @@ function toISODate(d: Date): string {
  * Resolve a "last N <unit>" sliding window into an inclusive {from, to} date range,
  * ending today. Recomputed each render so the window stays relative to the current date.
  */
+/** Shift a date back by `months`, clamping the day so e.g. Mar 31 − 1mo → Feb 28, not Mar 3. */
+function subtractMonths(d: Date, months: number): Date {
+  const day = d.getDate()
+  const r = new Date(d)
+  r.setDate(1)
+  r.setMonth(r.getMonth() - months)
+  const daysInMonth = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate()
+  r.setDate(Math.min(day, daysInMonth))
+  return r
+}
+
 export function resolveRelativeWindow(count: number, unit: DatePresetUnit): { from: string; to: string } {
   const to = new Date()
-  const from = new Date()
+  let from = new Date()
   const n = Math.max(1, count)
   switch (unit) {
     case 'day': from.setDate(from.getDate() - n); break
     case 'week': from.setDate(from.getDate() - n * 7); break
-    case 'month': from.setMonth(from.getMonth() - n); break
-    case 'year': from.setFullYear(from.getFullYear() - n); break
+    case 'month': from = subtractMonths(from, n); break
+    case 'year': from = subtractMonths(from, n * 12); break
   }
   return { from: toISODate(from), to: toISODate(to) }
 }

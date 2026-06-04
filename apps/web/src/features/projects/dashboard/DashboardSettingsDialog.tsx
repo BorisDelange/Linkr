@@ -126,7 +126,6 @@ export function DashboardSettingsDialog({
           </TabsList>
 
           <TabsContent value="style" className="space-y-5 pt-3">
-          {/* Widget title bars toggle */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
               <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
@@ -134,8 +133,6 @@ export function DashboardSettingsDialog({
             </div>
             <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
           </div>
-
-          {/* Widget spacing */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-medium">{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
@@ -155,7 +152,6 @@ export function DashboardSettingsDialog({
           </TabsContent>
 
           <TabsContent value="dataset" className="space-y-5 pt-3">
-          {/* Default dataset */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('dashboard.default_dataset')}</Label>
             <p className="text-[11px] text-muted-foreground">{t('dashboard.default_dataset_hint')}</p>
@@ -179,8 +175,6 @@ export function DashboardSettingsDialog({
               </SelectContent>
             </Select>
           </div>
-
-          {/* Bulk-assign dataset */}
           {defaultDatasetFileId && (
             <div className="space-y-1.5">
               <Label className="text-xs font-medium">{t('dashboard.assign_dataset')}</Label>

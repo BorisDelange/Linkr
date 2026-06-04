@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -38,6 +38,25 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   const { t } = useTranslation()
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles, getFileRows } = useDatasetStore()
+
+  // Resizable sidebar width (drag the left edge). Default a bit wider so date From/To fields aren't clipped.
+  const [width, setWidth] = useState(340)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
+  const onResizeDown = (e: React.PointerEvent) => {
+    e.preventDefault()
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    dragRef.current = { startX: e.clientX, startW: width }
+  }
+  const onResizeMove = (e: React.PointerEvent) => {
+    if (!dragRef.current) return
+    // Dragging left (smaller clientX) widens the right-anchored sidebar.
+    const delta = dragRef.current.startX - e.clientX
+    setWidth(Math.max(260, Math.min(640, dragRef.current.startW + delta)))
+  }
+  const onResizeUp = (e: React.PointerEvent) => {
+    dragRef.current = null
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+  }
 
   // Which filter cards are expanded (collapsed by default to save space).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -174,7 +193,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   }
 
   return (
-    <div className="flex h-full w-72 shrink-0 flex-col border-l bg-background">
+    <div className="relative flex h-full shrink-0 flex-col border-l bg-background" style={{ width }}>
+      {/* Drag handle on the left edge to resize the sidebar. */}
+      <div
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeUp}
+        className="absolute left-0 top-0 z-10 h-full w-1 -translate-x-1/2 cursor-col-resize hover:bg-primary/30"
+      />
       <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
         <span className="text-sm font-semibold">{t('dashboard.filter_title')}</span>
         <div className="flex items-center gap-1">
@@ -229,7 +255,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
                   {isOpen && (
                     <div className="space-y-2 px-2.5 pb-2.5">
-                      {/* Edit mode: dataset badge, scope (first), then input type with label */}
                       {editMode && (
                         <div className="space-y-2">
                           <Badge variant="secondary" className="text-[10px] gap-1">
@@ -244,8 +269,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                             tabs={tabs}
                             widgets={widgets}
                           />
-
-                          {/* Input type selector — labelled */}
                           {inputTypeOptions.length > 1 && (
                             <div className="space-y-1">
                               <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_input_type', 'Filter type')}</Label>
@@ -266,8 +289,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                               </Select>
                             </div>
                           )}
-
-                          {/* Date presets editor (edit mode, date filters only) */}
                           {fc.type === 'date' && (
                             <DatePresetEditor
                               presets={fc.datePresets ?? []}
@@ -711,6 +732,7 @@ function NumericFilter({
   value?: { type: 'numeric'; min: number | null; max: number | null }
   onChange: (value: FilterValue) => void
 }) {
+  const { t } = useTranslation()
   const range = useMemo(() => {
     let min = Infinity
     let max = -Infinity
@@ -727,7 +749,7 @@ function NumericFilter({
   return (
     <div className="grid grid-cols-2 gap-2">
       <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">Min ({range.min})</span>
+        <span className="text-[10px] text-muted-foreground">{t('dashboard.filter_min', 'Min')} ({range.min})</span>
         <Input
           type="number"
           className="h-6 text-xs"
@@ -740,7 +762,7 @@ function NumericFilter({
         />
       </div>
       <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">Max ({range.max})</span>
+        <span className="text-[10px] text-muted-foreground">{t('dashboard.filter_max', 'Max')} ({range.max})</span>
         <Input
           type="number"
           className="h-6 text-xs"
