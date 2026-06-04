@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { DatasetColumn, FilterValue } from '@/types'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { resolveRelativeWindow } from './date-presets'
 
 interface DashboardDataContextValue {
   columns: DatasetColumn[]
@@ -48,6 +49,14 @@ export function applyFilters(
           const dateStr = String(value ?? '')
           if (filter.from && dateStr < filter.from) return false
           if (filter.to && dateStr > filter.to) return false
+          break
+        }
+        case 'date-relative': {
+          const { from, to } = resolveRelativeWindow(filter.count, filter.unit)
+          // Compare on the date part only, so timestamps within the end day still match.
+          const dateStr = String(value ?? '').slice(0, 10)
+          if (!dateStr) return false
+          if (dateStr < from || dateStr > to) return false
           break
         }
       }

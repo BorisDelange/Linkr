@@ -363,6 +363,34 @@
       "max": 15,
       "row": "opacitySize",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "xLabelMaxLen": {
+      "type": "number",
+      "label": { "en": "X label length", "fr": "Longueur labels X" },
+      "default": 20,
+      "min": 3,
+      "max": 60,
+      "row": "labelLenRow",
+      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram"] },
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Maximum characters shown for text labels on the X (category/bin) axis before truncating with “…”.",
+        "fr": "Nombre maximum de caractères pour les labels texte de l'axe X (catégories/bins) avant troncature avec « … »."
+      }
+    },
+    "yLabelMaxLen": {
+      "type": "number",
+      "label": { "en": "Y label length", "fr": "Longueur labels Y" },
+      "default": 16,
+      "min": 3,
+      "max": 60,
+      "row": "labelLenRow",
+      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Maximum characters shown for text labels on the Y axis (horizontal histogram categories) before truncating with “…”.",
+        "fr": "Nombre maximum de caractères pour les labels texte de l'axe Y (catégories d'histogramme horizontal) avant troncature avec « … »."
+      }
     }
   }
 }

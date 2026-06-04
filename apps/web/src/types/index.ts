@@ -362,8 +362,11 @@ export interface DashboardFilter {
   columnName: string
   type: 'categorical' | 'numeric' | 'date'
   inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range'
-  propagate: boolean
+  /** @deprecated Cross-dataset matching is now automatic, governed by `scope`. Retained for stored data. */
+  propagate?: boolean
   scope?: DashboardFilterScope
+  /** For date filters: configurable "last N <unit>" quick presets shown as badges. */
+  datePresets?: DatePreset[]
 }
 
 export interface Dashboard {
@@ -373,6 +376,8 @@ export interface Dashboard {
   filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
   defaultDatasetFileId?: string | null
+  /** Pixel gap between widgets on the grid. Defaults to DASHBOARD_GRID.margin (12). */
+  widgetSpacing?: number
   createdAt: string
   updatedAt: string
 }
@@ -397,10 +402,22 @@ export interface DashboardWidget {
   source: DashboardWidgetSource
 }
 
+/** Relative-date window unit for "last N <unit>" presets. */
+export type DatePresetUnit = 'day' | 'week' | 'month' | 'year'
+
+/** A "last N <unit>" preset attached to a date filter (sliding window from today). */
+export interface DatePreset {
+  id: string
+  count: number
+  unit: DatePresetUnit
+}
+
 export type FilterValue =
   | { type: 'categorical'; selected: string[] }
   | { type: 'numeric'; min: number | null; max: number | null }
   | { type: 'date'; from: string | null; to: string | null }
+  // Relative sliding window: resolved to from/to at render time against today.
+  | { type: 'date-relative'; count: number; unit: DatePresetUnit }
 
 /** Multilingual string: { en: "...", fr: "..." } */
 export type LocalizedString = Record<string, string>

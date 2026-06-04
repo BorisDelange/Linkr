@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +55,7 @@ export function DashboardSettingsDialog({
 
   const [showWidgetTitles, setShowWidgetTitles] = useState(dashboard.showWidgetTitles ?? true)
   const [defaultDatasetFileId, setDefaultDatasetFileId] = useState<string | null>(dashboard.defaultDatasetFileId ?? null)
+  const [widgetSpacing, setWidgetSpacing] = useState<number>(dashboard.widgetSpacing ?? 12)
 
   // Bulk-assign confirmation
   const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
@@ -83,13 +85,15 @@ export function DashboardSettingsDialog({
     if (open) {
       setShowWidgetTitles(dashboard.showWidgetTitles ?? true)
       setDefaultDatasetFileId(dashboard.defaultDatasetFileId ?? null)
+      setWidgetSpacing(dashboard.widgetSpacing ?? 12)
     }
-  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId])
+  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing])
 
   const handleSave = () => {
     updateDashboard(dashboard.id, {
       showWidgetTitles,
       defaultDatasetFileId,
+      widgetSpacing,
     })
     onOpenChange(false)
   }
@@ -115,7 +119,13 @@ export function DashboardSettingsDialog({
           <DialogDescription>{t('dashboard.settings_description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 py-2">
+        <Tabs defaultValue="style" className="py-2">
+          <TabsList className="w-full">
+            <TabsTrigger value="style" className="flex-1">{t('dashboard.settings_tab_style', 'Style')}</TabsTrigger>
+            <TabsTrigger value="dataset" className="flex-1">{t('dashboard.settings_tab_dataset', 'Dataset')}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="style" className="space-y-5 pt-3">
           {/* Widget title bars toggle */}
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
@@ -125,6 +135,26 @@ export function DashboardSettingsDialog({
             <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
           </div>
 
+          {/* Widget spacing */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-medium">{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
+              <span className="text-[11px] tabular-nums text-muted-foreground">{widgetSpacing} px</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint', 'Gap between widgets on the grid.')}</p>
+            <input
+              type="range"
+              min={0}
+              max={32}
+              step={2}
+              value={widgetSpacing}
+              onChange={(e) => setWidgetSpacing(Number(e.target.value))}
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+            />
+          </div>
+          </TabsContent>
+
+          <TabsContent value="dataset" className="space-y-5 pt-3">
           {/* Default dataset */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium">{t('dashboard.default_dataset')}</Label>
@@ -175,7 +205,8 @@ export function DashboardSettingsDialog({
               </div>
             </div>
           )}
-        </div>
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>

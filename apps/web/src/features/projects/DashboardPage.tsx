@@ -25,6 +25,7 @@ export function DashboardPage() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
+  const [exportPreselectId, setExportPreselectId] = useState<string | null>(null)
 
   const {
     dashboards,
@@ -101,44 +102,6 @@ export function DashboardPage() {
 
         <div className="ml-auto flex items-center gap-1 py-1">
           <Button
-            variant="ghost"
-            size="xs"
-            className="gap-1"
-            onClick={() => setExportOpen(true)}
-            disabled={tabWidgets.length === 0}
-          >
-            <Download size={12} />
-            {t('dashboard.export', 'Export')}
-          </Button>
-          <Button
-            variant={filterOpen ? 'default' : 'ghost'}
-            size="xs"
-            className="gap-1"
-            onClick={() => setFilterOpen(!filterOpen)}
-          >
-            <Filter size={12} />
-            {t('dashboard.toggle_filters')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="xs"
-            className="gap-1"
-            onClick={() => setSettingsOpen(true)}
-          >
-            <Settings2 size={12} />
-            {t('common.settings')}
-          </Button>
-          {editMode && (
-            <Button
-              size="xs"
-              className="gap-1"
-              onClick={() => setAddWidgetOpen(true)}
-            >
-              <Plus size={12} />
-              {t('dashboard.add_widget')}
-            </Button>
-          )}
-          <Button
             variant={editMode ? 'default' : 'ghost'}
             size="xs"
             className="gap-1"
@@ -156,6 +119,44 @@ export function DashboardPage() {
               </>
             )}
           </Button>
+          {editMode && (
+            <Button
+              size="xs"
+              className="gap-1"
+              onClick={() => setAddWidgetOpen(true)}
+            >
+              <Plus size={12} />
+              {t('dashboard.add_widget')}
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="xs"
+            className="gap-1"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <Settings2 size={12} />
+            {t('common.settings')}
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="gap-1"
+            onClick={() => { setExportPreselectId(null); setExportOpen(true) }}
+            disabled={tabWidgets.length === 0}
+          >
+            <Download size={12} />
+            {t('dashboard.export', 'Export')}
+          </Button>
+          <Button
+            variant={filterOpen ? 'default' : 'ghost'}
+            size="xs"
+            className="gap-1"
+            onClick={() => setFilterOpen(!filterOpen)}
+          >
+            <Filter size={12} />
+            {t('dashboard.toggle_filters')}
+          </Button>
         </div>
       </div>
 
@@ -169,6 +170,7 @@ export function DashboardPage() {
               hideTitleBars={dashboard.showWidgetTitles === false}
               dashboard={dashboard}
               projectUid={projectUid}
+              onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
             />
           ) : (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
@@ -232,6 +234,7 @@ export function DashboardPage() {
         tabs={dashboardTabs}
         allWidgets={allDashboardWidgets}
         currentTabId={currentTabId}
+        preselectWidgetId={exportPreselectId}
       />
     </div>
   )

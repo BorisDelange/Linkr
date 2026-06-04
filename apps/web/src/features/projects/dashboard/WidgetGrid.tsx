@@ -11,7 +11,6 @@ import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
-import { exportWidget, findWidgetNode } from './figure-export'
 import { DASHBOARD_GRID } from './dashboard-grid'
 import {
   AlertDialog,
@@ -30,6 +29,8 @@ interface WidgetGridProps {
   hideTitleBars?: boolean
   dashboard: Dashboard
   projectUid: string
+  /** Open the dashboard Export dialog preselected to this widget. */
+  onRequestExport?: (widgetId: string) => void
 }
 
 /** Resolve which filters apply to a given widget, keyed by column ID. */
@@ -55,8 +56,8 @@ function resolveWidgetFilters(
       // Direct match: filter targets this widget's dataset
       result[filter.columnId] = filterValue
       hasAny = true
-    } else if (filter.propagate) {
-      // Propagation: resolve matching column name to target dataset's column ID
+    } else {
+      // Different dataset: match by column name (scope already decided this widget is in range).
       const targetColumnId = columnNameToId.get(filter.columnName)
       if (targetColumnId) {
         result[targetColumnId] = filterValue
@@ -104,7 +105,7 @@ function WidgetWithData({
   )
 }
 
-export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid }: WidgetGridProps) {
+export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
   const { updateWidgetLayout, removeWidget, updateWidgetName, activeFilters } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
@@ -126,6 +127,13 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     setContainerWidth(containerRef.current.clientWidth)
     return () => observer.disconnect()
   }, [])
+
+  // Per-dashboard widget spacing overrides the default grid margin.
+  const gridConfig = useMemo(() => {
+    const gap = dashboard.widgetSpacing
+    if (gap == null) return DASHBOARD_GRID
+    return { ...DASHBOARD_GRID, margin: [gap, gap] as [number, number] }
+  }, [dashboard.widgetSpacing])
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -169,7 +177,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       <GridLayout
         layout={layout}
         width={containerWidth}
-        gridConfig={DASHBOARD_GRID}
+        gridConfig={gridConfig}
         dragConfig={{
           enabled: editMode,
         }}
@@ -192,10 +200,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
               onRename={(name) => updateWidgetName(widget.id, name)}
               siblingNames={siblingNames}
               onEdit={() => setEditingWidgetId(widget.id)}
-              onExport={(format) => {
-                const node = findWidgetNode(widget.id)
-                if (node) exportWidget(node, widget.name, format).catch(() => {})
-              }}
+              onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
             >
@@ -216,6 +221,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         onOpenChange={(open) => { if (!open) setEditingWidgetId(null) }}
         projectUid={projectUid}
         gridWidth={containerWidth}
+        widgetSpacing={dashboard.widgetSpacing}
       />
 
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>

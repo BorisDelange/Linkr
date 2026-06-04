@@ -41,9 +41,11 @@ interface ExportDashboardDialogProps {
   allWidgets: DashboardWidget[]
   /** The currently-displayed tab (its widgets are already mounted in the DOM). */
   currentTabId: string | undefined
+  /** When opened from a widget's menu: preselect only this widget. */
+  preselectWidgetId?: string | null
 }
 
-export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, allWidgets, currentTabId }: ExportDashboardDialogProps) {
+export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, allWidgets, currentTabId, preselectWidgetId }: ExportDashboardDialogProps) {
   const { t } = useTranslation()
   const [format, setFormat] = useState<ExportFormat>('png')
   const [scope, setScope] = useState<Scope>('all')
@@ -73,14 +75,18 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
     [scopedWidgets, currentTabId, selected],
   )
 
-  // Re-select everything whenever scope changes or the dialog opens.
+  // On open: select only the preselected widget (when opened from its menu), else all scoped widgets.
+  // On scope change while open: re-select all in the new scope.
   useEffect(() => {
-    if (open) {
+    if (!open) return
+    setError('')
+    if (preselectWidgetId) {
+      setSelected(new Set([preselectWidgetId]))
+    } else {
       setSelected(new Set(scopedWidgets.map(w => w.id)))
-      setError('')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, scope])
+  }, [open, scope, preselectWidgetId])
 
   const allSelected = scopedWidgets.length > 0 && scopedWidgets.every(w => selected.has(w.id))
   const toggle = (id: string) => {

@@ -41,9 +41,11 @@ interface WidgetEditorDialogProps {
   projectUid: string
   /** Measured pixel width of the dashboard grid — used to size the preview like the real widget. */
   gridWidth?: number
+  /** Per-dashboard widget spacing (px) so the preview size matches the live grid. */
+  widgetSpacing?: number
 }
 
-export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth }: WidgetEditorDialogProps) {
+export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth, widgetSpacing }: WidgetEditorDialogProps) {
   if (!widget) return null
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -53,7 +55,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
         className="w-[calc(100vw-16rem)] max-w-none sm:max-w-none p-0 gap-0"
       >
         <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null}>
-          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} />
+          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} widgetSpacing={widgetSpacing} />
         </DashboardDataProvider>
       </SheetContent>
     </Sheet>
@@ -64,7 +66,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
 // Editor content
 // ---------------------------------------------------------------------------
 
-function WidgetEditorContent({ widget, onClose, projectUid, gridWidth }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number }) {
+function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpacing }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number; widgetSpacing?: number }) {
   const { t, i18n } = useTranslation()
   const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
   const { filteredRows, columns } = useDashboardData()
@@ -350,7 +352,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth }: { widge
           </Allotment.Pane>
 
           <Allotment.Pane minSize={200}>
-            <SizedPreview widget={widget} gridWidth={gridWidth}>
+            <SizedPreview widget={widget} gridWidth={gridWidth} widgetSpacing={widgetSpacing}>
               {isComponentPlugin && plugin?.componentId ? (
                 <ComponentPluginOutput componentId={plugin.componentId} config={debouncedConfig} columns={columns} rows={filteredRows} />
               ) : (
@@ -377,11 +379,11 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth }: { widge
 
 const FALLBACK_GRID_WIDTH = 1400
 
-function SizedPreview({ widget, gridWidth, children }: { widget: DashboardWidget; gridWidth?: number; children: React.ReactNode }) {
+function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: DashboardWidget; gridWidth?: number; widgetSpacing?: number; children: React.ReactNode }) {
   const { t } = useTranslation()
   const base = useMemo(
-    () => widgetPixelSize(widget.layout.w, widget.layout.h, gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH),
-    [widget.layout.w, widget.layout.h, gridWidth],
+    () => widgetPixelSize(widget.layout.w, widget.layout.h, gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH, widgetSpacing),
+    [widget.layout.w, widget.layout.h, gridWidth, widgetSpacing],
   )
   const [size, setSize] = useState(base)
   // Re-sync to the widget's size when the target widget changes.

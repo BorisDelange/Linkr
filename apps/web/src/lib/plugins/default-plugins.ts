@@ -336,7 +336,7 @@ export function registerDefaultPlugins() {
           type: 'color-select',
           label: { en: 'Unit', fr: 'Unité' },
           default: 'auto',
-          row: 'colorsRow2',
+          row: 'colorsRow',
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
@@ -346,7 +346,7 @@ export function registerDefaultPlugins() {
           type: 'color-select',
           label: { en: 'Subtitle', fr: 'Sous-titre' },
           default: 'auto',
-          row: 'colorsRow2',
+          row: 'colorsRow',
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },

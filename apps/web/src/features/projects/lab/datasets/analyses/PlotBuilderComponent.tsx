@@ -478,6 +478,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const excludeNA = (config.excludeNA as boolean) ?? true
   const pointSize = (config.pointSize as number) ?? 4
   const opacityPct = (config.opacity as number) ?? 70
+  const xLabelMaxLen = (config.xLabelMaxLen as number) ?? 20
+  const yLabelMaxLen = (config.yLabelMaxLen as number) ?? 16
   const paletteName = (config.colorPalette as string) ?? 'default'
   const customPaletteStr = (config.customPalette as string) ?? ''
   const chartTitle = (config.title as string) ?? ''
@@ -638,6 +640,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           showLegend={showLegend}
           legendPosition={legendPosition}
           decimals={decimals}
+          xLabelMaxLen={xLabelMaxLen}
         />
       )}
       {plotType === 'histogram' && (
@@ -660,6 +663,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           orientation={histogramOrientation}
           xAxisStartZero={xAxisStartZero}
           decimals={decimals}
+          xLabelMaxLen={xLabelMaxLen}
+          yLabelMaxLen={yLabelMaxLen}
         />
       )}
       {plotType === 'boxplot' && (
@@ -900,11 +905,11 @@ function LinePlot({
 // ---------------------------------------------------------------------------
 
 function BarPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, decimals = 1,
+  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, decimals = 1, xLabelMaxLen = 20,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; decimals?: number
+  legendPosition: string; decimals?: number; xLabelMaxLen?: number
 }) {
   const legendProps = buildLegendProps(legendPosition)
   const isCountMode = !yCol
@@ -993,7 +998,7 @@ function BarPlot({
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={20} angle={-30} textAnchor="end" />} interval={0} height={60} />
+        <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={xLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
         <Tooltip {...TOOLTIP_STYLE} />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
@@ -1010,11 +1015,11 @@ function BarPlot({
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, barMode, orientation, xAxisStartZero, decimals = 1,
+  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string; yLabel: string
-  showGrid: boolean; showLegend: boolean; legendPosition: string; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number
+  showGrid: boolean; showLegend: boolean; legendPosition: string; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number
 }) {
   const isCategorical = useMemo(() => isCategoricalColumn(rows, xCol), [rows, xCol])
 
@@ -1088,10 +1093,22 @@ function HistogramPlot({
     label: binAxisLabel ? { value: binAxisLabel, ...(isHorizontal ? { angle: -90, position: 'insideLeft', offset: 5 } : { position: 'insideBottom', offset: -5 }), fontSize: 11 } : undefined,
     // On a horizontal chart the bin axis is vertical (Y): right-anchor labels left of the axis and vertically center them.
     tick: isHorizontal
-      ? <TruncatedTick maxLen={16} textAnchor="end" dx={-4} dy={4} />
-      : <TruncatedTick maxLen={12} />,
+      ? <TruncatedTick maxLen={yLabelMaxLen} textAnchor="end" dx={-4} dy={4} />
+      : <TruncatedTick maxLen={xLabelMaxLen} />,
     interval: isHorizontal ? 0 : tickInterval,
   }
+  // Horizontal Y category axis: size width to the longest displayed (truncated) label so the
+  // plot shifts with the labels instead of keeping a fixed margin. ~6px/char + padding, plus the axis title.
+  const yCatWidth = useMemo(() => {
+    if (!isHorizontal) return 56
+    let maxChars = 0
+    for (const d of data) {
+      const len = Math.min(String((d as { bin?: unknown }).bin ?? '').length, yLabelMaxLen)
+      if (len > maxChars) maxChars = len
+    }
+    const titlePad = binAxisLabel ? 16 : 0
+    return Math.round(Math.min(220, Math.max(40, maxChars * 6 + 16 + titlePad)))
+  }, [isHorizontal, data, yLabelMaxLen, binAxisLabel])
   // Nice integer ticks for the count axis, starting at 0. Stacked bars sum per bin; otherwise use max single value.
   const countScale = useMemo(() => {
     let max = 0
@@ -1120,14 +1137,14 @@ function HistogramPlot({
       <BarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
-        margin={isHorizontal ? { top: 5, right: 20, bottom: 25, left: 30 } : { top: 5, right: 20, bottom: 25, left: 10 }}
+        margin={{ top: 5, right: 20, bottom: 25, left: 10 }}
         {...(isOverlay ? { barGap: '-100%' } : {})}
       >
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         {isHorizontal ? (
           <>
             <XAxis type="number" height={28} {...countAxisProps} />
-            <YAxis type="category" width={90} {...binAxisProps} />
+            <YAxis type="category" width={yCatWidth} {...binAxisProps} />
           </>
         ) : (
           <>

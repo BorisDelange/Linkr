@@ -1,10 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ArrowRightLeft, ChevronsUpDown, TriangleAlert } from 'lucide-react'
+import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Switch } from '@/components/ui/switch'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
@@ -20,9 +19,11 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget, FilterValue } from '@/types'
+import { cn } from '@/lib/utils'
+import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget, DatePreset, DatePresetUnit, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { presetLabel } from './date-presets'
 
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
@@ -37,6 +38,16 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   const { t } = useTranslation()
   const { activeFilters, setFilter, clearFilter, clearAllFilters, updateDashboard } = useDashboardStore()
   const { files: datasetFiles, getFileRows } = useDatasetStore()
+
+  // Which filter cards are expanded (collapsed by default to save space).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const toggleExpanded = (id: string) => setExpanded(prev => {
+    const next = new Set(prev)
+    if (next.has(id)) next.delete(id); else next.add(id)
+    return next
+  })
+  // Reset per-card open/closed overrides when switching modes (defaults differ: open out of edit, closed in edit).
+  useEffect(() => { setExpanded(new Set()) }, [editMode])
 
   // "Add filter" flow state
   const [addingFilter, setAddingFilter] = useState(false)
@@ -98,7 +109,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
       columnName: col.name,
       type,
       inputType: newFilterInputType,
-      propagate: false,
     }
 
     updateDashboard(dashboard.id, {
@@ -114,10 +124,10 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     clearFilter(filterId)
   }
 
-  const handleTogglePropagate = (filterId: string, propagate: boolean) => {
+  const handleDatePresetsChange = (filterId: string, datePresets: DashboardFilter['datePresets']) => {
     updateDashboard(dashboard.id, {
       filterConfig: dashboard.filterConfig.map((f) =>
-        f.id === filterId ? { ...f, propagate } : f
+        f.id === filterId ? { ...f, datePresets } : f
       ),
     })
   }
@@ -191,12 +201,25 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
               const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
               const rows = getFileRows(fc.datasetFileId)
               const inputTypeOptions = getInputTypeOptions(fc.type)
+              // Default: expanded out of edit mode, collapsed in edit mode. The `expanded` set flips that default.
+              const defaultOpen = !editMode
+              const toggled = expanded.has(fc.id)
+              const isOpen = toggled ? !defaultOpen : defaultOpen
+              const isActive = !!activeFilters[fc.id]
 
               return (
-                <div key={fc.id} className="space-y-2 rounded-lg border p-3">
-                  {/* Header: column name + remove button */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium truncate flex-1">{fc.columnName}</span>
+                <div key={fc.id} className="rounded-lg border">
+                  {/* Collapsible header: chevron + column name + active dot + remove */}
+                  <div className="flex items-center gap-1.5 px-2.5 py-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(fc.id)}
+                      className="flex flex-1 items-center gap-1.5 min-w-0 text-left"
+                    >
+                      <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
+                      <span className="text-xs font-medium truncate">{fc.columnName}</span>
+                      {isActive && <span className="size-1.5 shrink-0 rounded-full bg-primary" title={t('dashboard.filter_active', 'Active')} />}
+                    </button>
                     {editMode && (
                       <Button variant="ghost" size="icon-xs" onClick={() => handleRemoveFilter(fc.id)}>
                         <X size={12} />
@@ -204,63 +227,67 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     )}
                   </div>
 
-                  {/* Edit mode only: dataset badge, input type selector, propagate toggle */}
-                  {editMode && (
-                    <div className="space-y-2">
-                      <Badge variant="secondary" className="text-[10px] gap-1">
-                        <Database size={9} />
-                        {dsFile?.name ?? '?'}
-                      </Badge>
+                  {isOpen && (
+                    <div className="space-y-2 px-2.5 pb-2.5">
+                      {/* Edit mode: dataset badge, scope (first), then input type with label */}
+                      {editMode && (
+                        <div className="space-y-2">
+                          <Badge variant="secondary" className="text-[10px] gap-1">
+                            <Database size={9} />
+                            {dsFile?.name ?? '?'}
+                          </Badge>
 
-                      {/* Input type selector — only if multiple options */}
-                      {inputTypeOptions.length > 1 && (
-                        <Select
-                          value={fc.inputType}
-                          onValueChange={(v) => handleChangeInputType(fc.id, v as DashboardFilter['inputType'])}
-                        >
-                          <SelectTrigger className="h-6 text-[10px] w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent position="popper" sideOffset={4}>
-                            {inputTypeOptions.map((opt) => (
-                              <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                                {opt.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                          {/* Scope selector — before the input-type dropdown (renders its own label) */}
+                          <FilterScopeSelector
+                            scope={fc.scope ?? { type: 'all' }}
+                            onChange={(scope) => handleScopeChange(fc.id, scope)}
+                            tabs={tabs}
+                            widgets={widgets}
+                          />
+
+                          {/* Input type selector — labelled */}
+                          {inputTypeOptions.length > 1 && (
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_input_type', 'Filter type')}</Label>
+                              <Select
+                                value={fc.inputType}
+                                onValueChange={(v) => handleChangeInputType(fc.id, v as DashboardFilter['inputType'])}
+                              >
+                                <SelectTrigger className="h-7 text-xs w-full">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent position="popper" sideOffset={4}>
+                                  {inputTypeOptions.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          )}
+
+                          {/* Date presets editor (edit mode, date filters only) */}
+                          {fc.type === 'date' && (
+                            <DatePresetEditor
+                              presets={fc.datePresets ?? []}
+                              onChange={(p) => handleDatePresetsChange(fc.id, p)}
+                            />
+                          )}
+                        </div>
                       )}
 
-                      {/* Propagate toggle */}
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={fc.propagate}
-                          onCheckedChange={(v) => handleTogglePropagate(fc.id, v)}
-                          className="scale-75 origin-left"
+                      {/* Filter control — hidden in edit mode (no live preview while configuring) */}
+                      {!editMode && (
+                        <FilterControl
+                          fc={fc}
+                          rows={rows}
+                          value={activeFilters[fc.id]}
+                          onChange={(v) => handleFilterChange(fc.id, v)}
                         />
-                        <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                          <ArrowRightLeft size={9} />
-                          {t('dashboard.filter_propagate')}
-                        </span>
-                      </div>
-
-                      {/* Scope selector */}
-                      <FilterScopeSelector
-                        scope={fc.scope ?? { type: 'all' }}
-                        onChange={(scope) => handleScopeChange(fc.id, scope)}
-                        tabs={tabs}
-                        widgets={widgets}
-                      />
+                      )}
                     </div>
                   )}
-
-                  {/* Filter control */}
-                  <FilterControl
-                    fc={fc}
-                    rows={rows}
-                    value={activeFilters[fc.id]}
-                    onChange={(v) => handleFilterChange(fc.id, v)}
-                  />
                 </div>
               )
             })}
@@ -382,7 +409,8 @@ function FilterControl({
     if (fc.type === 'date') {
       return (
         <DateFilter
-          value={value as (FilterValue & { type: 'date' }) | undefined}
+          value={value as (FilterValue & { type: 'date' | 'date-relative' }) | undefined}
+          presets={fc.datePresets ?? []}
           onChange={onChange}
         />
       )
@@ -482,9 +510,9 @@ function CategoricalCheckbox({
             <Checkbox
               checked={allSelected || selected.has(val)}
               onCheckedChange={() => toggle(val)}
-              className="h-3 w-3"
+              className="size-3.5 shrink-0 [&_svg]:size-3"
             />
-            <span className="truncate">{val}</span>
+            <span className="truncate leading-none">{val}</span>
           </label>
         ))}
         {uniqueValues.length === 0 && (
@@ -584,7 +612,7 @@ function CategoricalMultiSelect({
                 <Checkbox
                   checked={selected.has(val)}
                   onCheckedChange={() => toggle(val)}
-                  className="h-3 w-3"
+                  className="size-3.5 shrink-0 [&_svg]:size-3"
                 />
                 <span className="truncate">{val}</span>
               </label>
@@ -732,34 +760,142 @@ function NumericFilter({
 
 function DateFilter({
   value,
+  presets,
   onChange,
 }: {
-  value?: { type: 'date'; from: string | null; to: string | null }
+  value?: { type: 'date'; from: string | null; to: string | null } | { type: 'date-relative'; count: number; unit: DatePresetUnit }
+  presets: DatePreset[]
   onChange: (value: FilterValue) => void
 }) {
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language as 'en' | 'fr'
+  const isRelative = value?.type === 'date-relative'
+  const from = value?.type === 'date' ? value.from : null
+  const to = value?.type === 'date' ? value.to : null
+  const hasValue = isRelative || !!(from || to)
+
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">From</span>
-        <Input
-          type="date"
-          className="h-6 text-xs"
-          value={value?.from ?? ''}
-          onChange={(e) => {
-            onChange({ type: 'date', from: e.target.value || null, to: value?.to ?? null })
-          }}
-        />
+    <div className="space-y-1.5">
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {presets.map((p) => {
+            const active = isRelative && value.count === p.count && value.unit === p.unit
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onChange(active ? { type: 'date', from: null, to: null } : { type: 'date-relative', count: p.count, unit: p.unit })}
+                className={cn(
+                  'rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors',
+                  active
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {presetLabel(p.count, p.unit, lang)}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_from', 'From')}</span>
+          <Input
+            type="date"
+            className="h-7 text-xs"
+            value={from ?? ''}
+            onChange={(e) => onChange({ type: 'date', from: e.target.value || null, to })}
+          />
+        </div>
+        <div className="space-y-1">
+          <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_to', 'To')}</span>
+          <Input
+            type="date"
+            className="h-7 text-xs"
+            value={to ?? ''}
+            onChange={(e) => onChange({ type: 'date', from, to: e.target.value || null })}
+          />
+        </div>
       </div>
-      <div className="space-y-0.5">
-        <span className="text-[10px] text-muted-foreground">To</span>
+      {hasValue && (
+        <Button
+          variant="ghost"
+          size="xs"
+          className="h-5 gap-1 text-[10px] text-muted-foreground"
+          onClick={() => onChange({ type: 'date', from: null, to: null })}
+        >
+          <X size={10} />
+          {t('common.clear', 'Clear')}
+        </Button>
+      )}
+    </div>
+  )
+}
+
+// --- Date preset editor (edit mode) ---
+
+function DatePresetEditor({
+  presets,
+  onChange,
+}: {
+  presets: DatePreset[]
+  onChange: (presets: DatePreset[]) => void
+}) {
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language as 'en' | 'fr'
+  // Local text state so the field can be emptied while typing (e.g. clear "1" before typing "2").
+  const [countText, setCountText] = useState('1')
+  const [unit, setUnit] = useState<DatePresetUnit>('week')
+  const count = Math.max(1, Math.min(99, Number(countText) || 1))
+
+  const add = () => {
+    if (presets.some(p => p.count === count && p.unit === unit)) return
+    onChange([...presets, { id: crypto.randomUUID(), count, unit }])
+    setCountText(String(count))
+  }
+  const remove = (id: string) => onChange(presets.filter(p => p.id !== id))
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_presets', 'Quick ranges')}</Label>
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {presets.map((p) => (
+            <span key={p.id} className="inline-flex items-center gap-1 rounded-full border bg-muted/40 px-2 py-0.5 text-[10px] text-muted-foreground">
+              {presetLabel(p.count, p.unit, lang)}
+              <button type="button" onClick={() => remove(p.id)} className="hover:text-foreground">
+                <X size={9} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-muted-foreground">{t('dashboard.filter_date_last', 'Last')}</span>
         <Input
-          type="date"
-          className="h-6 text-xs"
-          value={value?.to ?? ''}
-          onChange={(e) => {
-            onChange({ type: 'date', from: value?.from ?? null, to: e.target.value || null })
-          }}
+          type="number"
+          min={1}
+          max={99}
+          value={countText}
+          onChange={(e) => setCountText(e.target.value)}
+          onBlur={() => setCountText(String(count))}
+          className="h-6 w-12 text-xs px-1.5"
         />
+        <Select value={unit} onValueChange={(v) => setUnit(v as DatePresetUnit)}>
+          <SelectTrigger className="h-6 text-[10px] flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent position="popper" sideOffset={4}>
+            <SelectItem value="day" className="text-xs">{t('dashboard.filter_date_unit_day', 'Day(s)')}</SelectItem>
+            <SelectItem value="week" className="text-xs">{t('dashboard.filter_date_unit_week', 'Week(s)')}</SelectItem>
+            <SelectItem value="month" className="text-xs">{t('dashboard.filter_date_unit_month', 'Month(s)')}</SelectItem>
+            <SelectItem value="year" className="text-xs">{t('dashboard.filter_date_unit_year', 'Year(s)')}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Button variant="ghost" size="icon-xs" onClick={add} title={t('common.add', 'Add')}>
+          <Plus size={12} />
+        </Button>
       </div>
     </div>
   )
@@ -844,7 +980,7 @@ function FilterScopeSelector({
                         const next = selected ? current.filter(id => id !== tab.id) : [...current, tab.id]
                         if (next.length > 0) onChange({ type: 'tabs', tabIds: next })
                       }}
-                      className="h-3 w-3"
+                      className="size-3.5 shrink-0 [&_svg]:size-3"
                     />
                     <span className="truncate">{tab.name}</span>
                   </label>
@@ -877,7 +1013,7 @@ function FilterScopeSelector({
                         const next = selected ? current.filter(id => id !== widgetId) : [...current, widgetId]
                         if (next.length > 0) onChange({ type: 'widgets', widgetIds: next })
                       }}
-                      className="h-3 w-3"
+                      className="size-3.5 shrink-0 [&_svg]:size-3"
                     />
                     <span className="truncate text-muted-foreground">{tabName}</span>
                     <span className="text-[10px] text-muted-foreground/60">›</span>

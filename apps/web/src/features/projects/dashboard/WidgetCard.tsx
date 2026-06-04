@@ -6,21 +6,18 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import type { ExportFormat } from './figure-export'
 
 interface WidgetCardProps {
   title: string
   onRemove: () => void
   onEdit?: () => void
   onRename?: (name: string) => void
-  onExport?: (format: ExportFormat) => void
+  /** Opens the dashboard Export dialog preselected to this widget. */
+  onExport?: () => void
   /** Existing widget names in the same tab (for uniqueness validation) */
   siblingNames?: Set<string>
   editMode: boolean
@@ -84,16 +81,10 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
         </DropdownMenuItem>
       )}
       {onExport && (
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Download size={14} />
-            {t('dashboard.export_widget')}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <DropdownMenuItem onClick={() => onExport('png')}>PNG</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onExport('svg')}>SVG</DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <DropdownMenuItem onClick={onExport}>
+          <Download size={14} />
+          {t('dashboard.export_widget')}
+        </DropdownMenuItem>
       )}
       {(onRename || onEdit || onExport) && <DropdownMenuSeparator />}
       <DropdownMenuItem variant="destructive" onClick={onRemove}>
