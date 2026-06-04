@@ -23,18 +23,26 @@ export interface PluginConfigField {
   options?: { value: string; label: { en: string; fr: string }; onlyForColumnType?: 'numeric' | 'categorical' }[]
   /** For `select`: filter options based on the type of the column selected in this field. */
   filterOptionsByColumn?: string
+  /** For `select`: when the value changes, swap the values of these config-key pairs
+   *  (e.g. swap X/Y column + labels when flipping orientation). */
+  swapFieldsOnChange?: [string, string][]
   /** Fields sharing the same row value are rendered side-by-side. */
   row?: string
   /** Collapsible section this field belongs to. Fields with the same section are grouped under a header. */
   section?: { en: string; fr: string; defaultOpen?: boolean }
   /** Only show this field when another field has a specific value, or when it is not empty. Array = AND (all must match). */
-  visibleWhen?: { field: string; value?: unknown; notEmpty?: boolean } | { field: string; value?: unknown; notEmpty?: boolean }[]
+  visibleWhen?: { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean } | { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean }[]
   /** Tooltip description shown as an info icon next to the label. */
   description?: { en: string; fr: string }
   /** Static hint badge shown next to the label (e.g. "required", "optional"). */
   hint?: { en: string; fr: string }
-  /** Conditional hint: shown only when another field has a specific value. Overrides `hint`. */
-  hintWhen?: { field: string; values: Record<string, { en: string; fr: string }> }
+  /** Conditional hint: shown only when another field has a specific value. Overrides `hint`.
+   *  `override` swaps the values map when a second field matches (e.g. flip X/Y hints by orientation). */
+  hintWhen?: {
+    field: string
+    values: Record<string, { en: string; fr: string }>
+    override?: { field: string; value: unknown; values: Record<string, { en: string; fr: string }> }
+  }
   /**
    * Auto-set other fields when a column-select changes, based on column type.
    * Only applies to `column-select` fields.

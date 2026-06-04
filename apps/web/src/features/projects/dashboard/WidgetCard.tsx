@@ -1,21 +1,26 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MoreHorizontal, Pencil, Trash2, Type } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Type, Download } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import type { ExportFormat } from './figure-export'
 
 interface WidgetCardProps {
   title: string
   onRemove: () => void
   onEdit?: () => void
   onRename?: (name: string) => void
+  onExport?: (format: ExportFormat) => void
   /** Existing widget names in the same tab (for uniqueness validation) */
   siblingNames?: Set<string>
   editMode: boolean
@@ -23,7 +28,7 @@ interface WidgetCardProps {
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, siblingNames, editMode, hideTitleBar, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblingNames, editMode, hideTitleBar, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
@@ -64,10 +69,45 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, siblingNames, ed
     setRenaming(false)
   }
 
+  const menuItems = (
+    <>
+      {onRename && (
+        <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
+          <Type size={14} />
+          {t('dashboard.rename_widget')}
+        </DropdownMenuItem>
+      )}
+      {onEdit && (
+        <DropdownMenuItem onClick={onEdit}>
+          <Pencil size={14} />
+          {t('dashboard.edit_widget')}
+        </DropdownMenuItem>
+      )}
+      {onExport && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <Download size={14} />
+            {t('dashboard.export_widget')}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem onClick={() => onExport('png')}>PNG</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onExport('svg')}>SVG</DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
+      {(onRename || onEdit || onExport) && <DropdownMenuSeparator />}
+      <DropdownMenuItem variant="destructive" onClick={onRemove}>
+        <Trash2 size={14} />
+        {t('common.delete')}
+      </DropdownMenuItem>
+    </>
+  )
+
   return (
     <div className="relative flex h-full flex-col rounded-lg border bg-card shadow-sm overflow-hidden">
       {showTitleBar && (
-        <div className="flex items-center justify-between border-b px-3 py-2">
+        // min-h reserves the kebab button's height so toggling edit mode doesn't change the title-bar height.
+        <div className="flex min-h-10 items-center justify-between border-b px-3 py-1">
           {renaming ? (
             <div className="flex-1 min-w-0">
               <Input
@@ -111,23 +151,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, siblingNames, ed
                   }
                 }}
               >
-                {onRename && (
-                  <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
-                    <Type size={14} />
-                    {t('dashboard.rename_widget')}
-                  </DropdownMenuItem>
-                )}
-                {onEdit && (
-                  <DropdownMenuItem onClick={onEdit}>
-                    <Pencil size={14} />
-                    {t('dashboard.edit_widget')}
-                  </DropdownMenuItem>
-                )}
-                {(onRename || onEdit) && <DropdownMenuSeparator />}
-                <DropdownMenuItem variant="destructive" onClick={onRemove}>
-                  <Trash2 size={14} />
-                  {t('common.delete')}
-                </DropdownMenuItem>
+                {menuItems}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -151,28 +175,12 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, siblingNames, ed
                 }
               }}
             >
-              {onRename && (
-                <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
-                  <Type size={14} />
-                  {t('dashboard.rename_widget')}
-                </DropdownMenuItem>
-              )}
-              {onEdit && (
-                <DropdownMenuItem onClick={onEdit}>
-                  <Pencil size={14} />
-                  {t('dashboard.edit_widget')}
-                </DropdownMenuItem>
-              )}
-              {(onRename || onEdit) && <DropdownMenuSeparator />}
-              <DropdownMenuItem variant="destructive" onClick={onRemove}>
-                <Trash2 size={14} />
-                {t('common.delete')}
-              </DropdownMenuItem>
+              {menuItems}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       )}
-      <div className="flex-1 overflow-hidden min-h-0 min-w-0">{children}</div>
+      <div className="flex-1 overflow-hidden min-h-0 min-w-0" data-widget-content>{children}</div>
     </div>
   )
 }

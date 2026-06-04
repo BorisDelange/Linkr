@@ -11,6 +11,8 @@ import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
+import { exportWidget, findWidgetNode } from './figure-export'
+import { DASHBOARD_GRID } from './dashboard-grid'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -167,12 +169,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       <GridLayout
         layout={layout}
         width={containerWidth}
-        gridConfig={{
-          cols: 24,
-          rowHeight: 40,
-          margin: [12, 12] as [number, number],
-          containerPadding: [16, 16] as [number, number],
-        }}
+        gridConfig={DASHBOARD_GRID}
         dragConfig={{
           enabled: editMode,
         }}
@@ -188,13 +185,17 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
             widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
           )
           return (
-          <div key={widget.id} className="h-full">
+          <div key={widget.id} className="h-full" data-widget-id={widget.id} data-widget-name={widget.name}>
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onRename={(name) => updateWidgetName(widget.id, name)}
               siblingNames={siblingNames}
               onEdit={() => setEditingWidgetId(widget.id)}
+              onExport={(format) => {
+                const node = findWidgetNode(widget.id)
+                if (node) exportWidget(node, widget.name, format).catch(() => {})
+              }}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
             >
@@ -214,6 +215,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
         open={editingWidgetId !== null}
         onOpenChange={(open) => { if (!open) setEditingWidgetId(null) }}
         projectUid={projectUid}
+        gridWidth={containerWidth}
       />
 
       <AlertDialog open={confirmDeleteWidgetId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteWidgetId(null) }}>

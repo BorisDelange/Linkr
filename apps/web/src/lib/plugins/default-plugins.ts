@@ -5,6 +5,7 @@ import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 import { KeyIndicatorComponent } from '@/features/projects/lab/datasets/analyses/KeyIndicatorComponent'
 import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/PlotBuilderComponent'
+import { MapComponent } from '@/features/projects/lab/datasets/analyses/MapComponent'
 import { Table1Component } from '@/features/projects/lab/datasets/analyses/Table1Component'
 import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/analyses/StatisticalTestsComponent'
 import { RegressionComponent } from '@/features/projects/lab/datasets/analyses/RegressionComponent'
@@ -14,6 +15,7 @@ import { CorrelationMatrixComponent } from '@/features/projects/lab/datasets/ana
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
 import plotBuilderManifest from '@default-plugins/analyses/plot-builder/plugin.json'
+import mapManifest from '@default-plugins/analyses/map/plugin.json'
 import statisticalTestsManifest from '@default-plugins/analyses/statistical-tests/plugin.json'
 import regressionManifest from '@default-plugins/analyses/regression/plugin.json'
 import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.json'
@@ -67,37 +69,11 @@ export function registerDefaultPlugins() {
         column: {
           type: 'column-select',
           label: { en: 'Column', fr: 'Colonne' },
-          row: 'columnStat',
           section: { en: 'Data', fr: 'Données' },
           autoSet: {
             numeric: { aggregate: 'mean', unit: '', targetValue: '' },
             categorical: { aggregate: 'proportion', unit: '%', targetValue: '' },
           },
-        },
-        aggregate: {
-          type: 'select',
-          label: { en: 'Statistic', fr: 'Statistique' },
-          default: 'mean',
-          row: 'columnStat',
-          section: { en: 'Data', fr: 'Données' },
-          filterOptionsByColumn: 'column',
-          description: {
-            en: 'The final statistic to display. When "Unique per" is set, this is computed on the per-entity values.',
-            fr: 'La statistique finale affichée. Quand « Unique par » est défini, elle est calculée sur les valeurs par entité.',
-          },
-          options: [
-            { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' }, onlyForColumnType: 'numeric' },
-            { value: 'median', label: { en: 'Median', fr: 'Médiane' }, onlyForColumnType: 'numeric' },
-            { value: 'min', label: { en: 'Min', fr: 'Min' }, onlyForColumnType: 'numeric' },
-            { value: 'max', label: { en: 'Max', fr: 'Max' }, onlyForColumnType: 'numeric' },
-            { value: 'sum', label: { en: 'Sum', fr: 'Somme' }, onlyForColumnType: 'numeric' },
-            { value: 'count', label: { en: 'Count', fr: 'Effectif' } },
-            { value: 'sd', label: { en: 'Std dev', fr: 'Écart-type' }, onlyForColumnType: 'numeric' },
-            { value: 'q1', label: { en: 'Q1 (25th)', fr: 'Q1 (25e)' }, onlyForColumnType: 'numeric' },
-            { value: 'q3', label: { en: 'Q3 (75th)', fr: 'Q3 (75e)' }, onlyForColumnType: 'numeric' },
-            { value: 'iqr', label: { en: 'IQR', fr: 'IQR' }, onlyForColumnType: 'numeric' },
-            { value: 'proportion', label: { en: 'Proportion (%)', fr: 'Proportion (%)' } },
-          ],
         },
         targetValue: {
           type: 'column-value-select',
@@ -105,11 +81,11 @@ export function registerDefaultPlugins() {
           default: '',
           columnField: 'column',
           optional: true,
-          visibleWhen: { field: 'aggregate', value: 'proportion' },
+          visibleWhen: { field: 'aggregate', values: ['proportion', 'count'] },
           section: { en: 'Data', fr: 'Données' },
           description: {
-            en: 'The value to count for computing the proportion. Leave empty to auto-detect the most common value.',
-            fr: 'La valeur à compter pour calculer la proportion. Laisser vide pour auto-détecter la valeur la plus fréquente.',
+            en: 'The value to count (for Count or Proportion). Leave empty to count all non-empty rows, or auto-detect the most common value for Proportion.',
+            fr: 'La valeur à compter (pour Effectif ou Proportion). Laisser vide pour compter toutes les lignes non vides, ou auto-détecter la valeur la plus fréquente pour Proportion.',
           },
         },
         uniquePer: {
@@ -152,6 +128,31 @@ export function registerDefaultPlugins() {
           default: '',
           section: { en: 'Content', fr: 'Contenu' },
         },
+        aggregate: {
+          type: 'select',
+          label: { en: 'Stat', fr: 'Statistique' },
+          default: 'mean',
+          section: { en: 'Content', fr: 'Contenu' },
+          filterOptionsByColumn: 'column',
+          description: {
+            en: 'The main statistic to display. When "Unique per" is set, this is computed on the per-entity values.',
+            fr: 'La statistique principale affichée. Quand « Unique par » est défini, elle est calculée sur les valeurs par entité.',
+          },
+          options: [
+            { value: 'none', label: { en: 'None', fr: 'Aucune' } },
+            { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' }, onlyForColumnType: 'numeric' },
+            { value: 'median', label: { en: 'Median', fr: 'Médiane' }, onlyForColumnType: 'numeric' },
+            { value: 'min', label: { en: 'Min', fr: 'Min' }, onlyForColumnType: 'numeric' },
+            { value: 'max', label: { en: 'Max', fr: 'Max' }, onlyForColumnType: 'numeric' },
+            { value: 'sum', label: { en: 'Sum', fr: 'Somme' }, onlyForColumnType: 'numeric' },
+            { value: 'count', label: { en: 'Count', fr: 'Effectif' } },
+            { value: 'sd', label: { en: 'Std dev', fr: 'Écart-type' }, onlyForColumnType: 'numeric' },
+            { value: 'q1', label: { en: 'Q1 (25th)', fr: 'Q1 (25e)' }, onlyForColumnType: 'numeric' },
+            { value: 'q3', label: { en: 'Q3 (75th)', fr: 'Q3 (75e)' }, onlyForColumnType: 'numeric' },
+            { value: 'iqr', label: { en: 'IQR', fr: 'IQR' }, onlyForColumnType: 'numeric' },
+            { value: 'proportion', label: { en: 'Proportion (%)', fr: 'Proportion (%)' } },
+          ],
+        },
         decimals: {
           type: 'number',
           label: { en: 'Decimals', fr: 'Décimales' },
@@ -174,16 +175,17 @@ export function registerDefaultPlugins() {
           multi: true,
           default: ['n'],
           section: { en: 'Content', fr: 'Contenu' },
+          filterOptionsByColumn: 'column',
           options: [
             { value: 'n', label: { en: 'n (count)', fr: 'n (effectif)' } },
-            { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' } },
-            { value: 'median', label: { en: 'Median', fr: 'Médiane' } },
-            { value: 'sd', label: { en: 'Std dev', fr: 'Écart-type' } },
-            { value: 'min', label: { en: 'Min', fr: 'Min' } },
-            { value: 'max', label: { en: 'Max', fr: 'Max' } },
-            { value: 'q1', label: { en: 'Q1 (25th)', fr: 'Q1 (25e)' } },
-            { value: 'q3', label: { en: 'Q3 (75th)', fr: 'Q3 (75e)' } },
-            { value: 'iqr', label: { en: 'IQR', fr: 'IQR' } },
+            { value: 'mean', label: { en: 'Mean', fr: 'Moyenne' }, onlyForColumnType: 'numeric' },
+            { value: 'median', label: { en: 'Median', fr: 'Médiane' }, onlyForColumnType: 'numeric' },
+            { value: 'sd', label: { en: 'Std dev', fr: 'Écart-type' }, onlyForColumnType: 'numeric' },
+            { value: 'min', label: { en: 'Min', fr: 'Min' }, onlyForColumnType: 'numeric' },
+            { value: 'max', label: { en: 'Max', fr: 'Max' }, onlyForColumnType: 'numeric' },
+            { value: 'q1', label: { en: 'Q1 (25th)', fr: 'Q1 (25e)' }, onlyForColumnType: 'numeric' },
+            { value: 'q3', label: { en: 'Q3 (75th)', fr: 'Q3 (75e)' }, onlyForColumnType: 'numeric' },
+            { value: 'iqr', label: { en: 'IQR', fr: 'IQR' }, onlyForColumnType: 'numeric' },
           ],
         },
         // --- Mini-chart ---
@@ -234,7 +236,24 @@ export function registerDefaultPlugins() {
           label: { en: 'X axis ticks', fr: 'Graduations axe X' },
           default: false,
           row: 'chartXAxis',
+          // Only the histogram has a numeric X axis; categorical bar charts render horizontally with no X ticks.
+          visibleWhen: { field: 'chartType', value: 'histogram' },
           section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
+        },
+        yLabelMaxLen: {
+          type: 'number',
+          label: { en: 'Y label length', fr: 'Longueur labels Y' },
+          default: 11,
+          min: 3,
+          max: 40,
+          row: 'chartXAxis',
+          // Only the horizontal bar chart has truncatable category labels on the Y axis.
+          visibleWhen: { field: 'chartType', value: 'bar' },
+          section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
+          description: {
+            en: 'Maximum number of characters shown for each Y-axis category label (longer labels are truncated with “…”).',
+            fr: 'Nombre maximum de caractères affichés pour chaque label de catégorie sur l’axe Y (les plus longs sont tronqués avec « … »).',
+          },
         },
         xAxisStartZero: {
           type: 'boolean',
@@ -256,19 +275,19 @@ export function registerDefaultPlugins() {
           ],
         },
         // --- Style ---
-        icon: {
-          type: 'icon-select',
-          label: { en: 'Icon', fr: 'Icône' },
-          default: 'Activity',
-          row: 'iconSizeRow',
-          section: { en: 'Style', fr: 'Style', defaultOpen: false },
-        },
         size: {
           type: 'number',
           label: { en: 'Size (%)', fr: 'Taille (%)' },
           default: 100,
           min: 50,
           max: 200,
+          row: 'iconSizeRow',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+        },
+        icon: {
+          type: 'icon-select',
+          label: { en: 'Icon', fr: 'Icône' },
+          default: 'Activity',
           row: 'iconSizeRow',
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
@@ -313,6 +332,26 @@ export function registerDefaultPlugins() {
             { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
           ],
         },
+        unitColor: {
+          type: 'color-select',
+          label: { en: 'Unit', fr: 'Unité' },
+          default: 'auto',
+          row: 'colorsRow2',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+          options: [
+            { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
+          ],
+        },
+        subtitleColor: {
+          type: 'color-select',
+          label: { en: 'Subtitle', fr: 'Sous-titre' },
+          default: 'auto',
+          row: 'colorsRow2',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+          options: [
+            { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
+          ],
+        },
       },
     },
     templates: null,
@@ -322,6 +361,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(plotBuilderManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'plot-builder',
+  })
+
+  registerComponent('map', MapComponent)
+  registerPlugin({
+    manifest: normaliseManifest(mapManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'map',
   })
 
   registerComponent('statistical-tests', StatisticalTestsComponent)

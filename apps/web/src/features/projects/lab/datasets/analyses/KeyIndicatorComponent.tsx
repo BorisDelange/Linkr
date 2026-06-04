@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity } from '@/lib/plugins/shared-styles'
+import { TruncatedTick } from './chart-axis-helpers'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 // ---------------------------------------------------------------------------
@@ -150,10 +151,13 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const colorName = (config.color as string) ?? 'blue'
   const bgColorName = (config.bgColor as string) ?? 'none'
   const titleColorName = (config.titleColor as string) ?? 'auto'
+  const unitColorName = (config.unitColor as string) ?? 'auto'
+  const subtitleColorName = (config.subtitleColor as string) ?? 'auto'
   const chartType = (config.chartType as string) ?? 'none'
   const chartBins = (config.chartBins as number) ?? 15
   const showXAxis = (config.showXAxis as boolean) ?? false
   const xAxisLabel = (config.xAxisLabel as string | undefined) ?? ''
+  const yLabelMaxLen = (config.yLabelMaxLen as number | undefined) ?? 11
   const xAxisStartZero = (config.xAxisStartZero as boolean) ?? false
   const chartPosition = (config.chartPosition as string) ?? 'below'
   const chartColors = (config.chartColors as string) ?? 'mono'
@@ -162,6 +166,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const subtitleStats = (config.subtitleStats as string[] | undefined) ?? ['n']
 
   const isProportion = aggregate === 'proportion'
+  const isNoneStat = aggregate === 'none'
 
   const column = columns.find(c => c.id === columnId)
   const color = resolveColor(colorName)
@@ -170,6 +175,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Resolve detailed colors
   const bgColor = bgColorName === 'auto' ? color : bgColorName === 'none' ? null : resolveColor(bgColorName)
   const titleColor = titleColorName === 'auto' ? null : resolveColor(titleColorName)
+  const unitColor = unitColorName === 'auto' ? null : resolveColor(unitColorName)
+  const subtitleColor = subtitleColorName === 'auto' ? null : resolveColor(subtitleColorName)
 
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
@@ -209,15 +216,22 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const numericResult = useMemo(() => {
     if (isProportion || !column) return null
     const vals: number[] = []
+    let nonNull = 0
+    let targetMatches = 0
+    const target = (targetValue ?? '').toString()
     for (const row of sourceRows) {
       const raw = row[column.id]
-      if (raw == null) continue
+      if (raw == null || raw === '') continue
+      nonNull++
+      if (target && String(raw) === target) targetMatches++
       const num = typeof raw === 'number' ? raw : Number(raw)
       if (!isNaN(num)) vals.push(num)
     }
-    const res = computeAggregate(vals, aggregate)
+    // "Count" = non-empty rows, or rows matching the target value when one is chosen.
+    // Valid even for categorical columns with no numeric values.
+    const res = aggregate === 'count' ? (target ? targetMatches : nonNull) : computeAggregate(vals, aggregate)
     const stats: Record<string, number | null> = {
-      n: vals.length,
+      n: nonNull,
       mean: computeAggregate(vals, 'mean'),
       median: computeAggregate(vals, 'median'),
       sd: vals.length > 0 ? stddev(vals) : null,
@@ -227,8 +241,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       q3: computeAggregate(vals, 'q3'),
       iqr: computeAggregate(vals, 'iqr'),
     }
-    return { values: vals, result: res, allStats: stats }
-  }, [isProportion, column, sourceRows, aggregate])
+    return { values: vals, result: res, allStats: stats, nonNull, targetMatches, target }
+  }, [isProportion, column, sourceRows, aggregate, targetValue])
 
   // Unified result
   const result = isProportion ? proportionResult?.result ?? null : numericResult?.result ?? null
@@ -249,9 +263,16 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       n: { en: 'n', fr: 'n' },
       ...AGG_LABELS,
     }
+    // When a target value is chosen (count of a specific category), the subtitle stats describe
+    // that target: "n" becomes the number of matching rows out of the total.
+    const target = numericResult?.target
     return subtitleStats
       .filter(s => s !== aggregate)
       .map(s => {
+        if (s === 'count') {
+          if (!target) return null
+          return `${target} = ${(numericResult?.targetMatches ?? 0).toLocaleString()} / ${(numericResult?.nonNull ?? 0).toLocaleString()}`
+        }
         const val = allStats[s]
         if (val == null) return null
         const label = STAT_LABELS[s]?.[lang] ?? s
@@ -264,9 +285,11 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Title
   const aggLabel = AGG_LABELS[aggregate]?.[lang] ?? aggregate
   const title = customTitle?.trim() || (column
-    ? isProportion && proportionResult
-      ? `${proportionResult.resolvedTarget} — ${column.name}`
-      : `${aggLabel} — ${column.name}`
+    ? isNoneStat
+      ? column.name
+      : isProportion && proportionResult
+        ? `${proportionResult.resolvedTarget} — ${column.name}`
+        : `${aggLabel} — ${column.name}`
     : aggLabel)
 
   if (!column) {
@@ -277,7 +300,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     )
   }
 
-  if (result === null) {
+  if (result === null && !isNoneStat) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
         {t('datasets.kpi_no_data')}
@@ -309,21 +332,29 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
         </span>
       </div>
 
-      {/* Big number + unit */}
-      <div className={cn('flex items-baseline gap-1.5 mt-2', centerContent && 'justify-center')}>
-        <span className={cn('font-bold tracking-tight', color.text)} style={{ fontSize: numberSize, ...(color.isCustom ? { color: color.hex } : {}) }}>
-          {formatNumber(result, decimals)}
-        </span>
-        {unit && (
-          <span className="font-medium text-muted-foreground" style={{ fontSize: unitSize }}>
-            {unit}
+      {/* Big number + unit — hidden when the main stat is "None". */}
+      {!isNoneStat && result !== null && (
+        <div className={cn('flex items-baseline gap-1.5 mt-2', centerContent && 'justify-center')}>
+          <span className={cn('font-bold tracking-tight', color.text)} style={{ fontSize: numberSize, ...(color.isCustom ? { color: color.hex } : {}) }}>
+            {formatNumber(result, decimals)}
           </span>
-        )}
-      </div>
+          {unit && (
+            <span
+              className={cn('font-medium', unitColor ? unitColor.text : 'text-muted-foreground')}
+              style={{ fontSize: unitSize, ...(unitColor?.isCustom ? { color: unitColor.hex } : {}) }}
+            >
+              {unit}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Subtitle stats */}
       {subtitleParts.length > 0 && (
-        <div className={cn('mt-1.5 text-muted-foreground', centerContent && 'text-center')} style={{ fontSize: subtitleSize }}>
+        <div
+          className={cn('mt-1.5', subtitleColor ? subtitleColor.text : 'text-muted-foreground', centerContent && 'text-center')}
+          style={{ fontSize: subtitleSize, ...(subtitleColor?.isCustom ? { color: subtitleColor.hex } : {}) }}
+        >
           {subtitleParts.join(' \u00b7 ')}
         </div>
       )}
@@ -337,6 +368,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             bins={chartBins}
             showXAxis={showXAxis}
             xAxisLabel={xAxisLabel}
+            yLabelMaxLen={yLabelMaxLen}
             xAxisStartZero={xAxisStartZero}
             decimals={decimals}
             hexColor={color.hex}
@@ -359,6 +391,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           bins={chartBins}
           showXAxis={showXAxis}
           xAxisLabel={xAxisLabel}
+          yLabelMaxLen={yLabelMaxLen}
           hexColor={color.hex}
           colorMode={chartColors as 'mono' | 'multi'}
           column={column}
@@ -405,6 +438,7 @@ interface MiniChartProps {
   bins: number
   showXAxis?: boolean
   xAxisLabel?: string
+  yLabelMaxLen?: number
   xAxisStartZero?: boolean
   decimals?: number
   hexColor: string
@@ -415,7 +449,7 @@ interface MiniChartProps {
 
 const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
   const data = useMemo(() => {
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins, xAxisStartZero, decimals)
@@ -499,7 +533,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, xAxisStartZ
   if (chartType === 'bar') {
     const useMulti = colorMode === 'multi'
     return (
-      <ResponsiveContainer width="100%" height={Math.max(80, data.length * 22) + (hasXLabel ? 16 : 0)}>
+      <ResponsiveContainer width="100%" height={Math.max(80, data.length * 26) + (hasXLabel ? 16 : 0)}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: hasXLabel ? 16 : 0 }}>
           <XAxis
             type="number"
@@ -509,7 +543,9 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, xAxisStartZ
             axisLine={false}
             label={hasXLabel ? { value: xAxisLabel, position: 'insideBottom', offset: -4, fontSize: 9, fill: '#888' } : undefined}
           />
-          <YAxis type="category" dataKey="name" width={60} tick={{ fontSize: 9 }} />
+          {/* interval=0 stops recharts from dropping category ticks when the chart is short (e.g. 3 rows in 80px).
+              Axis width scales with the chosen label length so longer labels aren't clipped. */}
+          <YAxis type="category" dataKey="name" width={Math.round(28 + yLabelMaxLen * 5)} interval={0} tick={<TruncatedTick maxLen={yLabelMaxLen} textAnchor="end" dx={-4} dy={3} fontSize={9} />} />
           <Bar dataKey="value" fill={useMulti ? undefined : hexColor} opacity={0.7} radius={[0, 2, 2, 0]}>
             {useMulti && data.map((_, i) => (
               <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />

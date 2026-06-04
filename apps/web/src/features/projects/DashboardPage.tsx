@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
-import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter, Settings2 } from 'lucide-react'
+import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter, Settings2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -11,6 +11,7 @@ import { WidgetGrid } from './dashboard/WidgetGrid'
 import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
+import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -23,6 +24,7 @@ export function DashboardPage() {
   const [editMode, setEditMode] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
 
   const {
     dashboards,
@@ -53,7 +55,7 @@ export function DashboardPage() {
     .filter((tab) => tab.dashboardId === currentDashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
   const currentTabId = activeTabId[currentDashboardId] ?? dashboardTabs[0]?.id
-  const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
+  const tabWidgets = useMemo(() => widgets.filter((w) => w.tabId === currentTabId), [widgets, currentTabId])
 
   // All widgets in this dashboard (across all tabs) — for filter sidebar dataset list
   const allDashboardWidgets = widgets.filter((w) => {
@@ -98,6 +100,16 @@ export function DashboardPage() {
         <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} />
 
         <div className="ml-auto flex items-center gap-1 py-1">
+          <Button
+            variant="ghost"
+            size="xs"
+            className="gap-1"
+            onClick={() => setExportOpen(true)}
+            disabled={tabWidgets.length === 0}
+          >
+            <Download size={12} />
+            {t('dashboard.export', 'Export')}
+          </Button>
           <Button
             variant={filterOpen ? 'default' : 'ghost'}
             size="xs"
@@ -210,6 +222,15 @@ export function DashboardPage() {
         onOpenChange={setSettingsOpen}
         dashboard={dashboard}
         projectUid={projectUid}
+        currentTabId={currentTabId}
+      />
+
+      <ExportDashboardDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        dashboard={dashboard}
+        tabs={dashboardTabs}
+        allWidgets={allDashboardWidgets}
         currentTabId={currentTabId}
       />
     </div>

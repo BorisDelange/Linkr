@@ -29,6 +29,19 @@ export const COLOR_MAP: Record<string, { text: string; bg: string; accent: strin
 
 export const DEFAULT_COLOR = COLOR_MAP.blue
 
+/** Categorical color palettes shared by chart-rendering plugins (Plot Builder, Map). */
+export const CHART_PALETTES: Record<string, string[]> = {
+  default: ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab'],
+  tableau10: ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'],
+  pastel: ['#aec7e8', '#ffbb78', '#ff9896', '#98df8a', '#c5b0d5', '#c49c94', '#f7b6d2', '#c7c7c7', '#dbdb8d', '#9edae5'],
+  vivid: ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#a65628', '#f781bf', '#999999', '#66c2a5', '#fc8d62'],
+  earth: ['#8c510a', '#bf812d', '#dfc27d', '#80cdc1', '#35978f', '#01665e', '#c7eae5', '#f6e8c3', '#d8b365', '#5ab4ac'],
+  ocean: ['#08519c', '#3182bd', '#6baed6', '#9ecae1', '#c6dbef', '#084594', '#2171b5', '#4292c6', '#6baed6', '#9ecae1'],
+  warm: ['#e41a1c', '#fc4e2a', '#fd8d3c', '#feb24c', '#fed976', '#d7301f', '#ef6548', '#fc8d59', '#fdbb84', '#fdd49e'],
+  cool: ['#225ea8', '#1d91c0', '#41b6c4', '#7fcdbb', '#c7e9b4', '#253494', '#2c7fb8', '#41b6c4', '#a1dab4', '#ffffcc'],
+  monochrome: ['#252525', '#525252', '#737373', '#969696', '#bdbdbd', '#d9d9d9', '#636363', '#a8a8a8', '#454545', '#cccccc'],
+}
+
 /** Resolve a color name or hex string to a color config. Hex colors use inline styles. */
 export function resolveColor(name: string): { text: string; bg: string; accent: string; hex: string; isCustom?: boolean } {
   if (name.startsWith('#')) {

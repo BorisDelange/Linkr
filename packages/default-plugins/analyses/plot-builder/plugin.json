@@ -16,101 +16,6 @@
   "icon": "ChartScatter",
   "iconColor": "violet",
   "configSchema": {
-    "xColumn": {
-      "type": "column-select",
-      "label": { "en": "X variable", "fr": "Variable X" },
-      "row": "columns",
-      "section": { "en": "Data", "fr": "Données" },
-      "hintWhen": {
-        "field": "plotType",
-        "values": {
-          "scatter": { "en": "required", "fr": "requis" },
-          "line": { "en": "required", "fr": "requis" },
-          "bar": { "en": "required", "fr": "requis" },
-          "histogram": { "en": "required", "fr": "requis" },
-          "boxplot": { "en": "categories", "fr": "catégories" },
-          "violin": { "en": "categories", "fr": "catégories" }
-        }
-      }
-    },
-    "yColumn": {
-      "type": "column-select",
-      "label": { "en": "Y variable", "fr": "Variable Y" },
-      "optional": true,
-      "row": "columns",
-      "section": { "en": "Data", "fr": "Données" },
-      "hintWhen": {
-        "field": "plotType",
-        "values": {
-          "scatter": { "en": "required", "fr": "requis" },
-          "line": { "en": "required", "fr": "requis" },
-          "bar": { "en": "optional", "fr": "optionnel" },
-          "histogram": { "en": "not used", "fr": "non utilisé" },
-          "boxplot": { "en": "numeric", "fr": "numérique" },
-          "violin": { "en": "numeric", "fr": "numérique" }
-        }
-      }
-    },
-    "uniquePer": {
-      "type": "column-select",
-      "label": { "en": "Unique per", "fr": "Unique par" },
-      "optional": true,
-      "row": "unique",
-      "section": { "en": "Data", "fr": "Données" },
-      "description": {
-        "en": "Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.",
-        "fr": "Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient."
-      }
-    },
-    "uniqueAggregation": {
-      "type": "select",
-      "label": { "en": "Per-entity function", "fr": "Fonction par entité" },
-      "default": "first",
-      "row": "unique",
-      "section": { "en": "Data", "fr": "Données" },
-      "visibleWhen": { "field": "uniquePer", "notEmpty": true },
-      "description": {
-        "en": "How to reduce multiple rows into one value per entity. Use \"First\" for values that are the same across rows (e.g. age), or \"Mean\" to average measurements.",
-        "fr": "Comment réduire plusieurs lignes en une valeur par entité. Utilisez « Premier » pour les valeurs identiques (ex : âge), ou « Moyenne » pour moyenner des mesures."
-      },
-      "options": [
-        { "value": "first", "label": { "en": "First value", "fr": "Première valeur" } },
-        { "value": "last", "label": { "en": "Last value", "fr": "Dernière valeur" } },
-        { "value": "mean", "label": { "en": "Mean", "fr": "Moyenne" } },
-        { "value": "median", "label": { "en": "Median", "fr": "Médiane" } },
-        { "value": "min", "label": { "en": "Min", "fr": "Min" } },
-        { "value": "max", "label": { "en": "Max", "fr": "Max" } },
-        { "value": "sum", "label": { "en": "Sum", "fr": "Somme" } }
-      ]
-    },
-    "groupColumn": {
-      "type": "column-select",
-      "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
-      "optional": true,
-      "row": "group",
-      "section": { "en": "Data", "fr": "Données" },
-      "description": {
-        "en": "Split data into groups by this column. Each group gets a different color.",
-        "fr": "Sépare les données en groupes selon cette colonne. Chaque groupe a une couleur différente."
-      }
-    },
-    "excludeNA": {
-      "type": "boolean",
-      "label": { "en": "Exclude NA / missing", "fr": "Exclure NA / manquants" },
-      "default": true,
-      "section": { "en": "Data", "fr": "Données" },
-      "description": {
-        "en": "Remove rows where X or Y values are null, empty, or NA before plotting.",
-        "fr": "Supprime les lignes où les valeurs X ou Y sont nulles, vides ou NA avant de tracer."
-      }
-    },
-
-    "title": {
-      "type": "string",
-      "label": { "en": "Title", "fr": "Titre" },
-      "default": "",
-      "section": { "en": "Chart", "fr": "Graphique" }
-    },
     "plotType": {
       "type": "select",
       "label": { "en": "Plot type", "fr": "Type de graphique" },
@@ -123,6 +28,25 @@
         { "value": "histogram", "label": { "en": "Histogram", "fr": "Histogramme" } },
         { "value": "boxplot", "label": { "en": "Boxplot", "fr": "Boîte à moustaches" } },
         { "value": "violin", "label": { "en": "Violin", "fr": "Violon" } }
+      ]
+    },
+    "title": {
+      "type": "string",
+      "label": { "en": "Title", "fr": "Titre" },
+      "default": "",
+      "section": { "en": "Chart", "fr": "Graphique" }
+    },
+    "histogramOrientation": {
+      "type": "select",
+      "label": { "en": "Orientation", "fr": "Orientation" },
+      "default": "vertical",
+      "visibleWhen": { "field": "plotType", "value": "histogram" },
+      "row": "orientationRow",
+      "section": { "en": "Chart", "fr": "Graphique" },
+      "swapFieldsOnChange": [["xColumn", "yColumn"], ["xLabel", "yLabel"]],
+      "options": [
+        { "value": "vertical", "label": { "en": "Vertical bars", "fr": "Barres verticales" } },
+        { "value": "horizontal", "label": { "en": "Horizontal bars", "fr": "Barres horizontales" } }
       ]
     },
     "barMode": {
@@ -198,35 +122,14 @@
       "default": 1,
       "min": 0,
       "max": 10,
-      "row": "axisOptions",
-      "section": { "en": "Chart", "fr": "Graphique" }
-    },
-    "xAxisStartZero": {
-      "type": "boolean",
-      "label": { "en": "X axis starts at 0", "fr": "Axe X commence à 0" },
-      "default": false,
-      "row": "axisOptions",
-      "section": { "en": "Chart", "fr": "Graphique" }
-    },
-    "showGrid": {
-      "type": "boolean",
-      "label": { "en": "Show grid", "fr": "Grille" },
-      "default": true,
-      "row": "axisOptions",
-      "section": { "en": "Chart", "fr": "Graphique" }
-    },
-    "showLegend": {
-      "type": "boolean",
-      "label": { "en": "Show legend", "fr": "Légende" },
-      "default": true,
-      "row": "legendRow",
+      "row": "decimalsLegend",
       "section": { "en": "Chart", "fr": "Graphique" }
     },
     "legendPosition": {
       "type": "select",
       "label": { "en": "Legend position", "fr": "Position légende" },
       "default": "bottom",
-      "row": "legendRow",
+      "row": "decimalsLegend",
       "section": { "en": "Chart", "fr": "Graphique" },
       "visibleWhen": { "field": "showLegend", "value": true },
       "options": [
@@ -236,19 +139,155 @@
         { "value": "top-center", "label": { "en": "Top center", "fr": "Haut centre" } }
       ]
     },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": { "en": "X axis starts at 0", "fr": "Axe X commence à 0" },
+      "default": false,
+      "row": "checksRow",
+      "section": { "en": "Chart", "fr": "Graphique" }
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": { "en": "Show grid", "fr": "Grille" },
+      "default": true,
+      "row": "checksRow",
+      "section": { "en": "Chart", "fr": "Graphique" }
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": { "en": "Show legend", "fr": "Légende" },
+      "default": true,
+      "row": "checksRow",
+      "section": { "en": "Chart", "fr": "Graphique" }
+    },
 
+    "xColumn": {
+      "type": "column-select",
+      "label": { "en": "X variable", "fr": "Variable X" },
+      "row": "columns",
+      "section": { "en": "Data", "fr": "Données" },
+      "hintWhen": {
+        "field": "plotType",
+        "values": {
+          "scatter": { "en": "required", "fr": "requis" },
+          "line": { "en": "required", "fr": "requis" },
+          "bar": { "en": "required", "fr": "requis" },
+          "histogram": { "en": "required", "fr": "requis" },
+          "boxplot": { "en": "categories", "fr": "catégories" },
+          "violin": { "en": "categories", "fr": "catégories" }
+        },
+        "override": {
+          "field": "histogramOrientation",
+          "value": "horizontal",
+          "values": {
+            "histogram": { "en": "not used", "fr": "non utilisé" }
+          }
+        }
+      }
+    },
+    "yColumn": {
+      "type": "column-select",
+      "label": { "en": "Y variable", "fr": "Variable Y" },
+      "optional": true,
+      "row": "columns",
+      "section": { "en": "Data", "fr": "Données" },
+      "hintWhen": {
+        "field": "plotType",
+        "values": {
+          "scatter": { "en": "required", "fr": "requis" },
+          "line": { "en": "required", "fr": "requis" },
+          "bar": { "en": "optional", "fr": "optionnel" },
+          "histogram": { "en": "not used", "fr": "non utilisé" },
+          "boxplot": { "en": "numeric", "fr": "numérique" },
+          "violin": { "en": "numeric", "fr": "numérique" }
+        },
+        "override": {
+          "field": "histogramOrientation",
+          "value": "horizontal",
+          "values": {
+            "histogram": { "en": "required", "fr": "requis" }
+          }
+        }
+      }
+    },
+    "uniquePer": {
+      "type": "column-select",
+      "label": { "en": "Unique per", "fr": "Unique par" },
+      "optional": true,
+      "row": "unique",
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Group rows by this column to get one value per entity. Example: group by patient_id to get one value per patient.",
+        "fr": "Regroupe les lignes selon cette colonne pour obtenir une valeur par entité. Exemple : grouper par patient_id pour une valeur par patient."
+      }
+    },
+    "uniqueAggregation": {
+      "type": "select",
+      "label": { "en": "Per-entity function", "fr": "Fonction par entité" },
+      "default": "first",
+      "row": "unique",
+      "section": { "en": "Data", "fr": "Données" },
+      "visibleWhen": { "field": "uniquePer", "notEmpty": true },
+      "description": {
+        "en": "How to reduce multiple rows into one value per entity. Use \"First\" for values that are the same across rows (e.g. age), or \"Mean\" to average measurements.",
+        "fr": "Comment réduire plusieurs lignes en une valeur par entité. Utilisez « Premier » pour les valeurs identiques (ex : âge), ou « Moyenne » pour moyenner des mesures."
+      },
+      "options": [
+        { "value": "first", "label": { "en": "First value", "fr": "Première valeur" } },
+        { "value": "last", "label": { "en": "Last value", "fr": "Dernière valeur" } },
+        { "value": "mean", "label": { "en": "Mean", "fr": "Moyenne" } },
+        { "value": "median", "label": { "en": "Median", "fr": "Médiane" } },
+        { "value": "min", "label": { "en": "Min", "fr": "Min" } },
+        { "value": "max", "label": { "en": "Max", "fr": "Max" } },
+        { "value": "sum", "label": { "en": "Sum", "fr": "Somme" } }
+      ]
+    },
+    "groupColumn": {
+      "type": "column-select",
+      "label": { "en": "Group / Fill", "fr": "Groupe / Remplissage" },
+      "optional": true,
+      "row": "group",
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Split data into groups by this column. Each group gets a different color.",
+        "fr": "Sépare les données en groupes selon cette colonne. Chaque groupe a une couleur différente."
+      }
+    },
+    "excludeNA": {
+      "type": "boolean",
+      "label": { "en": "Exclude NA / missing", "fr": "Exclure NA / manquants" },
+      "default": true,
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Remove rows where X or Y values are null, empty, or NA before plotting.",
+        "fr": "Supprime les lignes où les valeurs X ou Y sont nulles, vides ou NA avant de tracer."
+      }
+    },
+
+    "size": {
+      "type": "number",
+      "label": { "en": "Size (%)", "fr": "Taille (%)" },
+      "default": 100,
+      "min": 50,
+      "max": 200,
+      "row": "sizeIconRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Scale of the header icon and title.",
+        "fr": "Échelle de l'icône et du titre de l'en-tête."
+      }
+    },
     "cardIcon": {
       "type": "icon-select",
       "label": { "en": "Icon", "fr": "Icône" },
       "default": "__none__",
-      "row": "iconRow",
+      "row": "sizeIconRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "centerTitle": {
       "type": "boolean",
       "label": { "en": "Center title", "fr": "Centrer le titre" },
       "default": false,
-      "row": "iconRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "cardColor": {

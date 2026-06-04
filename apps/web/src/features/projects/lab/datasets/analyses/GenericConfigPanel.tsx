@@ -81,6 +81,7 @@ export function GenericConfigPanel({
     return conditions.every(cond => {
       const depValue = configWithDefaults[cond.field]
       if (cond.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
+      if (cond.values) return cond.values.includes(depValue)
       return depValue === cond.value
     })
   })
@@ -127,6 +128,15 @@ export function GenericConfigPanel({
   const renderGroups = (gs: typeof groups) =>
     gs.map((group) => {
       const allBoolean = group.fields.every(f => f.type === 'boolean')
+      // Booleans and color swatches are intrinsically narrow; stretching them across a
+      // 50/50 grid leaves big awkward gaps. Pack them left with a small gap instead.
+      const packLeft = group.fields.every(f => f.type === 'boolean' || f.type === 'color-select')
+      // "Field + trailing booleans": give the leading field half the width and pack the
+      // booleans into the other half (e.g. Decimals | [X axis starts at 0, Show grid]).
+      const fieldThenBooleans =
+        group.fields.length > 1 &&
+        group.fields[0].type !== 'boolean' &&
+        group.fields.slice(1).every(f => f.type === 'boolean')
       return group.keys.length === 1 ? (
         <FieldRenderer
           key={group.keys[0]}
@@ -139,8 +149,52 @@ export function GenericConfigPanel({
           onConfigChange={onConfigChange}
           rows={rows}
         />
+      ) : fieldThenBooleans ? (
+        <div key={group.keys.join('-')} className="grid items-end gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
+          <FieldRenderer
+            fieldKey={group.keys[0]}
+            field={group.fields[0]}
+            value={configWithDefaults[group.keys[0]]}
+            columns={columns}
+            lang={lang}
+            config={configWithDefaults}
+            onConfigChange={onConfigChange}
+            rows={rows}
+          />
+          <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
+            {group.keys.slice(1).map((key, idx) => (
+              <FieldRenderer
+                key={key}
+                fieldKey={key}
+                field={group.fields[idx + 1]}
+                value={configWithDefaults[key]}
+                columns={columns}
+                lang={lang}
+                config={configWithDefaults}
+                onConfigChange={onConfigChange}
+                rows={rows}
+              />
+            ))}
+          </div>
+        </div>
+      ) : packLeft ? (
+        <div key={group.keys.join('-')} className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-4')}>
+          {group.keys.map((key, idx) => (
+            <FieldRenderer
+              key={key}
+              fieldKey={key}
+              field={group.fields[idx]}
+              value={configWithDefaults[key]}
+              columns={columns}
+              lang={lang}
+              config={configWithDefaults}
+              onConfigChange={onConfigChange}
+              rows={rows}
+            />
+          ))}
+        </div>
       ) : (
-        <div key={group.keys.join('-')} className={cn('grid gap-4', allBoolean && '-mt-1')} style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
+        <div key={group.keys.join('-')} className="grid gap-4" style={{ gridTemplateColumns: `repeat(${group.keys.length}, minmax(0, 1fr))` }}>
           {group.keys.map((key, idx) => (
             <FieldRenderer
               key={key}
@@ -181,8 +235,8 @@ function CollapsibleSection({ label, defaultOpen = true, children }: { label: st
   const [open, setOpen] = useState(defaultOpen)
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex w-full items-center gap-1.5 py-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide hover:text-foreground transition-colors">
-        <ChevronRight size={12} className={cn('shrink-0 transition-transform', open && 'rotate-90')} />
+      <CollapsibleTrigger className="flex w-full items-center gap-1.5 rounded-md bg-blue-50 px-2 py-1.5 text-xs font-semibold uppercase tracking-wide text-blue-700 hover:bg-blue-100 transition-colors dark:bg-blue-950/40 dark:text-blue-300 dark:hover:bg-blue-900/50">
+        <ChevronRight size={13} className={cn('shrink-0 text-blue-400 transition-transform dark:text-blue-500', open && 'rotate-90')} />
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent className="space-y-3 pt-2">
@@ -203,7 +257,13 @@ function resolveHint(
 ): string | null {
   if (field.hintWhen) {
     const depValue = String(config[field.hintWhen.field] ?? '')
-    const label = field.hintWhen.values[depValue]
+    // An override swaps specific hints when a second field matches (e.g. flip X/Y by orientation).
+    // Override keys take precedence; missing keys fall back to the base map.
+    const ov = field.hintWhen.override
+    const values = ov && config[ov.field] === ov.value
+      ? { ...field.hintWhen.values, ...ov.values }
+      : field.hintWhen.values
+    const label = values[depValue]
     if (label) return label[lang] ?? label.en
     return null
   }
@@ -306,6 +366,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           fieldKey={fieldKey}
           field={field}
           value={value}
+          columns={columns}
           lang={lang}
           config={config}
           onConfigChange={onConfigChange}
@@ -708,10 +769,22 @@ function SelectField({
     }
   }, [visibleOptions, current, fieldKey, onConfigChange])
 
+  const handleChange = useCallback((v: string) => {
+    const changes: Record<string, unknown> = { [fieldKey]: v }
+    // Swap paired config values (e.g. X/Y column + labels) when the value actually changes.
+    if (field.swapFieldsOnChange && v !== current) {
+      for (const [a, b] of field.swapFieldsOnChange) {
+        changes[a] = config[b]
+        changes[b] = config[a]
+      }
+    }
+    onConfigChange(changes)
+  }, [fieldKey, field.swapFieldsOnChange, current, config, onConfigChange])
+
   return (
     <div className="space-y-1.5">
       <FieldLabel field={field} config={config} lang={lang} />
-      <Select value={current} onValueChange={v => onConfigChange({ [fieldKey]: v })}>
+      <Select value={current} onValueChange={handleChange}>
         <SelectTrigger className="h-8 text-xs">
           <SelectValue />
         </SelectTrigger>
@@ -735,19 +808,40 @@ function MultiSelectField({
   fieldKey,
   field,
   value,
+  columns,
   lang,
   config,
   onConfigChange,
-}: Omit<FieldRendererProps, 'columns'>) {
+}: FieldRendererProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
-  const options = field.options ?? []
+
+  // Filter options by the type of a referenced column (e.g. hide numeric-only stats for categorical data).
+  const options = useMemo(() => {
+    const all = field.options ?? []
+    if (!field.filterOptionsByColumn) return all
+    const colId = config[field.filterOptionsByColumn] as string | undefined
+    if (!colId) return all
+    const col = columns.find(c => c.id === colId)
+    if (!col) return all
+    const isNumeric = col.type === 'number'
+    return all.filter(opt => !opt.onlyForColumnType || opt.onlyForColumnType === (isNumeric ? 'numeric' : 'categorical'))
+  }, [field.options, field.filterOptionsByColumn, config, columns])
+
   const defaultValues = field.defaultAll
     ? options.map(o => o.value)
     : Array.isArray(field.default)
       ? (field.default as string[])
       : []
   const selected = (value as string[] | undefined) ?? defaultValues
+
+  // Drop any selected values that are no longer available (e.g. after switching to a categorical column).
+  useEffect(() => {
+    const allowed = new Set(options.map(o => o.value))
+    if (selected.some(v => !allowed.has(v))) {
+      onConfigChange({ [fieldKey]: selected.filter(v => allowed.has(v)) })
+    }
+  }, [options, selected, fieldKey, onConfigChange])
 
   const toggle = useCallback(
     (optValue: string) => {

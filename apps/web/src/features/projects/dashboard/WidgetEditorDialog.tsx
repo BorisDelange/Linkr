@@ -24,9 +24,12 @@ import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/Ge
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { getComponent } from '@/lib/plugins/component-registry'
+import { getLucideIcon } from '@/lib/plugins/shared-styles'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
+import { widgetPixelSize } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
@@ -36,9 +39,11 @@ interface WidgetEditorDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   projectUid: string
+  /** Measured pixel width of the dashboard grid — used to size the preview like the real widget. */
+  gridWidth?: number
 }
 
-export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid }: WidgetEditorDialogProps) {
+export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth }: WidgetEditorDialogProps) {
   if (!widget) return null
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -48,7 +53,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid }: W
         className="w-[calc(100vw-16rem)] max-w-none sm:max-w-none p-0 gap-0"
       >
         <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null}>
-          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} />
+          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} />
         </DashboardDataProvider>
       </SheetContent>
     </Sheet>
@@ -59,8 +64,8 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid }: W
 // Editor content
 // ---------------------------------------------------------------------------
 
-function WidgetEditorContent({ widget, onClose, projectUid }: { widget: DashboardWidget; onClose: () => void; projectUid: string }) {
-  const { t } = useTranslation()
+function WidgetEditorContent({ widget, onClose, projectUid, gridWidth }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number }) {
+  const { t, i18n } = useTranslation()
   const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
   const { filteredRows, columns } = useDashboardData()
   const { files: datasetFiles } = useDatasetStore()
@@ -223,6 +228,7 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
       <SheetHeader className="flex-row items-center gap-2 border-b px-3 py-2 space-y-0">
         <SheetTitle className="text-sm truncate">{widget.name}</SheetTitle>
         <div className="flex-1" />
+        {plugin && <PluginBadge plugin={plugin} lang={i18n.language as 'en' | 'fr'} />}
         <Select
           value={widget.datasetFileId ?? '__none__'}
           onValueChange={(v) => updateWidgetDataset(widget.id, v === '__none__' ? null : v)}
@@ -344,21 +350,116 @@ function WidgetEditorContent({ widget, onClose, projectUid }: { widget: Dashboar
           </Allotment.Pane>
 
           <Allotment.Pane minSize={200}>
-            {isComponentPlugin && plugin?.componentId ? (
-              <ComponentPluginOutput componentId={plugin.componentId} config={debouncedConfig} columns={columns} rows={filteredRows} />
-            ) : (
-              <PluginOutputRenderer
-                result={result}
-                isExecuting={isExecuting}
-                statusMessage={statusMessage}
-                installedDeps={installedDeps}
-                onRerun={handleRun}
-              />
-            )}
+            <SizedPreview widget={widget} gridWidth={gridWidth}>
+              {isComponentPlugin && plugin?.componentId ? (
+                <ComponentPluginOutput componentId={plugin.componentId} config={debouncedConfig} columns={columns} rows={filteredRows} />
+              ) : (
+                <PluginOutputRenderer
+                  result={result}
+                  isExecuting={isExecuting}
+                  statusMessage={statusMessage}
+                  installedDeps={installedDeps}
+                  onRerun={handleRun}
+                />
+              )}
+            </SizedPreview>
           </Allotment.Pane>
         </Allotment>
       </div>
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Sized preview — renders the widget at its on-dashboard pixel size, with a
+// drag handle to try other sizes locally (does NOT change the dashboard layout).
+// ---------------------------------------------------------------------------
+
+const FALLBACK_GRID_WIDTH = 1400
+
+function SizedPreview({ widget, gridWidth, children }: { widget: DashboardWidget; gridWidth?: number; children: React.ReactNode }) {
+  const { t } = useTranslation()
+  const base = useMemo(
+    () => widgetPixelSize(widget.layout.w, widget.layout.h, gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH),
+    [widget.layout.w, widget.layout.h, gridWidth],
+  )
+  const [size, setSize] = useState(base)
+  // Re-sync to the widget's size when the target widget changes.
+  useEffect(() => { setSize(base) }, [base])
+
+  const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null)
+
+  const onPointerDown = useCallback((e: React.PointerEvent) => {
+    e.preventDefault()
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+    dragRef.current = { startX: e.clientX, startY: e.clientY, startW: size.width, startH: size.height }
+  }, [size])
+
+  const onPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!dragRef.current) return
+    const d = dragRef.current
+    setSize({
+      width: Math.max(160, Math.round(d.startW + (e.clientX - d.startX))),
+      height: Math.max(120, Math.round(d.startH + (e.clientY - d.startY))),
+    })
+  }, [])
+
+  const onPointerUp = useCallback((e: React.PointerEvent) => {
+    dragRef.current = null
+    ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
+  }, [])
+
+  const isCustomSize = size.width !== base.width || size.height !== base.height
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="flex items-center gap-2 border-b px-3 py-1 text-[11px] text-muted-foreground">
+        <span>{t('dashboard.preview_size', 'Preview')}: {size.width} × {size.height} px</span>
+        {isCustomSize && (
+          <button onClick={() => setSize(base)} className="inline-flex items-center gap-1 hover:text-foreground">
+            <RotateCcw size={11} />
+            {t('dashboard.preview_reset_size', 'Widget size')}
+          </button>
+        )}
+        <span className="ml-auto">{widget.layout.w} × {widget.layout.h} {t('dashboard.preview_cells', 'cells')}</span>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-6">
+        <div className="relative" style={{ width: size.width, height: size.height }}>
+          <div className="h-full w-full overflow-hidden rounded-lg border bg-card shadow-sm">
+            {children}
+          </div>
+          {/* Resize grip (bottom-right) — same glyph as the dashboard widget resize handle. Affects only this preview. */}
+          <div
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            className="react-resizable-handle react-resizable-handle-se"
+            title={t('dashboard.preview_resize_hint', 'Drag to resize the preview')}
+            style={{ cursor: 'nwse-resize' }}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Plugin name badge (mirrors the project/workspace badge style)
+// ---------------------------------------------------------------------------
+
+function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof getPlugin>>; lang: 'en' | 'fr' }) {
+  const color = plugin.manifest.iconColor
+  const Icon = getLucideIcon(plugin.manifest.icon)
+  const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en
+  return (
+    <Badge
+      variant="outline"
+      className={cn('gap-1 py-0 text-[11px]', color ? getBadgeClasses(color) : undefined)}
+      style={color ? getBadgeStyle(color) : undefined}
+    >
+      <Icon size={10} />
+      {name}
+    </Badge>
   )
 }
 
@@ -424,9 +525,10 @@ function ComponentPluginOutput({
     )
   }
 
+  // `compact` matches how the widget renders on the dashboard (full-bleed, no extra chrome).
   return (
-    <div className="h-full overflow-auto">
-      <Component config={config} columns={columns} rows={rows} />
+    <div className="h-full overflow-hidden">
+      <Component config={config} columns={columns} rows={rows} compact />
     </div>
   )
 }
