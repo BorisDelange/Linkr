@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert } from 'lucide-react'
+import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,6 +18,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget, DatePreset, DatePresetUnit, FilterValue } from '@/types'
@@ -676,12 +682,15 @@ function CategoricalMultiSelect({
 
   // Effective selection (a non-active filter means everything is selected).
   const effectiveSelected = isActive ? selected : new Set(uniqueValues)
-  const allFilteredSelected = filteredValues.length > 0 && filteredValues.every((v) => effectiveSelected.has(v))
 
-  const toggleAll = () => {
+  const selectAllFiltered = () => {
     const base = new Set(effectiveSelected)
-    if (allFilteredSelected) for (const v of filteredValues) base.delete(v)
-    else for (const v of filteredValues) base.add(v)
+    for (const v of filteredValues) base.add(v)
+    onChange(categoricalValue(base, uniqueValues))
+  }
+  const selectNoneFiltered = () => {
+    const base = new Set(effectiveSelected)
+    for (const v of filteredValues) base.delete(v)
     onChange(categoricalValue(base, uniqueValues))
   }
 
@@ -719,29 +728,38 @@ function CategoricalMultiSelect({
             autoFocus
           />
           {filteredValues.length > 0 && (
-            <button
-              type="button"
-              onClick={toggleAll}
-              className="mb-1 px-1.5 text-[10px] font-normal text-primary hover:underline"
-            >
-              {allFilteredSelected ? t('common.deselect_all') : t('common.select_all')}
-            </button>
+            <div className="mb-1 flex items-center gap-1 px-1.5">
+              <button type="button" onClick={selectAllFiltered} className="text-[10px] text-muted-foreground hover:text-foreground">
+                {t('common.select_all')}
+              </button>
+              <span className="text-[10px] text-muted-foreground">/</span>
+              <button type="button" onClick={selectNoneFiltered} className="text-[10px] text-muted-foreground hover:text-foreground">
+                {t('common.select_none')}
+              </button>
+            </div>
           )}
-          <div className="max-h-40 overflow-y-auto space-y-0.5">
-            {filteredValues.map((val) => (
-              <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
-                <Checkbox
-                  checked={isChecked(val)}
-                  onCheckedChange={() => toggle(val)}
-                  className="size-3.5 shrink-0 [&_svg]:size-3"
-                />
-                <span className="truncate">{val}</span>
-              </label>
-            ))}
-            {filteredValues.length === 0 && (
-              <p className="text-[10px] text-muted-foreground italic text-center py-2">No values</p>
-            )}
-          </div>
+          <TooltipProvider delayDuration={400}>
+            <div className="max-h-40 overflow-y-auto space-y-0.5">
+              {filteredValues.map((val) => (
+                <Tooltip key={val}>
+                  <TooltipTrigger asChild>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                      <Checkbox
+                        checked={isChecked(val)}
+                        onCheckedChange={() => toggle(val)}
+                        className="size-3.5 shrink-0 [&_svg]:size-3"
+                      />
+                      <span className="truncate">{val}</span>
+                    </label>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-64">{val}</TooltipContent>
+                </Tooltip>
+              ))}
+              {filteredValues.length === 0 && (
+                <p className="text-[10px] text-muted-foreground italic text-center py-2">{t('common.no_results')}</p>
+              )}
+            </div>
+          </TooltipProvider>
         </PopoverContent>
       </Popover>
       {isActive && (
@@ -1038,6 +1056,12 @@ function FilterScopeSelector({
 }) {
   const { t } = useTranslation()
   const [popoverOpen, setPopoverOpen] = useState(false)
+  const [search, setSearch] = useState('')
+
+  // Reset the search box whenever the popover closes so it reopens clean.
+  useEffect(() => {
+    if (!popoverOpen) setSearch('')
+  }, [popoverOpen])
 
   // Build widget options grouped by tab
   const widgetOptions = useMemo(() => {
@@ -1052,6 +1076,16 @@ function FilterScopeSelector({
   }, [tabs, widgets])
 
   const scopeType = scope.type
+
+  const q = search.trim().toLowerCase()
+  const filteredTabs = useMemo(
+    () => (q ? tabs.filter(tab => tab.name.toLowerCase().includes(q)) : tabs),
+    [tabs, q],
+  )
+  const filteredWidgetOptions = useMemo(
+    () => (q ? widgetOptions.filter(o => o.widgetName.toLowerCase().includes(q) || o.tabName.toLowerCase().includes(q)) : widgetOptions),
+    [widgetOptions, q],
+  )
 
   const scopeLabel = scopeType === 'all'
     ? t('dashboard.filter_scope_all')
@@ -1090,25 +1124,59 @@ function FilterScopeSelector({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-52 p-2" align="start">
-            <div className="max-h-40 overflow-y-auto space-y-0.5">
-              {tabs.map((tab) => {
-                const selected = (scope as { tabIds: string[] }).tabIds.includes(tab.id)
-                return (
-                  <label key={tab.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
-                    <Checkbox
-                      checked={selected}
-                      onCheckedChange={() => {
-                        const current = (scope as { tabIds: string[] }).tabIds
-                        const next = selected ? current.filter(id => id !== tab.id) : [...current, tab.id]
-                        if (next.length > 0) onChange({ type: 'tabs', tabIds: next })
-                      }}
-                      className="size-3.5 shrink-0 [&_svg]:size-3"
-                    />
-                    <span className="truncate">{tab.name}</span>
-                  </label>
-                )
-              })}
+            <div className="relative mb-2">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={t('common.search')}
+                className="h-7 pl-7 text-xs"
+              />
             </div>
+            <div className="mb-2 flex items-center gap-1">
+              <button
+                onClick={() => onChange({ type: 'tabs', tabIds: tabs.map(tab => tab.id) })}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_all')}
+              </button>
+              <span className="text-[10px] text-muted-foreground">/</span>
+              <button
+                onClick={() => onChange({ type: 'tabs', tabIds: [] })}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_none')}
+              </button>
+            </div>
+            <TooltipProvider delayDuration={400}>
+              <div className="max-h-40 overflow-y-auto space-y-0.5">
+                {filteredTabs.map((tab) => {
+                  const selected = (scope as { tabIds: string[] }).tabIds.includes(tab.id)
+                  return (
+                    <Tooltip key={tab.id}>
+                      <TooltipTrigger asChild>
+                        <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => {
+                              const current = (scope as { tabIds: string[] }).tabIds
+                              const next = selected ? current.filter(id => id !== tab.id) : [...current, tab.id]
+                              onChange({ type: 'tabs', tabIds: next })
+                            }}
+                            className="size-3.5 shrink-0 [&_svg]:size-3"
+                          />
+                          <span className="truncate">{tab.name}</span>
+                        </label>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-64">{tab.name}</TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+                {filteredTabs.length === 0 && (
+                  <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+                )}
+              </div>
+            </TooltipProvider>
           </PopoverContent>
         </Popover>
       )}
@@ -1123,32 +1191,63 @@ function FilterScopeSelector({
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-56 p-2" align="start">
-            <div className="max-h-48 overflow-y-auto space-y-0.5">
-              {widgetOptions.map(({ tabName, widgetId, widgetName }) => {
-                const selected = (scope as { widgetIds: string[] }).widgetIds.includes(widgetId)
-                return (
-                  <label key={widgetId} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
-                    <Checkbox
-                      checked={selected}
-                      onCheckedChange={() => {
-                        const current = (scope as { widgetIds: string[] }).widgetIds
-                        const next = selected ? current.filter(id => id !== widgetId) : [...current, widgetId]
-                        if (next.length > 0) onChange({ type: 'widgets', widgetIds: next })
-                      }}
-                      className="size-3.5 shrink-0 [&_svg]:size-3"
-                    />
-                    <span className="truncate text-muted-foreground">{tabName}</span>
-                    <span className="text-[10px] text-muted-foreground/60">›</span>
-                    <span className="truncate">{widgetName}</span>
-                  </label>
-                )
-              })}
-              {widgetOptions.length === 0 && (
-                <p className="text-[10px] text-muted-foreground italic text-center py-2">
-                  {t('dashboard.filter_no_widgets')}
-                </p>
-              )}
+            <div className="relative mb-2">
+              <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                placeholder={t('common.search')}
+                className="h-7 pl-7 text-xs"
+              />
             </div>
+            <div className="mb-2 flex items-center gap-1">
+              <button
+                onClick={() => onChange({ type: 'widgets', widgetIds: widgets.map(w => w.id) })}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_all')}
+              </button>
+              <span className="text-[10px] text-muted-foreground">/</span>
+              <button
+                onClick={() => onChange({ type: 'widgets', widgetIds: [] })}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_none')}
+              </button>
+            </div>
+            <TooltipProvider delayDuration={400}>
+              <div className="max-h-48 overflow-y-auto space-y-0.5">
+                {filteredWidgetOptions.map(({ tabName, widgetId, widgetName }) => {
+                  const selected = (scope as { widgetIds: string[] }).widgetIds.includes(widgetId)
+                  return (
+                    <Tooltip key={widgetId}>
+                      <TooltipTrigger asChild>
+                        <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                          <Checkbox
+                            checked={selected}
+                            onCheckedChange={() => {
+                              const current = (scope as { widgetIds: string[] }).widgetIds
+                              const next = selected ? current.filter(id => id !== widgetId) : [...current, widgetId]
+                              onChange({ type: 'widgets', widgetIds: next })
+                            }}
+                            className="size-3.5 shrink-0 [&_svg]:size-3"
+                          />
+                          <span className="truncate text-muted-foreground">{tabName}</span>
+                          <span className="text-[10px] text-muted-foreground/60">›</span>
+                          <span className="truncate">{widgetName}</span>
+                        </label>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-64">{tabName} › {widgetName}</TooltipContent>
+                    </Tooltip>
+                  )
+                })}
+                {filteredWidgetOptions.length === 0 && (
+                  <p className="text-[10px] text-muted-foreground italic text-center py-2">
+                    {widgetOptions.length === 0 ? t('dashboard.filter_no_widgets') : t('common.no_results')}
+                  </p>
+                )}
+              </div>
+            </TooltipProvider>
           </PopoverContent>
         </Popover>
       )}

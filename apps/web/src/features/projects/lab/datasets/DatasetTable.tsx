@@ -26,10 +26,8 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { cn } from '@/lib/utils'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -40,6 +38,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
 import { hasTimeComponent, columnTint } from '@/lib/dataset-utils'
@@ -71,7 +70,6 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   const [sort, setSort] = useState<{ colId: string; dir: 'asc' | 'desc' } | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
-  const [columnSearch, setColumnSearch] = useState('')
   const [pinnedColumns, setPinnedColumns] = useState<string[]>([])
 
   // Reset state when switching files
@@ -506,94 +504,37 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             {hasActiveFilters && ` / ${rows.length}`}
           </span>
           {onHiddenColumnsChange && (
-            <DropdownMenu onOpenChange={(open) => { if (!open) setColumnSearch('') }}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6">
-                      <Settings2 size={12} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent
-                align="start"
-                className="max-h-[340px] w-[220px] overflow-y-auto"
-                onCloseAutoFocus={(e) => e.preventDefault()}
-              >
-                {(() => {
-                  const query = columnSearch.trim().toLowerCase()
-                  const matched = query
-                    ? columns.filter((col) => col.name.toLowerCase().includes(query))
-                    : columns
-                  const allMatchedVisible = matched.length > 0 && matched.every((col) => !hiddenColumns.has(col.id))
-                  return (
-                    <>
-                      <DropdownMenuLabel className="flex items-center justify-between gap-2 text-xs">
-                        <span>{t('files.columns', 'Columns')}</span>
-                        <button
-                          onClick={(e) => {
-                            e.preventDefault()
-                            onHiddenColumnsChange((prev) => {
-                              const next = new Set(prev)
-                              for (const col of matched) {
-                                if (allMatchedVisible) next.add(col.id)
-                                else next.delete(col.id)
-                              }
-                              return next
-                            })
-                          }}
-                          className="font-normal text-primary hover:underline"
-                        >
-                          {allMatchedVisible
-                            ? t('datasets.col_deselect_all')
-                            : t('datasets.col_select_all')}
-                        </button>
-                      </DropdownMenuLabel>
-                      <div className="px-1 pb-1">
-                        <input
-                          autoFocus
-                          value={columnSearch}
-                          onChange={(e) => setColumnSearch(e.target.value)}
-                          onKeyDown={(e) => e.stopPropagation()}
-                          placeholder={t('datasets.col_search_placeholder')}
-                          className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
-                        />
-                      </div>
-                      <DropdownMenuSeparator />
-                      {matched.length === 0 ? (
-                        <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
-                          {t('datasets.col_search_empty')}
-                        </div>
-                      ) : (
-                        matched.map((col) => (
-                          <DropdownMenuCheckboxItem
-                            key={col.id}
-                            checked={!hiddenColumns.has(col.id)}
-                            onCheckedChange={() => {
-                              onHiddenColumnsChange((prev) => {
-                                const next = new Set(prev)
-                                if (next.has(col.id)) next.delete(col.id)
-                                else next.add(col.id)
-                                return next
-                              })
-                            }}
-                            onSelect={(e) => e.preventDefault()}
-                            className="text-xs"
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <TypeBadge type={col.type} size="sm" />
-                              <span className="truncate">{col.name}</span>
-                            </div>
-                          </DropdownMenuCheckboxItem>
-                        ))
-                      )}
-                    </>
-                  )
-                })()}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ColumnVisibilityMenu
+              items={columns.map((col) => ({
+                id: col.id,
+                label: col.name,
+                visible: !hiddenColumns.has(col.id),
+                content: (
+                  <div className="flex items-center gap-1.5">
+                    <TypeBadge type={col.type} size="sm" />
+                    <span className="truncate">{col.name}</span>
+                  </div>
+                ),
+              }))}
+              onToggle={(id, visible) => {
+                onHiddenColumnsChange((prev) => {
+                  const next = new Set(prev)
+                  if (visible) next.delete(id)
+                  else next.add(id)
+                  return next
+                })
+              }}
+              onSetMany={(ids, visible) => {
+                onHiddenColumnsChange((prev) => {
+                  const next = new Set(prev)
+                  for (const id of ids) {
+                    if (visible) next.delete(id)
+                    else next.add(id)
+                  }
+                  return next
+                })
+              }}
+            />
           )}
         </div>
         <div className="flex items-center gap-2">

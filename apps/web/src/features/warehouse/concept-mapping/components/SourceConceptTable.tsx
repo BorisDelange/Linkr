@@ -45,10 +45,9 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptDictionary } from '@/types/schema-mapping'
@@ -944,35 +943,24 @@ export function SourceConceptTable({
           <span className="text-[10px] text-muted-foreground">
             {rows.length.toLocaleString()}{hasMore ? '+' : ''} / {totalCount.toLocaleString()} {t('concept_mapping.total_concepts')}
           </span>
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" className="h-6 w-6">
-                    <Settings2 size={12} />
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="start" className="w-[180px]">
-              <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {table.getAllColumns()
-                .filter((col) => !col.id.startsWith('_'))
-                .map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={col.getIsVisible()}
-                    onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    {getColLabel(columns, col.id)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ColumnVisibilityMenu
+            trigger={
+              <Button variant="ghost" size="icon-sm" className="h-6 w-6">
+                <Settings2 size={12} />
+              </Button>
+            }
+            items={table.getAllColumns()
+              .filter((col) => !col.id.startsWith('_'))
+              .map((col) => ({
+                id: col.id,
+                label: getColLabel(columns, col.id),
+                visible: col.getIsVisible(),
+              }))}
+            onToggle={(id, visible) => table.getColumn(id)?.toggleVisibility(visible)}
+            onSetMany={(ids, visible) => {
+              for (const id of ids) table.getColumn(id)?.toggleVisibility(visible)
+            }}
+          />
         </div>
       </div>
       {/* Bulk-list modal: every external mapping for the source row, each with

@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 /** Generic option shape. */
@@ -22,6 +23,9 @@ interface MultiSelectFilterProps {
   triggerClass?: string
   /** When true, clicking "Select all" toggles all currently *visible* (filtered) options on/off. */
   selectAllRespectsSearch?: boolean
+  /** Optional custom renderer for an option's content (e.g. a type badge before the label).
+   *  When omitted, the label text is shown. */
+  renderOption?: (option: { value: string; label: string }) => ReactNode
 }
 
 /**
@@ -42,6 +46,7 @@ export function MultiSelectFilter({
   popoverWidthClass = 'w-56',
   triggerClass,
   selectAllRespectsSearch = true,
+  renderOption,
 }: MultiSelectFilterProps) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
@@ -136,38 +141,44 @@ export function MultiSelectFilter({
             {value.length}/{normalized.length}
           </span>
         </div>
-        <div
-          className="max-h-[220px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
-          onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
-        >
-          {searchFiltered.map((opt) => {
-            const isSelected = valueSet.has(opt.value)
-            return (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => toggle(opt.value)}
-                className={cn(
-                  'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors text-left',
-                  isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
-                )}
-              >
-                <div
-                  className={cn(
-                    'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                  )}
-                >
-                  {isSelected && <Check size={10} />}
-                </div>
-                <span className="truncate">{opt.label}</span>
-              </button>
-            )
-          })}
-          {searchFiltered.length === 0 && (
-            <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-          )}
-        </div>
+        <TooltipProvider delayDuration={400}>
+          <div
+            className="max-h-[220px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+            onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+          >
+            {searchFiltered.map((opt) => {
+              const isSelected = valueSet.has(opt.value)
+              return (
+                <Tooltip key={opt.value}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => toggle(opt.value)}
+                      className={cn(
+                        'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors text-left',
+                        isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                          isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
+                        )}
+                      >
+                        {isSelected && <Check size={10} />}
+                      </div>
+                      {renderOption ? renderOption(opt) : <span className="truncate">{opt.label}</span>}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-64">{opt.label}</TooltipContent>
+                </Tooltip>
+              )
+            })}
+            {searchFiltered.length === 0 && (
+              <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+            )}
+          </div>
+        </TooltipProvider>
       </PopoverContent>
     </Popover>
   )

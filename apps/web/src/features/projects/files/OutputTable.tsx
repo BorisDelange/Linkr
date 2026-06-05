@@ -1,8 +1,7 @@
 import { useState, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -10,14 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { TypeBadge } from '@/features/projects/lab/datasets/TypeBadge'
 import {
   ColumnFilterInput,
@@ -310,38 +302,30 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
               : t('files.table_total', { count: totalCount })}
           </span>
           {!compact && (
-            <DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="h-6 w-6">
-                      <Settings2 size={12} />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
-              </Tooltip>
-              <DropdownMenuContent align="start" className="max-h-[300px] w-[180px] overflow-y-auto">
-                <DropdownMenuLabel className="text-xs">
-                  {t('files.columns', 'Columns')}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {headers.map((h, idx) => (
-                  <DropdownMenuCheckboxItem
-                    key={idx}
-                    checked={!hiddenColumns.has(idx)}
-                    onCheckedChange={() => toggleColumn(idx)}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <TypeBadge type={columnTypes[idx]} size="sm" />
-                      <span className="truncate">{h}</span>
-                    </div>
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <ColumnVisibilityMenu
+              items={headers.map((h, idx) => ({
+                id: idx,
+                label: h,
+                visible: !hiddenColumns.has(idx),
+                content: (
+                  <div className="flex items-center gap-1.5">
+                    <TypeBadge type={columnTypes[idx]} size="sm" />
+                    <span className="truncate">{h}</span>
+                  </div>
+                ),
+              }))}
+              onToggle={(idx) => toggleColumn(idx)}
+              onSetMany={(ids, visible) => {
+                setHiddenColumns((prev) => {
+                  const next = new Set(prev)
+                  for (const id of ids) {
+                    if (visible) next.delete(id)
+                    else next.add(id)
+                  }
+                  return next
+                })
+              }}
+            />
           )}
         </div>
         <div className="flex items-center gap-2">
