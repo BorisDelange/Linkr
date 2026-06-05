@@ -183,34 +183,6 @@ export async function installRPackage(
 }
 
 /**
- * Diagnostic helper for debugging package persistence. Logged via window.__linkrWebRDiag().
- * Reports the active lib paths, the packages currently in the persistent library dir,
- * and the size of the tar blob saved in IndexedDB.
- */
-export async function diagnoseRPersistence(): Promise<Record<string, unknown>> {
-  const webR = await getWebR()
-  const libPaths = await webR.evalRRaw(`.libPaths()`, 'string[]') as string[]
-  const persistContents = await webR.evalRRaw(
-    `tryCatch(list.files('${PERSIST_LIB}'), error = function(e) character(0))`,
-    'string[]',
-  ) as string[]
-  const savedTar = await idbGetTar().catch(() => null)
-  const diag = {
-    libPaths,
-    persistDir: PERSIST_LIB,
-    persistContents,
-    idbTarBytes: savedTar?.length ?? 0,
-  }
-  // eslint-disable-next-line no-console
-  console.log('[webR persistence diagnostic]', diag)
-  return diag
-}
-
-if (typeof window !== 'undefined') {
-  ;(window as unknown as Record<string, unknown>).__linkrWebRDiag = diagnoseRPersistence
-}
-
-/**
  * Update an R package by reinstalling the latest available binary.
  */
 export async function updateRPackage(

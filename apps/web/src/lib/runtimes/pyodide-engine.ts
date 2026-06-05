@@ -78,7 +78,7 @@ import os, tarfile, json
 _site = ${JSON.stringify(_sitePackages)}
 _baseline = set(json.loads(${JSON.stringify(baseline)}))
 _added = [e for e in os.listdir(_site) if e not in _baseline]
-with tarfile.open(${JSON.stringify('/tmp/_linkr_site.tar')}, 'w') as _t:
+with tarfile.open(${JSON.stringify(tarPath)}, 'w') as _t:
     for _e in _added:
         _t.add(os.path.join(_site, _e), arcname=_e)
 `)
@@ -98,10 +98,10 @@ async function restorePythonSite(pyodide: PyodideInterface): Promise<void> {
   const tarPath = '/tmp/_linkr_site_restore.tar'
   pyodide.FS.writeFile(tarPath, data)
   await pyodide.runPythonAsync(`
-import tarfile, importlib
-with tarfile.open(${JSON.stringify('/tmp/_linkr_site_restore.tar')}, 'r') as _t:
+import tarfile, importlib, os
+with tarfile.open(${JSON.stringify(tarPath)}, 'r') as _t:
     _t.extractall(${JSON.stringify(_sitePackages)})
-import os; os.remove(${JSON.stringify('/tmp/_linkr_site_restore.tar')})
+os.remove(${JSON.stringify(tarPath)})
 importlib.invalidate_caches()
 `)
 }
@@ -291,31 +291,6 @@ json.dumps([{"name": k, "version": v} for k, v in _seen.items()])
   return JSON.parse(result as string) as { name: string; version: string }[]
 }
 
-/**
- * Diagnostic helper for debugging Python package persistence.
- * Exposed as window.__linkrPyDiag().
- */
-export async function diagnosePythonPersistence(): Promise<Record<string, unknown>> {
-  const pyodide = await getPyodide()
-  const added = await pyodide.runPythonAsync(`
-import os, json
-_base = set(json.loads(${JSON.stringify(JSON.stringify(Array.from(_baselineEntries)))}))
-json.dumps(sorted(e for e in os.listdir(${JSON.stringify(_sitePackages)}) if e not in _base))
-`) as string
-  const savedTar = await idbGetTar().catch(() => null)
-  const diag = {
-    sitePackages: _sitePackages,
-    userAddedEntries: JSON.parse(added) as string[],
-    idbTarBytes: savedTar?.length ?? 0,
-  }
-  // eslint-disable-next-line no-console
-  console.log('[pyodide persistence diagnostic]', diag)
-  return diag
-}
-
-if (typeof window !== 'undefined') {
-  ;(window as unknown as Record<string, unknown>).__linkrPyDiag = diagnosePythonPersistence
-}
 
 /**
  * Execute Python code and return structured output.

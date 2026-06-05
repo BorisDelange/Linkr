@@ -408,6 +408,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           showXAxis={showXAxis}
           xAxisLabel={xAxisLabel}
           yLabelMaxLen={yLabelMaxLen}
+          xAxisStartZero={xAxisStartZero}
+          decimals={decimals}
           hexColor={color.hex}
           colorMode={chartColors as 'mono' | 'multi'}
           palette={chartPalette}
@@ -507,7 +509,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
     return (
       <div style={{ fontSize: 10, padding: '6px 10px', background: 'rgba(0,0,0,.85)', borderRadius: 4, color: '#fff', lineHeight: 1.6 }}>
         <div style={{ fontWeight: 600, marginBottom: 2 }}>{val}</div>
-        <div>{isHist ? 'Count' : 'Count'}: {count.toLocaleString()}</div>
+        <div>Count: {count.toLocaleString()}</div>
         <div>Proportion: {pct}%</div>
       </div>
     )
