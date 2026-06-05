@@ -274,6 +274,36 @@ export function registerDefaultPlugins() {
             { value: 'multi', label: { en: 'Multi', fr: 'Multi' } },
           ],
         },
+        chartPalette: {
+          type: 'select',
+          label: { en: 'Color palette', fr: 'Palette' },
+          default: 'default',
+          optionPreview: 'palette',
+          visibleWhen: { field: 'chartColors', value: 'multi' },
+          section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
+          options: [
+            { value: 'default', label: { en: 'Default', fr: 'Par défaut' } },
+            { value: 'tableau10', label: { en: 'Tableau 10', fr: 'Tableau 10' } },
+            { value: 'pastel', label: { en: 'Pastel', fr: 'Pastel' } },
+            { value: 'vivid', label: { en: 'Vivid', fr: 'Vives' } },
+            { value: 'earth', label: { en: 'Earth tones', fr: 'Tons terre' } },
+            { value: 'ocean', label: { en: 'Ocean', fr: 'Océan' } },
+            { value: 'warm', label: { en: 'Warm', fr: 'Chaud' } },
+            { value: 'cool', label: { en: 'Cool', fr: 'Froid' } },
+            { value: 'monochrome', label: { en: 'Monochrome', fr: 'Monochrome' } },
+            { value: 'custom', label: { en: 'Custom…', fr: 'Personnalisée…' } },
+          ],
+        },
+        chartCustomPalette: {
+          type: 'palette-editor',
+          label: { en: 'Custom colors', fr: 'Couleurs personnalisées' },
+          default: '',
+          visibleWhen: [
+            { field: 'chartColors', value: 'multi' },
+            { field: 'chartPalette', value: 'custom' },
+          ],
+          section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
+        },
         // --- Style ---
         size: {
           type: 'number',
@@ -320,6 +350,26 @@ export function registerDefaultPlugins() {
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
           options: [
             { value: 'none', label: { en: 'None', fr: 'Aucun' } },
+          ],
+        },
+        iconColor: {
+          type: 'color-select',
+          label: { en: 'Icon', fr: 'Icône' },
+          default: 'auto',
+          row: 'colorsRow',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+          options: [
+            { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
+          ],
+        },
+        valueColor: {
+          type: 'color-select',
+          label: { en: 'Main value', fr: 'Valeur principale' },
+          default: 'auto',
+          row: 'colorsRow',
+          section: { en: 'Style', fr: 'Style', defaultOpen: false },
+          options: [
+            { value: 'auto', label: { en: 'Auto', fr: 'Auto' } },
           ],
         },
         titleColor: {

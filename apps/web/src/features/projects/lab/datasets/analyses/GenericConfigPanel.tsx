@@ -165,7 +165,8 @@ export function GenericConfigPanel({
           </div>
         </div>
       ) : packLeft ? (
-        <div key={group.keys.join('-')} className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-4')}>
+        // Tighter vertical gap so color swatches wrapping onto a second line don't leave a big gap.
+        <div key={group.keys.join('-')} className={cn('flex flex-wrap items-end', allBoolean ? 'gap-x-5 gap-y-1 -mt-1' : 'gap-x-4 gap-y-1.5')}>
           {group.keys.map((key, idx) => (
             <FieldRenderer
               key={key}

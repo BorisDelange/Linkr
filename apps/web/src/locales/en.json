@@ -250,6 +250,7 @@
     "filter_no_datasets": "No datasets in use by widgets",
     "filter_input_type": "Input type",
     "filter_all": "All",
+    "filter_none": "None",
     "input_type_checkbox": "Checkboxes",
     "input_type_multi_select": "Multi-select dropdown",
     "input_type_single_select": "Single-select dropdown",
@@ -943,7 +944,7 @@
     "analysis_auto_run": "Auto",
     "analysis_auto_run_tooltip": "Auto-run on open (hides config panel)",
     "kpi_no_column": "Select a column to display the indicator.",
-    "kpi_no_data": "No data available for this column.",
+    "no_data_available": "No data available.",
     "import_settings": "Import settings",
     "import_settings_title": "Import settings",
     "import_settings_description": "Change how this file is parsed and re-import the data.",
@@ -958,8 +959,7 @@
     "plot_builder_select_y": "Select a Y variable.",
     "plot_builder_axis_must_be_numeric": "\"{{column}}\" is not numeric. Scatter and line plots need numeric (or date) X and Y axes.",
     "plot_builder_value_must_be_numeric": "\"{{column}}\" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.",
-    "plot_builder_bar_y_must_be_numeric": "\"{{column}}\" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows).",
-    "plot_builder_no_data": "No data"
+    "plot_builder_bar_y_must_be_numeric": "\"{{column}}\" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows)."
   },
   "subsets": {
     "title": "Subsets",

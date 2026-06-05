@@ -1,10 +1,10 @@
-import { useMemo, useEffect } from 'react'
+import { useMemo, useEffect, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, CHART_PALETTES, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
 const TILE_LAYERS: Record<string, { url: string; attribution: string }> = {
@@ -51,6 +51,19 @@ function FitBounds({ bounds }: { bounds: LatLngBoundsExpression | null }) {
   return null
 }
 
+/** Tell Leaflet to recompute its size when the container resizes (e.g. widget resize on the
+ *  dashboard grid), so tiles that were outside the old viewport get loaded. */
+function ResizeHandler() {
+  const map = useMap()
+  useEffect(() => {
+    const container = map.getContainer()
+    const ro = new ResizeObserver(() => map.invalidateSize())
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [map])
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -59,9 +72,13 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
   const { t } = useTranslation()
 
   const title = (config.title as string) ?? ''
+  const centerTitle = (config.centerTitle as boolean) ?? true
   const basemap = (config.basemap as string) ?? 'osm'
   const showLegend = (config.showLegend as boolean) ?? true
   const cardIcon = (config.cardIcon as string) ?? '__none__'
+  const cardColorName = (config.cardColor as string) ?? 'none'
+  const bgColorName = (config.bgColor as string) ?? 'none'
+  const titleColorName = (config.titleColor as string) ?? 'auto'
 
   const latCol = config.latColumn as string | undefined
   const lonCol = config.lonColumn as string | undefined
@@ -74,9 +91,10 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
   const pointSize = (config.pointSize as number) ?? 6
   const opacityPct = (config.opacity as number) ?? 80
   const paletteName = (config.colorPalette as string) ?? 'default'
+  const customPaletteStr = (config.customPalette as string) ?? ''
 
   const opacity = opacityPct / 100
-  const palette = CHART_PALETTES[paletteName] ?? CHART_PALETTES.default
+  const palette = useMemo(() => resolvePalette(paletteName, customPaletteStr), [paletteName, customPaletteStr])
   const baseColor = resolveColor(markerColorName)
 
   const colById = useMemo(() => new Map(columns.map(c => [c.id, c])), [columns])
@@ -160,16 +178,39 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
   const Icon = hasIcon ? getLucideIcon(cardIcon) : null
   const tile = TILE_LAYERS[basemap]
 
+  // Card colors, mirroring the KPI / Plot Builder plugins.
+  const hasCardColor = cardColorName !== 'none' && cardColorName !== ''
+  const cardColor = resolveColor(cardColorName)
+  const bgColor = bgColorName !== 'none' && bgColorName !== '' ? resolveColor(bgColorName) : null
+  const titleColor = titleColorName !== 'auto' ? resolveColor(titleColorName) : null
+
   const header = (Icon || title) ? (
-    <div className={cn('flex items-center gap-2', compact ? 'px-4 pt-3 pb-1' : 'mb-2')}>
-      {Icon && <Icon size={compact ? 16 : 18} className="text-muted-foreground" />}
+    <div className={cn('flex items-center gap-2', compact ? 'px-4 pt-3 pb-1' : 'mb-2', centerTitle && 'justify-center')}>
+      {Icon && (
+        <Icon
+          size={compact ? 16 : 18}
+          className={hasCardColor ? cardColor.text : 'text-muted-foreground'}
+          style={hasCardColor && cardColor.isCustom ? { color: cardColor.hex } : undefined}
+        />
+      )}
       {title && (
-        <span className={cn('text-xs font-medium truncate text-muted-foreground', !compact && 'text-sm text-foreground/80')}>
+        <span
+          className={cn('text-xs font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground', !compact && !titleColor && 'text-sm text-foreground/80')}
+          style={titleColor?.isCustom ? { color: titleColor.hex } : undefined}
+        >
           {title}
         </span>
       )}
     </div>
   ) : null
+
+  // Background styles (independent of the main color), as in the other plugins.
+  const bgStyle: CSSProperties = {}
+  let bgClasses = ''
+  if (bgColor) {
+    if (bgColor.isCustom) bgStyle.backgroundColor = `${bgColor.hex}10`
+    else bgClasses = bgColor.bg
+  }
 
   const mapBody = (
     <div className="relative h-full w-full overflow-hidden rounded-md">
@@ -188,6 +229,7 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
       >
         {tile && <TileLayer url={tile.url} attribution={tile.attribution} />}
         <FitBounds bounds={bounds} />
+        <ResizeHandler />
         {points.map((p, i) => (
           <CircleMarker
             key={i}
@@ -223,7 +265,7 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
 
   if (compact) {
     return (
-      <div className="flex h-full flex-col">
+      <div className={cn('flex h-full flex-col', bgClasses)} style={bgStyle}>
         {header}
         <div className="min-h-0 flex-1 px-2 pb-2">{mapBody}</div>
       </div>
@@ -231,7 +273,7 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 p-4">
+    <div className={cn('flex h-full flex-col gap-2 p-4', bgClasses)} style={bgStyle}>
       {header}
       <div className="min-h-0 flex-1">{mapBody}</div>
     </div>

@@ -114,16 +114,11 @@
       "default": "__none__",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
-    "markerColor": {
-      "type": "color-select",
-      "label": { "en": "Marker color", "fr": "Couleur des points" },
-      "default": "blue",
-      "row": "markerRow",
-      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
-      "description": {
-        "en": "Used when no \"Color by\" column is set.",
-        "fr": "Utilisée quand aucune colonne « Couleur par » n'est définie."
-      }
+    "centerTitle": {
+      "type": "boolean",
+      "label": { "en": "Center title", "fr": "Centrer le titre" },
+      "default": true,
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
     },
     "pointSize": {
       "type": "number",
@@ -147,6 +142,7 @@
       "type": "select",
       "label": { "en": "Color palette", "fr": "Palette" },
       "default": "default",
+      "optionPreview": "palette",
       "visibleWhen": { "field": "colorColumn", "notEmpty": true },
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
       "options": [
@@ -157,7 +153,60 @@
         { "value": "earth", "label": { "en": "Earth tones", "fr": "Tons terre" } },
         { "value": "ocean", "label": { "en": "Ocean", "fr": "Océan" } },
         { "value": "warm", "label": { "en": "Warm", "fr": "Chaud" } },
-        { "value": "cool", "label": { "en": "Cool", "fr": "Froid" } }
+        { "value": "cool", "label": { "en": "Cool", "fr": "Froid" } },
+        { "value": "monochrome", "label": { "en": "Monochrome", "fr": "Monochrome" } },
+        { "value": "custom", "label": { "en": "Custom…", "fr": "Personnalisée…" } }
+      ]
+    },
+    "customPalette": {
+      "type": "palette-editor",
+      "label": { "en": "Custom colors", "fr": "Couleurs personnalisées" },
+      "default": "",
+      "visibleWhen": [
+        { "field": "colorColumn", "notEmpty": true },
+        { "field": "colorPalette", "value": "custom" }
+      ],
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "markerColor": {
+      "type": "color-select",
+      "label": { "en": "Marker color", "fr": "Couleur des points" },
+      "default": "blue",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Used when no \"Color by\" column is set.",
+        "fr": "Utilisée quand aucune colonne « Couleur par » n'est définie."
+      }
+    },
+    "cardColor": {
+      "type": "color-select",
+      "label": { "en": "Main", "fr": "Principale" },
+      "default": "none",
+      "row": "colorsRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Colors the title icon.",
+        "fr": "Colore l'icône du titre."
+      }
+    },
+    "bgColor": {
+      "type": "color-select",
+      "label": { "en": "Background", "fr": "Fond" },
+      "default": "none",
+      "row": "colorsRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "options": [
+        { "value": "none", "label": { "en": "None", "fr": "Aucun" } }
+      ]
+    },
+    "titleColor": {
+      "type": "color-select",
+      "label": { "en": "Title", "fr": "Titre" },
+      "default": "auto",
+      "row": "colorsRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "options": [
+        { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
       ]
     }
   }

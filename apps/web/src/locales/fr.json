@@ -250,6 +250,7 @@
     "filter_no_datasets": "Aucun dataset utilisé par les widgets",
     "filter_input_type": "Type de contrôle",
     "filter_all": "Tous",
+    "filter_none": "Aucun",
     "input_type_checkbox": "Cases à cocher",
     "input_type_multi_select": "Liste déroulante multi-choix",
     "input_type_single_select": "Liste déroulante choix unique",
@@ -943,7 +944,7 @@
     "analysis_auto_run": "Auto",
     "analysis_auto_run_tooltip": "Exécuter automatiquement à l'ouverture (masque le panneau config)",
     "kpi_no_column": "Sélectionnez une colonne pour afficher l'indicateur.",
-    "kpi_no_data": "Aucune donnée disponible pour cette colonne.",
+    "no_data_available": "Aucune donnée disponible.",
     "import_settings": "Options d'import",
     "import_settings_title": "Options d'import",
     "import_settings_description": "Modifiez la façon dont ce fichier est lu et ré-importez les données.",
@@ -958,8 +959,7 @@
     "plot_builder_select_y": "Sélectionnez une variable Y.",
     "plot_builder_axis_must_be_numeric": "« {{column}} » n'est pas numérique. Les nuages de points et courbes nécessitent des axes X et Y numériques (ou dates).",
     "plot_builder_value_must_be_numeric": "« {{column}} » n'est pas numérique. Les box plots et violins nécessitent un axe de valeurs numérique (Y), avec un X catégoriel optionnel.",
-    "plot_builder_bar_y_must_be_numeric": "« {{column}} » n'est pas numérique. Les diagrammes en barres moyennent un Y numérique par X catégoriel (ou laissez Y vide pour compter les lignes).",
-    "plot_builder_no_data": "Aucune donnée"
+    "plot_builder_bar_y_must_be_numeric": "« {{column}} » n'est pas numérique. Les diagrammes en barres moyennent un Y numérique par X catégoriel (ou laissez Y vide pour compter les lignes)."
   },
   "subsets": {
     "title": "Sous-ensembles",

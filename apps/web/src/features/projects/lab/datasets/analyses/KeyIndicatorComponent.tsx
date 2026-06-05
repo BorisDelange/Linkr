@@ -12,7 +12,7 @@ import {
   Tooltip,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
@@ -150,6 +150,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'
   const bgColorName = (config.bgColor as string) ?? 'none'
+  const iconColorName = (config.iconColor as string) ?? 'auto'
+  const valueColorName = (config.valueColor as string) ?? 'auto'
   const titleColorName = (config.titleColor as string) ?? 'auto'
   const unitColorName = (config.unitColor as string) ?? 'auto'
   const subtitleColorName = (config.subtitleColor as string) ?? 'auto'
@@ -161,6 +163,9 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const xAxisStartZero = (config.xAxisStartZero as boolean) ?? false
   const chartPosition = (config.chartPosition as string) ?? 'below'
   const chartColors = (config.chartColors as string) ?? 'mono'
+  const chartPaletteName = (config.chartPalette as string) ?? 'default'
+  const chartCustomPalette = (config.chartCustomPalette as string) ?? ''
+  const chartPalette = resolvePalette(chartPaletteName, chartCustomPalette)
   const decimals = (config.decimals as number | undefined) ?? 1
   const unit = (config.unit as string | undefined) ?? ''
   const subtitleStats = (config.subtitleStats as string[] | undefined) ?? ['n']
@@ -172,8 +177,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const color = resolveColor(colorName)
   const Icon = getLucideIcon(iconName)
 
-  // Resolve detailed colors
+  // Resolve detailed colors. "auto" means "follow the main color" for the icon and main
+  // value (so they inherit Main unless explicitly overridden), and "inherit muted default"
+  // for title/unit/subtitle.
   const bgColor = bgColorName === 'auto' ? color : bgColorName === 'none' ? null : resolveColor(bgColorName)
+  const iconColor = iconColorName === 'auto' ? color : resolveColor(iconColorName)
+  const valueColor = valueColorName === 'auto' ? color : resolveColor(valueColorName)
   const titleColor = titleColorName === 'auto' ? null : resolveColor(titleColorName)
   const unitColor = unitColorName === 'auto' ? null : resolveColor(unitColorName)
   const subtitleColor = subtitleColorName === 'auto' ? null : resolveColor(subtitleColorName)
@@ -303,12 +312,18 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   if (result === null && !isNoneStat) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
-        {t('datasets.kpi_no_data')}
+        {t('datasets.no_data_available')}
       </div>
     )
   }
 
-  const hasChart = chartType !== 'none' && (values.length > 0 || (isProportion && sourceRows.length > 0))
+  // Histogram needs numeric values; bar/pie build frequency counts from raw rows, so they
+  // only need rows (works for categorical columns and when the main stat is "None").
+  const hasChart = chartType !== 'none' && (
+    chartType === 'histogram'
+      ? values.length > 0
+      : sourceRows.length > 0
+  )
   const isSideChart = hasChart && chartPosition === 'side'
 
   // Scale factor for all text/icon sizes (100% = default)
@@ -323,7 +338,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     <div className={isSideChart ? 'flex-1 min-w-0' : undefined}>
       {/* Icon + title */}
       <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
-        <Icon size={iconSize} className={color.text} style={color.isCustom ? { color: color.hex } : undefined} />
+        <Icon size={iconSize} className={iconColor.text} style={iconColor.isCustom ? { color: iconColor.hex } : undefined} />
         <span
           className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}
           style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
@@ -335,7 +350,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       {/* Big number + unit — hidden when the main stat is "None". */}
       {!isNoneStat && result !== null && (
         <div className={cn('flex items-baseline gap-1.5 mt-2', centerContent && 'justify-center')}>
-          <span className={cn('font-bold tracking-tight', color.text)} style={{ fontSize: numberSize, ...(color.isCustom ? { color: color.hex } : {}) }}>
+          <span className={cn('font-bold tracking-tight', valueColor.text)} style={{ fontSize: numberSize, ...(valueColor.isCustom ? { color: valueColor.hex } : {}) }}>
             {formatNumber(result, decimals)}
           </span>
           {unit && (
@@ -373,6 +388,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             decimals={decimals}
             hexColor={color.hex}
             colorMode={chartColors as 'mono' | 'multi'}
+            palette={chartPalette}
             column={column}
             rows={sourceRows}
           />
@@ -394,6 +410,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           yLabelMaxLen={yLabelMaxLen}
           hexColor={color.hex}
           colorMode={chartColors as 'mono' | 'multi'}
+          palette={chartPalette}
           column={column}
           rows={sourceRows}
         />
@@ -443,13 +460,14 @@ interface MiniChartProps {
   decimals?: number
   hexColor: string
   colorMode?: 'mono' | 'multi'
+  palette?: string[]
   column: { id: string; name: string; type: string }
   rows: Record<string, unknown>[]
 }
 
-const PIE_COLORS = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
+const DEFAULT_MINI_PALETTE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', palette = DEFAULT_MINI_PALETTE, column, rows }: MiniChartProps) {
   const data = useMemo(() => {
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins, xAxisStartZero, decimals)
@@ -548,7 +566,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
           <YAxis type="category" dataKey="name" width={Math.round(28 + yLabelMaxLen * 5)} interval={0} tick={<TruncatedTick maxLen={yLabelMaxLen} textAnchor="end" dx={-4} dy={3} fontSize={9} />} />
           <Bar dataKey="value" fill={useMulti ? undefined : hexColor} opacity={0.7} radius={[0, 2, 2, 0]}>
             {useMulti && data.map((_, i) => (
-              <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+              <Cell key={i} fill={palette[i % palette.length]} />
             ))}
           </Bar>
           <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
@@ -574,7 +592,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
             strokeWidth={0}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={useMono ? hexColor : PIE_COLORS[i % PIE_COLORS.length]} opacity={useMono ? 0.5 + (i / data.length) * 0.5 : 1} />
+              <Cell key={i} fill={useMono ? hexColor : palette[i % palette.length]} opacity={useMono ? 0.5 + (i / data.length) * 0.5 : 1} />
             ))}
           </Pie>
           <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />

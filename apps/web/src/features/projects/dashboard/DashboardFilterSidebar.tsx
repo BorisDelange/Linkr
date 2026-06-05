@@ -24,6 +24,7 @@ import type { Dashboard, DashboardFilter, DashboardFilterScope, DashboardWidget,
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { presetLabel } from './date-presets'
+import { FILTER_NONE } from './DashboardDataProvider'
 
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
@@ -177,8 +178,21 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     clearFilter(filterId)
   }
 
+  // An "empty" value (Clear pressed, no selection, no bounds) does nothing, so remove the
+  // filter entirely — otherwise the active dot lingers and it counts as active.
+  // For categorical, selected=[] means "all pass" (see applyFilters), i.e. no active filter.
+  const isEmptyFilterValue = (value: FilterValue): boolean => {
+    switch (value.type) {
+      case 'categorical': return value.selected.length === 0
+      case 'numeric': return value.min == null && value.max == null
+      case 'date': return value.from == null && value.to == null
+      case 'date-relative': return false
+    }
+  }
+
   const handleFilterChange = (filterId: string, value: FilterValue) => {
-    setFilter(filterId, value)
+    if (isEmptyFilterValue(value)) clearFilter(filterId)
+    else setFilter(filterId, value)
   }
 
   const handleClearAll = () => {
@@ -520,6 +534,25 @@ function FilterControl({
 const CHECKBOX_WARN_THRESHOLD = 20
 const DROPDOWN_WARN_THRESHOLD = 1000
 
+/** Build a categorical FilterValue from a selection set:
+ *  - all values selected  → [] (no restriction; handleFilterChange clears it → resets to default)
+ *  - nothing selected     → [FILTER_NONE] sentinel (→ 0 results, distinct from "no filter")
+ *  - some selected        → the explicit list */
+function categoricalValue(selected: Set<string>, allValues: string[]): FilterValue {
+  if (selected.size === 0) return { type: 'categorical', selected: [FILTER_NONE] }
+  if (selected.size >= allValues.length && allValues.every((v) => selected.has(v))) {
+    return { type: 'categorical', selected: [] }
+  }
+  return { type: 'categorical', selected: Array.from(selected) }
+}
+
+/** Read a stored categorical selection, treating the FILTER_NONE sentinel as an empty set. */
+function readSelection(value?: { selected: string[] }): { selected: Set<string>; isNone: boolean } {
+  const raw = value?.selected ?? []
+  const isNone = raw.length === 1 && raw[0] === FILTER_NONE
+  return { selected: new Set(isNone ? [] : raw), isNone }
+}
+
 function CategoricalCheckbox({
   columnId,
   rows,
@@ -542,14 +575,18 @@ function CategoricalCheckbox({
     return Array.from(vals).sort()
   }, [rows, columnId])
 
-  const selected = new Set(value?.selected ?? [])
-  const allSelected = selected.size === 0
+  // No active filter (value undefined) => everything is checked. The first toggle materializes
+  // the full list, so the user can uncheck down to zero (→ no results, stored as FILTER_NONE).
+  const isActive = value != null
+  const { selected } = readSelection(value)
+
+  const isChecked = (val: string) => (isActive ? selected.has(val) : true)
 
   const toggle = (val: string) => {
-    const next = new Set(selected)
-    if (next.has(val)) next.delete(val)
-    else next.add(val)
-    onChange({ type: 'categorical', selected: Array.from(next) })
+    const base = isActive ? new Set(selected) : new Set(uniqueValues)
+    if (base.has(val)) base.delete(val)
+    else base.add(val)
+    onChange(categoricalValue(base, uniqueValues))
   }
 
   return (
@@ -566,7 +603,7 @@ function CategoricalCheckbox({
         {uniqueValues.map((val) => (
           <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1 py-0.5">
             <Checkbox
-              checked={allSelected || selected.has(val)}
+              checked={isChecked(val)}
               onCheckedChange={() => toggle(val)}
               className="size-3.5 shrink-0 [&_svg]:size-3"
             />
@@ -577,7 +614,7 @@ function CategoricalCheckbox({
           <p className="text-[10px] text-muted-foreground italic">No values</p>
         )}
       </div>
-      {selected.size > 0 && (
+      {isActive && (
         <Button
           variant="ghost"
           size="xs"
@@ -624,20 +661,37 @@ function CategoricalMultiSelect({
     return uniqueValues.filter((v) => v.toLowerCase().includes(lower))
   }, [uniqueValues, search])
 
-  const selected = new Set(value?.selected ?? [])
+  // No active filter => all values implicitly selected. First toggle materializes the full
+  // list so the user can deselect down to zero (→ no results), just like the checkbox mode.
+  const isActive = value != null
+  const { selected } = readSelection(value)
+  const isChecked = (val: string) => (isActive ? selected.has(val) : true)
 
   const toggle = (val: string) => {
-    const next = new Set(selected)
-    if (next.has(val)) next.delete(val)
-    else next.add(val)
-    onChange({ type: 'categorical', selected: Array.from(next) })
+    const base = isActive ? new Set(selected) : new Set(uniqueValues)
+    if (base.has(val)) base.delete(val)
+    else base.add(val)
+    onChange(categoricalValue(base, uniqueValues))
   }
 
-  const label = selected.size === 0
+  // Effective selection (a non-active filter means everything is selected).
+  const effectiveSelected = isActive ? selected : new Set(uniqueValues)
+  const allFilteredSelected = filteredValues.length > 0 && filteredValues.every((v) => effectiveSelected.has(v))
+
+  const toggleAll = () => {
+    const base = new Set(effectiveSelected)
+    if (allFilteredSelected) for (const v of filteredValues) base.delete(v)
+    else for (const v of filteredValues) base.add(v)
+    onChange(categoricalValue(base, uniqueValues))
+  }
+
+  const label = !isActive
     ? t('dashboard.filter_all')
-    : selected.size === 1
-      ? Array.from(selected)[0]
-      : `${selected.size} selected`
+    : selected.size === 0
+      ? t('dashboard.filter_none', 'None')
+      : selected.size === 1
+        ? Array.from(selected)[0]
+        : `${selected.size} selected`
 
   return (
     <div className="space-y-1">
@@ -664,11 +718,20 @@ function CategoricalMultiSelect({
             className="h-7 text-xs mb-2"
             autoFocus
           />
+          {filteredValues.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="mb-1 px-1.5 text-[10px] font-normal text-primary hover:underline"
+            >
+              {allFilteredSelected ? t('common.deselect_all') : t('common.select_all')}
+            </button>
+          )}
           <div className="max-h-40 overflow-y-auto space-y-0.5">
             {filteredValues.map((val) => (
               <label key={val} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
                 <Checkbox
-                  checked={selected.has(val)}
+                  checked={isChecked(val)}
                   onCheckedChange={() => toggle(val)}
                   className="size-3.5 shrink-0 [&_svg]:size-3"
                 />
@@ -681,7 +744,7 @@ function CategoricalMultiSelect({
           </div>
         </PopoverContent>
       </Popover>
-      {selected.size > 0 && (
+      {isActive && (
         <Button
           variant="ghost"
           size="xs"
@@ -998,7 +1061,7 @@ function FilterScopeSelector({
 
   return (
     <div className="space-y-1">
-      <span className="text-[10px] text-muted-foreground">{t('dashboard.filter_scope')}</span>
+      <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_scope')}</Label>
       <Select
         value={scopeType}
         onValueChange={(v) => {
@@ -1007,7 +1070,7 @@ function FilterScopeSelector({
           else if (v === 'widgets') onChange({ type: 'widgets', widgetIds: widgets.map(w => w.id) })
         }}
       >
-        <SelectTrigger className="h-6 text-[10px] w-full">
+        <SelectTrigger className="h-7 text-xs w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent position="popper" sideOffset={4}>

@@ -15,16 +15,10 @@ import {
   Legend,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
-
-function parseCustomPalette(input: string): string[] | null {
-  if (!input.trim()) return null
-  const colors = input.split(',').map(s => s.trim()).filter(s => /^#[0-9a-fA-F]{3,8}$/.test(s))
-  return colors.length > 0 ? colors : null
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -296,7 +290,7 @@ function BoxplotChart({
   startAtZero?: boolean
 }) {
   const { t } = useTranslation()
-  if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">{t('datasets.plot_builder_no_data', 'No data')}</div>
+  if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">{t('datasets.no_data_available')}</div>
 
   const allMin = Math.min(...data.map(d => d.stats.min))
   const allMax = Math.max(...data.map(d => d.stats.max))
@@ -462,6 +456,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const cardColor = (config.cardColor as string) ?? 'none'
   const bgColorName = (config.bgColor as string) ?? 'none'
   const titleColorName = (config.titleColor as string) ?? 'auto'
+  const iconColorName = (config.iconColor as string) ?? 'auto'
   const centerTitle = (config.centerTitle as boolean) ?? true
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
@@ -491,21 +486,25 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const legendPosition = (config.legendPosition as string) ?? 'bottom'
 
   const opacity = opacityPct / 100
-  const paletteColors = paletteName === 'custom'
-    ? (parseCustomPalette(customPaletteStr) ?? CHART_PALETTES.default)
-    : (CHART_PALETTES[paletteName] ?? CHART_PALETTES.default)
 
   // Resolve colors
   const cardColorResolved = resolveColor(cardColor)
   const hasCardColor = cardColor !== 'none' && cardColor !== ''
   const bgColor = bgColorName !== 'none' && bgColorName !== '' ? resolveColor(bgColorName) : null
   const titleColor = titleColorName !== 'auto' ? resolveColor(titleColorName) : null
+  // Icon color: "auto" follows the main color (muted-foreground when no main color is set).
+  const iconColor = iconColorName !== 'auto' ? resolveColor(iconColorName) : null
+
+  // Single color = the main color when set, else the first default-palette swatch.
+  const singleColor = hasCardColor ? cardColorResolved.hex : CHART_PALETTES.default[0]
+
+  // Palette = "none" means a single color for every series/box (the main color). Otherwise
+  // use the chosen multi-color palette. (We no longer force the main color into slot 0 of a
+  // palette, which produced e.g. one red box among monochrome ones.)
   const colors = useMemo(() => {
-    if (hasCardColor && !groupCol) {
-      return [cardColorResolved.hex, ...paletteColors.slice(1)]
-    }
-    return paletteColors
-  }, [hasCardColor, groupCol, cardColorResolved.hex, paletteColors])
+    if (paletteName === 'none') return [singleColor]
+    return resolvePalette(paletteName, customPaletteStr)
+  }, [paletteName, singleColor, customPaletteStr])
 
   // Aggregate rows per entity if uniquePer is set
   const aggregatedRows = useMemo(() => {
@@ -773,8 +772,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
       {Icon && (
         <Icon
           size={compact ? 16 : 18}
-          className={hasCardColor ? color.text : 'text-muted-foreground'}
-          style={color.isCustom ? { color: color.hex } : undefined}
+          className={iconColor ? iconColor.text : hasCardColor ? color.text : 'text-muted-foreground'}
+          style={(iconColor ?? (hasCardColor ? color : undefined))?.isCustom ? { color: (iconColor ?? color).hex } : undefined}
         />
       )}
       {titleElement}
@@ -854,7 +853,7 @@ function ScatterPlot({
           formatter={(_v: unknown, name: string, props: { payload?: { x?: number; y?: number } }) => {
             if (name === 'x' && xIsDate && props.payload?.x) return formatDateTick(props.payload.x)
             if (name === 'y' && yIsDate && props.payload?.y) return formatDateTick(props.payload.y)
-            return String(_v)
+            return typeof _v === 'number' ? formatNumericTick(decimals)(_v) : String(_v)
           }}
         />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
@@ -920,7 +919,11 @@ function LinePlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
-        <Tooltip {...TOOLTIP_STYLE} labelFormatter={xIsDate ? formatDateTick : undefined} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          labelFormatter={xIsDate ? formatDateTick : undefined}
+          formatter={(v: unknown) => (typeof v === 'number' ? formatNumericTick(decimals)(v) : String(v))}
+        />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
           <Line
@@ -1041,7 +1044,14 @@ function BarPlot({
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={xLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
-        <Tooltip {...TOOLTIP_STYLE} />
+        <Tooltip
+          {...TOOLTIP_STYLE}
+          formatter={(v: unknown) => {
+            if (typeof v !== 'number') return String(v)
+            // Count mode yields integers; only the averaged-value mode needs decimals.
+            return isCountMode ? v.toLocaleString() : formatNumericTick(decimals)(v)
+          }}
+        />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
           <Bar key={s} dataKey={s} name={s === dataKey ? undefined : s} fill={colors[i % colors.length]} fillOpacity={opacity} radius={[2, 2, 0, 0]} activeBar={{ fillOpacity: Math.min(1, opacity + 0.2), stroke: colors[i % colors.length], strokeWidth: 1 }} />

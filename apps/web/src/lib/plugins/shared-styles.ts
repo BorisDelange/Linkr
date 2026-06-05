@@ -42,6 +42,19 @@ export const CHART_PALETTES: Record<string, string[]> = {
   monochrome: ['#252525', '#525252', '#737373', '#969696', '#bdbdbd', '#d9d9d9', '#636363', '#a8a8a8', '#454545', '#cccccc'],
 }
 
+/** Parse a comma-separated list of hex colors (the custom-palette editor format). */
+export function parseCustomPalette(input: string): string[] | null {
+  if (!input.trim()) return null
+  const colors = input.split(',').map(s => s.trim()).filter(s => /^#[0-9a-fA-F]{3,8}$/.test(s))
+  return colors.length > 0 ? colors : null
+}
+
+/** Resolve a palette name (or "custom" + editor string) to an array of hex colors. */
+export function resolvePalette(name: string, customStr = ''): string[] {
+  if (name === 'custom') return parseCustomPalette(customStr) ?? CHART_PALETTES.default
+  return CHART_PALETTES[name] ?? CHART_PALETTES.default
+}
+
 /** Resolve a color name or hex string to a color config. Hex colors use inline styles. */
 export function resolveColor(name: string): { text: string; bg: string; accent: string; hex: string; isCustom?: boolean } {
   if (name.startsWith('#')) {

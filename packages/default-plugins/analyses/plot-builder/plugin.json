@@ -328,6 +328,7 @@
       "optionPreview": "palette",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
       "options": [
+        { "value": "none", "label": { "en": "None (single color)", "fr": "Aucune (couleur unique)" } },
         { "value": "default", "label": { "en": "Default", "fr": "Par défaut" } },
         { "value": "tableau10", "label": { "en": "Tableau 10", "fr": "Tableau 10" } },
         { "value": "pastel", "label": { "en": "Pastel", "fr": "Pastel" } },
@@ -374,6 +375,20 @@
       "default": "auto",
       "row": "colorsRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "options": [
+        { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
+      ]
+    },
+    "iconColor": {
+      "type": "color-select",
+      "label": { "en": "Icon", "fr": "Icône" },
+      "default": "auto",
+      "row": "colorsRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Defaults to the main color.",
+        "fr": "Par défaut, suit la couleur principale."
+      },
       "options": [
         { "value": "auto", "label": { "en": "Auto", "fr": "Auto" } }
       ]

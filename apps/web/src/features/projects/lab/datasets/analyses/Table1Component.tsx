@@ -265,7 +265,7 @@ export function Table1Component({ config, columns, rows, compact }: ComponentPlu
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TableIcon size={24} className="opacity-40" />
-        <p className="text-xs">{t('datasets.table1_no_data', 'No data available.')}</p>
+        <p className="text-xs">{t('datasets.no_data_available')}</p>
       </div>
     )
   }
