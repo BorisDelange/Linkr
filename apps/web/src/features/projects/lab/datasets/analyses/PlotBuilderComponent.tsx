@@ -280,6 +280,7 @@ function BoxplotChart({
   showGrid,
   violin,
   startAtZero = false,
+  xLabelMaxLen = 12,
 }: {
   data: BoxplotData[]
   colors: string[]
@@ -288,6 +289,7 @@ function BoxplotChart({
   showGrid: boolean
   violin: boolean
   startAtZero?: boolean
+  xLabelMaxLen?: number
 }) {
   const { t } = useTranslation()
   if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">{t('datasets.no_data_available')}</div>
@@ -396,7 +398,7 @@ function BoxplotChart({
                 strokeOpacity={0.6}
               />
               <line x1={cx - halfW * 0.4} x2={cx + halfW * 0.4} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-              <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} />
+              <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={xLabelMaxLen} />
             </g>
           )
         }
@@ -419,7 +421,7 @@ function BoxplotChart({
               rx={2}
             />
             <line x1={cx - halfBox} x2={cx + halfBox} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-            <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} />
+            <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={xLabelMaxLen} />
           </g>
         )
       })}
@@ -722,6 +724,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           showGrid={showGrid}
           violin={false}
           startAtZero={xAxisStartZero}
+          xLabelMaxLen={xLabelMaxLen}
         />
       )}
       {plotType === 'violin' && (
@@ -735,6 +738,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           showGrid={showGrid}
           violin={true}
           startAtZero={xAxisStartZero}
+          xLabelMaxLen={xLabelMaxLen}
         />
       )}
     </>
@@ -1227,10 +1231,10 @@ function HistogramPlot({
 // ---------------------------------------------------------------------------
 
 function BoxViolinPlot({
-  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero,
+  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string
-  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean
+  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number
 }) {
   const data = useMemo<BoxplotData[]>(() => {
     const valCol = yCol ?? xCol
@@ -1270,6 +1274,7 @@ function BoxViolinPlot({
         showGrid={showGrid}
         violin={violin}
         startAtZero={startAtZero}
+        xLabelMaxLen={xLabelMaxLen}
       />
     </div>
   )

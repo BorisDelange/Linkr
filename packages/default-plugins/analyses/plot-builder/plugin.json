@@ -300,7 +300,7 @@
       "min": 3,
       "max": 60,
       "row": "labelLenRow",
-      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram"] },
+      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram", "boxplot", "violin"] },
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
       "description": {
         "en": "Maximum characters shown for text labels on the X (category/bin) axis before truncating with “…”.",
