@@ -43,19 +43,42 @@ function computeNumericStats(values: number[]) {
   return { min, max, mean, median, std, q1, q3, iqr, n, sorted }
 }
 
+/** Round a number to a "nice" value (1, 2, 2.5, 5, 10 × 10^n) for readable axis steps. */
+function niceNum(range: number, round: boolean): number {
+  const exp = Math.floor(Math.log10(range))
+  const frac = range / 10 ** exp
+  let niceFrac: number
+  if (round) {
+    if (frac < 1.5) niceFrac = 1
+    else if (frac < 3) niceFrac = 2
+    else if (frac < 7) niceFrac = 5
+    else niceFrac = 10
+  } else {
+    if (frac <= 1) niceFrac = 1
+    else if (frac <= 2) niceFrac = 2
+    else if (frac <= 5) niceFrac = 5
+    else niceFrac = 10
+  }
+  return niceFrac * 10 ** exp
+}
+
 function buildHistogram(sorted: number[], bins: number) {
   if (sorted.length === 0) return []
-  const min = sorted[0]
-  const max = sorted[sorted.length - 1]
-  if (min === max) return [{ label: String(min), count: sorted.length, pct: 100 }]
-  const step = (max - min) / bins
+  const dataMin = sorted[0]
+  const dataMax = sorted[sorted.length - 1]
+  if (dataMin === dataMax) return [{ label: String(dataMin), count: sorted.length, pct: 100 }]
+
+  // "Nice bins": round the start and step to readable values so bars land on round ticks.
+  const step = niceNum((dataMax - dataMin) / bins, true)
+  const start = Math.floor(dataMin / step) * step
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)))
   const result: { label: string; count: number; pct: number }[] = []
-  for (let i = 0; i < bins; i++) {
-    const lo = min + i * step
-    const hi = i === bins - 1 ? max + 1 : min + (i + 1) * step
-    const count = sorted.filter((v) => v >= lo && v < hi).length
+  for (let lo = start; lo < dataMax; lo += step) {
+    const isLast = lo + step >= dataMax
+    const hi = lo + step
+    const count = sorted.filter((v) => v >= lo && (isLast ? v <= hi : v < hi)).length
     result.push({
-      label: `${lo.toFixed(1)}`,
+      label: lo.toFixed(decimals),
       count,
       pct: (count / sorted.length) * 100,
     })
@@ -263,14 +286,14 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
         {stats.isNumeric && stats.numeric && (
           <div className="space-y-1 border-t pt-3">
             <h4 className="font-medium text-muted-foreground mb-1.5">{t('datasets.stats_numeric')}</h4>
+            <StatRow label={t('datasets.stats_mean')} value={stats.numeric.mean} />
+            <StatRow label={t('datasets.stats_median')} value={stats.numeric.median} />
+            <StatRow label={t('datasets.stats_std')} value={stats.numeric.std} />
+            <StatRow label="IQR" value={stats.numeric.iqr} />
             <StatRow label={t('datasets.stats_min')} value={stats.numeric.min} />
             <StatRow label="Q1 (25%)" value={stats.numeric.q1} />
-            <StatRow label={t('datasets.stats_median')} value={stats.numeric.median} />
             <StatRow label="Q3 (75%)" value={stats.numeric.q3} />
             <StatRow label={t('datasets.stats_max')} value={stats.numeric.max} />
-            <StatRow label="IQR" value={stats.numeric.iqr} />
-            <StatRow label={t('datasets.stats_mean')} value={stats.numeric.mean} />
-            <StatRow label={t('datasets.stats_std')} value={stats.numeric.std} />
           </div>
         )}
 
@@ -283,7 +306,7 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
                 <XAxis
                   dataKey="label"
                   tick={{ fontSize: 9 }}
-                  tickFormatter={(v: number) => Number(v).toLocaleString(undefined, { maximumFractionDigits: 1 })}
+                  tickFormatter={(v: string) => Number(v).toLocaleString()}
                   interval="preserveStartEnd"
                 />
                 <YAxis tick={{ fontSize: 9 }} width={30} />

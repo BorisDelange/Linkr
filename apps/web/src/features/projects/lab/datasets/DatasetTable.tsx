@@ -1,6 +1,18 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Settings2 } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  Settings2,
+  MoreVertical,
+  ArrowUp,
+  ArrowDown,
+  Filter,
+  EyeOff,
+  Columns2,
+  Pin,
+  PinOff,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -16,13 +28,21 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu'
 import { TypeBadge } from './TypeBadge'
 import { ColumnFilterInput, applyColumnFilter, type ColumnFilterValue } from './ColumnFilterInput'
-import { hasTimeComponent } from '@/lib/dataset-utils'
+import { hasTimeComponent, columnTint } from '@/lib/dataset-utils'
 import type { DatasetColumn } from '@/types'
 
 interface DatasetTableProps {
@@ -47,21 +67,32 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(100)
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterValue>>({})
+  const [naFilters, setNaFilters] = useState<Record<string, 'exclude' | 'only'>>({})
+  const [sort, setSort] = useState<{ colId: string; dir: 'asc' | 'desc' } | null>(null)
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({})
   const [resizing, setResizing] = useState<{ colId: string; startX: number; startW: number } | null>(null)
+  const [columnSearch, setColumnSearch] = useState('')
+  const [pinnedColumns, setPinnedColumns] = useState<string[]>([])
 
   // Reset state when switching files
   useEffect(() => {
     setPage(0)
     setColumnFilters({})
+    setNaFilters({})
+    setSort(null)
     setColumnWidths({})
+    setPinnedColumns([])
   }, [fileId])
 
-  // Visible columns
-  const visibleColumns = useMemo(
-    () => columns.filter((col) => !hiddenColumns.has(col.id)),
-    [columns, hiddenColumns],
-  )
+  // Visible columns — pinned ones first (in pin order), then the rest in natural order
+  const visibleColumns = useMemo(() => {
+    const visible = columns.filter((col) => !hiddenColumns.has(col.id))
+    const pinned = pinnedColumns
+      .map((id) => visible.find((c) => c.id === id))
+      .filter((c): c is DatasetColumn => c != null)
+    const rest = visible.filter((col) => !pinnedColumns.includes(col.id))
+    return [...pinned, ...rest]
+  }, [columns, hiddenColumns, pinnedColumns])
 
   // Sample values per date column (for datetime detection)
   const samplesByCol = useMemo(() => {
@@ -74,36 +105,67 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     return map
   }, [columns, rows])
 
-  // Filter rows client-side
+  // Filter rows client-side (value filters + NA filters)
   const filteredRows = useMemo(() => {
     const activeFilters = Object.entries(columnFilters).filter(([, v]) => v != null)
-    if (activeFilters.length === 0) return rows
+    const activeNa = Object.entries(naFilters)
+    if (activeFilters.length === 0 && activeNa.length === 0) return rows
 
     // Build a colType lookup
     const colTypeMap: Record<string, DatasetColumn['type']> = {}
     for (const col of columns) colTypeMap[col.id] = col.type
 
-    return rows.filter((row) =>
-      activeFilters.every(([colId, filterValue]) =>
+    const isNa = (v: unknown) => v == null || v === ''
+
+    return rows.filter((row) => {
+      for (const [colId, mode] of activeNa) {
+        const na = isNa(row[colId])
+        if (mode === 'exclude' && na) return false
+        if (mode === 'only' && !na) return false
+      }
+      return activeFilters.every(([colId, filterValue]) =>
         applyColumnFilter(row[colId], colTypeMap[colId] ?? 'string', filterValue),
-      ),
-    )
-  }, [rows, columnFilters, columns])
+      )
+    })
+  }, [rows, columnFilters, naFilters, columns])
+
+  // Sort rows (NA values always sink to the bottom)
+  const sortedRows = useMemo(() => {
+    if (!sort) return filteredRows
+    const col = columns.find((c) => c.id === sort.colId)
+    if (!col) return filteredRows
+    const dir = sort.dir === 'asc' ? 1 : -1
+    const numeric = col.type === 'number'
+    const copy = [...filteredRows]
+    copy.sort((a, b) => {
+      const va = a[sort.colId]
+      const vb = b[sort.colId]
+      const aNa = va == null || va === ''
+      const bNa = vb == null || vb === ''
+      if (aNa && bNa) return 0
+      if (aNa) return 1
+      if (bNa) return -1
+      if (numeric) return (Number(va) - Number(vb)) * dir
+      return String(va).localeCompare(String(vb)) * dir
+    })
+    return copy
+  }, [filteredRows, sort, columns])
 
   // Pagination
-  const totalCount = filteredRows.length
+  const totalCount = sortedRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const clampedPage = Math.min(page, totalPages - 1)
 
   const pageRows = useMemo(
-    () => filteredRows.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize),
-    [filteredRows, clampedPage, pageSize],
+    () => sortedRows.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize),
+    [sortedRows, clampedPage, pageSize],
   )
 
   // Row number offset for the current page
   const rowOffset = clampedPage * pageSize
 
-  const hasActiveFilters = Object.values(columnFilters).some((v) => v != null)
+  const hasActiveFilters =
+    Object.values(columnFilters).some((v) => v != null) || Object.keys(naFilters).length > 0
 
   // Column filter change handler
   const handleFilterChange = useCallback((colId: string, value: ColumnFilterValue) => {
@@ -111,6 +173,22 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       const next = { ...prev }
       if (value == null) delete next[colId]
       else next[colId] = value
+      return next
+    })
+    setPage(0)
+  }, [])
+
+  // Toggle sort: asc → desc → none
+  const handleSort = useCallback((colId: string, dir: 'asc' | 'desc') => {
+    setSort((prev) => (prev?.colId === colId && prev.dir === dir ? null : { colId, dir }))
+  }, [])
+
+  // Toggle NA filter: same mode again clears it
+  const handleNaFilter = useCallback((colId: string, mode: 'exclude' | 'only') => {
+    setNaFilters((prev) => {
+      const next = { ...prev }
+      if (next[colId] === mode) delete next[colId]
+      else next[colId] = mode
       return next
     })
     setPage(0)
@@ -162,12 +240,87 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     })
   }, [])
 
+  const togglePin = useCallback((colId: string) => {
+    setPinnedColumns((prev) =>
+      prev.includes(colId) ? prev.filter((id) => id !== colId) : [...prev, colId],
+    )
+  }, [])
+
   // Total table width
   const ROW_NUM_WIDTH = 50
   const DEFAULT_COL_WIDTH = 150
   const totalWidth =
     ROW_NUM_WIDTH +
     visibleColumns.reduce((sum, col) => sum + getColWidth(col.id, DEFAULT_COL_WIDTH), 0)
+
+  // Cumulative left offset for each pinned column (after the row-number column)
+  const pinnedLeft = useMemo(() => {
+    const map: Record<string, number> = {}
+    let acc = ROW_NUM_WIDTH
+    for (const col of visibleColumns) {
+      if (!pinnedColumns.includes(col.id)) continue
+      map[col.id] = acc
+      acc += getColWidth(col.id, DEFAULT_COL_WIDTH)
+    }
+    return map
+  }, [visibleColumns, pinnedColumns, getColWidth])
+
+  // Shared column-action items, rendered both in the "..." dropdown and the right-click context menu.
+  const renderColumnMenuItems = (
+    col: DatasetColumn,
+    Item: typeof DropdownMenuItem | typeof ContextMenuItem,
+    Separator: typeof DropdownMenuSeparator | typeof ContextMenuSeparator,
+  ) => {
+    const isSorted = sort?.colId === col.id
+    const isPinned = pinnedColumns.includes(col.id)
+    return (
+      <>
+        <Item onClick={() => handleSort(col.id, 'asc')} className="text-xs">
+          <ArrowUp size={13} />
+          {t('datasets.col_sort_asc')}
+          {isSorted && sort!.dir === 'asc' && <span className="ml-auto text-primary">✓</span>}
+        </Item>
+        <Item onClick={() => handleSort(col.id, 'desc')} className="text-xs">
+          <ArrowDown size={13} />
+          {t('datasets.col_sort_desc')}
+          {isSorted && sort!.dir === 'desc' && <span className="ml-auto text-primary">✓</span>}
+        </Item>
+        <Separator />
+        <Item onClick={() => handleNaFilter(col.id, 'exclude')} className="text-xs">
+          <Filter size={13} />
+          {t('datasets.col_hide_na')}
+          {naFilters[col.id] === 'exclude' && <span className="ml-auto text-primary">✓</span>}
+        </Item>
+        <Item onClick={() => handleNaFilter(col.id, 'only')} className="text-xs">
+          <Filter size={13} />
+          {t('datasets.col_only_na')}
+          {naFilters[col.id] === 'only' && <span className="ml-auto text-primary">✓</span>}
+        </Item>
+        <Separator />
+        <Item onClick={() => togglePin(col.id)} className="text-xs">
+          {isPinned ? <PinOff size={13} /> : <Pin size={13} />}
+          {isPinned ? t('datasets.col_unpin') : t('datasets.col_pin')}
+        </Item>
+        <Item onClick={() => onSelectColumn(col.id)} className="text-xs">
+          <Settings2 size={13} />
+          {t('datasets.col_view_stats')}
+        </Item>
+        <Item onClick={() => resetColWidth(col.id)} className="text-xs">
+          <Columns2 size={13} />
+          {t('datasets.col_reset_width')}
+        </Item>
+        {onHiddenColumnsChange && (
+          <Item
+            onClick={() => onHiddenColumnsChange((prev) => new Set(prev).add(col.id))}
+            className="text-xs"
+          >
+            <EyeOff size={13} />
+            {t('datasets.col_hide')}
+          </Item>
+        )}
+      </>
+    )
+  }
 
   if (columns.length === 0) {
     return (
@@ -184,7 +337,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
       <div className="min-h-0 flex-1 overflow-auto">
         <table
           className="text-xs"
-          style={{ minWidth: totalWidth, width: '100%', tableLayout: 'fixed' }}
+          style={{ minWidth: totalWidth, width: '100%', tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0 }}
         >
           <thead className="sticky top-0 z-10 bg-muted">
             {/* Column headers */}
@@ -195,15 +348,25 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
               >
                 #
               </th>
-              {visibleColumns.map((col) => {
+              {visibleColumns.map((col, colIdx) => {
                 const w = getColWidth(col.id, DEFAULT_COL_WIDTH)
+                const isSorted = sort?.colId === col.id
+                const hasNa = naFilters[col.id] != null
+                const hasValueFilter = columnFilters[col.id] != null
+                const isActive = isSorted || hasNa || hasValueFilter
+                const isSelected = selectedColumnId === col.id
+                const isPinned = pinnedColumns.includes(col.id)
                 return (
+                  <ContextMenu key={col.id}>
+                  <ContextMenuTrigger asChild>
                   <th
-                    key={col.id}
-                    style={{ width: w }}
+                    style={{ width: w, ...(isPinned ? { left: pinnedLeft[col.id] } : {}) }}
                     className={cn(
-                      'relative border-b border-r px-3 py-1.5 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer hover:bg-accent/50',
-                      selectedColumnId === col.id && 'bg-accent text-accent-foreground',
+                      'group/col border-b border-r px-3 py-1.5 text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis cursor-pointer',
+                      isPinned ? 'sticky z-40 border-r-primary/40 hover:bg-accent' : 'relative hover:bg-accent/50',
+                      !isSelected && !isPinned && columnTint(colIdx),
+                      !isSelected && isPinned && 'bg-muted',
+                      isSelected && 'bg-accent text-accent-foreground',
                     )}
                     onClick={() =>
                       onSelectColumn(col.id === selectedColumnId ? null : col.id)
@@ -212,6 +375,32 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     <div className="flex items-center gap-1.5">
                       <TypeBadge type={col.type} size="sm" />
                       <span className="truncate">{col.name}</span>
+                      {isSorted && (
+                        sort!.dir === 'asc'
+                          ? <ArrowUp size={11} className="shrink-0 text-primary" />
+                          : <ArrowDown size={11} className="shrink-0 text-primary" />
+                      )}
+                      {(hasNa || hasValueFilter) && (
+                        <Filter size={11} className="shrink-0 text-primary" />
+                      )}
+                      {isPinned && <Pin size={11} className="shrink-0 text-primary" />}
+                      {/* Column actions menu */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            onClick={(e) => e.stopPropagation()}
+                            className={cn(
+                              'ml-auto shrink-0 rounded p-0.5 hover:bg-accent-foreground/10',
+                              isActive ? 'opacity-100' : 'opacity-0 group-hover/col:opacity-100',
+                            )}
+                          >
+                            <MoreVertical size={12} />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[200px]" onClick={(e) => e.stopPropagation()}>
+                          {renderColumnMenuItems(col, DropdownMenuItem, DropdownMenuSeparator)}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                     {/* Resize handle */}
                     <div
@@ -229,6 +418,11 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                       />
                     </div>
                   </th>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="w-[200px]">
+                    {renderColumnMenuItems(col, ContextMenuItem, ContextMenuSeparator)}
+                  </ContextMenuContent>
+                  </ContextMenu>
                 )
               })}
             </tr>
@@ -238,11 +432,13 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                 style={{ width: ROW_NUM_WIDTH }}
                 className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1"
               />
-              {visibleColumns.map((col) => (
+              {visibleColumns.map((col) => {
+                const isPinned = pinnedColumns.includes(col.id)
+                return (
                 <th
                   key={`filter-${col.id}`}
-                  style={{ width: getColWidth(col.id, DEFAULT_COL_WIDTH) }}
-                  className="border-b border-r px-1 py-1 bg-muted"
+                  style={{ width: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id] } : {}) }}
+                  className={cn('border-b border-r px-1 py-1 bg-muted', isPinned && 'sticky z-30 border-r-primary/40')}
                 >
                   <ColumnFilterInput
                     colId={col.id}
@@ -253,7 +449,8 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                     isDatetime={samplesByCol[col.id] ? hasTimeComponent(samplesByCol[col.id]) : false}
                   />
                 </th>
-              ))}
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -275,20 +472,25 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                   >
                     {rowOffset + rowIdx + 1}
                   </td>
-                  {visibleColumns.map((col) => (
+                  {visibleColumns.map((col, colIdx) => {
+                    const isPinned = pinnedColumns.includes(col.id)
+                    return (
                     <td
                       key={col.id}
-                      style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH) }}
+                      style={{ maxWidth: getColWidth(col.id, DEFAULT_COL_WIDTH), ...(isPinned ? { left: pinnedLeft[col.id], width: getColWidth(col.id, DEFAULT_COL_WIDTH) } : {}) }}
                       className={cn(
                         'border-b border-r px-3 py-1 whitespace-nowrap overflow-hidden text-ellipsis',
-                        selectedColumnId === col.id && 'bg-accent/20',
+                        isPinned
+                          ? 'sticky z-20 bg-background border-r-primary/40'
+                          : selectedColumnId === col.id ? 'bg-accent/20' : columnTint(colIdx),
                       )}
                     >
                       {row[col.id] != null
                         ? String(row[col.id])
                         : <span className="italic text-muted-foreground/50">null</span>}
                     </td>
-                  ))}
+                    )
+                  })}
                 </tr>
               ))
             )}
@@ -304,7 +506,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             {hasActiveFilters && ` / ${rows.length}`}
           </span>
           {onHiddenColumnsChange && (
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => { if (!open) setColumnSearch('') }}>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <DropdownMenuTrigger asChild>
@@ -315,32 +517,81 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
                 </TooltipTrigger>
                 <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
               </Tooltip>
-              <DropdownMenuContent align="start" className="max-h-[300px] w-[200px] overflow-y-auto">
-                <DropdownMenuLabel className="text-xs">
-                  {t('files.columns', 'Columns')}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {columns.map((col) => (
-                  <DropdownMenuCheckboxItem
-                    key={col.id}
-                    checked={!hiddenColumns.has(col.id)}
-                    onCheckedChange={() => {
-                      onHiddenColumnsChange((prev) => {
-                        const next = new Set(prev)
-                        if (next.has(col.id)) next.delete(col.id)
-                        else next.add(col.id)
-                        return next
-                      })
-                    }}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <TypeBadge type={col.type} size="sm" />
-                      <span className="truncate">{col.name}</span>
-                    </div>
-                  </DropdownMenuCheckboxItem>
-                ))}
+              <DropdownMenuContent
+                align="start"
+                className="max-h-[340px] w-[220px] overflow-y-auto"
+                onCloseAutoFocus={(e) => e.preventDefault()}
+              >
+                {(() => {
+                  const query = columnSearch.trim().toLowerCase()
+                  const matched = query
+                    ? columns.filter((col) => col.name.toLowerCase().includes(query))
+                    : columns
+                  const allMatchedVisible = matched.length > 0 && matched.every((col) => !hiddenColumns.has(col.id))
+                  return (
+                    <>
+                      <DropdownMenuLabel className="flex items-center justify-between gap-2 text-xs">
+                        <span>{t('files.columns', 'Columns')}</span>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault()
+                            onHiddenColumnsChange((prev) => {
+                              const next = new Set(prev)
+                              for (const col of matched) {
+                                if (allMatchedVisible) next.add(col.id)
+                                else next.delete(col.id)
+                              }
+                              return next
+                            })
+                          }}
+                          className="font-normal text-primary hover:underline"
+                        >
+                          {allMatchedVisible
+                            ? t('datasets.col_deselect_all')
+                            : t('datasets.col_select_all')}
+                        </button>
+                      </DropdownMenuLabel>
+                      <div className="px-1 pb-1">
+                        <input
+                          autoFocus
+                          value={columnSearch}
+                          onChange={(e) => setColumnSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder={t('datasets.col_search_placeholder')}
+                          className="h-6 w-full rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
+                        />
+                      </div>
+                      <DropdownMenuSeparator />
+                      {matched.length === 0 ? (
+                        <div className="px-2 py-3 text-center text-[11px] text-muted-foreground">
+                          {t('datasets.col_search_empty')}
+                        </div>
+                      ) : (
+                        matched.map((col) => (
+                          <DropdownMenuCheckboxItem
+                            key={col.id}
+                            checked={!hiddenColumns.has(col.id)}
+                            onCheckedChange={() => {
+                              onHiddenColumnsChange((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(col.id)) next.delete(col.id)
+                                else next.add(col.id)
+                                return next
+                              })
+                            }}
+                            onSelect={(e) => e.preventDefault()}
+                            className="text-xs"
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <TypeBadge type={col.type} size="sm" />
+                              <span className="truncate">{col.name}</span>
+                            </div>
+                          </DropdownMenuCheckboxItem>
+                        ))
+                      )}
+                    </>
+                  )
+                })()}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

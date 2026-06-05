@@ -25,7 +25,7 @@ import {
   type ColumnFilterValue,
 } from '@/features/projects/lab/datasets/ColumnFilterInput'
 import { cn } from '@/lib/utils'
-import { DATE_DATETIME_RE } from '@/lib/dataset-utils'
+import { DATE_DATETIME_RE, parseBoolean, columnTint } from '@/lib/dataset-utils'
 
 interface OutputTableProps {
   headers: string[]
@@ -47,7 +47,7 @@ function inferColumnType(rows: string[][], colIdx: number): InferredType {
     if (val == null || val === '' || val.toLowerCase() === 'null' || val.toLowerCase() === 'na' || val.toLowerCase() === 'none') continue
     hasValue = true
     if (allNumber && isNaN(Number(val))) allNumber = false
-    if (allBool && val !== 'true' && val !== 'false' && val !== 'TRUE' && val !== 'FALSE' && val !== '0' && val !== '1') allBool = false
+    if (allBool && parseBoolean(val) === null) allBool = false
     if (allDate && !DATE_DATETIME_RE.test(val)) allDate = false
     if (!allNumber && !allBool && !allDate) return 'string'
   }
@@ -75,28 +75,14 @@ function isNullish(val: string | undefined): boolean {
   return lower === 'null' || lower === 'na' || lower === 'none' || lower === 'nan'
 }
 
-// Subtle column background colors for visual separation (alternating)
-const COLUMN_COLORS = [
-  'bg-blue-500/[0.04]',
-  '',  // transparent
-  'bg-violet-500/[0.04]',
-  '',
-  'bg-emerald-500/[0.04]',
-  '',
-  'bg-amber-500/[0.04]',
-  '',
-  'bg-rose-500/[0.04]',
-  '',
-  'bg-cyan-500/[0.04]',
-  '',
-]
-
 export function OutputTable({ headers, rows, compact }: OutputTableProps) {
   const { t } = useTranslation()
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(25)
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilterValue>>({})
   const [hiddenColumns, setHiddenColumns] = useState<Set<number>>(new Set())
+  const [columnWidths, setColumnWidths] = useState<Record<number, number>>({})
+  const [resizing, setResizing] = useState<number | null>(null)
 
   // Infer column types from data
   const columnTypes = useMemo<InferredType[]>(
@@ -160,26 +146,95 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
 
   const hasActiveFilters = Object.keys(columnFilters).length > 0
 
+  const ROW_NUM_WIDTH = 40
+  const DEFAULT_COL_WIDTH = 150
+  const getColWidth = useCallback(
+    (idx: number) => columnWidths[idx] ?? DEFAULT_COL_WIDTH,
+    [columnWidths],
+  )
+
+  const resetColWidth = useCallback((idx: number) => {
+    setColumnWidths((prev) => {
+      const next = { ...prev }
+      delete next[idx]
+      return next
+    })
+  }, [])
+
+  const handleResizeStart = useCallback(
+    (idx: number, e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX
+      const startW = columnWidths[idx] ?? DEFAULT_COL_WIDTH
+
+      setResizing(idx)
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        const currentX = 'touches' in ev ? ev.touches[0].clientX : ev.clientX
+        const newWidth = Math.max(60, startW + (currentX - clientX))
+        setColumnWidths((prev) => ({ ...prev, [idx]: newWidth }))
+      }
+      const onEnd = () => {
+        setResizing(null)
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onEnd)
+        document.removeEventListener('touchmove', onMove)
+        document.removeEventListener('touchend', onEnd)
+      }
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onEnd)
+      document.addEventListener('touchmove', onMove)
+      document.addEventListener('touchend', onEnd)
+    },
+    [columnWidths],
+  )
+
+  const totalWidth =
+    ROW_NUM_WIDTH + visibleIndices.reduce((sum, idx) => sum + getColWidth(idx), 0)
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Table */}
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full text-xs border-collapse">
+        <table
+          className="text-xs border-collapse"
+          style={compact ? { width: '100%' } : { minWidth: totalWidth, width: '100%', tableLayout: 'fixed' }}
+        >
           <thead className="sticky top-0 z-10 bg-muted">
             {/* Column headers */}
             <tr>
-              <th className={cn('sticky left-0 z-20 bg-muted w-10 min-w-[40px] border-b border-r text-center text-muted-foreground font-normal', compact ? 'px-1 py-0.5' : 'px-2 py-1.5')}>
+              <th
+                style={compact ? undefined : { width: ROW_NUM_WIDTH }}
+                className={cn('sticky left-0 z-20 bg-muted w-10 min-w-[40px] border-b border-r text-center text-muted-foreground font-normal', compact ? 'px-1 py-0.5' : 'px-2 py-1.5')}
+              >
                 #
               </th>
               {visibleIndices.map((idx) => (
                 <th
                   key={idx}
-                  className={cn('border-b border-r text-left font-medium whitespace-nowrap', compact ? 'px-2 py-0.5' : 'px-3 py-1.5', COLUMN_COLORS[idx % COLUMN_COLORS.length])}
+                  style={compact ? undefined : { width: getColWidth(idx) }}
+                  className={cn('relative border-b border-r text-left font-medium whitespace-nowrap overflow-hidden text-ellipsis', compact ? 'px-2 py-0.5' : 'px-3 py-1.5', columnTint(idx))}
                 >
                   <div className="flex items-center gap-1.5">
                     <TypeBadge type={columnTypes[idx]} size="sm" />
                     <span className="truncate">{headers[idx]}</span>
                   </div>
+                  {!compact && (
+                    <div
+                      onMouseDown={(e) => handleResizeStart(idx, e)}
+                      onTouchStart={(e) => handleResizeStart(idx, e)}
+                      onDoubleClick={() => resetColWidth(idx)}
+                      className="group/resize absolute -right-1.5 top-0 z-10 h-full w-3 cursor-col-resize select-none touch-none"
+                    >
+                      <div
+                        className={cn(
+                          'absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors',
+                          resizing === idx ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40',
+                        )}
+                      />
+                    </div>
+                  )}
                 </th>
               ))}
             </tr>
@@ -188,7 +243,7 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
               <tr>
                 <th className="sticky left-0 z-20 bg-muted border-b border-r px-1 py-1" />
                 {visibleIndices.map((idx) => (
-                  <th key={`filter-${idx}`} className="border-b border-r px-1 py-1 bg-muted">
+                  <th key={`filter-${idx}`} style={{ width: getColWidth(idx) }} className="border-b border-r px-1 py-1 bg-muted">
                     <ColumnFilterInput
                       colId={String(idx)}
                       colType={columnTypes[idx]}
@@ -224,11 +279,12 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                     return (
                       <td
                         key={colIdx}
+                        style={compact ? undefined : { maxWidth: getColWidth(colIdx) }}
                         className={cn(
-                          'border-b border-r whitespace-nowrap max-w-[300px] truncate',
-                          compact ? 'px-2 py-0' : 'px-3 py-1',
+                          'border-b border-r whitespace-nowrap truncate',
+                          compact ? 'px-2 py-0 max-w-[300px]' : 'px-3 py-1',
                           columnTypes[colIdx] === 'number' && !nullish && 'tabular-nums',
-                          COLUMN_COLORS[colIdx % COLUMN_COLORS.length],
+                          columnTint(colIdx),
                         )}
                         title={!nullish ? val : undefined}
                       >

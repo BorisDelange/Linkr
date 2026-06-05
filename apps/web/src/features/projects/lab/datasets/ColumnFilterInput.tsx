@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import type { DatasetColumn } from '@/types'
+import { parseBoolean } from '@/lib/dataset-utils'
 
 const INPUT_CLASS =
   'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -159,7 +160,9 @@ export function applyColumnFilter(
     const target = filterValue as string
     if (!target) return true
     if (cellValue == null) return false
-    return String(cellValue).toLowerCase() === target.toLowerCase()
+    const cell = parseBoolean(cellValue)
+    if (cell === null) return false
+    return cell === (target === 'true')
   }
 
   // string / unknown — text includes

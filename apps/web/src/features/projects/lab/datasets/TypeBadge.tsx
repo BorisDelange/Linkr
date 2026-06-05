@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 const TYPE_CONFIG: Record<string, { icon: string; color: string; label: string }> = {
@@ -15,10 +16,14 @@ interface TypeBadgeProps {
 }
 
 export function TypeBadge({ type, size = 'md', showLabel = false }: TypeBadgeProps) {
-  const config = TYPE_CONFIG[type] ?? TYPE_CONFIG.unknown
+  const { t } = useTranslation()
+  const key = TYPE_CONFIG[type] ? type : 'unknown'
+  const config = TYPE_CONFIG[key]
+  const label = t(`datasets.type_${key}`)
 
   return (
     <span
+      title={label}
       className={cn(
         'inline-flex items-center gap-0.5 rounded font-mono font-semibold leading-none shrink-0',
         config.color,
@@ -26,7 +31,7 @@ export function TypeBadge({ type, size = 'md', showLabel = false }: TypeBadgePro
       )}
     >
       {config.icon}
-      {showLabel && <span className="font-sans font-medium ml-0.5">{config.label}</span>}
+      {showLabel && <span className="font-sans font-medium ml-0.5">{label}</span>}
     </span>
   )
 }
