@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link, useParams } from 'react-router'
 import {
   Database,
   Users,
-  GitBranch,
+  Boxes,
   LayoutDashboard,
   ArrowRight,
   CheckCircle2,
@@ -23,6 +23,7 @@ interface SummaryOverviewTabProps {
 
 export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
   const { t } = useTranslation()
+  const { wsUid } = useParams()
   const project = useAppStore((s) => s._projectsRaw.find((p) => p.uid === uid))
 
   const { getProjectSources } = useDataSourceStore()
@@ -36,10 +37,16 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
 
   const dataSources = useMemo(() => getProjectSources(uid).filter((ds) => !ds.isVocabularyReference), [getProjectSources, uid])
   const cohorts = useMemo(() => getProjectCohorts(uid), [getProjectCohorts, uid])
-  const dashTabs = useMemo(() => {
-    const dashIds = new Set(allDashboards.filter((d) => d.projectUid === uid).map((d) => d.id))
-    return allTabs.filter((t) => dashIds.has(t.dashboardId))
-  }, [allTabs, allDashboards, uid])
+
+  const dashboards = useMemo(() => {
+    const projectDashboards = allDashboards.filter((d) => d.projectUid === uid)
+    return projectDashboards.map((dash) => {
+      const tabs = allTabs.filter((t) => t.dashboardId === dash.id)
+      const tabIds = new Set(tabs.map((t) => t.id))
+      const widgetCount = allWidgets.filter((w) => tabIds.has(w.tabId)).length
+      return { ...dash, tabCount: tabs.length, widgetCount }
+    })
+  }, [allDashboards, allTabs, allWidgets, uid])
 
   const stats = useMemo(() => {
     const connectedCount = dataSources.filter((ds) => ds.status === 'connected').length
@@ -49,8 +56,8 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
     const successNodes = nodes.filter((n) => n.data.status === 'success').length
     const errorNodes = nodes.filter((n) => n.data.status === 'error').length
     const datasetNodes = nodes.filter((n) => n.data.type === 'dataset').length
-    const tabIds = new Set(dashTabs.map((t) => t.id))
-    const widgetCount = allWidgets.filter((w) => tabIds.has(w.tabId)).length
+    const tabCount = dashboards.reduce((sum, d) => sum + d.tabCount, 0)
+    const widgetCount = dashboards.reduce((sum, d) => sum + d.widgetCount, 0)
     const todos = project?.todos ?? []
     const todosDone = todos.filter((t) => t.done).length
 
@@ -62,11 +69,12 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
       successNodes,
       errorNodes,
       datasetNodes,
+      tabCount,
       widgetCount,
       todos,
       todosDone,
     }
-  }, [dataSources, cohorts, pipeline, dashTabs, allWidgets, project?.todos])
+  }, [dataSources, cohorts, pipeline, dashboards, project?.todos])
 
   return (
     <div className="space-y-6 pt-4">
@@ -95,24 +103,24 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
           }
         />
         <StatCard
-          icon={<GitBranch size={18} />}
-          iconBg="bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300"
-          value={stats.nodes.length}
-          label={t('summary.pipeline_nodes')}
+          icon={<Boxes size={18} />}
+          iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+          value={stats.datasetNodes}
+          label={t('summary.datasets')}
           sub={
-            stats.nodes.length > 0
+            stats.datasetNodes > 0
               ? `${stats.successNodes} ${t('summary.success')}${stats.errorNodes > 0 ? `, ${stats.errorNodes} ${t('summary.in_error')}` : ''}`
-              : t('summary.no_pipeline')
+              : t('summary.no_datasets')
           }
         />
         <StatCard
           icon={<LayoutDashboard size={18} />}
           iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-          value={dashTabs.length}
+          value={dashboards.length}
           label={t('summary.dashboards')}
           sub={
-            dashTabs.length > 0
-              ? `${stats.widgetCount} ${t('summary.widgets')}`
+            dashboards.length > 0
+              ? `${stats.tabCount} ${t('summary.tabs')}, ${stats.widgetCount} ${t('summary.widgets')}`
               : t('summary.no_dashboards')
           }
         />
@@ -135,7 +143,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.databases')} ({dataSources.length})
                 </span>
                 <Link
-                  to={`/projects/${uid}/warehouse/databases`}
+                  to={`/workspaces/${wsUid}/projects/${uid}/warehouse/databases`}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -167,7 +175,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.cohorts')} ({cohorts.length})
                 </span>
                 <Link
-                  to={`/projects/${uid}/warehouse/cohorts`}
+                  to={`/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -212,7 +220,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.datasets')} ({stats.datasetNodes})
                 </span>
                 <Link
-                  to={`/projects/${uid}/lab/datasets`}
+                  to={`/workspaces/${wsUid}/projects/${uid}/lab/datasets`}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -249,32 +257,29 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-muted-foreground">
-                  {t('summary.dashboards')} ({dashTabs.length})
+                  {t('summary.dashboards')} ({dashboards.length})
                 </span>
                 <Link
-                  to={`/projects/${uid}/lab/dashboards`}
+                  to={`/workspaces/${wsUid}/projects/${uid}/lab/dashboards`}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
                   <ArrowRight size={10} />
                 </Link>
               </div>
-              {dashTabs.length > 0 ? (
+              {dashboards.length > 0 ? (
                 <div className="mt-1.5 space-y-1">
-                  {dashTabs.map((tab) => {
-                    const wCount = allWidgets.filter((w) => w.tabId === tab.id).length
-                    return (
-                      <div
-                        key={tab.id}
-                        className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
-                      >
-                        <span className="truncate text-xs">{tab.name}</span>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">
-                          {wCount} {t('summary.widgets')}
-                        </span>
-                      </div>
-                    )
-                  })}
+                  {dashboards.map((dash) => (
+                    <div
+                      key={dash.id}
+                      className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-1.5"
+                    >
+                      <span className="truncate text-xs">{dash.name}</span>
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {dash.tabCount} {t('summary.tabs')}, {dash.widgetCount} {t('summary.widgets')}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <p className="mt-1.5 text-xs text-muted-foreground">{t('summary.no_dashboards_hint')}</p>
