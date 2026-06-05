@@ -5,7 +5,10 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Linkr</title>
-    <!-- Enable SharedArrayBuffer on static hosting (GitLab/GitHub Pages) via COOP/COEP service worker -->
+    <!-- Enable SharedArrayBuffer on static hosting (GitLab/GitHub Pages) via COOP/COEP service worker.
+         Force COEP "credentialless" (instead of require-corp) so cross-origin map tiles (OSM/Carto),
+         which don't send a CORP header, still load while keeping SharedArrayBuffer available. -->
+    <script>window.coi = { coepCredentialless: () => true };</script>
     <script src="/coi-serviceworker.js"></script>
   </head>
   <body>
