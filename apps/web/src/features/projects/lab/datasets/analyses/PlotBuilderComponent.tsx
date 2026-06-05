@@ -295,7 +295,8 @@ function BoxplotChart({
   violin: boolean
   startAtZero?: boolean
 }) {
-  if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">No data</div>
+  const { t } = useTranslation()
+  if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">{t('datasets.plot_builder_no_data', 'No data')}</div>
 
   const allMin = Math.min(...data.map(d => d.stats.min))
   const allMax = Math.max(...data.map(d => d.stats.max))
@@ -461,7 +462,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const cardColor = (config.cardColor as string) ?? 'none'
   const bgColorName = (config.bgColor as string) ?? 'none'
   const titleColorName = (config.titleColor as string) ?? 'auto'
-  const centerTitle = (config.centerTitle as boolean) ?? false
+  const centerTitle = (config.centerTitle as boolean) ?? true
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
   const yCol = config.yColumn as string | undefined
@@ -572,6 +573,52 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
         {t('datasets.plot_builder_select_y', 'Select a Y variable.')}
+      </div>
+    )
+  }
+
+  // Scatter & line plot both axes on a numeric scale; a categorical column coerces to NaN
+  // and silently drops every point. Surface that instead of rendering an empty chart.
+  if (needsY) {
+    const isPlottable = (c?: typeof xColumn) => !c || c.type === 'number' || c.type === 'date'
+    const nonNumeric = !isPlottable(xColumn) ? xColumn : !isPlottable(yColumn) ? yColumn : null
+    if (nonNumeric) {
+      return (
+        <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">
+          {t('datasets.plot_builder_axis_must_be_numeric', {
+            defaultValue: '"{{column}}" is not numeric. Scatter and line plots need numeric (or date) X and Y axes.',
+            column: nonNumeric.name,
+          })}
+        </div>
+      )
+    }
+  }
+
+  // Box/violin compute stats over a numeric value column (Y if given, else X). A categorical
+  // value column coerces to NaN for every row and renders "No data" — say why instead.
+  if (plotType === 'boxplot' || plotType === 'violin') {
+    const valueColumn = yColumn ?? xColumn
+    if (valueColumn && valueColumn.type !== 'number') {
+      return (
+        <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">
+          {t('datasets.plot_builder_value_must_be_numeric', {
+            defaultValue: '"{{column}}" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.',
+            column: valueColumn.name,
+          })}
+        </div>
+      )
+    }
+  }
+
+  // Bar groups by a categorical X and averages a numeric Y. A categorical Y coerces to NaN
+  // for every row, dropping all bars; X stays categorical so it doesn't need to be numeric.
+  if (plotType === 'bar' && yColumn && yColumn.type !== 'number') {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">
+        {t('datasets.plot_builder_bar_y_must_be_numeric', {
+          defaultValue: '"{{column}}" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows).',
+          column: yColumn.name,
+        })}
       </div>
     )
   }

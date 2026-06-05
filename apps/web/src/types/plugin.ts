@@ -23,6 +23,8 @@ export interface PluginConfigField {
   options?: { value: string; label: { en: string; fr: string }; onlyForColumnType?: 'numeric' | 'categorical' }[]
   /** For `select`: filter options based on the type of the column selected in this field. */
   filterOptionsByColumn?: string
+  /** For `select`: render a visual preview next to each option (e.g. color swatches for palettes). */
+  optionPreview?: 'palette'
   /** For `select`: when the value changes, swap the values of these config-key pairs
    *  (e.g. swap X/Y column + labels when flipping orientation). */
   swapFieldsOnChange?: [string, string][]

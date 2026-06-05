@@ -339,13 +339,15 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                     )}
 
                     {hasConfigSchema && (
-                      <GenericConfigPanel
-                        schema={configPlugin.manifest.configSchema as Record<string, PluginConfigField>}
-                        config={pluginConfig}
-                        columns={columns}
-                        onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
-                        rows={rows}
-                      />
+                      <div className="-mx-3 -mt-1">
+                        <GenericConfigPanel
+                          schema={configPlugin.manifest.configSchema as Record<string, PluginConfigField>}
+                          config={pluginConfig}
+                          columns={columns}
+                          onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
+                          rows={rows}
+                        />
+                      </div>
                     )}
                   </div>
                 </ScrollArea>

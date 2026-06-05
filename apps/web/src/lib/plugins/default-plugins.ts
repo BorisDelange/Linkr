@@ -294,14 +294,14 @@ export function registerDefaultPlugins() {
         centerTitle: {
           type: 'boolean',
           label: { en: 'Center title', fr: 'Centrer le titre' },
-          default: false,
+          default: true,
           row: 'centerRow',
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },
         centerContent: {
           type: 'boolean',
           label: { en: 'Center content', fr: 'Centrer le contenu' },
-          default: false,
+          default: true,
           row: 'centerRow',
           section: { en: 'Style', fr: 'Style', defaultOpen: false },
         },

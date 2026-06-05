@@ -27,6 +27,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
 import { PaletteEditor } from '@/components/ui/palette-editor'
+import { CHART_PALETTES } from '@/lib/plugins/shared-styles'
 import type { DatasetColumn } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 
@@ -59,20 +60,6 @@ export function GenericConfigPanel({
     }
     return result
   }, [config, schema])
-
-  // Auto-select first matching column for non-optional single column-select fields
-  useEffect(() => {
-    if (columns.length === 0) return
-    const changes: Record<string, unknown> = {}
-    for (const [key, field] of Object.entries(schema)) {
-      if (field.type !== 'column-select' || field.optional || field.multi) continue
-      if (config[key] != null && config[key] !== '') continue
-      const filtered = filterColumns(columns, field.filter)
-      if (filtered.length > 0) changes[key] = filtered[0].id
-    }
-    if (Object.keys(changes).length > 0) onConfigChange(changes)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [columns.length])
 
   // Filter out fields whose visibleWhen condition is not met
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
@@ -791,12 +778,30 @@ function SelectField({
         <SelectContent>
           {visibleOptions.map(opt => (
             <SelectItem key={opt.value} value={opt.value}>
-              {opt.label[lang] ?? opt.label.en}
+              {field.optionPreview === 'palette' ? (
+                <span className="flex items-center gap-2">
+                  <PaletteSwatches palette={CHART_PALETTES[opt.value]} />
+                  {opt.label[lang] ?? opt.label.en}
+                </span>
+              ) : (
+                opt.label[lang] ?? opt.label.en
+              )}
             </SelectItem>
           ))}
         </SelectContent>
       </Select>
     </div>
+  )
+}
+
+function PaletteSwatches({ palette }: { palette?: string[] }) {
+  if (!palette) return null
+  return (
+    <span className="flex h-3.5 overflow-hidden rounded-sm border border-border/40">
+      {palette.slice(0, 8).map((c, i) => (
+        <span key={i} className="w-2" style={{ backgroundColor: c }} />
+      ))}
+    </span>
   )
 }
 

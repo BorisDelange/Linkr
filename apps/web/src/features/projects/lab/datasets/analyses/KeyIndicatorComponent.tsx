@@ -144,8 +144,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const aggregate = (config.aggregate as string) ?? 'mean'
   const targetValue = (config.targetValue as string | undefined) ?? ''
   const customTitle = config.title as string | undefined
-  const centerTitle = (config.centerTitle as boolean) ?? false
-  const centerContent = (config.centerContent as boolean) ?? false
+  const centerTitle = (config.centerTitle as boolean) ?? true
+  const centerContent = (config.centerContent as boolean) ?? true
   const sizePct = (config.size as number | undefined) ?? 100
   const iconName = (config.icon as string) ?? 'Activity'
   const colorName = (config.color as string) ?? 'blue'

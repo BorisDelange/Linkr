@@ -937,7 +937,11 @@
     "map_no_points": "No valid coordinates to display.",
     "plot_builder_histogram": "Histogram",
     "plot_builder_select_x": "Select an X variable to begin.",
-    "plot_builder_select_y": "Select a Y variable."
+    "plot_builder_select_y": "Select a Y variable.",
+    "plot_builder_axis_must_be_numeric": "\"{{column}}\" is not numeric. Scatter and line plots need numeric (or date) X and Y axes.",
+    "plot_builder_value_must_be_numeric": "\"{{column}}\" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.",
+    "plot_builder_bar_y_must_be_numeric": "\"{{column}}\" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows).",
+    "plot_builder_no_data": "No data"
   },
   "subsets": {
     "title": "Subsets",
