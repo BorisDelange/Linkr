@@ -15,6 +15,97 @@ let _initPromise: Promise<PyodideInterface> | null = null
 let _status: RuntimeStatus = 'idle'
 let _onStatusChange: ((s: RuntimeStatus) => void) | null = null
 
+// micropip in Pyodide 0.29 has no `target` option, so packages always land in the default
+// site-packages. We persist that directory manually (tar blob in IndexedDB), restoring it
+// on startup — same strategy as the R engine.
+const IDB_NAME = 'linkr-pyodide'
+const IDB_STORE = 'site'
+const IDB_KEY = 'site-packages.tar'
+
+// Discovered at init from sys: the writable site-packages micropip installs into.
+let _sitePackages = '/lib/python3.13/site-packages'
+// Files present in site-packages right after a clean boot (numpy, pandas, …). We only
+// persist/restore packages added on top of these, to avoid clobbering Pyodide's builtins.
+let _baselineEntries = new Set<string>()
+
+function openSiteDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbGetTar(): Promise<Uint8Array | null> {
+  const db = await openSiteDB()
+  try {
+    return await new Promise<Uint8Array | null>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY)
+      req.onsuccess = () => resolve((req.result as Uint8Array) ?? null)
+      req.onerror = () => reject(req.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function idbPutTar(data: Uint8Array): Promise<void> {
+  const db = await openSiteDB()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).put(data, IDB_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Tar the user-installed packages (everything in site-packages not present at clean boot)
+ * into a blob saved in IndexedDB, so they survive a refresh. Best-effort.
+ */
+async function persistPythonSite(pyodide: PyodideInterface): Promise<void> {
+  try {
+    const tarPath = '/tmp/_linkr_site.tar'
+    const baseline = JSON.stringify(Array.from(_baselineEntries))
+    await pyodide.runPythonAsync(`
+import os, tarfile, json
+_site = ${JSON.stringify(_sitePackages)}
+_baseline = set(json.loads(${JSON.stringify(baseline)}))
+_added = [e for e in os.listdir(_site) if e not in _baseline]
+with tarfile.open(${JSON.stringify('/tmp/_linkr_site.tar')}, 'w') as _t:
+    for _e in _added:
+        _t.add(os.path.join(_site, _e), arcname=_e)
+`)
+    const data = (await pyodide.FS.readFile(tarPath)) as Uint8Array
+    await idbPutTar(data)
+    pyodide.FS.unlink(tarPath)
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[pyodide] failed to persist site-packages:', e)
+  }
+}
+
+/** Restore user-installed packages from IndexedDB into site-packages. */
+async function restorePythonSite(pyodide: PyodideInterface): Promise<void> {
+  const data = await idbGetTar().catch(() => null)
+  if (!data || data.length === 0) return
+  const tarPath = '/tmp/_linkr_site_restore.tar'
+  pyodide.FS.writeFile(tarPath, data)
+  await pyodide.runPythonAsync(`
+import tarfile, importlib
+with tarfile.open(${JSON.stringify('/tmp/_linkr_site_restore.tar')}, 'r') as _t:
+    _t.extractall(${JSON.stringify(_sitePackages)})
+import os; os.remove(${JSON.stringify('/tmp/_linkr_site_restore.tar')})
+importlib.invalidate_caches()
+`)
+}
+
 export function getPyodideStatus(): RuntimeStatus {
   return _status
 }
@@ -46,6 +137,34 @@ export async function getPyodide(): Promise<PyodideInterface> {
 
       // Load micropip for package management + core data science packages
       await pyodide.loadPackage(['micropip', 'numpy', 'pandas', 'matplotlib'])
+
+      // Resolve the writable site-packages micropip installs into, then record its
+      // contents as the baseline (so persistence only tracks user-added packages).
+      try {
+        _sitePackages = await pyodide.runPythonAsync(`
+import site
+[p for p in site.getsitepackages() if p.endswith('site-packages')][0]
+`) as string
+      } catch {
+        // keep the default _sitePackages
+      }
+      try {
+        const entries = await pyodide.runPythonAsync(`
+import os, json
+json.dumps(os.listdir(${JSON.stringify(_sitePackages)}))
+`) as string
+        _baselineEntries = new Set(JSON.parse(entries) as string[])
+      } catch {
+        // leave baseline empty — we'd persist a bit more than needed, still correct.
+      }
+
+      // Restore user-installed packages saved in a previous session.
+      try {
+        await restorePythonSite(pyodide)
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[pyodide] failed to restore site-packages:', e)
+      }
 
       // Set up matplotlib Agg backend + figure capture helper
       await pyodide.runPythonAsync(`
@@ -102,8 +221,35 @@ export async function installPythonPackage(
   const safeName = name.replace(/'/g, "\\'")
   onLog?.(`Installing ${name}...`)
   try {
-    await pyodide.runPythonAsync(`import micropip; await micropip.install('${safeName}')`)
+    await pyodide.runPythonAsync(
+      `import micropip, importlib; await micropip.install('${safeName}'); importlib.invalidate_caches()`,
+    )
+    // Snapshot site-packages to IndexedDB so the install survives a refresh.
+    await persistPythonSite(pyodide)
     onLog?.(`Successfully installed ${name}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    onLog?.(`Error: ${msg}`)
+    throw err
+  }
+}
+
+/**
+ * Update a Python package by reinstalling the latest compatible version.
+ */
+export async function updatePythonPackage(
+  name: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
+  const pyodide = await getPyodide()
+  const safeName = name.replace(/'/g, "\\'")
+  onLog?.(`Updating ${name}...`)
+  try {
+    await pyodide.runPythonAsync(
+      `import micropip, importlib; await micropip.install('${safeName}'); importlib.invalidate_caches()`,
+    )
+    await persistPythonSite(pyodide)
+    onLog?.(`Successfully updated ${name}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     onLog?.(`Error: ${msg}`)
@@ -117,7 +263,12 @@ export async function installPythonPackage(
 export async function uninstallPythonPackage(name: string): Promise<void> {
   const pyodide = await getPyodide()
   const safeName = name.replace(/'/g, "\\'")
-  await pyodide.runPythonAsync(`import micropip; micropip.uninstall('${safeName}')`)
+  // micropip.uninstall removes the package's files from site-packages; re-snapshot
+  // afterwards so the removal is reflected after a refresh.
+  await pyodide.runPythonAsync(
+    `import micropip, importlib; micropip.uninstall('${safeName}'); importlib.invalidate_caches()`,
+  )
+  await persistPythonSite(pyodide)
 }
 
 /**
@@ -125,11 +276,45 @@ export async function uninstallPythonPackage(name: string): Promise<void> {
  */
 export async function listPythonPackages(): Promise<{ name: string; version: string }[]> {
   const pyodide = await getPyodide()
+  // List via importlib.metadata (ground truth of what's importable) rather than
+  // micropip.list() — micropip's in-memory state can drift from disk after uninstall,
+  // leaving removed packages lingering in the list.
   const result = pyodide.runPython(`
-import json, micropip
-json.dumps([{"name": p.name, "version": p.version} for p in micropip.list()])
+import json, importlib.metadata as _md
+_seen = {}
+for _d in _md.distributions():
+    _n = _d.metadata['Name']
+    if _n and _n not in _seen:
+        _seen[_n] = _d.version
+json.dumps([{"name": k, "version": v} for k, v in _seen.items()])
 `)
   return JSON.parse(result as string) as { name: string; version: string }[]
+}
+
+/**
+ * Diagnostic helper for debugging Python package persistence.
+ * Exposed as window.__linkrPyDiag().
+ */
+export async function diagnosePythonPersistence(): Promise<Record<string, unknown>> {
+  const pyodide = await getPyodide()
+  const added = await pyodide.runPythonAsync(`
+import os, json
+_base = set(json.loads(${JSON.stringify(JSON.stringify(Array.from(_baselineEntries)))}))
+json.dumps(sorted(e for e in os.listdir(${JSON.stringify(_sitePackages)}) if e not in _base))
+`) as string
+  const savedTar = await idbGetTar().catch(() => null)
+  const diag = {
+    sitePackages: _sitePackages,
+    userAddedEntries: JSON.parse(added) as string[],
+    idbTarBytes: savedTar?.length ?? 0,
+  }
+  // eslint-disable-next-line no-console
+  console.log('[pyodide persistence diagnostic]', diag)
+  return diag
+}
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as Record<string, unknown>).__linkrPyDiag = diagnosePythonPersistence
 }
 
 /**

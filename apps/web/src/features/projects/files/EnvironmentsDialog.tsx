@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   Info,
+  RefreshCw,
 } from 'lucide-react'
 import {
   Dialog,
@@ -34,11 +35,13 @@ import { getWebRStatus } from '@/lib/runtimes/webr-engine'
 import {
   installPythonPackage,
   uninstallPythonPackage,
+  updatePythonPackage,
   listPythonPackages,
 } from '@/lib/runtimes/pyodide-engine'
 import {
   installRPackage,
   uninstallRPackage,
+  updateRPackage,
   listRPackages,
 } from '@/lib/runtimes/webr-engine'
 
@@ -58,6 +61,20 @@ function getPackageUrl(lang: 'python' | 'r', name: string): string {
     : `https://cran.r-project.org/package=${encodeURIComponent(name)}`
 }
 
+/**
+ * Condense a raw runtime error (often a full multi-line Python traceback) into a single
+ * readable line. The full traceback stays visible in the scrollable install log.
+ */
+function summarizeInstallError(raw: string, t: (k: string) => string): string {
+  if (/pure Python 3 wheel/i.test(raw)) {
+    return t('environments.error_no_wheel')
+  }
+  // Last non-empty line of a traceback is the actual error (e.g. "ValueError: ...").
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean)
+  const last = lines[lines.length - 1] ?? raw
+  return last.length > 300 ? last.slice(0, 300) + '…' : last
+}
+
 export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogProps) {
   const { t } = useTranslation()
   const [langTab, setLangTab] = useState<'python' | 'r'>('python')
@@ -66,6 +83,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
   const [installError, setInstallError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [uninstallingPkg, setUninstallingPkg] = useState<string | null>(null)
+  const [updatingPkg, setUpdatingPkg] = useState<string | null>(null)
 
   const [pythonPackages, setPythonPackages] = useState<InstalledPackage[]>([])
   const [rPackages, setRPackages] = useState<InstalledPackage[]>([])
@@ -145,7 +163,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
       }
       setNewPkgName('')
     } catch (err) {
-      setInstallError(err instanceof Error ? err.message : String(err))
+      setInstallError(summarizeInstallError(err instanceof Error ? err.message : String(err), t))
     } finally {
       setInstalling(false)
     }
@@ -165,6 +183,26 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
       // Silently fail — package may be a dependency
     } finally {
       setUninstallingPkg(null)
+    }
+  }
+
+  const handleUpdate = async (pkg: InstalledPackage) => {
+    setUpdatingPkg(pkg.name)
+    setInstallError(null)
+    setInstallLog([])
+    setLogExpanded(true)
+    try {
+      if (langTab === 'python') {
+        await updatePythonPackage(pkg.name, appendLog)
+        await refreshPythonPackages()
+      } else {
+        await updateRPackage(pkg.name, appendLog)
+        await refreshRPackages()
+      }
+    } catch (err) {
+      setInstallError(summarizeInstallError(err instanceof Error ? err.message : String(err), t))
+    } finally {
+      setUpdatingPkg(null)
     }
   }
 
@@ -246,12 +284,12 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         </div>
 
         {installError && (
-          <p className="text-xs text-destructive">{installError}</p>
+          <p className="max-h-24 overflow-y-auto text-xs text-destructive whitespace-pre-wrap break-words">{installError}</p>
         )}
 
         {/* Install log */}
         {installLog.length > 0 && (
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-hidden">
             <button
               type="button"
               onClick={() => setLogExpanded((v) => !v)}
@@ -261,12 +299,12 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
               {t('environments.install_log_title')}
             </button>
             {logExpanded && (
-              <ScrollArea className="max-h-[120px]">
-                <pre className="px-2.5 pb-2 text-[10px] leading-relaxed font-mono text-muted-foreground whitespace-pre-wrap">
+              <div className="max-h-[160px] overflow-y-auto overscroll-contain border-t">
+                <pre className="px-2.5 py-2 text-[10px] leading-relaxed font-mono text-muted-foreground whitespace-pre-wrap break-words">
                   {installLog.join('\n')}
                   <div ref={logEndRef} />
                 </pre>
-              </ScrollArea>
+              </div>
             )}
           </div>
         )}
@@ -325,8 +363,27 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
                       <TooltipTrigger asChild>
                         <button
                           type="button"
+                          onClick={() => handleUpdate(pkg)}
+                          disabled={updatingPkg === pkg.name || uninstallingPkg === pkg.name}
+                          className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                        >
+                          {updatingPkg === pkg.name ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <RefreshCw size={12} />
+                          )}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {t('environments.update')}
+                      </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
                           onClick={() => handleUninstall(pkg)}
-                          disabled={uninstallingPkg === pkg.name}
+                          disabled={uninstallingPkg === pkg.name || updatingPkg === pkg.name}
                           className="inline-flex items-center justify-center h-6 w-6 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                         >
                           {uninstallingPkg === pkg.name ? (
@@ -359,7 +416,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl max-h-[85vh]">
+      <DialogContent className="sm:max-w-xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('environments.title')}</DialogTitle>
           <DialogDescription>

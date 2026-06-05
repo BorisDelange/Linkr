@@ -15,6 +15,87 @@ let _initPromise: Promise<WebR> | null = null
 let _status: RuntimeStatus = 'idle'
 let _onStatusChange: ((s: RuntimeStatus) => void) | null = null
 
+// User-installed packages live here. webR runs over a SharedArrayBuffer channel, which
+// is incompatible with IDBFS, so we persist this directory manually: it's tarred into a
+// single blob stored in IndexedDB after each change, and restored on startup.
+const PERSIST_LIB = '/home/web_user/r-library'
+const IDB_NAME = 'linkr-webr'
+const IDB_STORE = 'rlib'
+const IDB_KEY = 'library.tar'
+
+function openLibDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1)
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE)
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function idbGetTar(): Promise<Uint8Array | null> {
+  const db = await openLibDB()
+  try {
+    return await new Promise<Uint8Array | null>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readonly')
+      const req = tx.objectStore(IDB_STORE).get(IDB_KEY)
+      req.onsuccess = () => resolve((req.result as Uint8Array) ?? null)
+      req.onerror = () => reject(req.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+async function idbPutTar(data: Uint8Array): Promise<void> {
+  const db = await openLibDB()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, 'readwrite')
+      tx.objectStore(IDB_STORE).put(data, IDB_KEY)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+/**
+ * Serialize the persistent R library to a tar blob in IndexedDB so installs survive
+ * a refresh. Best-effort: a failure only means this session's installs aren't persisted.
+ */
+async function persistRLibrary(webR: WebR): Promise<void> {
+  try {
+    const tarPath = '/tmp/_linkr_rlib.tar'
+    // tar the library's contents with paths relative to PERSIST_LIB, so untar restores
+    // them straight back into the same dir.
+    await webR.evalRVoid(`
+      .owd <- getwd(); setwd('${PERSIST_LIB}')
+      on.exit(setwd(.owd))
+      utils::tar('${tarPath}', files = list.files('.'), compression = 'none', tar = 'internal')
+    `)
+    const data = (await webR.FS.readFile(tarPath)) as Uint8Array
+    await idbPutTar(data)
+    await webR.evalRVoid(`unlink('${tarPath}')`)
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.warn('[webR] failed to persist R library:', e)
+  }
+}
+
+/** Restore the persistent R library from IndexedDB into webR's in-memory FS. */
+async function restoreRLibrary(webR: WebR): Promise<void> {
+  const data = await idbGetTar().catch(() => null)
+  if (!data || data.length === 0) return
+  const tarPath = '/tmp/_linkr_rlib_restore.tar'
+  await webR.FS.writeFile(tarPath, data)
+  await webR.evalRVoid(`
+    dir.create('${PERSIST_LIB}', recursive = TRUE, showWarnings = FALSE)
+    utils::untar('${tarPath}', exdir = '${PERSIST_LIB}', tar = 'internal')
+    unlink('${tarPath}')
+  `)
+}
+
 export function getWebRStatus(): RuntimeStatus {
   return _status
 }
@@ -43,8 +124,28 @@ export async function getWebR(): Promise<WebR> {
       const webR = new WebRClass()
       await webR.init()
 
-      // Install core packages
-      await webR.installPackages(['jsonlite'])
+      // Create the persistent library dir, restore packages saved in a previous session
+      // from IndexedDB, and prepend it to .libPaths() so it's used for install + loading.
+      // (IDBFS can't be used: webR runs over SharedArrayBuffer, which IDBFS doesn't support.)
+      await webR.evalRVoid(`dir.create('${PERSIST_LIB}', recursive = TRUE, showWarnings = FALSE)`)
+      try {
+        await restoreRLibrary(webR)
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[webR] failed to restore R library:', e)
+      }
+      await webR.evalRVoid(`.libPaths(c('${PERSIST_LIB}', .libPaths()))`)
+
+      // Install core packages into the persistent lib only if not already present.
+      // `mount: false` forces a real copy into the library (mounted FS images don't persist).
+      const haveJsonlite = await webR.evalRRaw(
+        `requireNamespace('jsonlite', quietly = TRUE)`,
+        'boolean',
+      ) as boolean
+      if (!haveJsonlite) {
+        await webR.installPackages(['jsonlite'], { mount: false })
+        await persistRLibrary(webR)
+      }
 
       _webR = webR
       setStatus('ready')
@@ -70,8 +171,58 @@ export async function installRPackage(
   const webR = await getWebR()
   onLog?.(`Installing ${name}...`)
   try {
-    await webR.installPackages([name])
+    // `mount: false` writes a real copy into the persistent library (see getWebR).
+    await webR.installPackages([name], { mount: false })
+    await persistRLibrary(webR)
     onLog?.(`Successfully installed ${name}`)
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    onLog?.(`Error: ${msg}`)
+    throw err
+  }
+}
+
+/**
+ * Diagnostic helper for debugging package persistence. Logged via window.__linkrWebRDiag().
+ * Reports the active lib paths, the packages currently in the persistent library dir,
+ * and the size of the tar blob saved in IndexedDB.
+ */
+export async function diagnoseRPersistence(): Promise<Record<string, unknown>> {
+  const webR = await getWebR()
+  const libPaths = await webR.evalRRaw(`.libPaths()`, 'string[]') as string[]
+  const persistContents = await webR.evalRRaw(
+    `tryCatch(list.files('${PERSIST_LIB}'), error = function(e) character(0))`,
+    'string[]',
+  ) as string[]
+  const savedTar = await idbGetTar().catch(() => null)
+  const diag = {
+    libPaths,
+    persistDir: PERSIST_LIB,
+    persistContents,
+    idbTarBytes: savedTar?.length ?? 0,
+  }
+  // eslint-disable-next-line no-console
+  console.log('[webR persistence diagnostic]', diag)
+  return diag
+}
+
+if (typeof window !== 'undefined') {
+  ;(window as unknown as Record<string, unknown>).__linkrWebRDiag = diagnoseRPersistence
+}
+
+/**
+ * Update an R package by reinstalling the latest available binary.
+ */
+export async function updateRPackage(
+  name: string,
+  onLog?: (msg: string) => void,
+): Promise<void> {
+  const webR = await getWebR()
+  onLog?.(`Updating ${name}...`)
+  try {
+    await webR.installPackages([name], { mount: false })
+    await persistRLibrary(webR)
+    onLog?.(`Successfully updated ${name}`)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     onLog?.(`Error: ${msg}`)
@@ -85,7 +236,13 @@ export async function installRPackage(
 export async function uninstallRPackage(name: string): Promise<void> {
   const webR = await getWebR()
   const safeName = name.replace(/'/g, "\\'")
-  await webR.evalRVoid(`remove.packages('${safeName}')`)
+  // Remove from whichever lib path actually holds it (persistent dir takes priority).
+  await webR.evalRVoid(`
+    .pkg <- '${safeName}'
+    .loc <- find.package(.pkg, quiet = TRUE)
+    if (length(.loc) > 0) remove.packages(.pkg, lib = dirname(.loc[1]))
+  `)
+  await persistRLibrary(webR)
 }
 
 /**

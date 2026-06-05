@@ -1,5 +1,6 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -9,6 +10,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
 import { APP_VERSION } from '@/lib/version'
+import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
 function usageColor(pct: number) {
@@ -56,6 +58,7 @@ function formatMB(mb: number): string {
 export function StatusBar() {
   const { t } = useTranslation()
   const metrics = useBrowserMetrics()
+  const [environmentsOpen, setEnvironmentsOpen] = useState(false)
 
   const memPct = metrics.memory.pct
   const storagePct = metrics.storage?.pct ?? null
@@ -66,6 +69,16 @@ export function StatusBar() {
         <span className="font-medium">Linkr v{APP_VERSION}</span>
       </div>
       <div className="flex items-center gap-3">
+        {/* Environments (package manager) — global, accessible from every page */}
+        <button
+          onClick={() => setEnvironmentsOpen(true)}
+          className="flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-accent/50 transition-colors"
+        >
+          <Box size={11} />
+          <span>{t('environments.title')}</span>
+        </button>
+        <EnvironmentsDialog open={environmentsOpen} onOpenChange={setEnvironmentsOpen} />
+        <span className="opacity-30">|</span>
         {/* Metrics popover */}
         <Popover>
           <PopoverTrigger asChild>

@@ -15,7 +15,6 @@ import {
   BarChart3,
   Pencil,
   Trash2,
-  Box,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -52,7 +51,6 @@ import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
 import { CreateAnalysisDialog } from './datasets/CreateAnalysisDialog'
-import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import { getPlugin } from '@/lib/plugins/registry'
 import type { AnalysisLanguage } from '@/types'
 
@@ -120,7 +118,6 @@ export function DatasetsPage() {
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
-  const [environmentsOpen, setEnvironmentsOpen] = useState(false)
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
 
   // Load datasets when the project changes
@@ -492,19 +489,6 @@ export function DatasetsPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => setEnvironmentsOpen(true)}
-                      >
-                        <Box size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('environments.title')}</TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
                         variant={statsVisible ? 'secondary' : 'ghost'}
                         size="icon-xs"
                         onClick={() => setStatsVisible(!statsVisible)}
@@ -782,11 +766,6 @@ export function DatasetsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <EnvironmentsDialog
-        open={environmentsOpen}
-        onOpenChange={setEnvironmentsOpen}
-      />
     </TooltipProvider>
   )
 }

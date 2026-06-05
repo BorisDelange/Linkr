@@ -73,6 +73,8 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   const [newFilterDatasetId, setNewFilterDatasetId] = useState<string | null>(null)
   const [newFilterColumnId, setNewFilterColumnId] = useState<string | null>(null)
   const [newFilterInputType, setNewFilterInputType] = useState<DashboardFilter['inputType']>('multi-select')
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false)
+  const [columnSearch, setColumnSearch] = useState('')
 
   // Collect unique dataset IDs used by widgets
   const widgetDatasetIds = useMemo(() => {
@@ -90,6 +92,12 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
 
   const newFilterDataset = newFilterDatasetId ? datasetFiles.find((f) => f.id === newFilterDatasetId) : null
   const newFilterColumns = newFilterDataset?.columns ?? []
+  const filteredNewFilterColumns = useMemo(() => {
+    const q = columnSearch.trim().toLowerCase()
+    if (!q) return newFilterColumns
+    return newFilterColumns.filter((c) => c.name.toLowerCase().includes(q))
+  }, [newFilterColumns, columnSearch])
+  const selectedNewFilterColumn = newFilterColumns.find((c) => c.id === newFilterColumnId)
 
   const resetAddFlow = () => {
     setAddingFilter(false)
@@ -348,19 +356,48 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                   {newFilterDatasetId && (
                     <>
                       <Label className="text-xs font-medium">{t('dashboard.filter_select_column')}</Label>
-                      <Select
-                        value={newFilterColumnId ?? ''}
-                        onValueChange={handleColumnChange}
-                      >
-                        <SelectTrigger className="h-7 text-xs">
-                          <SelectValue placeholder={t('dashboard.filter_select_column')} />
-                        </SelectTrigger>
-                        <SelectContent position="popper" sideOffset={4}>
-                          {newFilterColumns.map((c) => (
-                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Popover open={columnPickerOpen} onOpenChange={(o) => { setColumnPickerOpen(o); if (!o) setColumnSearch('') }}>
+                        <PopoverTrigger asChild>
+                          <button className="flex h-7 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors">
+                            <span className={cn('truncate', !selectedNewFilterColumn && 'text-muted-foreground')}>
+                              {selectedNewFilterColumn ? selectedNewFilterColumn.name : t('dashboard.filter_select_column')}
+                            </span>
+                            <ChevronsUpDown size={12} className="ml-1 shrink-0 text-muted-foreground" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2 bg-popover" align="start">
+                          {newFilterColumns.length > 5 && (
+                            <Input
+                              autoFocus
+                              value={columnSearch}
+                              onChange={(e) => setColumnSearch(e.target.value)}
+                              placeholder={t('common.search')}
+                              className="mb-2 h-7 text-xs"
+                            />
+                          )}
+                          <div
+                            className="max-h-[200px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+                            onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+                          >
+                            {filteredNewFilterColumns.map((c) => (
+                              <button
+                                key={c.id}
+                                onClick={() => { handleColumnChange(c.id); setColumnPickerOpen(false); setColumnSearch('') }}
+                                className={cn(
+                                  'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors',
+                                  c.id === newFilterColumnId ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                                )}
+                              >
+                                <span className="truncate">{c.name}</span>
+                                <span className="ml-auto text-[10px] text-muted-foreground/60">{c.type}</span>
+                              </button>
+                            ))}
+                            {filteredNewFilterColumns.length === 0 && (
+                              <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+                            )}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
                     </>
                   )}
 

@@ -13,7 +13,6 @@ import {
   Settings2,
   Keyboard,
   Undo2,
-  Box,
   Plug,
   X,
   Lock,
@@ -87,7 +86,6 @@ import { RunButton } from './files/RunButton'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
-import { EnvironmentsDialog } from './files/EnvironmentsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import { useShortcutStore } from '@/stores/shortcut-store'
@@ -144,7 +142,6 @@ export function FilesPage() {
   const [uploadOpen, setUploadOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
-  const [environmentsOpen, setEnvironmentsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [showVirtualFiles, setShowVirtualFiles] = useState(() => localStorage.getItem('linkr-show-virtual-files') === 'true')
@@ -1103,19 +1100,6 @@ export function FilesPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => setEnvironmentsOpen(true)}
-                      >
-                        <Box size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('environments.title')}</TooltipContent>
-                  </Tooltip>
-
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
                         onClick={() => setEditorSettingsOpen(true)}
                       >
                         <Settings2 size={14} />
@@ -1732,10 +1716,6 @@ export function FilesPage() {
         <EditorSettingsDialog
           open={editorSettingsOpen}
           onOpenChange={setEditorSettingsOpen}
-        />
-        <EnvironmentsDialog
-          open={environmentsOpen}
-          onOpenChange={setEnvironmentsOpen}
         />
         {activeProjectUid && (
           <ConnectionsPanel

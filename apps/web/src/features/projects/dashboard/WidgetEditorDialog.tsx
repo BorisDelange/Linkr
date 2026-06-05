@@ -33,6 +33,7 @@ import { widgetPixelSize } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
+import type * as Monaco from 'monaco-editor'
 
 interface WidgetEditorDialogProps {
   widget: DashboardWidget | null
@@ -112,6 +113,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [installedDeps, setInstalledDeps] = useState<string[]>([])
   const isExecutingRef = useRef(false)
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
 
   // Debounced config for live preview — avoids re-rendering on every keystroke
   const [debouncedConfig, setDebouncedConfig] = useState(config)
@@ -187,8 +189,9 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     setUserCode('')
   }, [persistSource])
 
-  // Run execution
-  const handleRun = useCallback(async () => {
+  // Run execution. `code` defaults to the full editor content; the keyboard shortcuts
+  // pass a selection or single line to run a subset.
+  const handleRun = useCallback(async (code?: string) => {
     if (isExecutingRef.current) return
     isExecutingRef.current = true
     setIsExecuting(true)
@@ -204,7 +207,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
 
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
       const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
-      const output = await exec(currentCode, filteredRows, columns)
+      const output = await exec(code ?? currentCode, filteredRows, columns)
       setResult(output)
     } catch (err) {
       setResult({
@@ -220,6 +223,27 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
       setStatusMessage(null)
     }
   }, [currentCode, filteredRows, columns, language, isPlugin, plugin])
+
+  // Cmd/Ctrl+Shift+Enter: run the whole file.
+  const handleRunFile = useCallback(() => { void handleRun() }, [handleRun])
+
+  // Cmd/Ctrl+Enter: run the selection if any, otherwise the current line (RStudio convention).
+  const handleRunSelectionOrLine = useCallback(() => {
+    const editor = editorRef.current
+    if (!editor) { void handleRun(); return }
+    const model = editor.getModel()
+    const selection = editor.getSelection()
+    if (model && selection && !selection.isEmpty()) {
+      const text = model.getValueInRange(selection)
+      if (text.trim()) { void handleRun(text); return }
+    }
+    const position = editor.getPosition()
+    if (model && position) {
+      const line = model.getLineContent(position.lineNumber)
+      if (line.trim()) { void handleRun(line); return }
+    }
+    void handleRun()
+  }, [handleRun])
 
   const leftVisible = activeTab !== null
   const configSchema = plugin?.manifest.configSchema ?? {}
@@ -302,7 +326,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
           {!isComponentPlugin && (
             <Button
               size="sm"
-              onClick={handleRun}
+              onClick={() => handleRun()}
               disabled={isExecuting}
               className="h-6 gap-1 text-xs"
             >
@@ -345,6 +369,9 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
                     language={language}
                     onChange={handleCodeChange}
                     height="100%"
+                    editorRef={editorRef}
+                    onRunFile={handleRunFile}
+                    onRunSelectionOrLine={handleRunSelectionOrLine}
                   />
                 )}
               </div>
@@ -362,6 +389,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
                   statusMessage={statusMessage}
                   installedDeps={installedDeps}
                   onRerun={handleRun}
+                  compact
                 />
               )}
             </SizedPreview>
