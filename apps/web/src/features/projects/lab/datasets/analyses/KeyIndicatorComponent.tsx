@@ -162,10 +162,8 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const yLabelMaxLen = (config.yLabelMaxLen as number | undefined) ?? 11
   const xAxisStartZero = (config.xAxisStartZero as boolean) ?? false
   const chartPosition = (config.chartPosition as string) ?? 'below'
-  const chartColors = (config.chartColors as string) ?? 'mono'
-  const chartPaletteName = (config.chartPalette as string) ?? 'default'
+  const chartPaletteName = (config.chartPalette as string) ?? 'none'
   const chartCustomPalette = (config.chartCustomPalette as string) ?? ''
-  const chartPalette = resolvePalette(chartPaletteName, chartCustomPalette)
   const decimals = (config.decimals as number | undefined) ?? 1
   const unit = (config.unit as string | undefined) ?? ''
   const subtitleStats = (config.subtitleStats as string[] | undefined) ?? ['n']
@@ -186,6 +184,9 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const titleColor = titleColorName === 'auto' ? null : resolveColor(titleColorName)
   const unitColor = unitColorName === 'auto' ? null : resolveColor(unitColorName)
   const subtitleColor = subtitleColorName === 'auto' ? null : resolveColor(subtitleColorName)
+
+  // Mini-chart palette: "none" = a single color (the main color); otherwise the chosen palette.
+  const chartPalette = chartPaletteName === 'none' ? [color.hex] : resolvePalette(chartPaletteName, chartCustomPalette)
 
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
@@ -386,8 +387,6 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             yLabelMaxLen={yLabelMaxLen}
             xAxisStartZero={xAxisStartZero}
             decimals={decimals}
-            hexColor={color.hex}
-            colorMode={chartColors as 'mono' | 'multi'}
             palette={chartPalette}
             column={column}
             rows={sourceRows}
@@ -410,8 +409,6 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           yLabelMaxLen={yLabelMaxLen}
           xAxisStartZero={xAxisStartZero}
           decimals={decimals}
-          hexColor={color.hex}
-          colorMode={chartColors as 'mono' | 'multi'}
           palette={chartPalette}
           column={column}
           rows={sourceRows}
@@ -460,8 +457,6 @@ interface MiniChartProps {
   yLabelMaxLen?: number
   xAxisStartZero?: boolean
   decimals?: number
-  hexColor: string
-  colorMode?: 'mono' | 'multi'
   palette?: string[]
   column: { id: string; name: string; type: string }
   rows: Record<string, unknown>[]
@@ -469,7 +464,10 @@ interface MiniChartProps {
 
 const DEFAULT_MINI_PALETTE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, hexColor, colorMode = 'mono', palette = DEFAULT_MINI_PALETTE, column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, palette = DEFAULT_MINI_PALETTE, column, rows }: MiniChartProps) {
+  // A single-color palette ("None") tints every bar/slice with the main color; pie slices
+  // then get a graduated opacity so they stay distinguishable.
+  const singleColor = palette.length === 1
   const data = useMemo(() => {
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins, xAxisStartZero, decimals)
@@ -543,7 +541,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
               label={{ value: xAxisLabel, position: 'insideBottom', offset: -4, fontSize: 9, fill: '#888' }}
             />
           )}
-          <Bar dataKey="count" fill={hexColor} opacity={0.7} radius={[2, 2, 0, 0]} />
+          <Bar dataKey="count" fill={palette[0]} opacity={0.7} radius={[2, 2, 0, 0]} />
           <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
         </BarChart>
       </ResponsiveContainer>
@@ -551,7 +549,6 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
   }
 
   if (chartType === 'bar') {
-    const useMulti = colorMode === 'multi'
     return (
       <ResponsiveContainer width="100%" height={Math.max(80, data.length * 26) + (hasXLabel ? 16 : 0)}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: hasXLabel ? 16 : 0 }}>
@@ -566,8 +563,8 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
           {/* interval=0 stops recharts from dropping category ticks when the chart is short (e.g. 3 rows in 80px).
               Axis width scales with the chosen label length so longer labels aren't clipped. */}
           <YAxis type="category" dataKey="name" width={Math.round(28 + yLabelMaxLen * 5)} interval={0} tick={<TruncatedTick maxLen={yLabelMaxLen} textAnchor="end" dx={-4} dy={3} fontSize={9} />} />
-          <Bar dataKey="value" fill={useMulti ? undefined : hexColor} opacity={0.7} radius={[0, 2, 2, 0]}>
-            {useMulti && data.map((_, i) => (
+          <Bar dataKey="value" opacity={0.7} radius={[0, 2, 2, 0]}>
+            {data.map((_, i) => (
               <Cell key={i} fill={palette[i % palette.length]} />
             ))}
           </Bar>
@@ -578,7 +575,6 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
   }
 
   if (chartType === 'pie') {
-    const useMono = colorMode === 'mono'
     return (
       <ResponsiveContainer width="100%" height={120}>
         <PieChart>
@@ -594,7 +590,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
             strokeWidth={0}
           >
             {data.map((_, i) => (
-              <Cell key={i} fill={useMono ? hexColor : palette[i % palette.length]} opacity={useMono ? 0.5 + (i / data.length) * 0.5 : 1} />
+              <Cell key={i} fill={singleColor ? palette[0] : palette[i % palette.length]} opacity={singleColor ? 0.5 + (i / data.length) * 0.5 : 1} />
             ))}
           </Pie>
           <Tooltip content={renderTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />

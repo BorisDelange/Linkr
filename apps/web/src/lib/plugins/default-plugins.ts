@@ -229,6 +229,8 @@ export function registerDefaultPlugins() {
           label: { en: 'X axis label', fr: 'Légende axe X' },
           default: '',
           row: 'chartXAxis',
+          // Pie has no X axis; only histogram and bar render this label.
+          visibleWhen: { field: 'chartType', values: ['histogram', 'bar'] },
           section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
         },
         showXAxis: {
@@ -263,25 +265,15 @@ export function registerDefaultPlugins() {
           visibleWhen: { field: 'chartType', value: 'histogram' },
           section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
         },
-        chartColors: {
-          type: 'select',
-          label: { en: 'Colors', fr: 'Couleurs' },
-          default: 'mono',
-          row: 'chartBinsColors',
-          section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
-          options: [
-            { value: 'mono', label: { en: 'Mono', fr: 'Mono' } },
-            { value: 'multi', label: { en: 'Multi', fr: 'Multi' } },
-          ],
-        },
         chartPalette: {
           type: 'select',
           label: { en: 'Color palette', fr: 'Palette' },
-          default: 'default',
+          default: 'none',
           optionPreview: 'palette',
-          visibleWhen: { field: 'chartColors', value: 'multi' },
+          row: 'chartBinsColors',
           section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
           options: [
+            { value: 'none', label: { en: 'None (single color)', fr: 'Aucune (couleur unique)' } },
             { value: 'default', label: { en: 'Default', fr: 'Par défaut' } },
             { value: 'tableau10', label: { en: 'Tableau 10', fr: 'Tableau 10' } },
             { value: 'pastel', label: { en: 'Pastel', fr: 'Pastel' } },
@@ -298,10 +290,7 @@ export function registerDefaultPlugins() {
           type: 'palette-editor',
           label: { en: 'Custom colors', fr: 'Couleurs personnalisées' },
           default: '',
-          visibleWhen: [
-            { field: 'chartColors', value: 'multi' },
-            { field: 'chartPalette', value: 'custom' },
-          ],
+          visibleWhen: { field: 'chartPalette', value: 'custom' },
           section: { en: 'Mini-chart', fr: 'Mini-graphique', defaultOpen: false },
         },
         // --- Style ---
