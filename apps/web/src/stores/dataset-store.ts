@@ -63,6 +63,7 @@ interface DatasetState {
   selectAnalysis: (id: string | null) => void
   openAnalysis: (id: string) => void
   closeAnalysis: (id: string) => void
+  reorderOpenAnalyses: (fromIndex: number, toIndex: number) => void
   saveAnalysis: (id: string) => Promise<void>
 
   undoStack: UndoAction[]
@@ -900,6 +901,14 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         nextSelected = remaining[Math.min(idx, remaining.length - 1)] ?? null
       }
       return { openAnalysisIds: remaining, selectedAnalysisId: nextSelected }
+    }),
+
+  reorderOpenAnalyses: (fromIndex, toIndex) =>
+    set((s) => {
+      const ids = [...s.openAnalysisIds]
+      const [moved] = ids.splice(fromIndex, 1)
+      ids.splice(toIndex, 0, moved)
+      return { openAnalysisIds: ids }
     }),
 
   saveAnalysis: async (id) => {

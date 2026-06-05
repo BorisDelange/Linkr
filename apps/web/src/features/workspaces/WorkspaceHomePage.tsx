@@ -262,11 +262,11 @@ export function WorkspaceHomePage() {
                     <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-transform group-hover:scale-110 ${action.color}`}>
                       <action.icon size={16} />
                     </div>
-                    <div>
-                      <p className="text-[13px] font-medium text-card-foreground">
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-card-foreground">
                         {t(action.labelKey)}
                       </p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={t(action.descKey)}>
                         {t(action.descKey)}
                       </p>
                     </div>

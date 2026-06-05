@@ -72,7 +72,7 @@
     "action_databases": "Databases",
     "action_databases_description": "Connect and configure data sources",
     "action_concept_mapping": "Concept Mapping",
-    "action_concept_mapping_description": "Map source concepts to standard vocabularies",
+    "action_concept_mapping_description": "Map concepts to standard vocabularies",
     "action_versioning": "Versioning",
     "action_versioning_description": "Track changes and collaborate",
     "settings_title": "Workspace Settings",

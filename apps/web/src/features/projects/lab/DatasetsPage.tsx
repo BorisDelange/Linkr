@@ -40,6 +40,21 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import { restrictToHorizontalAxis } from '@dnd-kit/modifiers'
+import {
+  SortableContext,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
@@ -78,6 +93,140 @@ function LanguageBadge({ language, type }: { language?: AnalysisLanguage; type: 
   )
 }
 
+function SortableFileTab({
+  id,
+  name,
+  isActive,
+  isDirty,
+  onActivate,
+  onClose,
+  onCloseOthers,
+  onCloseAll,
+}: {
+  id: string
+  name: string
+  isActive: boolean
+  isDirty: boolean
+  onActivate: () => void
+  onClose: () => void
+  onCloseOthers: () => void
+  onCloseAll: () => void
+}) {
+  const { t } = useTranslation()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...listeners}
+          onClick={onActivate}
+          className={cn(
+            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
+            isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            isDragging && 'cursor-grabbing',
+          )}
+        >
+          <span className="max-w-[140px] truncate">{name}</span>
+          {isDirty && <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />}
+          <span
+            onClick={(e) => {
+              e.stopPropagation()
+              onClose()
+            }}
+            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+          >
+            <X size={10} />
+          </span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onClose}>{t('files.close')}</ContextMenuItem>
+        <ContextMenuItem onClick={onCloseOthers}>{t('files.close_others')}</ContextMenuItem>
+        <ContextMenuItem onClick={onCloseAll}>{t('files.close_all')}</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
+function SortableAnalysisTab({
+  id,
+  name,
+  language,
+  type,
+  autoRun,
+  isActive,
+  onActivate,
+  onClose,
+  onCloseOthers,
+  onCloseAll,
+}: {
+  id: string
+  name: string
+  language?: AnalysisLanguage
+  type: string
+  autoRun?: boolean
+  isActive: boolean
+  onActivate: () => void
+  onClose: () => void
+  onCloseOthers: () => void
+  onCloseAll: () => void
+}) {
+  const { t } = useTranslation()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 50 : undefined,
+    opacity: isDragging ? 0.5 : 1,
+  }
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <button
+          ref={setNodeRef}
+          style={style}
+          {...attributes}
+          {...listeners}
+          onClick={onActivate}
+          className={cn(
+            'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
+            isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            isDragging && 'cursor-grabbing',
+          )}
+        >
+          <BarChart3 size={12} className="shrink-0 text-violet-500" />
+          <span className="max-w-[140px] truncate">{name}</span>
+          <LanguageBadge language={language} type={type} />
+          {autoRun && <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />}
+          <span
+            onClick={(e) => {
+              e.stopPropagation()
+              onClose()
+            }}
+            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+          >
+            <X size={10} />
+          </span>
+        </button>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem onClick={onClose}>{t('files.close')}</ContextMenuItem>
+        <ContextMenuItem onClick={onCloseOthers}>{t('files.close_others')}</ContextMenuItem>
+        <ContextMenuItem onClick={onCloseAll}>{t('files.close_all')}</ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
 export function DatasetsPage() {
   const { t } = useTranslation()
   const {
@@ -100,6 +249,7 @@ export function DatasetsPage() {
     selectedAnalysisId,
     selectAnalysis,
     closeAnalysis,
+    reorderOpenAnalyses,
     deleteAnalysis,
     renameAnalysis,
     _dirtyVersion,
@@ -112,8 +262,6 @@ export function DatasetsPage() {
   const [createAnalysisOpen, setCreateAnalysisOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(true)
-  const [dragFileId, setDragFileId] = useState<string | null>(null)
-  const [dropFileTarget, setDropFileTarget] = useState<string | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
   const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
@@ -210,6 +358,24 @@ export function DatasetsPage() {
       closeAnalysis(aid)
     }
   }, [closeAnalysis])
+
+  const tabSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  const handleFileTabDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = openFileIds.indexOf(active.id as string)
+    const to = openFileIds.indexOf(over.id as string)
+    if (from !== -1 && to !== -1) reorderOpenFiles(from, to)
+  }, [openFileIds, reorderOpenFiles])
+
+  const handleAnalysisTabDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const from = openAnalysisIds.indexOf(active.id as string)
+    const to = openAnalysisIds.indexOf(over.id as string)
+    if (from !== -1 && to !== -1) reorderOpenAnalyses(from, to)
+  }, [openAnalysisIds, reorderOpenAnalyses])
 
   // Analysis rename helpers
   const handleStartAnalysisRename = useCallback((id: string, name: string) => {
@@ -508,138 +674,70 @@ export function DatasetsPage() {
               {openFileIds.length > 0 && (
                 <div className="flex items-center border-b bg-muted/30">
                   <div className="flex items-center overflow-x-auto">
-                    {openFileIds.map((fid) => {
-                      const node = files.find((n) => n.id === fid)
-                      if (!node) return null
-                      const isActive = fid === selectedFileId && !selectedAnalysisId
-                      const isDirty = _dirtyVersion >= 0 && isFileDirty(fid)
-                      return (
-                        <ContextMenu key={fid}>
-                          <ContextMenuTrigger asChild>
-                            <button
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.setData('dataset-tab-id', fid)
-                                e.dataTransfer.effectAllowed = 'move'
-                                setDragFileId(fid)
-                              }}
-                              onDragOver={(e) => {
-                                if (!e.dataTransfer.types.includes('dataset-tab-id')) return
-                                e.preventDefault()
-                                e.dataTransfer.dropEffect = 'move'
-                                setDropFileTarget(fid)
-                              }}
-                              onDragLeave={() => setDropFileTarget(null)}
-                              onDrop={(e) => {
-                                e.preventDefault()
-                                setDropFileTarget(null)
-                                setDragFileId(null)
-                                const draggedId = e.dataTransfer.getData('dataset-tab-id')
-                                if (!draggedId || draggedId === fid) return
-                                const fromIdx = openFileIds.indexOf(draggedId)
-                                const toIdx = openFileIds.indexOf(fid)
-                                if (fromIdx !== -1 && toIdx !== -1) reorderOpenFiles(fromIdx, toIdx)
-                              }}
-                              onDragEnd={() => {
-                                setDragFileId(null)
-                                setDropFileTarget(null)
-                              }}
-                              onClick={() => {
+                    <DndContext
+                      sensors={tabSensors}
+                      collisionDetection={closestCenter}
+                      modifiers={[restrictToHorizontalAxis]}
+                      onDragEnd={handleFileTabDragEnd}
+                    >
+                      <SortableContext items={openFileIds} strategy={horizontalListSortingStrategy}>
+                        {openFileIds.map((fid) => {
+                          const node = files.find((n) => n.id === fid)
+                          if (!node) return null
+                          return (
+                            <SortableFileTab
+                              key={fid}
+                              id={fid}
+                              name={node.name}
+                              isActive={fid === selectedFileId && !selectedAnalysisId}
+                              isDirty={_dirtyVersion >= 0 && isFileDirty(fid)}
+                              onActivate={() => {
                                 selectFile(fid)
                                 selectAnalysis(null)
                               }}
-                              className={cn(
-                                'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                isActive
-                                  ? 'bg-background text-foreground'
-                                  : 'text-muted-foreground hover:bg-accent/50',
-                                dragFileId === fid && 'opacity-40',
-                                dropFileTarget === fid && dragFileId !== fid && 'ring-1 ring-inset ring-primary/50'
-                              )}
-                            >
-                              <span className="max-w-[140px] truncate">{node.name}</span>
-                              {isDirty && (
-                                <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-                              )}
-                              <span
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleCloseFile(fid)
-                                }}
-                                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                              >
-                                <X size={10} />
-                              </span>
-                            </button>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem onClick={() => handleCloseFile(fid)}>
-                              {t('files.close')}
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={() => handleCloseOtherFiles(fid)}>
-                              {t('files.close_others')}
-                            </ContextMenuItem>
-                            <ContextMenuItem onClick={handleCloseAllFiles}>
-                              {t('files.close_all')}
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      )
-                    })}
+                              onClose={() => handleCloseFile(fid)}
+                              onCloseOthers={() => handleCloseOtherFiles(fid)}
+                              onCloseAll={handleCloseAllFiles}
+                            />
+                          )
+                        })}
+                      </SortableContext>
+                    </DndContext>
 
                     {/* Analysis tabs for the selected file */}
                     {selectedFileId && openAnalysisIds.length > 0 && (
                       <>
                         <div className="mx-1 h-4 w-px shrink-0 bg-border" />
-                        {openAnalysisIds.map((aid) => {
-                          const analysis = analyses.find((a) => a.id === aid)
-                          if (!analysis) return null
-                          const isActive = analysis.id === selectedAnalysisId
-                          return (
-                            <ContextMenu key={analysis.id}>
-                              <ContextMenuTrigger asChild>
-                                <button
-                                  onClick={() => {
-                                    selectAnalysis(isActive ? null : analysis.id)
-                                  }}
-                                  className={cn(
-                                    'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                    isActive
-                                      ? 'bg-background text-foreground'
-                                      : 'text-muted-foreground hover:bg-accent/50',
-                                  )}
-                                >
-                                  <BarChart3 size={12} className="shrink-0 text-violet-500" />
-                                  <span className="max-w-[140px] truncate">{analysis.name}</span>
-                                  <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
-                                  {analysis.config.autoRun && (
-                                    <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />
-                                  )}
-                                  <span
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleCloseAnalysis(analysis.id)
-                                    }}
-                                    className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-                                  >
-                                    <X size={10} />
-                                  </span>
-                                </button>
-                              </ContextMenuTrigger>
-                              <ContextMenuContent>
-                                <ContextMenuItem onClick={() => handleCloseAnalysis(analysis.id)}>
-                                  {t('files.close')}
-                                </ContextMenuItem>
-                                <ContextMenuItem onClick={() => handleCloseOtherAnalyses(analysis.id)}>
-                                  {t('files.close_others')}
-                                </ContextMenuItem>
-                                <ContextMenuItem onClick={handleCloseAllAnalyses}>
-                                  {t('files.close_all')}
-                                </ContextMenuItem>
-                              </ContextMenuContent>
-                            </ContextMenu>
-                          )
-                        })}
+                        <DndContext
+                          sensors={tabSensors}
+                          collisionDetection={closestCenter}
+                          modifiers={[restrictToHorizontalAxis]}
+                          onDragEnd={handleAnalysisTabDragEnd}
+                        >
+                          <SortableContext items={openAnalysisIds} strategy={horizontalListSortingStrategy}>
+                            {openAnalysisIds.map((aid) => {
+                              const analysis = analyses.find((a) => a.id === aid)
+                              if (!analysis) return null
+                              return (
+                                <SortableAnalysisTab
+                                  key={analysis.id}
+                                  id={analysis.id}
+                                  name={analysis.name}
+                                  language={analysis.config.language as AnalysisLanguage | undefined}
+                                  type={analysis.type}
+                                  autoRun={analysis.config.autoRun}
+                                  isActive={analysis.id === selectedAnalysisId}
+                                  onActivate={() =>
+                                    selectAnalysis(analysis.id === selectedAnalysisId ? null : analysis.id)
+                                  }
+                                  onClose={() => handleCloseAnalysis(analysis.id)}
+                                  onCloseOthers={() => handleCloseOtherAnalyses(analysis.id)}
+                                  onCloseAll={handleCloseAllAnalyses}
+                                />
+                              )
+                            })}
+                          </SortableContext>
+                        </DndContext>
                       </>
                     )}
                   </div>
