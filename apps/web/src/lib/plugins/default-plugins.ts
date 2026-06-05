@@ -11,6 +11,7 @@ import { StatisticalTestsComponent } from '@/features/projects/lab/datasets/anal
 import { RegressionComponent } from '@/features/projects/lab/datasets/analyses/RegressionComponent'
 import { KaplanMeierComponent } from '@/features/projects/lab/datasets/analyses/KaplanMeierComponent'
 import { CorrelationMatrixComponent } from '@/features/projects/lab/datasets/analyses/CorrelationMatrixComponent'
+import { SankeyComponent } from '@/features/projects/lab/datasets/analyses/SankeyComponent'
 
 // --- Plugin manifests (JSON) ---
 import table1Manifest from '@default-plugins/analyses/table1/plugin.json'
@@ -20,6 +21,7 @@ import statisticalTestsManifest from '@default-plugins/analyses/statistical-test
 import regressionManifest from '@default-plugins/analyses/regression/plugin.json'
 import kaplanMeierManifest from '@default-plugins/analyses/kaplan-meier/plugin.json'
 import correlationMatrixManifest from '@default-plugins/analyses/correlation-matrix/plugin.json'
+import sankeyManifest from '@default-plugins/analyses/sankey/plugin.json'
 
 /** Normalise a manifest from JSON (runtime may be string or array). */
 function normaliseManifest(raw: Record<string, unknown>): PluginManifest {
@@ -435,6 +437,13 @@ export function registerDefaultPlugins() {
     manifest: normaliseManifest(correlationMatrixManifest as unknown as Record<string, unknown>),
     templates: null,
     componentId: 'correlation-matrix',
+  })
+
+  registerComponent('sankey', SankeyComponent)
+  registerPlugin({
+    manifest: normaliseManifest(sankeyManifest as unknown as Record<string, unknown>),
+    templates: null,
+    componentId: 'sankey',
   })
 
   // Warehouse system plugins (built-in patient data widgets)

@@ -1658,6 +1658,10 @@
     "reference_id_hint": "Identifiant interne de l'organisation (ROR ID, code institutionnel, etc.)"
   },
   "plugins": {
+    "sankey": {
+      "configure": "Choisissez les colonnes qui décrivent chaque flux pour construire le diagramme.",
+      "no_flows": "Aucun flux à afficher avec les réglages actuels."
+    },
     "title": "Plugins",
     "description": "Créer et gérer des plugins d'analyse.",
     "new_plugin": "Nouveau plugin",

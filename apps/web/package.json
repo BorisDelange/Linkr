@@ -36,6 +36,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "coi-serviceworker": "^0.1.7",
+    "d3-sankey": "^0.12.3",
     "dygraphs": "^2.2.1",
     "html-to-image": "^1.11.13",
     "i18next": "^25.8.7",
@@ -73,6 +74,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/d3-sankey": "^0.12.5",
     "@types/dygraphs": "^2.1.11",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^24.10.1",

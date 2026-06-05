@@ -1658,6 +1658,10 @@
     "reference_id_hint": "Internal organization identifier (ROR ID, institutional code, etc.)"
   },
   "plugins": {
+    "sankey": {
+      "configure": "Choose the columns that describe each flow to build the diagram.",
+      "no_flows": "No flows to display with the current settings."
+    },
     "title": "Plugins",
     "description": "Create and manage analysis plugins.",
     "new_plugin": "New Plugin",

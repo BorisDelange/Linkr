@@ -288,7 +288,7 @@ function FieldLabel({ field, config, lang }: { field: PluginConfigField; config:
             <TooltipTrigger asChild>
               <Info size={12} className="ml-1 shrink-0 text-muted-foreground cursor-help" />
             </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-56">
+            <TooltipContent side="top" className="max-w-56 whitespace-pre-line">
               {desc}
             </TooltipContent>
           </Tooltip>
