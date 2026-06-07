@@ -1,6 +1,8 @@
 import { create } from 'zustand'
 import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { useDatasetStore } from '@/stores/dataset-store'
+import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
 
 interface DashboardState {
   // Loaded data for current project
@@ -282,10 +284,23 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   updateWidgetDataset: (widgetId, datasetFileId) => {
+    const widget = get().widgets.find((w) => w.id === widgetId)
+    if (!widget) return
+
+    // The widget's config references the OLD dataset's column IDs. Remap them onto the
+    // new dataset by column name so the configuration (X/Y choices, etc.) survives the swap.
+    const datasetFiles = useDatasetStore.getState().files
+    const oldColumns = datasetFiles.find((f) => f.id === widget.datasetFileId)?.columns ?? []
+    const newColumns = datasetFiles.find((f) => f.id === datasetFileId)?.columns ?? []
+    const source = remapWidgetColumns(widget.source, oldColumns, newColumns)
+    const sourceChanged = source !== widget.source
+
     set((s) => ({
-      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, datasetFileId } : w)),
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, datasetFileId, source } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { datasetFileId }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    getStorage().dashboardWidgets
+      .update(widgetId, sourceChanged ? { datasetFileId, source } : { datasetFileId })
+      .catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   // --- Filter runtime state ---

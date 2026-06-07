@@ -123,14 +123,15 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     return () => clearTimeout(debounceRef.current)
   }, [config])
 
-  // Reset state when widget changes
+  // Reset state when the target widget changes, or when its dataset is swapped — the
+  // latter remaps column references in the store, so the local config must re-sync.
   useEffect(() => {
     setConfig(widget.source.config ?? {})
     setDebouncedConfig(widget.source.config ?? {})
     setIsCodeCustomized((widget.source.config?.isCodeCustomized as boolean) ?? false)
     setUserCode((widget.source.config?.userCode as string) ?? '')
     setResult(null)
-  }, [widget.id])
+  }, [widget.id, widget.datasetFileId])
 
   // Generate code from template
   const generatedCode = useGeneratedCode(plugin, config, columns, language)
