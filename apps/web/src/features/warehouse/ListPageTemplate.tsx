@@ -1,6 +1,8 @@
 import { useState, useRef, type ReactNode, type LucideIcon } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, Download, History, MoreHorizontal, Upload } from 'lucide-react'
+import { Plus, Trash2, Pencil, Download, GitBranch, History, MoreHorizontal, Upload } from 'lucide-react'
+import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import type { GitRemoteConfig } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -58,6 +60,12 @@ interface ListPageTemplateProps<T extends { id: string; name: string }> {
 
   /** Export a single item as ZIP. When provided, the Export menu item is enabled. */
   onExport?: (item: T) => void
+  /** Read the item's git link (null when unlinked). When provided alongside onSaveGitRemote, the Versioning menu item is enabled. */
+  getGitRemote?: (item: T) => GitRemoteConfig | null
+  /** Persist (or clear) the item's git link. Required to enable the Versioning menu item. */
+  onSaveGitRemote?: (item: T, config: GitRemoteConfig | null) => Promise<void>
+  /** Whether the export of this entity supports an "include data" toggle. Default true. */
+  exportSupportsIncludeData?: boolean
   /** Import from a file. When provided, the Import header button is enabled. */
   onImport?: (file: File) => void
   /** File accept filter for import (default: ".zip") */
@@ -93,6 +101,9 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   onNavigate,
   onDelete,
   onExport,
+  getGitRemote,
+  onSaveGitRemote,
+  exportSupportsIncludeData = true,
   onImport,
   importAccept = '.zip',
   renderCardBody,
@@ -106,7 +117,10 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   const [dialogOpen, setDialogOpen] = useState(false)
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [toEdit, setToEdit] = useState<T | null>(null)
+  const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
+
+  const versioningEnabled = !!getGitRemote && !!onSaveGitRemote
 
   const handleDelete = async () => {
     if (toDelete) {
@@ -208,7 +222,11 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
                         {t('common.edit')}
                       </DropdownMenuItem>
                       {onExport ? (
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport(item) }}>
+                        <DropdownMenuItem onClick={(e) => {
+                          e.stopPropagation()
+                          if (versioningEnabled) setVersioning({ item, tab: 'export' })
+                          else onExport(item)
+                        }}>
                           <Download size={14} />
                           {t('common.export')}
                         </DropdownMenuItem>
@@ -217,6 +235,12 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
                           <Download size={14} />
                           {t('common.export')}
                           <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
+                        </DropdownMenuItem>
+                      )}
+                      {versioningEnabled && (
+                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioning({ item, tab: 'git' }) }}>
+                          <GitBranch size={14} />
+                          {t('common.versioning')}
                         </DropdownMenuItem>
                       )}
                       <DropdownMenuItem disabled>
@@ -253,6 +277,22 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
         item: toEdit,
         onOpenChange: (open) => { if (!open) setToEdit(null) },
       })}
+
+      {/* Versioning dialog (export + git link) */}
+      {versioning && getGitRemote && onSaveGitRemote && onExport && (
+        <EntityVersioningDialog
+          open
+          onOpenChange={(open) => { if (!open) setVersioning(null) }}
+          initialTab={versioning.tab}
+          supportsIncludeData={exportSupportsIncludeData}
+          gitRemote={getGitRemote(versioning.item)}
+          onExport={() => onExport(versioning.item)}
+          onSaveGitRemote={async (config) => {
+            await onSaveGitRemote(versioning.item, config)
+            setVersioning(null)
+          }}
+        />
+      )}
 
       {/* Delete confirmation */}
       <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>

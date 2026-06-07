@@ -96,6 +96,12 @@ export function SqlScriptsListPage() {
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deleteCollection(id)}
       onExport={handleExport}
+      getGitRemote={(c) => c.gitRemoteConfig ?? null}
+      onSaveGitRemote={async (c, config) => {
+        await getStorage().sqlScriptCollections.update(c.id, { gitRemoteConfig: config ?? undefined })
+        await loadCollections()
+      }}
+      exportSupportsIncludeData={false}
       onImport={handleImport}
       renderCardBody={(collection) => (
         <>

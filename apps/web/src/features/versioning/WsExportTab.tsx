@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   Loader2,
   ShieldAlert,
+  GitBranch,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -40,6 +41,33 @@ import {
 import { cn } from '@/lib/utils'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { getStorage } from '@/lib/storage'
+import { resolveGitRemote } from '@/lib/entity-io'
+
+/** A linkable entity rendered as an export sub-row (project, mapping project, SQL collection, ETL pipeline). */
+interface EntityRow {
+  id: string
+  name: string
+  /** git host (e.g. "gitlab.com") when the entity is linked to a repo, else null */
+  gitHost: string | null
+}
+
+/** Section keys that expose per-entity include-data rows. */
+const ENTITY_SECTIONS = ['projects', 'conceptMapping', 'sqlScripts', 'etl'] as const
+type EntitySectionKey = (typeof ENTITY_SECTIONS)[number]
+
+function resolveName(name: import('@/types').LocalizedString): string {
+  return typeof name === 'string' ? name : (name.en || Object.values(name)[0] || '')
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    // SSH-style git@host:path — extract host between @ and :
+    const m = url.match(/@([^:/]+)[:/]/)
+    return m ? m[1] : url
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Section definitions — mirrors the sidebar visual hierarchy
@@ -101,6 +129,11 @@ export function WsExportTab() {
   const [showCredentialsConfirm, setShowCredentialsConfirm] = useState(false)
   const [counts, setCounts] = useState<Record<string, number>>({})
   const [countsLoading, setCountsLoading] = useState(true)
+  const [entities, setEntities] = useState<Record<EntitySectionKey, EntityRow[]>>({
+    projects: [], conceptMapping: [], sqlScripts: [], etl: [],
+  })
+  /** Per-entity opt-in to include full content (only meaningful for unlinked entities). */
+  const [includeEntityData, setIncludeEntityData] = useState<Set<string>>(() => new Set())
 
   // Load section counts
   useEffect(() => {
@@ -142,6 +175,16 @@ export function WsExportTab() {
         dataQuality: dqRuleSets.length,
         catalogs: catalogs.length + serviceMappings.length,
       })
+      const gitHost = (e: { gitRemoteConfig?: import('@/types').GitRemoteConfig; gitUrl?: string }) => {
+        const git = resolveGitRemote(e)
+        return git ? hostOf(git.url) : null
+      }
+      setEntities({
+        projects: projects.map(p => ({ id: p.uid, name: resolveName(p.name), gitHost: gitHost(p) })),
+        conceptMapping: mappingProjects.map(m => ({ id: m.id, name: m.name, gitHost: gitHost(m) })),
+        sqlScripts: sqlCollections.map(c => ({ id: c.id, name: c.name, gitHost: gitHost(c) })),
+        etl: etlPipelines.map(p => ({ id: p.id, name: p.name, gitHost: gitHost(p) })),
+      })
       setCountsLoading(false)
     }
 
@@ -154,6 +197,15 @@ export function WsExportTab() {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
+      return next
+    })
+  }, [])
+
+  const toggleEntity = useCallback((id: string) => {
+    setIncludeEntityData(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }, [])
@@ -179,6 +231,7 @@ export function WsExportTab() {
       await exportZip(wsUid, {
         sections: Object.fromEntries(ALL_KEYS.map(k => [k, selected.has(k)])) as Record<string, boolean>,
         includeCredentials,
+        includeEntityData: Object.fromEntries([...includeEntityData].map(id => [id, true])),
       })
     } finally {
       setExporting(false)
@@ -272,6 +325,39 @@ export function WsExportTab() {
                 ? t('app_versioning.export_credentials_on_hint')
                 : t('app_versioning.export_credentials_off_hint')}
             </p>
+          </div>
+        )}
+
+        {/* Per-entity rows: git badge (metadata only) or include-data checkbox */}
+        {ENTITY_SECTIONS.includes(section.key as EntitySectionKey)
+          && selected.has(section.key)
+          && entities[section.key as EntitySectionKey].length > 0 && (
+          <div className="pl-12 space-y-1 pt-1">
+            {entities[section.key as EntitySectionKey].map(ent => (
+              <div key={ent.id} className="flex items-center gap-2">
+                {ent.gitHost ? (
+                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="truncate max-w-[14rem]">{ent.name}</span>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 leading-none">
+                      <GitBranch size={10} />
+                      {ent.gitHost}
+                    </span>
+                  </span>
+                ) : (
+                  <>
+                    <Checkbox
+                      id={`ws-export-data-${ent.id}`}
+                      checked={includeEntityData.has(ent.id)}
+                      onCheckedChange={() => toggleEntity(ent.id)}
+                    />
+                    <Label htmlFor={`ws-export-data-${ent.id}`} className="flex items-center gap-1.5 text-[11px] font-normal cursor-pointer text-muted-foreground">
+                      <span className="truncate max-w-[12rem]">{ent.name}</span>
+                      <span className="text-[10px] text-muted-foreground/70">{t('app_versioning.export_include_entity_data')}</span>
+                    </Label>
+                  </>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </div>

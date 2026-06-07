@@ -356,6 +356,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         onNavigate={(id) => navigate(id)}
         onDelete={(id) => deleteMappingProject(id)}
         onExport={handleExport}
+        getGitRemote={(p) => p.gitRemoteConfig ?? null}
+        onSaveGitRemote={async (p, config) => {
+          await getStorage().mappingProjects.update(p.id, { gitRemoteConfig: config ?? undefined })
+          await loadMappingProjects()
+        }}
+        exportSupportsIncludeData={false}
         onImport={handleImport}
         backAction={backButton}
         headerActions={

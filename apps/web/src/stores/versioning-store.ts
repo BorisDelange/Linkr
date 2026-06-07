@@ -19,6 +19,7 @@ interface VersioningState {
   refreshStatus: (projectUid: string) => Promise<void>
   createCommit: (projectUid: string, message: string) => Promise<void>
   restoreCommit: (projectUid: string, oid: string) => Promise<void>
+  loadRemoteConfig: (projectUid: string) => Promise<void>
   setRemoteConfig: (config: GitRemoteConfig) => void
   clearRemoteConfig: () => void
   exportZip: (options?: BuildProjectZipOptions) => Promise<void>
@@ -37,8 +38,26 @@ export const useVersioningStore = create<VersioningState>((set) => ({
   createCommit: async () => { console.info(BACKEND_MSG) },
   restoreCommit: async () => { console.info(BACKEND_MSG) },
 
-  setRemoteConfig: (config) => set({ remoteConfig: config }),
-  clearRemoteConfig: () => set({ remoteConfig: null }),
+  loadRemoteConfig: async (projectUid) => {
+    const project = await getStorage().projects.getById(projectUid)
+    const config = project?.gitRemoteConfig?.url
+      ? project.gitRemoteConfig
+      : project?.gitUrl
+        ? { url: project.gitUrl, branch: 'main' }
+        : null
+    set({ remoteConfig: config })
+  },
+
+  setRemoteConfig: (config) => {
+    set({ remoteConfig: config })
+    const projectUid = useAppStore.getState().activeProjectUid
+    if (projectUid) void getStorage().projects.update(projectUid, { gitRemoteConfig: config })
+  },
+  clearRemoteConfig: () => {
+    set({ remoteConfig: null })
+    const projectUid = useAppStore.getState().activeProjectUid
+    if (projectUid) void getStorage().projects.update(projectUid, { gitRemoteConfig: undefined })
+  },
 
   exportZip: async (options) => {
     const projectUid = useAppStore.getState().activeProjectUid

@@ -113,6 +113,12 @@ export function EtlListPage() {
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deletePipeline(id)}
       onExport={handleExport}
+      getGitRemote={(p) => p.gitRemoteConfig ?? null}
+      onSaveGitRemote={async (p, config) => {
+        await getStorage().etlPipelines.update(p.id, { gitRemoteConfig: config ?? undefined })
+        await loadEtlPipelines()
+      }}
+      exportSupportsIncludeData={false}
       onImport={handleImport}
       renderCardBody={(pipeline) => {
         const statusInfo = STATUS_BADGE[pipeline.status]
