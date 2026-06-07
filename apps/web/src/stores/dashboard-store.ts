@@ -3,6 +3,7 @@ import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, F
 import { getStorage } from '@/lib/storage'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
+import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
 
 interface DashboardState {
   // Loaded data for current project
@@ -40,6 +41,10 @@ interface DashboardState {
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
   updateWidgetName: (widgetId: string, name: string) => void
   updateWidgetDataset: (widgetId: string, datasetFileId: string | null) => void
+  /** Realign a single widget's stamped plugin version with the live plugin (user accepts the change). */
+  acceptPluginVersion: (widgetId: string) => void
+  /** Realign every stale widget of a dashboard with its plugin's current version. */
+  acceptAllPluginVersions: (dashboardId: string) => void
 
   // Filter runtime state
   setFilter: (filterId: string, value: FilterValue) => void
@@ -250,8 +255,9 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   addWidget: (tabId, source, name, datasetFileId) => {
     const id = uid()
-    const layout = { x: 0, y: Infinity, ...getDefaultLayout(source) }
-    const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source }
+    const stamped = stampPluginVersion(source)
+    const layout = { x: 0, y: Infinity, ...getDefaultLayout(stamped) }
+    const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source: stamped }
 
     set((s) => ({ widgets: [...s.widgets, widget] }))
     getStorage().dashboardWidgets.create(widget).catch((e) => console.warn('[dashboard-store] persist error:', e))
@@ -270,10 +276,40 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   },
 
   updateWidgetSource: (widgetId, source) => {
+    // A real edit means the user is working against the live plugin, so realign the
+    // stamped version. Opening the editor without changing anything never calls this.
+    const stamped = stampPluginVersion(source)
     set((s) => ({
-      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, source } : w)),
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, source: stamped } : w)),
     }))
-    getStorage().dashboardWidgets.update(widgetId, { source }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    getStorage().dashboardWidgets.update(widgetId, { source: stamped }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  acceptPluginVersion: (widgetId) => {
+    const widget = get().widgets.find((w) => w.id === widgetId)
+    if (!widget) return
+    const stamped = stampPluginVersion(widget.source)
+    if (stamped === widget.source) return
+    set((s) => ({
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, source: stamped } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { source: stamped }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  acceptAllPluginVersions: (dashboardId) => {
+    const { tabs, widgets } = get()
+    const tabIds = new Set(tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
+    const updates = widgets
+      .filter((w) => tabIds.has(w.tabId) && isWidgetPluginStale(w))
+      .map((w) => ({ id: w.id, source: stampPluginVersion(w.source) }))
+    if (updates.length === 0) return
+    const byId = new Map(updates.map((u) => [u.id, u.source]))
+    set((s) => ({
+      widgets: s.widgets.map((w) => (byId.has(w.id) ? { ...w, source: byId.get(w.id)! } : w)),
+    }))
+    for (const u of updates) {
+      getStorage().dashboardWidgets.update(u.id, { source: u.source }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    }
   },
 
   updateWidgetName: (widgetId, name) => {

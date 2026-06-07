@@ -390,7 +390,16 @@ export interface DashboardTab {
 }
 
 export type DashboardWidgetSource =
-  | { type: 'plugin'; pluginId: string; language?: 'python' | 'r'; config: Record<string, unknown> }
+  | {
+      type: 'plugin'
+      pluginId: string
+      language?: 'python' | 'r'
+      config: Record<string, unknown>
+      /** Plugin version captured when the widget was created/last edited. Lets the
+       *  dashboard flag widgets built on an older plugin version (drift detection).
+       *  Absent on widgets created before this was introduced = neutral (no warning). */
+      pluginVersion?: string
+    }
   | { type: 'inline'; language: 'python' | 'r' | 'sql'; code: string; config: Record<string, unknown> }
 
 export interface DashboardWidget {

@@ -12,6 +12,8 @@ import { AddWidgetDialog } from './dashboard/AddWidgetDialog'
 import { DashboardFilterSidebar } from './dashboard/DashboardFilterSidebar'
 import { DashboardSettingsDialog } from './dashboard/DashboardSettingsDialog'
 import { ExportDashboardDialog } from './dashboard/ExportDashboardDialog'
+import { isWidgetPluginStale } from './dashboard/plugin-drift'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function DashboardPage() {
   const { t } = useTranslation()
@@ -35,6 +37,7 @@ export function DashboardPage() {
     loaded,
     loadProjectDashboards,
     setActiveDashboard,
+    acceptAllPluginVersions,
   } = useDashboardStore()
 
   const { loadProjectDatasets } = useDatasetStore()
@@ -63,6 +66,12 @@ export function DashboardPage() {
     const tabIds = new Set(dashboardTabs.map((t) => t.id))
     return tabIds.has(w.tabId)
   })
+
+  // Count widgets (across every tab) whose plugin changed since they were created/edited.
+  const staleWidgetCount = useMemo(
+    () => allDashboardWidgets.filter(isWidgetPluginStale).length,
+    [allDashboardWidgets],
+  )
 
   if (!loaded) return null
 
@@ -159,6 +168,23 @@ export function DashboardPage() {
           </Button>
         </div>
       </div>
+
+      {/* Plugin drift banner — a plugin used here changed since some widgets were built. */}
+      {staleWidgetCount > 0 && (
+        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
+          <AlertTriangle size={14} className="shrink-0" />
+          <span className="flex-1">{t('dashboard.plugin_drift_banner', { count: staleWidgetCount })}</span>
+          <Button
+            size="xs"
+            variant="outline"
+            className="gap-1 border-amber-500/40"
+            onClick={() => acceptAllPluginVersions(currentDashboardId)}
+          >
+            <RefreshCw size={12} />
+            {t('dashboard.plugin_drift_accept_all')}
+          </Button>
+        </div>
+      )}
 
       {/* Main content + filter sidebar */}
       <div className="flex flex-1 min-h-0 overflow-hidden">

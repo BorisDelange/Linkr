@@ -4,6 +4,7 @@ import type { UserPlugin } from '@/types'
 import { getStorage } from '@/lib/storage'
 import {
   getAllPlugins,
+  getPlugin,
   registerPlugin,
   unregisterPlugin,
 } from '@/lib/plugins/registry'
@@ -423,8 +424,14 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         if (filename.endsWith('.py.template')) templates.python = content
         else if (filename.endsWith('.R.template')) templates.r = content
       }
-      // Re-register (overwrites previous)
-      registerPlugin(buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null))
+      const rebuilt = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
+      // Component plugins are backed by a React component in the bundle, not by templates.
+      // The componentId lives only in the in-memory registry (never in the editable files),
+      // so carry it over from the existing registration — otherwise the re-registered plugin
+      // falls through to the script renderer and reports "templates not found".
+      const existing = getPlugin(editingPluginId)
+      if (existing?.componentId && !rebuilt.componentId) rebuilt.componentId = existing.componentId
+      registerPlugin(rebuilt)
     } catch { /* invalid plugin.json — still saved to IDB */ }
 
     set({ isDirty: false, originalFiles: { ...files } })

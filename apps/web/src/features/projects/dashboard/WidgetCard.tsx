@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MoreHorizontal, Pencil, Trash2, Type, Download } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Type, Download, AlertTriangle, RefreshCw } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
@@ -22,10 +23,14 @@ interface WidgetCardProps {
   siblingNames?: Set<string>
   editMode: boolean
   hideTitleBar?: boolean
+  /** The widget's plugin changed since this widget was created/last edited. */
+  stale?: boolean
+  /** Realign the widget with the plugin's current version (accept the change). */
+  onAcceptPluginVersion?: () => void
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblingNames, editMode, hideTitleBar, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
@@ -66,8 +71,30 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
     setRenaming(false)
   }
 
+  const staleIcon = (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex shrink-0 items-center text-amber-500">
+            <AlertTriangle size={13} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{t('dashboard.plugin_drift_widget_tooltip')}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+
   const menuItems = (
     <>
+      {stale && onAcceptPluginVersion && (
+        <>
+          <DropdownMenuItem onClick={onAcceptPluginVersion}>
+            <RefreshCw size={14} />
+            {t('dashboard.plugin_drift_accept')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </>
+      )}
       {onRename && (
         <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
           <Type size={14} />
@@ -119,9 +146,12 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
               )}
             </div>
           ) : (
-            <h3 className="text-xs font-semibold text-card-foreground truncate">
-              {title}
-            </h3>
+            <div className="flex min-w-0 items-center gap-1.5">
+              {stale && staleIcon}
+              <h3 className="text-xs font-semibold text-card-foreground truncate">
+                {title}
+              </h3>
+            </div>
           )}
           {editMode && (
             <DropdownMenu>
@@ -146,6 +176,21 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+        </div>
+      )}
+      {/* Floating drift warning when the title bar is hidden — surfaced regardless of edit mode. */}
+      {!showTitleBar && stale && (
+        <div className="absolute top-1 left-1 z-10">
+          <TooltipProvider delayDuration={300}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex items-center rounded bg-card/80 p-1 text-amber-500 backdrop-blur-sm">
+                  <AlertTriangle size={12} />
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{t('dashboard.plugin_drift_widget_tooltip')}</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       )}
       {/* Floating menu button when title bar is hidden but in edit mode */}

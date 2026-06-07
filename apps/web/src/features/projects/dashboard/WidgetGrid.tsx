@@ -7,6 +7,7 @@ import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { WidgetCard } from './WidgetCard'
+import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
@@ -107,7 +108,7 @@ function WidgetWithData({
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, updateWidgetName, activeFilters } = useDashboardStore()
+  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
@@ -203,6 +204,8 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
               onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
+              stale={isWidgetPluginStale(widget)}
+              onAcceptPluginVersion={() => acceptPluginVersion(widget.id)}
             >
               <WidgetWithData
                 widget={widget}
