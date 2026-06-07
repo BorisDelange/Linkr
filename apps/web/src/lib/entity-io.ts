@@ -796,6 +796,70 @@ function buildTreePath(file: { id: string; name: string; parentId: string | null
 }
 
 /**
+ * Lay out a SQL script collection in a git-friendly tree under `prefix`:
+ * `_collection.json` (metadata), `_tree.json` (file hierarchy without content),
+ * and each script written at its real path with its raw `.sql` content.
+ */
+export async function buildSqlCollectionFolder(
+  zip: JSZip,
+  prefix: string,
+  collection: SqlScriptCollection,
+  storage: Storage,
+): Promise<void> {
+  zip.file(`${prefix}_collection.json`, json(collection))
+  const files = await storage.sqlScriptFiles.getByCollection(collection.id)
+  const byId = new Map(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  for (const f of files) {
+    if (f.type === 'file' && f.content != null) {
+      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+    }
+  }
+}
+
+/**
+ * Reconstruct tree files (SqlScriptFile / EtlFile) from a parsed import ZIP that uses
+ * the git-friendly layout (`_tree.json` for metadata + raw files at their real paths).
+ * `parsed` keys are zip paths relative to the collection/pipeline root (after any prefix
+ * is stripped by the caller). Folders carry no content; file content comes from the
+ * raw entry matching the file's reconstructed path.
+ */
+export function reconstructTreeFiles<T extends { id: string; name: string; type: 'file' | 'folder'; parentId: string | null; content?: string }>(
+  tree: T[],
+  parsed: Record<string, unknown>,
+): T[] {
+  const byId = new Map(tree.map(f => [f.id, f]))
+  return tree.map(f => {
+    if (f.type !== 'file') return f
+    const path = buildTreePath(f, byId as Map<string, { id: string; name: string; parentId: string | null }>)
+    const raw = parsed[path]
+    return typeof raw === 'string' ? { ...f, content: raw } : f
+  })
+}
+
+/**
+ * Lay out an ETL pipeline in a git-friendly tree under `prefix`:
+ * `_pipeline.json` (metadata), `_tree.json` (file hierarchy without content),
+ * and each script written at its real path with its raw content.
+ */
+export async function buildEtlPipelineFolder(
+  zip: JSZip,
+  prefix: string,
+  pipeline: EtlPipeline,
+  storage: Storage,
+): Promise<void> {
+  zip.file(`${prefix}_pipeline.json`, json(pipeline))
+  const files = await storage.etlFiles.getByPipeline(pipeline.id)
+  const byId = new Map(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  for (const f of files) {
+    if (f.type === 'file' && f.content != null) {
+      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+    }
+  }
+}
+
+/**
  * Strip sensitive fields from a DatabaseConnectionConfig.
  * - Always removes: password, tokens, local file refs (fileId, fileIds, fileNames, fileHandleIds).
  * - When `keepCredentials` is false, also removes: host, port, database, schema, username.
@@ -943,17 +1007,11 @@ export async function buildWorkspaceZip(
         continue
       }
 
-      zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
-      if (!includeData[collection.id]) continue
-
-      const files = await storage.sqlScriptFiles.getByCollection(collection.id)
-      const byId = new Map(files.map(f => [f.id, f]))
-      zip.file(`sql-scripts/${folder}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
-      for (const f of files) {
-        if (f.type === 'file' && f.content != null) {
-          zip.file(`sql-scripts/${folder}/${buildTreePath(f, byId)}`, f.content)
-        }
+      if (!includeData[collection.id]) {
+        zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
+        continue
       }
+      await buildSqlCollectionFolder(zip, `sql-scripts/${folder}/`, collection, storage)
     }
   }
 
@@ -970,17 +1028,11 @@ export async function buildWorkspaceZip(
         continue
       }
 
-      zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
-      if (!includeData[pipeline.id]) continue
-
-      const files = await storage.etlFiles.getByPipeline(pipeline.id)
-      const byId = new Map(files.map(f => [f.id, f]))
-      zip.file(`etl/${folder}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
-      for (const f of files) {
-        if (f.type === 'file' && f.content != null) {
-          zip.file(`etl/${folder}/${buildTreePath(f, byId)}`, f.content)
-        }
+      if (!includeData[pipeline.id]) {
+        zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
+        continue
       }
+      await buildEtlPipelineFolder(zip, `etl/${folder}/`, pipeline, storage)
     }
   }
 

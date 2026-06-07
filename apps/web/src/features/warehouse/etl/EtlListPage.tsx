@@ -7,7 +7,8 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { buildEtlPipelineFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
+import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateEtlDialog } from './CreateEtlDialog'
@@ -41,21 +42,22 @@ export function EtlListPage() {
   const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: import('@/types').EtlFile[] } | null>(null)
 
   const handleExport = useCallback(async (pipeline: EtlPipeline) => {
-    const files = await getStorage().etlFiles.getByPipeline(pipeline.id)
-    await exportEntityZip(
-      [
-        { filename: 'pipeline.json', data: pipeline },
-        { filename: 'files.json', data: files },
-      ],
-      `${slugify(pipeline.name)}.zip`,
-    )
+    const zip = new JSZip()
+    await buildEtlPipelineFolder(zip, '', pipeline, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, `${slugify(pipeline.name)}.zip`)
   }, [])
 
   const handleImport = useCallback(async (file: File) => {
     const parsed = await parseImportZip(file)
-    const pipeline = parsed['pipeline.json'] as EtlPipeline | undefined
+    // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
+    // to the legacy layout (pipeline.json + files.json).
+    const pipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
     if (!pipeline?.id) return
-    const files = (parsed['files.json'] ?? []) as import('@/types').EtlFile[]
+    const tree = parsed['_tree.json'] as import('@/types').EtlFile[] | undefined
+    const files = tree
+      ? reconstructTreeFiles(tree, parsed)
+      : ((parsed['files.json'] ?? []) as import('@/types').EtlFile[])
     const existing = await getStorage().etlPipelines.getById(pipeline.id)
     if (existing) {
       setConflict({ name: existing.name, pending: pipeline, pendingFiles: files })

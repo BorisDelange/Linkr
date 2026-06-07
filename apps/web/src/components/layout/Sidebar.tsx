@@ -217,9 +217,14 @@ export function AppSidebar() {
       if (!pathname.startsWith(base + '/')) continue
       const rest = pathname.slice(base.length + 1)
       for (const segment of segmentsWithSubRoutes) {
+        const key = `${base}/${segment}`
         if (rest.startsWith(segment + '/') && rest !== segment) {
-          const key = `${base}/${segment}`
+          // On a sub-route (detail page) — remember it so the sidebar returns here.
           lastRoutes.current.set(key, pathname)
+        } else if (rest === segment) {
+          // Back on the segment's list page — forget the remembered detail so the
+          // sidebar item leads to the list, not the previously opened item.
+          lastRoutes.current.delete(key)
         }
       }
       break
