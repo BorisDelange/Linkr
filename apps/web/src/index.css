@@ -260,4 +260,21 @@ body {
   font-size: 11px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.1);
   pointer-events: none;
+  /* Sit above neighbouring widget cards so the follow-legend isn't painted over. */
+  z-index: 50;
+}
+
+/* While hovering a timeline, raise its react-grid item above siblings and let
+   the follow-legend spill out of the card (it renders inside the card, which
+   is overflow-hidden, so a z-index alone can't escape the clip). We only relax
+   overflow on the inner content wrapper — the card root keeps its rounded
+   corners, and the range-selector interaction is unaffected. */
+.patient-timeline-item:hover {
+  z-index: 40;
+}
+/* Relax the clip on both the card root and its content wrapper so the legend
+   can escape; scoped to hover so rounded corners are intact at rest. */
+.patient-timeline-item:hover > div,
+.patient-timeline-item:hover [data-widget-content] {
+  overflow: visible;
 }

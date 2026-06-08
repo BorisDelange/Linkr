@@ -1,7 +1,7 @@
 import type { Plugin, PluginManifest } from '@/types/plugin'
 import { registerPlugin, getPlugin } from './registry'
 import { registerComponent } from './component-registry'
-import { registerBuiltinWidgetPlugins } from './builtin-widget-plugins'
+import { registerBuiltinWidgetPlugins, SYSTEM_PLUGIN_IDS } from './builtin-widget-plugins'
 import { getStorage } from '@/lib/storage'
 import { KeyIndicatorComponent } from '@/features/projects/lab/datasets/analyses/KeyIndicatorComponent'
 import { PlotBuilderComponent } from '@/features/projects/lab/datasets/analyses/PlotBuilderComponent'
@@ -470,6 +470,13 @@ export async function registerUserPlugins() {
         // Don't overwrite built-in component plugins with IDB copies that lack componentId
         const existing = getPlugin(plugin.manifest.id)
         if (existing?.componentId && !plugin.componentId) continue
+        // System widgets (e.g. timeline) own functional fields like configSchema
+        // in code; persisted copies only carry editable metadata. Preserve the
+        // built-in's schema so customising metadata can't drop the settings form.
+        if (existing && SYSTEM_PLUGIN_IDS.has(plugin.manifest.id)) {
+          plugin.manifest.configSchema = existing.manifest.configSchema
+          plugin.componentId = plugin.componentId ?? existing.componentId
+        }
         registerPlugin(plugin)
       } catch {
         // Skip plugins with invalid plugin.json

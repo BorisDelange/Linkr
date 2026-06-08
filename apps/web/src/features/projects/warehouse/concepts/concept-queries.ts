@@ -23,27 +23,45 @@ export interface ColumnDescriptor {
  * Returns stable column descriptors that drive the table, filters, and sort.
  */
 export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescriptor[] {
-  const cols: ColumnDescriptor[] = [
-    { id: 'concept_id', source: 'core', filterable: false },
-    { id: 'concept_name', source: 'core', filterable: false },
-  ]
+  // Order mirrors the conventional concept layout:
+  // vocabulary_id, concept_id, concept_name, concept_code, domain_id,
+  // concept_class_id, [other extras], standard_concept, then counts last.
+  const cols: ColumnDescriptor[] = []
 
+  if (dicts.some((d) => d.terminologyIdColumn || d.vocabularyColumn)) {
+    cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
+  }
+  cols.push({ id: 'concept_id', source: 'core', filterable: false })
+  cols.push({ id: 'concept_name', source: 'core', filterable: false })
   if (dicts.some((d) => d.codeColumn)) {
     cols.push({ id: 'concept_code', source: 'code', filterable: false })
   }
-  if (dicts.some((d) => d.vocabularyColumn)) {
-    cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
+  if (dicts.some((d) => d.categoryColumn)) {
+    cols.push({ id: 'domain_id', source: 'extra', filterable: true })
+  }
+  if (dicts.some((d) => d.subcategoryColumn)) {
+    cols.push({ id: 'concept_class_id', source: 'extra', filterable: true })
   }
 
-  // Union of all extraColumns keys across all dicts
+  // Union of all extraColumns keys across all dicts, skipping any already
+  // emitted above. standard_concept is held back to sit last (before counts).
+  const alreadyEmitted = new Set(cols.map((c) => c.id))
   const extraKeys = new Set<string>()
+  let hasStandardConcept = false
   for (const d of dicts) {
     if (d.extraColumns) {
-      for (const key of Object.keys(d.extraColumns)) extraKeys.add(key)
+      for (const key of Object.keys(d.extraColumns)) {
+        if (alreadyEmitted.has(key)) continue
+        if (key === 'standard_concept') { hasStandardConcept = true; continue }
+        extraKeys.add(key)
+      }
     }
   }
   for (const key of extraKeys) {
     cols.push({ id: key, source: 'extra', filterable: true })
+  }
+  if (hasStandardConcept) {
+    cols.push({ id: 'standard_concept', source: 'extra', filterable: true })
   }
 
   // _dict_key column only if multiple dictionaries
@@ -128,7 +146,9 @@ function resolveActualColumn(dict: ConceptDictionary, columnId: string): string 
     case 'concept_id': return dict.idColumn
     case 'concept_name': return dict.nameColumn
     case 'concept_code': return dict.codeColumn ?? null
-    case 'vocabulary_id': return dict.vocabularyColumn ?? null
+    case 'vocabulary_id': return dict.terminologyIdColumn ?? dict.vocabularyColumn ?? null
+    case 'domain_id': return dict.categoryColumn ?? dict.extraColumns?.domain_id ?? null
+    case 'concept_class_id': return dict.subcategoryColumn ?? dict.extraColumns?.concept_class_id ?? null
     default:
       // Check extraColumns
       return dict.extraColumns?.[columnId] ?? null

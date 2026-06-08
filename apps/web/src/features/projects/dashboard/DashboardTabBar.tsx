@@ -122,12 +122,16 @@ function SortableTab({
 function TabRenameInput({
   tab,
   isActive,
+  siblingNames,
   onFinish,
 }: {
   tab: DashboardTab
   isActive: boolean
+  /** Names of the other tabs in this dashboard (lowercased) — for dup detection. */
+  siblingNames: Set<string>
   onFinish: (newName: string | null) => void
 }) {
+  const { t } = useTranslation()
   const [value, setValue] = useState(tab.name)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -136,16 +140,22 @@ function TabRenameInput({
       const el = inputRef.current
       if (el) {
         el.focus()
-        const len = el.value.length
-        el.setSelectionRange(len, len)
+        el.select()
       }
     })
   }, [])
 
+  const trimmed = value.trim()
+  const isDuplicate = trimmed.length > 0 && siblingNames.has(trimmed.toLowerCase())
+
   const commit = useCallback(() => {
-    const trimmed = value.trim()
-    onFinish(trimmed && trimmed !== tab.name ? trimmed : null)
-  }, [value, tab.name, onFinish])
+    const next = value.trim()
+    if (!next || next === tab.name || siblingNames.has(next.toLowerCase())) {
+      onFinish(null)
+    } else {
+      onFinish(next)
+    }
+  }, [value, tab.name, siblingNames, onFinish])
 
   return (
     <div
@@ -163,7 +173,11 @@ function TabRenameInput({
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') onFinish(null)
         }}
-        className="h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none"
+        className={cn(
+          'h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none',
+          isDuplicate && 'text-destructive',
+        )}
+        title={isDuplicate ? t('dashboard.tab_name_exists') : undefined}
       />
     </div>
   )
@@ -215,9 +229,14 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
   }
 
   const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
-    if (newName) renameTab(tabId, newName)
+    if (newName) {
+      const exists = allTabs.some(
+        (t) => t.dashboardId === dashboardId && t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
+      )
+      if (!exists) renameTab(tabId, newName)
+    }
     setRenamingTabId(null)
-  }, [renameTab])
+  }, [renameTab, allTabs, dashboardId])
 
   return (
     <>
@@ -238,6 +257,9 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === currentActiveId}
+                    siblingNames={new Set(
+                      tabs.filter((tt) => tt.id !== tab.id).map((tt) => tt.name.toLowerCase()),
+                    )}
                     onFinish={(name) => handleRenameFinish(tab.id, name)}
                   />
                 ) : (

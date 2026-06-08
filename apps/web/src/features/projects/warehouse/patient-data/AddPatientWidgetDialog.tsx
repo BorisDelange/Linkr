@@ -1,9 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as LucideIcons from 'lucide-react'
 import {
   usePatientChartStore,
-  type PatientWidgetType,
   type PluginWidgetConfig,
 } from '@/stores/patient-chart-store'
 import {
@@ -24,64 +22,17 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  User,
-  TrendingUp,
-  FileText,
-  Puzzle,
-  ArrowLeft,
-} from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { getWarehousePlugins } from '@/lib/plugins/registry'
-import { SYSTEM_PLUGIN_IDS } from '@/lib/plugins/builtin-widget-plugins'
+import { SYSTEM_WIDGET_TYPE_MAP } from '@/lib/plugins/builtin-widget-plugins'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
-import type { Plugin } from '@/types/plugin'
-import type { PluginConfigField } from '@/types/plugin'
-import { cn } from '@/lib/utils'
+import { PluginPicker } from '@/components/PluginPicker'
+import type { Plugin, PluginConfigField } from '@/types/plugin'
 
 interface AddPatientWidgetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   tabId: string
-}
-
-interface WidgetTypeOption {
-  type: PatientWidgetType
-  nameKey: string
-  descriptionKey: string
-  icon: React.ReactNode
-}
-
-const widgetTypes: WidgetTypeOption[] = [
-  {
-    type: 'patient_summary',
-    nameKey: 'patient_data.widget_summary',
-    descriptionKey: 'patient_data.widget_summary_desc',
-    icon: <User size={20} className="text-violet-500" />,
-  },
-  {
-    type: 'timeline',
-    nameKey: 'patient_data.widget_timeline',
-    descriptionKey: 'patient_data.widget_timeline_desc',
-    icon: <TrendingUp size={20} className="text-blue-500" />,
-  },
-  {
-    type: 'notes',
-    nameKey: 'patient_data.widget_notes',
-    descriptionKey: 'patient_data.widget_notes_desc',
-    icon: <FileText size={20} className="text-cyan-500" />,
-  },
-]
-
-const ICON_COLOR_CLASS: Record<string, string> = {
-  red: 'text-red-500', blue: 'text-blue-500', green: 'text-green-500',
-  violet: 'text-violet-500', amber: 'text-amber-500', rose: 'text-rose-500',
-  cyan: 'text-cyan-500', slate: 'text-slate-500',
-}
-
-function getPluginIcon(iconName: string): LucideIcons.LucideIcon {
-  const icon = (LucideIcons as Record<string, unknown>)[iconName]
-  if (typeof icon === 'object' && icon !== null) return icon as LucideIcons.LucideIcon
-  return Puzzle
 }
 
 export function AddPatientWidgetDialog({
@@ -101,11 +52,9 @@ export function AddPatientWidgetDialog({
   const [pluginLanguage, setPluginLanguage] = useState<'python' | 'r'>('python')
   const [pluginConfig, setPluginConfig] = useState<Record<string, unknown>>({})
 
-  // Custom warehouse plugins (exclude system plugins which are shown as built-in buttons)
-  const customWarehousePlugins = useMemo(
-    () => getWarehousePlugins().filter(p => !SYSTEM_PLUGIN_IDS.has(p.manifest.id)),
-    [],
-  )
+  // All warehouse plugins — built-in widgets (Summary, Timeline, Notes) and
+  // custom ones — shown in a single grid harmonized with the dashboard picker.
+  const warehousePlugins = useMemo(() => getWarehousePlugins(), [])
 
   const resetAndClose = () => {
     setConfigPlugin(null)
@@ -115,17 +64,23 @@ export function AddPatientWidgetDialog({
     onOpenChange(false)
   }
 
-  const handleAdd = (wt: WidgetTypeOption) => {
-    addWidget(tabId, wt.type, widgetName.trim() || t(wt.nameKey))
-    resetAndClose()
-  }
-
   const handleSelectPlugin = (plugin: Plugin) => {
-    const hasConfig = plugin.manifest.configSchema && Object.keys(plugin.manifest.configSchema).length > 0
+    const m = plugin.manifest
+    const defaultName = m.name?.[lang] ?? m.name?.en ?? m.id
+
+    // Built-in system widget → add directly as its native widget type.
+    const systemType = SYSTEM_WIDGET_TYPE_MAP[m.id]
+    if (systemType) {
+      addWidget(tabId, systemType, widgetName.trim() || defaultName)
+      resetAndClose()
+      return
+    }
+
+    // Custom plugin → config step when it needs configuration / language choice.
+    const hasConfig = m.configSchema && Object.keys(m.configSchema).length > 0
     const hasBothLangs = !!(plugin.templates?.python && plugin.templates?.r)
     const defaultLang: 'python' | 'r' = plugin.templates?.python ? 'python' : 'r'
 
-    const defaultName = plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.manifest.id
     setWidgetName((prev) => prev || defaultName)
 
     if (hasConfig || hasBothLangs) {
@@ -133,9 +88,8 @@ export function AddPatientWidgetDialog({
       setPluginConfig({})
       setPluginLanguage(defaultLang)
     } else {
-      // No config needed, add immediately
       const config: PluginWidgetConfig = {
-        pluginId: plugin.manifest.id,
+        pluginId: m.id,
         language: defaultLang,
         pluginConfig: {},
       }
@@ -234,72 +188,32 @@ export function AddPatientWidgetDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose() }}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="flex h-[80vh] max-h-[80vh] flex-col overflow-hidden sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{t('patient_data.add_widget_title')}</DialogTitle>
           <DialogDescription>
             {t('patient_data.add_widget_description')}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-1">
+
+        <div className="shrink-0">
           <Label className="text-xs">{t('patient_data.widget_name')}</Label>
           <Input
             value={widgetName}
             onChange={(e) => setWidgetName(e.target.value)}
             placeholder={t('patient_data.widget_name_placeholder')}
-            className="h-8 text-sm"
+            className="mt-1 h-8 text-sm"
           />
         </div>
 
-        <div className="mt-2 grid gap-2">
-          {widgetTypes.map((wt) => (
-            <button
-              key={wt.type}
-              onClick={() => handleAdd(wt)}
-              className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
-            >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                {wt.icon}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{t(wt.nameKey)}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {t(wt.descriptionKey)}
-                </p>
-              </div>
-            </button>
-          ))}
-
-          {/* Custom warehouse plugins */}
-          {customWarehousePlugins.length > 0 && (
-            <>
-              <div className="mt-2 mb-1">
-                <p className="text-xs font-medium text-muted-foreground">{t('patient_data.plugin_widgets')}</p>
-              </div>
-              {customWarehousePlugins.map((plugin) => {
-                const m = plugin.manifest
-                const Icon = getPluginIcon(m.icon)
-                const colorClass = m.iconColor ? ICON_COLOR_CLASS[m.iconColor] : 'text-muted-foreground'
-                return (
-                  <button
-                    key={m.id}
-                    onClick={() => handleSelectPlugin(plugin)}
-                    className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
-                  >
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                      <Icon size={20} className={cn(colorClass)} style={!ICON_COLOR_CLASS[m.iconColor ?? ''] && m.iconColor ? { color: m.iconColor } : undefined} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium">{m.name?.[lang] ?? m.name?.en ?? m.id}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {m.description?.[lang] ?? m.description?.en ?? ''}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </>
-          )}
+        <div className="mt-2 flex min-h-0 flex-1 flex-col">
+          <PluginPicker
+            plugins={warehousePlugins}
+            selectedPluginId=""
+            onSelectPlugin={handleSelectPlugin}
+            lang={lang}
+            fillHeight
+          />
         </div>
       </DialogContent>
     </Dialog>

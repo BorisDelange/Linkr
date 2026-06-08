@@ -22,6 +22,7 @@ export interface PatientRow {
   gender?: string
   age?: number
   visit_count?: number
+  stay_count?: number
 }
 
 export interface VisitRow {
@@ -43,6 +44,7 @@ export interface PatientDemographics {
   gender?: string
   age?: number
   visit_count?: number
+  death_date?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +88,9 @@ export function usePatientData(
   const [patientsLoading, setPatientsLoading] = useState(false)
   const patientPageSize = 50
   const patientCacheRef = useRef<Map<string, { rows: PatientRow[]; count: number }>>(new Map())
+  // When prev/next crosses a page boundary, remember which edge patient of the
+  // newly loaded page to auto-select once it arrives.
+  const pendingEdgeSelectRef = useRef<'first' | 'last' | null>(null)
 
   const loadPatients = useCallback(
     async (page: number) => {
@@ -136,6 +141,16 @@ export function usePatientData(
     loadPatients(patientPage)
   }, [loadPatients, patientPage])
 
+  // After a page change driven by prev/next at a boundary, select the edge
+  // patient of the freshly loaded page so navigation continues seamlessly.
+  useEffect(() => {
+    const edge = pendingEdgeSelectRef.current
+    if (!edge || patients.length === 0) return
+    pendingEdgeSelectRef.current = null
+    const target = edge === 'first' ? patients[0] : patients[patients.length - 1]
+    setSelectedPatient(projectUid, String(target.patient_id))
+  }, [patients, projectUid, setSelectedPatient])
+
   // Reset page when cohort or filters change
   useEffect(() => {
     setPatientPage(0)
@@ -166,11 +181,9 @@ export function usePatientData(
       .then((rows) => {
         if (!cancelled) {
           setVisits((rows as VisitRow[]) ?? [])
-          // Auto-select first visit
-          if (rows.length > 0 && !visitId) {
-            const firstVisit = rows[0] as VisitRow
-            setSelectedVisit(projectUid, String(firstVisit.visit_id))
-          }
+          // No auto-selection: a patient defaults to "All hospitalizations"
+          // (visitId = null) so widgets show the full record until the user
+          // narrows to one hospitalization.
         }
       })
       .catch((err) => {
@@ -184,7 +197,7 @@ export function usePatientData(
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId, projectUid, setSelectedVisit, visitId])
+  }, [dataSourceId, schemaMapping, patientId])
 
   // --- Visit details (sub-stays) ---
   const [visitDetails, setVisitDetails] = useState<VisitDetailRow[]>([])
@@ -294,5 +307,116 @@ export function usePatientData(
     selectPatient: (id: string | null) => setSelectedPatient(projectUid, id),
     selectVisit: (id: string | null) => setSelectedVisit(projectUid, id),
     selectVisitDetail: (id: string | null) => setSelectedVisitDetail(projectUid, id),
+
+    // Navigation helpers
+    ...buildNavHelpers({
+      patients,
+      patientId,
+      patientPage,
+      patientPageSize,
+      patientCount,
+      setPatientPage,
+      selectPatient: (id: string | null) => setSelectedPatient(projectUid, id),
+      requestEdgeSelect: (edge) => { pendingEdgeSelectRef.current = edge },
+      visits,
+      visitId,
+      selectVisit: (id: string | null) => setSelectedVisit(projectUid, id),
+      visitDetails,
+      visitDetailId,
+      selectVisitDetail: (id: string | null) => setSelectedVisitDetail(projectUid, id),
+    }),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Navigation helpers (patient index + prev/next for patient / visit / stay)
+// ---------------------------------------------------------------------------
+
+interface NavInput {
+  patients: PatientRow[]
+  patientId: string | null
+  patientPage: number
+  patientPageSize: number
+  patientCount: number
+  setPatientPage: (page: number) => void
+  selectPatient: (id: string | null) => void
+  /** Queue selecting the first/last patient of the next page to load. */
+  requestEdgeSelect: (edge: 'first' | 'last') => void
+  visits: VisitRow[]
+  visitId: string | null
+  selectVisit: (id: string | null) => void
+  visitDetails: VisitDetailRow[]
+  visitDetailId: string | null
+  selectVisitDetail: (id: string | null) => void
+}
+
+function buildNavHelpers(n: NavInput) {
+  const patientIndexInPage = n.patients.findIndex((p) => String(p.patient_id) === n.patientId)
+  // Global 1-based index across the whole cohort, when the patient is on the page.
+  const patientGlobalIndex =
+    patientIndexInPage >= 0
+      ? n.patientPage * n.patientPageSize + patientIndexInPage + 1
+      : null
+
+  const goPrevPatient = () => {
+    if (patientIndexInPage > 0) {
+      n.selectPatient(String(n.patients[patientIndexInPage - 1].patient_id))
+    } else if (patientIndexInPage === 0 && n.patientPage > 0) {
+      n.requestEdgeSelect('last')
+      n.setPatientPage(n.patientPage - 1)
+    }
+  }
+  const goNextPatient = () => {
+    if (patientIndexInPage >= 0 && patientIndexInPage < n.patients.length - 1) {
+      n.selectPatient(String(n.patients[patientIndexInPage + 1].patient_id))
+    } else if (
+      patientIndexInPage === n.patients.length - 1 &&
+      (n.patientPage + 1) * n.patientPageSize < n.patientCount
+    ) {
+      n.requestEdgeSelect('first')
+      n.setPatientPage(n.patientPage + 1)
+    }
+  }
+  const canPrevPatient =
+    patientIndexInPage > 0 || (patientIndexInPage === 0 && n.patientPage > 0)
+  const canNextPatient =
+    (patientIndexInPage >= 0 && patientIndexInPage < n.patients.length - 1) ||
+    (patientIndexInPage === n.patients.length - 1 &&
+      (n.patientPage + 1) * n.patientPageSize < n.patientCount)
+
+  const visitIndex = n.visits.findIndex((v) => String(v.visit_id) === n.visitId)
+  const goPrevVisit = () => {
+    if (visitIndex > 0) n.selectVisit(String(n.visits[visitIndex - 1].visit_id))
+  }
+  const goNextVisit = () => {
+    if (visitIndex >= 0 && visitIndex < n.visits.length - 1) {
+      n.selectVisit(String(n.visits[visitIndex + 1].visit_id))
+    }
+  }
+
+  const detailIndex = n.visitDetails.findIndex(
+    (vd) => String(vd.visit_detail_id) === n.visitDetailId,
+  )
+  const goPrevVisitDetail = () => {
+    if (detailIndex > 0) n.selectVisitDetail(String(n.visitDetails[detailIndex - 1].visit_detail_id))
+  }
+  const goNextVisitDetail = () => {
+    if (detailIndex >= 0 && detailIndex < n.visitDetails.length - 1) {
+      n.selectVisitDetail(String(n.visitDetails[detailIndex + 1].visit_detail_id))
+    }
+  }
+
+  return {
+    patientGlobalIndex,
+    goPrevPatient,
+    goNextPatient,
+    canPrevPatient,
+    canNextPatient,
+    visitIndex,
+    goPrevVisit,
+    goNextVisit,
+    detailIndex,
+    goPrevVisitDetail,
+    goNextVisitDetail,
   }
 }

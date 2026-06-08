@@ -792,7 +792,7 @@ export function PatientSummaryWidget() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-2 overflow-hidden">
+    <div className="flex h-full flex-col gap-2 overflow-hidden p-3">
       {/* Patient ID header */}
       <div className="flex items-center gap-2 shrink-0">
         <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-500/10">
