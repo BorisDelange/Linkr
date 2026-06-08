@@ -11,6 +11,11 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
+import {
+  subscribeTimelineSync,
+  broadcastTimelineRange,
+  getTimelineRange,
+} from '../timeline-sync'
 
 interface TimelineWidgetProps {
   widgetId: string
@@ -96,6 +101,18 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   const config = (widget?.config ?? {
     conceptIds: [],
   }) as TimelineConfig
+  const tabId = widget?.tabId ?? ''
+
+  const yAxisFromZero = config.yAxisFromZero ?? false
+  const syncTimeRange = config.syncTimeRange ?? false
+  const stepPlot = config.stepPlot ?? false
+  const showPoints = config.showPoints ?? true
+  // strokeWidth comes from a schema `select` (string) but older configs may hold a number.
+  const strokeWidth = Number(config.strokeWidth ?? 1.5) || 1.5
+
+  // Stable string key so the fetch effect doesn't re-run on array identity churn.
+  const conceptIds = config.conceptIds ?? []
+  const conceptIdsKey = conceptIds.join(',')
 
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
@@ -111,44 +128,54 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       !dataSourceId ||
       !schemaMapping ||
       !patientId ||
-      config.conceptIds.length === 0
+      conceptIds.length === 0
     ) {
       setData([])
+      setLoading(false)
       return
     }
 
     let cancelled = false
     setLoading(true)
 
-    const sql = buildTimelineQuery(
-      schemaMapping,
-      config.conceptIds,
-      patientId,
-      visitId,
-    )
+    // Debounce the fetch: switching patients resets visitId to null and the
+    // sidebar then auto-selects the first visit, flipping visitId back to a
+    // real value a moment later. Without this delay the timeline would fetch
+    // twice (once for the transient null) — causing a visible reload / "No
+    // data" flash. A short debounce collapses the cascade into one fetch.
+    const timer = setTimeout(() => {
+      const sql = buildTimelineQuery(
+        schemaMapping,
+        conceptIds,
+        patientId,
+        visitId,
+      )
 
-    if (!sql) {
-      setData([])
-      setLoading(false)
-      return
-    }
+      if (!sql) {
+        setData([])
+        setLoading(false)
+        return
+      }
 
-    queryDataSource(dataSourceId, sql)
-      .then((rows) => {
-        if (!cancelled) setData((rows as unknown as TimelineRow[]) ?? [])
-      })
-      .catch((err) => {
-        console.error('Timeline query failed:', err)
-        if (!cancelled) setData([])
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+      queryDataSource(dataSourceId, sql)
+        .then((rows) => {
+          if (!cancelled) setData((rows as unknown as TimelineRow[]) ?? [])
+        })
+        .catch((err) => {
+          console.error('Timeline query failed:', err)
+          if (!cancelled) setData([])
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    }, 120)
 
     return () => {
       cancelled = true
+      clearTimeout(timer)
     }
-  }, [dataSourceId, schemaMapping, patientId, visitId, config.conceptIds])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSourceId, schemaMapping, patientId, visitId, conceptIdsKey])
 
   // Reshape data for dygraphs: Array<[Date, number|null, ...]>
   const { chartData, conceptNames } = useMemo(() => {
@@ -219,13 +246,15 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
     const opts: dygraphs.Options = {
       labels: ['Date', ...conceptNames],
       colors,
-      strokeWidth: 1.5,
-      drawPoints: true,
+      strokeWidth,
+      stepPlot,
+      drawPoints: showPoints,
       pointSize: 2.5,
       highlightCircleSize: 4,
       connectSeparatedPoints: true,
       legend: 'follow',
       labelsSeparateLines: true,
+      ...(yAxisFromZero ? { includeZero: true } : {}),
 
       // Grid & axes
       gridLineColor: theme.gridLineColor,
@@ -239,7 +268,14 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
           axisLabelFontSize: 10,
           drawGrid: true,
           axisLabelWidth: 50,
+          ...(yAxisFromZero ? { includeZero: true } : {}),
         },
+      },
+
+      // Sync: broadcast our visible x-range to other synced timelines in the tab.
+      zoomCallback: (minX, maxX) => {
+        if (!syncTimeRange) return
+        broadcastTimelineRange(tabId, widgetId, { min: minX, max: maxX })
       },
 
       // Range selector (mini timeline for navigation)
@@ -272,7 +308,30 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
     // Prevent native browser image drag on range selector handles
     container.querySelectorAll<HTMLImageElement>('.dygraph-rangesel-zoomhandle')
       .forEach((img) => { img.draggable = false })
-  }, [chartData, conceptNames, getThemeColors])
+  }, [chartData, conceptNames, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, tabId, widgetId])
+
+  // Sync: when another timeline in this tab broadcasts a range, adopt it.
+  useEffect(() => {
+    if (!syncTimeRange || !tabId) return
+
+    // Adopt the current shared window immediately when sync is turned on.
+    const current = getTimelineRange(tabId)
+    if (current && dygraphRef.current) {
+      dygraphRef.current.updateOptions({ dateWindow: [current.min, current.max ?? current.min] })
+    }
+
+    const unsubscribe = subscribeTimelineSync(tabId, (range, sourceId) => {
+      if (sourceId === widgetId) return
+      const g = dygraphRef.current
+      if (!g) return
+      if (range) {
+        g.updateOptions({ dateWindow: [range.min, range.max ?? range.min] })
+      } else {
+        g.resetZoom()
+      }
+    })
+    return unsubscribe
+  }, [syncTimeRange, tabId, widgetId, chartData])
 
   // Resize when container changes
   useEffect(() => {
@@ -324,7 +383,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   let overlayMessage: string | null = null
   let showConfigureButton = false
 
-  if (config.conceptIds.length === 0) {
+  if (conceptIds.length === 0) {
     overlayMessage = t('patient_data.configure_concepts')
     showConfigureButton = true
   } else if (!patientId) {

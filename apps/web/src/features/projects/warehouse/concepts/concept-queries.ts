@@ -31,15 +31,27 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   if (dicts.some((d) => d.codeColumn)) {
     cols.push({ id: 'concept_code', source: 'code', filterable: false })
   }
-  if (dicts.some((d) => d.vocabularyColumn)) {
+  // Vocabulary / domain / concept class — sourced from terminologyIdColumn,
+  // categoryColumn, subcategoryColumn (or the deprecated vocabularyColumn).
+  if (dicts.some((d) => d.terminologyIdColumn || d.vocabularyColumn)) {
     cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
   }
+  if (dicts.some((d) => d.categoryColumn)) {
+    cols.push({ id: 'domain_id', source: 'extra', filterable: true })
+  }
+  if (dicts.some((d) => d.subcategoryColumn)) {
+    cols.push({ id: 'concept_class_id', source: 'extra', filterable: true })
+  }
 
-  // Union of all extraColumns keys across all dicts
+  // Union of all extraColumns keys across all dicts, skipping any already
+  // emitted above (domain_id / concept_class_id can come from category columns).
+  const alreadyEmitted = new Set(cols.map((c) => c.id))
   const extraKeys = new Set<string>()
   for (const d of dicts) {
     if (d.extraColumns) {
-      for (const key of Object.keys(d.extraColumns)) extraKeys.add(key)
+      for (const key of Object.keys(d.extraColumns)) {
+        if (!alreadyEmitted.has(key)) extraKeys.add(key)
+      }
     }
   }
   for (const key of extraKeys) {
@@ -128,7 +140,9 @@ function resolveActualColumn(dict: ConceptDictionary, columnId: string): string 
     case 'concept_id': return dict.idColumn
     case 'concept_name': return dict.nameColumn
     case 'concept_code': return dict.codeColumn ?? null
-    case 'vocabulary_id': return dict.vocabularyColumn ?? null
+    case 'vocabulary_id': return dict.terminologyIdColumn ?? dict.vocabularyColumn ?? null
+    case 'domain_id': return dict.categoryColumn ?? dict.extraColumns?.domain_id ?? null
+    case 'concept_class_id': return dict.subcategoryColumn ?? dict.extraColumns?.concept_class_id ?? null
     default:
       // Check extraColumns
       return dict.extraColumns?.[columnId] ?? null

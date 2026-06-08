@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight, AlertTriangle } from 'lucide-react'
+import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -16,7 +16,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
-import { PatientChartGrid, GRID_ROWS } from './patient-data/PatientChartGrid'
+import { PatientChartGrid } from './patient-data/PatientChartGrid'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
@@ -35,7 +35,7 @@ export function PatientDataPage() {
   const dataSourceId = mappedSource?.id
   const schemaMapping = mappedSource?.schemaMapping
 
-  const { tabs, widgets, activeTabId, showWidgetTitles, allowWidgetScroll, ensureDefaults } = usePatientChartStore()
+  const { tabs, widgets, activeTabId, showWidgetTitles, ensureDefaults } = usePatientChartStore()
 
   // Ensure default tabs+widgets exist for this project on first visit
   useEffect(() => {
@@ -47,13 +47,6 @@ export function PatientDataPage() {
     .sort((a, b) => a.displayOrder - b.displayOrder)
   const currentTabId = activeTabId[projectUid] ?? projectTabs[0]?.id
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
-
-  const isScrollable = allowWidgetScroll[projectUid] ?? false
-  // Detect widgets that overflow beyond the visible grid in bounded mode.
-  const hasOverflow = useMemo(() => {
-    if (isScrollable) return false
-    return tabWidgets.some((w) => w.layout.y + w.layout.h > GRID_ROWS)
-  }, [tabWidgets, isScrollable])
 
   // No data source
   if (!mappedSource) {
@@ -111,37 +104,6 @@ export function PatientDataPage() {
 
           <TooltipProvider delayDuration={300}>
             <div className="ml-auto flex items-center gap-1 py-1">
-              {hasOverflow && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      className="gap-1 text-amber-500 hover:text-amber-600"
-                      onClick={() => setSettingsOpen(true)}
-                    >
-                      <AlertTriangle size={13} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {t('patient_data.widgets_overflow_warning')}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={() => setSettingsOpen(true)}
-                  >
-                    <Settings2 size={13} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {t('patient_data.settings_title')}
-                </TooltipContent>
-              </Tooltip>
               {editMode && (
                 <Button
                   size="xs"
@@ -177,6 +139,15 @@ export function PatientDataPage() {
                   {editMode ? t('dashboard.lock_layout_hint') : t('dashboard.edit_layout_hint')}
                 </TooltipContent>
               </Tooltip>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="gap-1"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <Settings2 size={13} />
+                {t('patient_data.settings_title')}
+              </Button>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
@@ -204,7 +175,6 @@ export function PatientDataPage() {
                   widgets={tabWidgets}
                   editMode={editMode}
                   hideTitleBars={(showWidgetTitles[projectUid] ?? true) === false}
-                  scrollable={allowWidgetScroll[projectUid] ?? false}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center p-8">

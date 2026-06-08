@@ -24,6 +24,16 @@ export interface NotesConfig {
 
 export interface TimelineConfig {
   conceptIds: number[]
+  /** Force the Y axis to start at zero instead of auto-scaling to the data. */
+  yAxisFromZero?: boolean
+  /** Share zoom / time window with other synced timelines in the same tab. */
+  syncTimeRange?: boolean
+  /** Draw the series as a step function instead of straight lines. */
+  stepPlot?: boolean
+  /** Show a marker at each data point. */
+  showPoints?: boolean
+  /** Line thickness in pixels (stored as a string by the schema `select`). */
+  strokeWidth?: number | string
 }
 
 export interface PluginWidgetConfig {
@@ -65,7 +75,6 @@ interface PatientChartState {
 
   // Display settings (keyed by projectUid)
   showWidgetTitles: Record<string, boolean>
-  allowWidgetScroll: Record<string, boolean>
 
   // Selection actions (cascade resets)
   setSelectedCohort: (projectUid: string, cohortId: string | null) => void
@@ -82,7 +91,6 @@ interface PatientChartState {
 
   // Display settings
   setShowWidgetTitles: (projectUid: string, show: boolean) => void
-  setAllowWidgetScroll: (projectUid: string, allow: boolean) => void
 
   // Widget CRUD
   addWidget: (tabId: string, type: PatientWidgetType, name: string, initialConfig?: PatientWidgetConfig) => void
@@ -133,7 +141,6 @@ interface PersistedState {
   widgets: PatientChartWidget[]
   activeTabId: Record<string, string>
   showWidgetTitles: Record<string, boolean>
-  allowWidgetScroll: Record<string, boolean>
 }
 
 function loadPersistedState(): Partial<PersistedState> {
@@ -164,7 +171,6 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
   widgets: persisted.widgets ?? [],
   activeTabId: persisted.activeTabId ?? {},
   showWidgetTitles: persisted.showWidgetTitles ?? {},
-  allowWidgetScroll: persisted.allowWidgetScroll ?? {},
 
   // --- Selection (cascade resets) ---
 
@@ -260,11 +266,6 @@ export const usePatientChartStore = create<PatientChartState>((set) => ({
       showWidgetTitles: { ...s.showWidgetTitles, [projectUid]: show },
     })),
 
-  setAllowWidgetScroll: (projectUid, allow) =>
-    set((s) => ({
-      allowWidgetScroll: { ...s.allowWidgetScroll, [projectUid]: allow },
-    })),
-
   // --- Widget CRUD ---
 
   addWidget: (tabId, type, name, initialConfig?) => {
@@ -358,7 +359,6 @@ usePatientChartStore.subscribe((state) => {
       widgets: state.widgets,
       activeTabId: state.activeTabId,
       showWidgetTitles: state.showWidgetTitles,
-      allowWidgetScroll: state.allowWidgetScroll,
     }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
   } catch {

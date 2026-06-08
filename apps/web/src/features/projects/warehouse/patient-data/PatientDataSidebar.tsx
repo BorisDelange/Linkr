@@ -11,6 +11,7 @@ import {
   Filter,
   X,
   Clock,
+  HeartPulse,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -28,9 +29,16 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { usePatientData } from './use-patient-data'
+import { PatientHoverCard } from './PatientHoverCard'
 import { daysBetween, formatDate as fmtDate, formatGender as fmtGender, formatGenderShort as fmtGenderShort } from '@/lib/format-helpers'
 
 export function PatientDataSidebar() {
@@ -61,6 +69,17 @@ export function PatientDataSidebar() {
     selectPatient,
     selectVisit,
     selectVisitDetail,
+    patientGlobalIndex,
+    goPrevPatient,
+    goNextPatient,
+    canPrevPatient,
+    canNextPatient,
+    visitIndex,
+    goPrevVisit,
+    goNextVisit,
+    detailIndex,
+    goPrevVisitDetail,
+    goNextVisitDetail,
   } = usePatientData(dataSourceId, schemaMapping, projectUid)
 
   const totalPages = Math.ceil(patientCount / patientPageSize)
@@ -70,7 +89,8 @@ export function PatientDataSidebar() {
     patientFilters.ageMin != null ||
     patientFilters.ageMax != null ||
     patientFilters.admissionAfter ||
-    patientFilters.admissionBefore
+    patientFilters.admissionBefore ||
+    patientFilters.deathStatus
   )
 
   const formatGender = (gender: string | undefined) => fmtGender(gender, genderValues, t)
@@ -83,8 +103,10 @@ export function PatientDataSidebar() {
   const selectedDetail = visitDetails.find((vd) => String(vd.visit_detail_id) === visitDetailId)
   const stayLos = daysBetween(selectedDetail?.start_date, selectedDetail?.end_date)
 
+  const isDeceased = !!demographics?.death_date
+
   return (
-    <div className="flex h-full flex-col border-l bg-card">
+    <div className="flex h-full min-w-0 flex-col overflow-hidden border-l bg-card">
       <Allotment vertical>
         {/* Top pane: Cohort + patient list */}
         <Allotment.Pane minSize={150}>
@@ -238,6 +260,33 @@ export function PatientDataSidebar() {
                           </div>
                         </div>
 
+                        {/* Death status filter */}
+                        <div>
+                          <label className="text-[10px] text-muted-foreground">
+                            {t('patient_data.death_status')}
+                          </label>
+                          <Select
+                            value={patientFilters.deathStatus ?? '__all__'}
+                            onValueChange={(v) =>
+                              setPatientFilters({
+                                ...patientFilters,
+                                deathStatus: v === '__all__' ? null : (v as 'alive' | 'deceased'),
+                              })
+                            }
+                          >
+                            <SelectTrigger className="mt-0.5 h-7 w-full text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__all__">
+                                {t('patient_data.filter_all')}
+                              </SelectItem>
+                              <SelectItem value="alive">{t('patient_data.alive')}</SelectItem>
+                              <SelectItem value="deceased">{t('patient_data.deceased')}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
                         {/* Clear filters */}
                         {hasActiveFilters && (
                           <Button
@@ -256,7 +305,7 @@ export function PatientDataSidebar() {
                 </div>
               </div>
 
-              <ScrollArea className="flex-1 min-h-0">
+              <ScrollArea className="flex-1 min-h-0 [&>div>div]:!block [&>div>div]:!min-w-0">
                 <div className="px-2 pb-2">
                   {patientsLoading && patients.length === 0 ? (
                     <div className="py-6 text-center text-xs text-muted-foreground">
@@ -267,79 +316,156 @@ export function PatientDataSidebar() {
                       {t('patient_data.no_patients')}
                     </div>
                   ) : (
-                    patients.map((p) => (
-                      <button
-                        key={p.patient_id}
-                        onClick={() => selectPatient(String(p.patient_id))}
-                        className={cn(
-                          'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                          String(p.patient_id) === patientId
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-foreground hover:bg-accent/50',
-                        )}
-                      >
-                        <User size={10} className="shrink-0 text-muted-foreground" />
-                        <span className="truncate font-mono text-[11px]">
-                          {p.patient_id}
-                        </span>
-                        {p.gender && (
-                          <span className="shrink-0 text-muted-foreground">
-                            {formatGenderShort(String(p.gender))}
-                          </span>
-                        )}
-                        {p.age != null && (
-                          <span className="shrink-0 text-muted-foreground">
-                            {Math.round(Number(p.age))}{t('patient_data.years')}
-                          </span>
-                        )}
-                        {p.visit_count != null && (
-                          <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">
-                            {p.visit_count}{t('patient_data.visit_abbr')}
-                          </span>
-                        )}
-                      </button>
-                    ))
+                    <TooltipProvider delayDuration={400}>
+                      {patients.map((p) => {
+                        const hosp = p.visit_count != null ? Number(p.visit_count) : null
+                        return (
+                          <Tooltip key={p.patient_id}>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={() => selectPatient(String(p.patient_id))}
+                                className={cn(
+                                  'flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
+                                  String(p.patient_id) === patientId
+                                    ? 'bg-primary/10 text-primary font-medium'
+                                    : 'text-foreground hover:bg-accent/50',
+                                )}
+                              >
+                                <User size={10} className="shrink-0 text-muted-foreground" />
+                                <span className="truncate font-mono text-[11px]">
+                                  {p.patient_id}
+                                </span>
+                                {p.gender && (
+                                  <span className="shrink-0 text-muted-foreground">
+                                    {formatGenderShort(String(p.gender))}
+                                  </span>
+                                )}
+                                {p.age != null && (
+                                  <span className="shrink-0 text-muted-foreground">
+                                    {Math.round(Number(p.age))}{t('patient_data.years')}
+                                  </span>
+                                )}
+                                {hosp != null && (
+                                  <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">
+                                    {hosp}{t('patient_data.visit_abbr')}
+                                  </span>
+                                )}
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="left">
+                              <PatientHoverCard
+                                dataSourceId={dataSourceId}
+                                schemaMapping={schemaMapping}
+                                patientId={String(p.patient_id)}
+                              />
+                            </TooltipContent>
+                          </Tooltip>
+                        )
+                      })}
+                    </TooltipProvider>
                   )}
                 </div>
               </ScrollArea>
-              {/* Pagination */}
-              {totalPages > 1 && (
-                <div className="flex shrink-0 items-center justify-center gap-2 border-t px-2 py-1.5">
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    disabled={patientPage === 0}
-                    onClick={() => setPatientPage(patientPage - 1)}
-                  >
-                    <ChevronLeft size={12} />
-                  </Button>
-                  <span className="text-[10px] text-muted-foreground">
-                    {patientPage + 1} / {totalPages}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    disabled={patientPage >= totalPages - 1}
-                    onClick={() => setPatientPage(patientPage + 1)}
-                  >
-                    <ChevronRight size={12} />
-                  </Button>
+              {/* Pagination + selected-patient navigation */}
+              {(totalPages > 1 || patientGlobalIndex != null) && (
+                <div className="flex shrink-0 items-center justify-between border-t px-2 py-1.5">
+                  {/* Left: page navigation */}
+                  {totalPages > 1 ? (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={patientPage === 0}
+                        onClick={() => setPatientPage(patientPage - 1)}
+                      >
+                        <ChevronLeft size={12} />
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {patientPage + 1} / {totalPages}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={patientPage >= totalPages - 1}
+                        onClick={() => setPatientPage(patientPage + 1)}
+                      >
+                        <ChevronRight size={12} />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span />
+                  )}
+
+                  {/* Right: selected-patient index with prev/next */}
+                  {patientGlobalIndex != null && (
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={!canPrevPatient}
+                        onClick={goPrevPatient}
+                      >
+                        <ChevronLeft size={12} />
+                      </Button>
+                      <span className="text-[10px] text-muted-foreground tabular-nums">
+                        {patientGlobalIndex} / {patientCount}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        disabled={!canNextPatient}
+                        onClick={goNextPatient}
+                      >
+                        <ChevronRight size={12} />
+                      </Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
         </Allotment.Pane>
 
-        {/* Bottom pane: Visit/Stay selectors + Demographics */}
+        {/* Bottom pane: Visit/Stay selectors + Demographics.
+            Radix renders the ScrollArea viewport child as `display:table`,
+            which shrink-wraps to the widest content (long visit labels) and
+            breaks `truncate`. Force that child to a width-respecting block. */}
         <Allotment.Pane minSize={100}>
-          <ScrollArea className="h-full">
+          <ScrollArea className="h-full [&>div>div]:!block [&>div>div]:!min-w-0">
             {/* Hospitalization selector */}
             <div className="shrink-0 border-b px-3 py-2.5">
-              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                {hasVisitDetailTable
-                  ? t('patient_data.hospitalization')
-                  : t('patient_data.visit')}
-              </label>
+              <div className="flex items-center justify-between gap-1">
+                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  {hasVisitDetailTable
+                    ? t('patient_data.hospitalization')
+                    : t('patient_data.visit')}
+                </label>
+                {patientId && visits.length > 0 && (
+                  <div className="flex items-center gap-0.5">
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-5 w-5"
+                      disabled={visitIndex <= 0}
+                      onClick={goPrevVisit}
+                    >
+                      <ChevronLeft size={12} />
+                    </Button>
+                    <span className="min-w-8 text-center text-[10px] tabular-nums text-muted-foreground">
+                      {visitIndex >= 0 ? `${visitIndex + 1} / ${visits.length}` : `· / ${visits.length}`}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="h-5 w-5"
+                      disabled={visitIndex < 0 || visitIndex >= visits.length - 1}
+                      onClick={goNextVisit}
+                    >
+                      <ChevronRight size={12} />
+                    </Button>
+                  </div>
+                )}
+              </div>
               {!patientId ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   {t('patient_data.select_patient_first')}
@@ -354,13 +480,18 @@ export function PatientDataSidebar() {
                 </p>
               ) : (
                 <Select
-                  value={visitId ?? ''}
-                  onValueChange={(v) => selectVisit(v || null)}
+                  value={visitId ?? '__all__'}
+                  onValueChange={(v) => selectVisit(v === '__all__' ? null : v)}
                 >
-                  <SelectTrigger className="mt-1 h-8 text-xs">
+                  <SelectTrigger className="mt-1 h-8 w-full min-w-0 text-xs">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__all__">
+                      {hasVisitDetailTable
+                        ? t('patient_data.all_hospitalizations')
+                        : t('patient_data.all_visits')}
+                    </SelectItem>
                     {visits.map((v) => (
                       <SelectItem key={v.visit_id} value={String(v.visit_id)}>
                         <div className="flex min-w-0 items-center gap-1.5">
@@ -381,9 +512,36 @@ export function PatientDataSidebar() {
             {/* Stay selector (visit_detail) — only when visitDetailTable exists */}
             {hasVisitDetailTable && visitId && (
               <div className="shrink-0 border-b px-3 py-2.5">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('patient_data.stay')}
-                </label>
+                <div className="flex items-center justify-between gap-1">
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {t('patient_data.stay')}
+                  </label>
+                  {visitDetails.length > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="h-5 w-5"
+                        disabled={detailIndex <= 0}
+                        onClick={goPrevVisitDetail}
+                      >
+                        <ChevronLeft size={12} />
+                      </Button>
+                      <span className="min-w-8 text-center text-[10px] tabular-nums text-muted-foreground">
+                        {detailIndex >= 0 ? `${detailIndex + 1} / ${visitDetails.length}` : `· / ${visitDetails.length}`}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="h-5 w-5"
+                        disabled={detailIndex < 0 || detailIndex >= visitDetails.length - 1}
+                        onClick={goNextVisitDetail}
+                      >
+                        <ChevronRight size={12} />
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 {visitDetailsLoading ? (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {t('common.loading')}
@@ -399,7 +557,7 @@ export function PatientDataSidebar() {
                       selectVisitDetail(v === '__all__' ? null : v)
                     }
                   >
-                    <SelectTrigger className="mt-1 h-8 text-xs">
+                    <SelectTrigger className="mt-1 h-8 w-full min-w-0 text-xs">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -448,6 +606,25 @@ export function PatientDataSidebar() {
                   </div>
                   <span className="font-medium">
                     {formatGender(demographics.gender != null ? String(demographics.gender) : undefined)}
+                  </span>
+                </div>
+                {/* Death status */}
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                    <HeartPulse size={10} />
+                    <span>{t('patient_data.death_status')}</span>
+                  </div>
+                  <span
+                    className={cn(
+                      'font-medium',
+                      isDeceased ? 'text-destructive' : 'text-emerald-600 dark:text-emerald-400',
+                    )}
+                  >
+                    {isDeceased
+                      ? t('patient_data.deceased_on', {
+                          date: formatDate(String(demographics.death_date)),
+                        })
+                      : t('patient_data.alive')}
                   </span>
                 </div>
                 {/* Hospitalization LOS */}

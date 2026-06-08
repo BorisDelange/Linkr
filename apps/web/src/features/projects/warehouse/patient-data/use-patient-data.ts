@@ -22,6 +22,7 @@ export interface PatientRow {
   gender?: string
   age?: number
   visit_count?: number
+  stay_count?: number
 }
 
 export interface VisitRow {
@@ -43,6 +44,7 @@ export interface PatientDemographics {
   gender?: string
   age?: number
   visit_count?: number
+  death_date?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +147,9 @@ export function usePatientData(
   // --- Visit list ---
   const [visits, setVisits] = useState<VisitRow[]>([])
   const [visitsLoading, setVisitsLoading] = useState(false)
+  // Track which patient we've already auto-selected a visit for, so picking
+  // "All hospitalizations" (visitId = null) is not immediately overridden.
+  const autoSelectedPatientRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || !patientId) {
@@ -166,8 +171,14 @@ export function usePatientData(
       .then((rows) => {
         if (!cancelled) {
           setVisits((rows as VisitRow[]) ?? [])
-          // Auto-select first visit
-          if (rows.length > 0 && !visitId) {
+          // Auto-select the first visit once per patient (only on first load),
+          // so a deliberate "All hospitalizations" choice sticks afterwards.
+          if (
+            rows.length > 0 &&
+            !visitId &&
+            autoSelectedPatientRef.current !== patientId
+          ) {
+            autoSelectedPatientRef.current = patientId
             const firstVisit = rows[0] as VisitRow
             setSelectedVisit(projectUid, String(firstVisit.visit_id))
           }
@@ -184,7 +195,8 @@ export function usePatientData(
     return () => {
       cancelled = true
     }
-  }, [dataSourceId, schemaMapping, patientId, projectUid, setSelectedVisit, visitId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dataSourceId, schemaMapping, patientId, projectUid, setSelectedVisit])
 
   // --- Visit details (sub-stays) ---
   const [visitDetails, setVisitDetails] = useState<VisitDetailRow[]>([])
@@ -294,5 +306,113 @@ export function usePatientData(
     selectPatient: (id: string | null) => setSelectedPatient(projectUid, id),
     selectVisit: (id: string | null) => setSelectedVisit(projectUid, id),
     selectVisitDetail: (id: string | null) => setSelectedVisitDetail(projectUid, id),
+
+    // Navigation helpers
+    ...buildNavHelpers({
+      patients,
+      patientId,
+      patientPage,
+      patientPageSize,
+      patientCount,
+      setPatientPage,
+      selectPatient: (id: string | null) => setSelectedPatient(projectUid, id),
+      visits,
+      visitId,
+      selectVisit: (id: string | null) => setSelectedVisit(projectUid, id),
+      visitDetails,
+      visitDetailId,
+      selectVisitDetail: (id: string | null) => setSelectedVisitDetail(projectUid, id),
+    }),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Navigation helpers (patient index + prev/next for patient / visit / stay)
+// ---------------------------------------------------------------------------
+
+interface NavInput {
+  patients: PatientRow[]
+  patientId: string | null
+  patientPage: number
+  patientPageSize: number
+  patientCount: number
+  setPatientPage: (page: number) => void
+  selectPatient: (id: string | null) => void
+  visits: VisitRow[]
+  visitId: string | null
+  selectVisit: (id: string | null) => void
+  visitDetails: VisitDetailRow[]
+  visitDetailId: string | null
+  selectVisitDetail: (id: string | null) => void
+}
+
+function buildNavHelpers(n: NavInput) {
+  const patientIndexInPage = n.patients.findIndex((p) => String(p.patient_id) === n.patientId)
+  // Global 1-based index across the whole cohort, when the patient is on the page.
+  const patientGlobalIndex =
+    patientIndexInPage >= 0
+      ? n.patientPage * n.patientPageSize + patientIndexInPage + 1
+      : null
+
+  const goPrevPatient = () => {
+    if (patientIndexInPage > 0) {
+      n.selectPatient(String(n.patients[patientIndexInPage - 1].patient_id))
+    } else if (patientIndexInPage === 0 && n.patientPage > 0) {
+      // Step to the previous page; selecting its last patient is left to the
+      // page-load effect, so just move the page here.
+      n.setPatientPage(n.patientPage - 1)
+    }
+  }
+  const goNextPatient = () => {
+    if (patientIndexInPage >= 0 && patientIndexInPage < n.patients.length - 1) {
+      n.selectPatient(String(n.patients[patientIndexInPage + 1].patient_id))
+    } else if (
+      patientIndexInPage === n.patients.length - 1 &&
+      (n.patientPage + 1) * n.patientPageSize < n.patientCount
+    ) {
+      n.setPatientPage(n.patientPage + 1)
+    }
+  }
+  const canPrevPatient =
+    patientIndexInPage > 0 || (patientIndexInPage === 0 && n.patientPage > 0)
+  const canNextPatient =
+    (patientIndexInPage >= 0 && patientIndexInPage < n.patients.length - 1) ||
+    (patientIndexInPage === n.patients.length - 1 &&
+      (n.patientPage + 1) * n.patientPageSize < n.patientCount)
+
+  const visitIndex = n.visits.findIndex((v) => String(v.visit_id) === n.visitId)
+  const goPrevVisit = () => {
+    if (visitIndex > 0) n.selectVisit(String(n.visits[visitIndex - 1].visit_id))
+  }
+  const goNextVisit = () => {
+    if (visitIndex >= 0 && visitIndex < n.visits.length - 1) {
+      n.selectVisit(String(n.visits[visitIndex + 1].visit_id))
+    }
+  }
+
+  const detailIndex = n.visitDetails.findIndex(
+    (vd) => String(vd.visit_detail_id) === n.visitDetailId,
+  )
+  const goPrevVisitDetail = () => {
+    if (detailIndex > 0) n.selectVisitDetail(String(n.visitDetails[detailIndex - 1].visit_detail_id))
+  }
+  const goNextVisitDetail = () => {
+    if (detailIndex >= 0 && detailIndex < n.visitDetails.length - 1) {
+      n.selectVisitDetail(String(n.visitDetails[detailIndex + 1].visit_detail_id))
+    }
+  }
+
+  return {
+    patientGlobalIndex,
+    goPrevPatient,
+    goNextPatient,
+    canPrevPatient,
+    canNextPatient,
+    visitIndex,
+    goPrevVisit,
+    goNextVisit,
+    detailIndex,
+    goPrevVisitDetail,
+    goNextVisitDetail,
   }
 }

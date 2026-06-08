@@ -6,6 +6,7 @@ import 'react-resizable/css/styles.css'
 import {
   usePatientChartStore,
   type PatientChartWidget,
+  type TimelineConfig,
 } from '@/stores/patient-chart-store'
 import { WidgetCard } from '@/features/projects/dashboard/WidgetCard'
 import { PatientSummaryWidget } from './widgets/PatientSummaryWidget'
@@ -14,6 +15,7 @@ import { TimelineWidget } from './widgets/TimelineWidget'
 import { WarehousePluginWidgetRenderer } from './WarehousePluginWidgetRenderer'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { WarehousePluginEditorSheet } from './WarehousePluginEditorSheet'
+import { getPlugin } from '@/lib/plugins/registry'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   AlertDialog,
@@ -30,12 +32,15 @@ interface PatientChartGridProps {
   widgets: PatientChartWidget[]
   editMode: boolean
   hideTitleBars?: boolean
-  /** When true, grid content can scroll beyond the visible area. */
-  scrollable?: boolean
 }
 
 /** Widget types that support concept editing. */
 const CONCEPT_WIDGET_TYPES = new Set(['timeline'])
+
+/** Built-in concept widget types → their system plugin id (for the settings schema). */
+const CONCEPT_WIDGET_PLUGIN_ID: Record<string, string> = {
+  timeline: 'linkr-widget-timeline',
+}
 
 /** Widget types that support plugin config editing. */
 const PLUGIN_WIDGET_TYPES = new Set(['plugin'])
@@ -71,7 +76,6 @@ export function PatientChartGrid({
   widgets,
   editMode,
   hideTitleBars,
-  scrollable,
 }: PatientChartGridProps) {
   const { t } = useTranslation()
   const { updateWidgetLayout, removeWidget, renameWidget, updateWidgetConfig } =
@@ -90,6 +94,11 @@ export function PatientChartGrid({
   const editingWidget = editingWidgetId
     ? widgets.find((w) => w.id === editingWidgetId)
     : null
+
+  // Settings schema for the editing concept-widget (drives the dialog's Settings tab).
+  const editingWidgetSchema = editingWidget
+    ? getPlugin(CONCEPT_WIDGET_PLUGIN_ID[editingWidget.type] ?? '')?.manifest.configSchema
+    : undefined
 
   const handleEditWidget = useCallback((widget: PatientChartWidget) => {
     if (CONCEPT_WIDGET_TYPES.has(widget.type)) {
@@ -129,10 +138,8 @@ export function PatientChartGrid({
         h: w.layout.h,
         minW: 4,
         minH: 4,
-        // In bounded mode, prevent resize beyond the grid bottom.
-        ...(scrollable ? {} : { maxH: Math.max(4, GRID_ROWS - w.layout.y) }),
       })),
-    [widgets, scrollable],
+    [widgets],
   )
 
   const handleLayoutChange = useCallback(
@@ -159,10 +166,9 @@ export function PatientChartGrid({
   )
 
   const handleConceptsConfirm = useCallback(
-    (ids: number[]) => {
+    (config: Record<string, unknown>) => {
       if (!editingWidget) return
-      const config = editingWidget.config as Record<string, unknown>
-      updateWidgetConfig(editingWidget.id, { ...config, conceptIds: ids })
+      updateWidgetConfig(editingWidget.id, config as TimelineConfig)
       setEditingWidgetId(null)
     },
     [editingWidget, updateWidgetConfig],
@@ -185,7 +191,7 @@ export function PatientChartGrid({
         enabled: editMode,
       }}
       onLayoutChange={handleLayoutChange}
-      autoSize={!!scrollable}
+      autoSize
     >
       {widgets.map((widget) => (
         <div key={widget.id}>
@@ -215,13 +221,9 @@ export function PatientChartGrid({
 
   return (
     <div ref={measureRef} className="w-full h-full overflow-hidden">
-      {scrollable ? (
-        <ScrollArea className="h-full">
-          {gridContent}
-        </ScrollArea>
-      ) : (
-        gridContent
-      )}
+      <ScrollArea className="h-full">
+        {gridContent}
+      </ScrollArea>
 
       {/* Shared concept picker dialog */}
       <ConceptPickerDialog
@@ -229,9 +231,10 @@ export function PatientChartGrid({
         onOpenChange={(open) => {
           if (!open) setEditingWidgetId(null)
         }}
-        selectedConceptIds={
-          (editingWidget?.config as Record<string, unknown>)?.conceptIds as number[] ?? []
+        config={
+          (editingWidget?.config as Record<string, unknown>) ?? { conceptIds: [] }
         }
+        schema={editingWidgetSchema}
         onConfirm={handleConceptsConfirm}
       />
 
