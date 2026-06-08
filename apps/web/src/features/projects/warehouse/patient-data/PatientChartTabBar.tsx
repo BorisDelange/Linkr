@@ -133,6 +133,7 @@ function TabRenameInput({
   siblingNames: Set<string>
   onFinish: (newName: string | null) => void
 }) {
+  const { t } = useTranslation()
   const [value, setValue] = useState(tab.name)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -150,12 +151,11 @@ function TabRenameInput({
   const isDuplicate = trimmed.length > 0 && siblingNames.has(trimmed.toLowerCase())
 
   const commit = useCallback(() => {
-    const t = value.trim()
-    // Reject empty, unchanged, or duplicate names — keep the existing name.
-    if (!t || t === tab.name || siblingNames.has(t.toLowerCase())) {
+    const next = value.trim()
+    if (!next || next === tab.name || siblingNames.has(next.toLowerCase())) {
       onFinish(null)
     } else {
-      onFinish(t)
+      onFinish(next)
     }
   }, [value, tab.name, siblingNames, onFinish])
 
@@ -179,7 +179,7 @@ function TabRenameInput({
           'h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none',
           isDuplicate && 'text-destructive',
         )}
-        title={isDuplicate ? 'A tab with this name already exists' : undefined}
+        title={isDuplicate ? t('dashboard.tab_name_exists') : undefined}
       />
     </div>
   )
@@ -232,7 +232,6 @@ export function PatientChartTabBar({ projectUid, editMode }: PatientChartTabBarP
 
   const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
     if (newName) {
-      // Guard against duplicates within the same project (case-insensitive).
       const exists = allTabs.some(
         (t) => t.projectUid === projectUid && t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
       )

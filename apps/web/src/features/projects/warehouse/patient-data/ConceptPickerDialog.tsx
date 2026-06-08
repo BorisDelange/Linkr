@@ -549,7 +549,7 @@ export function ConceptPickerDialog({
       return (
         <input
           className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="ID..."
+          placeholder={t('concepts.search_id_placeholder')}
           value={hook.filters._searchId ?? ''}
           onChange={(e) => hook.updateFilter('_searchId', e.target.value || null)}
         />
@@ -569,7 +569,7 @@ export function ConceptPickerDialog({
       return (
         <input
           className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="Code..."
+          placeholder={t('concepts.search_code_placeholder')}
           value={hook.filters._searchCode ?? ''}
           onChange={(e) => hook.updateFilter('_searchCode', e.target.value || null)}
         />

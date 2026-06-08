@@ -402,7 +402,8 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   useEffect(() => {
     if (!syncTimeRange || !tabId) return
 
-    // Adopt the current shared window immediately when sync is turned on.
+    // Adopt the tab's current shared window once, when sync becomes active —
+    // not on every data reload (which would snap a fresh chart to a stale one).
     const current = getTimelineRange(tabId)
     if (current && dygraphRef.current) {
       dygraphRef.current.updateOptions({ dateWindow: [current.min, current.max ?? current.min] })
@@ -413,7 +414,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       const g = dygraphRef.current
       if (!g) return
       // Skip if we're already showing this window — stops the ping-pong where
-      // applying a peer's range fires our own zoomCallback and bounces back.
+      // applying a peer's range fires our own drawCallback and bounces back.
       const cur = g.xAxisRange()
       const target: [number, number] | null = range
         ? [range.min, range.max ?? range.min]
@@ -432,7 +433,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       }
     })
     return unsubscribe
-  }, [syncTimeRange, tabId, widgetId, chartData])
+  }, [syncTimeRange, tabId, widgetId])
 
   // Resize when the container changes. Pass explicit pixel dimensions so
   // dygraphs lays the range selector out within the box — relying on the

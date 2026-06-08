@@ -201,6 +201,7 @@
   "dashboard": {
     "add_widget": "Add widget",
     "add_tab": "Add tab",
+    "tab_name_exists": "A tab with this name already exists",
     "empty_title": "No widgets yet",
     "empty_description": "Add widgets to visualize your data. Drag and drop to arrange your dashboard.",
     "add_widget_title": "Add a widget",
@@ -350,6 +351,8 @@
     "no_data_source_description": "Add a database to browse concepts.",
     "no_concept_table": "No concept table found in the data source.",
     "search_placeholder": "Search concept name...",
+    "search_id_placeholder": "ID...",
+    "search_code_placeholder": "Code...",
     "filter_vocabulary": "Vocabulary",
     "filter_domain": "Domain",
     "filter_class": "Class",

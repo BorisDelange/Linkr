@@ -168,19 +168,16 @@ export function buildPatientDemographicsQuery(
   if (!pt) return null
   const vt = mapping.visitTable
 
-  // Death date: prefer patientTable.deathDateColumn, fallback to deathTable.
+  // Death date: from the patient table, or a correlated subquery on the death
+  // table (a JOIN+GROUP BY would inflate counts if a patient had >1 death row).
   let deathCol = ''
-  let deathJoin = ''
-  let deathGroupBy = ''
   if (pt.deathDateColumn) {
     deathCol = `, p."${pt.deathDateColumn}" AS death_date`
-    deathGroupBy = `, p."${pt.deathDateColumn}"`
   } else if (mapping.deathTable) {
     const dt = mapping.deathTable
-    deathCol = `, d."${dt.dateColumn}" AS death_date`
-    deathJoin = `\nLEFT JOIN "${dt.table}" d ON p."${pt.idColumn}" = d."${dt.patientIdColumn}"`
-    deathGroupBy = `, d."${dt.dateColumn}"`
+    deathCol = `, (SELECT MIN(_d."${dt.dateColumn}") FROM "${dt.table}" _d WHERE _d."${dt.patientIdColumn}" = p."${pt.idColumn}") AS death_date`
   }
+  const deathGroupBy = pt.deathDateColumn ? `, p."${pt.deathDateColumn}"` : ''
 
   if (vt) {
     const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
@@ -194,7 +191,7 @@ export function buildPatientDemographicsQuery(
     return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol},
   COUNT(v."${vt.idColumn}") AS visit_count
 FROM "${pt.table}" p
-LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"${deathJoin}
+LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'
 GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathGroupBy}${buildBirthGroupBy('p', pt)}`
   }
@@ -204,7 +201,7 @@ GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}$
   const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
 
   return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathCol}
-FROM "${pt.table}" p${deathJoin}
+FROM "${pt.table}" p
 WHERE p."${pt.idColumn}" = '${escSql(patientId)}'`
 }
 

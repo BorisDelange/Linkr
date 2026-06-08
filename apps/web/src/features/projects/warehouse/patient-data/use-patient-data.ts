@@ -88,6 +88,9 @@ export function usePatientData(
   const [patientsLoading, setPatientsLoading] = useState(false)
   const patientPageSize = 50
   const patientCacheRef = useRef<Map<string, { rows: PatientRow[]; count: number }>>(new Map())
+  // When prev/next crosses a page boundary, remember which edge patient of the
+  // newly loaded page to auto-select once it arrives.
+  const pendingEdgeSelectRef = useRef<'first' | 'last' | null>(null)
 
   const loadPatients = useCallback(
     async (page: number) => {
@@ -138,6 +141,16 @@ export function usePatientData(
     loadPatients(patientPage)
   }, [loadPatients, patientPage])
 
+  // After a page change driven by prev/next at a boundary, select the edge
+  // patient of the freshly loaded page so navigation continues seamlessly.
+  useEffect(() => {
+    const edge = pendingEdgeSelectRef.current
+    if (!edge || patients.length === 0) return
+    pendingEdgeSelectRef.current = null
+    const target = edge === 'first' ? patients[0] : patients[patients.length - 1]
+    setSelectedPatient(projectUid, String(target.patient_id))
+  }, [patients, projectUid, setSelectedPatient])
+
   // Reset page when cohort or filters change
   useEffect(() => {
     setPatientPage(0)
@@ -184,8 +197,7 @@ export function usePatientData(
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, patientId, projectUid, setSelectedVisit])
+  }, [dataSourceId, schemaMapping, patientId])
 
   // --- Visit details (sub-stays) ---
   const [visitDetails, setVisitDetails] = useState<VisitDetailRow[]>([])
@@ -305,6 +317,7 @@ export function usePatientData(
       patientCount,
       setPatientPage,
       selectPatient: (id: string | null) => setSelectedPatient(projectUid, id),
+      requestEdgeSelect: (edge) => { pendingEdgeSelectRef.current = edge },
       visits,
       visitId,
       selectVisit: (id: string | null) => setSelectedVisit(projectUid, id),
@@ -327,6 +340,8 @@ interface NavInput {
   patientCount: number
   setPatientPage: (page: number) => void
   selectPatient: (id: string | null) => void
+  /** Queue selecting the first/last patient of the next page to load. */
+  requestEdgeSelect: (edge: 'first' | 'last') => void
   visits: VisitRow[]
   visitId: string | null
   selectVisit: (id: string | null) => void
@@ -347,8 +362,7 @@ function buildNavHelpers(n: NavInput) {
     if (patientIndexInPage > 0) {
       n.selectPatient(String(n.patients[patientIndexInPage - 1].patient_id))
     } else if (patientIndexInPage === 0 && n.patientPage > 0) {
-      // Step to the previous page; selecting its last patient is left to the
-      // page-load effect, so just move the page here.
+      n.requestEdgeSelect('last')
       n.setPatientPage(n.patientPage - 1)
     }
   }
@@ -359,6 +373,7 @@ function buildNavHelpers(n: NavInput) {
       patientIndexInPage === n.patients.length - 1 &&
       (n.patientPage + 1) * n.patientPageSize < n.patientCount
     ) {
+      n.requestEdgeSelect('first')
       n.setPatientPage(n.patientPage + 1)
     }
   }

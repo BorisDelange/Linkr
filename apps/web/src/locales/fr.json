@@ -201,6 +201,7 @@
   "dashboard": {
     "add_widget": "Ajouter un widget",
     "add_tab": "Ajouter un onglet",
+    "tab_name_exists": "Un onglet porte déjà ce nom",
     "empty_title": "Aucun widget",
     "empty_description": "Ajoutez des widgets pour visualiser vos données. Glissez-déposez pour organiser votre dashboard.",
     "add_widget_title": "Ajouter un widget",
@@ -350,6 +351,8 @@
     "no_data_source_description": "Ajoutez une base de données pour explorer les concepts.",
     "no_concept_table": "Aucune table concept trouvée dans la source de données.",
     "search_placeholder": "Rechercher un concept...",
+    "search_id_placeholder": "ID...",
+    "search_code_placeholder": "Code...",
     "filter_vocabulary": "Vocabulaire",
     "filter_domain": "Domaine",
     "filter_class": "Classe",
