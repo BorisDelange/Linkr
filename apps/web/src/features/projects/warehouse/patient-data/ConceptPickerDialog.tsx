@@ -51,6 +51,14 @@ import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
 import type { ConceptSorting } from '../concepts/concept-queries'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import type { PluginConfigField } from '@/types/plugin'
+import { cn } from '@/lib/utils'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover'
+import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
+import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
 
 // ---------------------------------------------------------------------------
 // Props
@@ -69,6 +77,8 @@ interface ConceptPickerDialogProps {
   config: Record<string, unknown>
   /** Plugin configSchema for the settings form (excluding conceptIds). */
   schema?: Record<string, PluginConfigField>
+  /** Which tab to open on mount. Defaults to settings when a schema exists. */
+  initialTab?: 'settings' | 'concepts'
   onConfirm: (config: Record<string, unknown>) => void
 }
 
@@ -126,6 +136,86 @@ function ColumnFilterSelect({
   )
 }
 
+/**
+ * Compact swatch-only color picker for a selected concept, reusing the shared
+ * COLOR_PALETTE so colors match the dashboard plugins. `value` is a palette
+ * name or hex; `null`/undefined means "auto" (rotating default palette).
+ */
+function ConceptColorSwatch({
+  value,
+  onChange,
+}: {
+  value: string | undefined
+  onChange: (color: string | undefined) => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const entry = value ? COLOR_PALETTE.find((c) => c.name === value) : undefined
+  const isHex = value?.startsWith('#')
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="size-4 shrink-0 rounded-full border border-border"
+          style={isHex ? { backgroundColor: value } : undefined}
+          title={t('patient_data.concept_color')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!isHex && (
+            <span
+              className={cn(
+                'block size-full rounded-full',
+                entry ? entry.bg : 'bg-foreground/15',
+              )}
+            />
+          )}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        className="w-auto p-2"
+        align="end"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="grid grid-cols-5 gap-1">
+          <button
+            type="button"
+            className="flex size-5 items-center justify-center rounded-full border border-dashed border-border text-[8px] text-muted-foreground"
+            title={t('common.auto')}
+            onClick={() => { onChange(undefined); setOpen(false) }}
+          >
+            A
+          </button>
+          {COLOR_PALETTE.filter((c) => c.name !== 'none').map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              className={cn('size-5 rounded-full', c.bg, value === c.name && 'ring-2 ring-offset-1 ring-offset-popover', value === c.name && c.ring)}
+              title={c.name}
+              onClick={() => { onChange(c.name); setOpen(false) }}
+            />
+          ))}
+        </div>
+        {/* Custom hex picker */}
+        <label className="mt-2 flex items-center gap-1.5 border-t pt-2 text-[10px] text-muted-foreground">
+          <span
+            className="size-4 shrink-0 rounded-full border border-border"
+            style={{ backgroundColor: isHex ? value : 'transparent' }}
+          />
+          <span className="flex-1">{t('patient_data.custom_color')}</span>
+          <input
+            type="color"
+            value={isHex ? (value as string) : '#3b82f6'}
+            onChange={(e) => onChange(e.target.value)}
+            className="h-5 w-6 cursor-pointer rounded border-0 bg-transparent p-0"
+          />
+        </label>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -135,6 +225,7 @@ export function ConceptPickerDialog({
   onOpenChange,
   config,
   schema,
+  initialTab,
   onConfirm,
 }: ConceptPickerDialogProps) {
   const { t } = useTranslation()
@@ -163,7 +254,8 @@ export function ConceptPickerDialog({
       setSelectedIds(new Set((config.conceptIds as number[]) ?? []))
       const { conceptIds: _omit, ...rest } = config
       setSettings(rest)
-      setActiveTab(schema && Object.keys(schema).length > 0 ? 'settings' : 'concepts')
+      const hasSchema = !!schema && Object.keys(schema).length > 0
+      setActiveTab(initialTab && (initialTab === 'concepts' || hasSchema) ? initialTab : hasSchema ? 'settings' : 'concepts')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -243,6 +335,20 @@ export function ConceptPickerDialog({
   const handleConfigChange = useCallback((changes: Record<string, unknown>) => {
     setSettings((prev) => ({ ...prev, ...changes }))
   }, [])
+
+  // Per-concept colors live in the config alongside the other settings.
+  const conceptColors = (settings.conceptColors as Record<string, string> | undefined) ?? {}
+  const setConceptColor = useCallback(
+    (conceptId: number, color: string | undefined) => {
+      setSettings((prev) => {
+        const next = { ...((prev.conceptColors as Record<string, string>) ?? {}) }
+        if (color) next[String(conceptId)] = color
+        else delete next[String(conceptId)]
+        return { ...prev, conceptColors: next }
+      })
+    },
+    [],
+  )
 
   // TanStack table setup with checkbox column
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
@@ -353,15 +459,25 @@ export function ConceptPickerDialog({
             minSize: 60,
           } as ColumnDef<ConceptRow>
 
+        case 'standard_concept':
+          return {
+            ...base,
+            header: () => t('concepts.column_standard', 'Standard'),
+            accessorFn: (row) => row.standard_concept,
+            cell: ({ row }) => (
+              <StandardConceptBadge value={row.original.standard_concept as string | null | undefined} />
+            ),
+            size: 70,
+            minSize: 48,
+          } as ColumnDef<ConceptRow>
+
         default: {
           // Per-column widths mirroring the concept-mapping target table:
-          // short codes (vocabulary/domain/class) stay narrow; standard concept
-          // is just a badge so it's tightest.
+          // short codes (vocabulary/domain/class) stay narrow.
           const widthById: Record<string, number> = {
             vocabulary_id: 90,
             domain_id: 80,
             concept_class_id: 90,
-            standard_concept: 70,
           }
           return {
             ...base,
@@ -485,9 +601,18 @@ export function ConceptPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[85vh] max-h-[85vh] max-w-[95vw] sm:max-w-[95vw] flex-col gap-0 p-0">
+      <DialogContent
+        className={cn(
+          'flex h-[85vh] max-h-[85vh] flex-col gap-0 p-0 transition-[max-width] duration-300 ease-in-out',
+          // Settings is a compact form — shrink the modal so the panel can
+          // span the full (narrower) width centered; Concepts needs the room.
+          activeTab === 'settings'
+            ? 'max-w-2xl sm:max-w-2xl'
+            : 'max-w-[95vw] sm:max-w-[95vw]',
+        )}
+      >
         <DialogHeader className="shrink-0 border-b px-6 py-4">
-          <DialogTitle>{t('patient_data.configure_timeline')}</DialogTitle>
+          <DialogTitle>{t('patient_data.configure_widget')}</DialogTitle>
         </DialogHeader>
 
         {/* Tab switcher — Settings only shown when the widget exposes a schema */}
@@ -702,8 +827,9 @@ export function ConceptPickerDialog({
             </div>
             </Allotment.Pane>
 
-            {/* Right: selected concepts panel */}
-            <Allotment.Pane minSize={200} preferredSize={280}>
+            {/* Right: selected concepts panel — fixed, capped width so it
+                always opens compact (never a proportion of the wide modal). */}
+            <Allotment.Pane minSize={200} preferredSize={300} maxSize={420}>
             <div className="flex h-full min-w-0 flex-col">
               <div className="flex items-center justify-between border-b px-3 py-2">
                 <span className="text-xs font-medium">
@@ -736,6 +862,10 @@ export function ConceptPickerDialog({
                           >
                             <Check size={10} />
                           </button>
+                          <ConceptColorSwatch
+                            value={conceptColors[String(item.id)]}
+                            onChange={(color) => setConceptColor(item.id, color)}
+                          />
                           <span className="min-w-0 flex-1 truncate text-xs">
                             {item.name}
                           </span>
@@ -765,8 +895,9 @@ export function ConceptPickerDialog({
         ) : (
           /* Settings tab — schema-driven, shared with dashboard plugins */
           <ScrollArea className="min-h-0 flex-1">
-            {/* Tighten the shared panel's row spacing for this compact modal. */}
-            <div className="max-w-2xl [&_.space-y-3]:space-y-2">
+            {/* Compact modal: full width, tighter rows than dashboards, and
+                shorter boolean rows so checkboxes sit closer together. */}
+            <div className="[&_.space-y-3]:space-y-1.5 [&_.h-8]:h-7">
               {schema && Object.keys(schema).length > 0 ? (
                 <GenericConfigPanel
                   schema={schema}

@@ -147,9 +147,6 @@ export function usePatientData(
   // --- Visit list ---
   const [visits, setVisits] = useState<VisitRow[]>([])
   const [visitsLoading, setVisitsLoading] = useState(false)
-  // Track which patient we've already auto-selected a visit for, so picking
-  // "All hospitalizations" (visitId = null) is not immediately overridden.
-  const autoSelectedPatientRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || !patientId) {
@@ -171,17 +168,9 @@ export function usePatientData(
       .then((rows) => {
         if (!cancelled) {
           setVisits((rows as VisitRow[]) ?? [])
-          // Auto-select the first visit once per patient (only on first load),
-          // so a deliberate "All hospitalizations" choice sticks afterwards.
-          if (
-            rows.length > 0 &&
-            !visitId &&
-            autoSelectedPatientRef.current !== patientId
-          ) {
-            autoSelectedPatientRef.current = patientId
-            const firstVisit = rows[0] as VisitRow
-            setSelectedVisit(projectUid, String(firstVisit.visit_id))
-          }
+          // No auto-selection: a patient defaults to "All hospitalizations"
+          // (visitId = null) so widgets show the full record until the user
+          // narrows to one hospitalization.
         }
       })
       .catch((err) => {

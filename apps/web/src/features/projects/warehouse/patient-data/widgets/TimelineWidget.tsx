@@ -11,6 +11,7 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
+import { COLOR_PALETTE } from '@/components/ui/color-picker-popover'
 import {
   subscribeTimelineSync,
   broadcastTimelineRange,
@@ -28,6 +29,9 @@ interface TimelineRow {
   value: number
   event_date: unknown // DuckDB-WASM returns Date, BigInt, or string
 }
+
+/** Px reserved at the bottom so the range selector stays inside the card. */
+const RANGE_SELECTOR_RESERVE = 6
 
 const CSS_COLORS = [
   '--color-chart-1',
@@ -54,10 +58,27 @@ function resolveCssVar(varName: string): string {
     .trim()
 }
 
-function getSeriesColors(count: number): string[] {
-  return Array.from({ length: count }, (_, i) =>
-    resolveCssColor(CSS_COLORS[i % CSS_COLORS.length]),
-  )
+/** Resolve a stored color (palette name or hex) to a concrete hex value. */
+function resolveConceptColor(color: string | undefined): string | null {
+  if (!color) return null
+  if (color.startsWith('#')) return color
+  return COLOR_PALETTE.find((c) => c.name === color)?.hex ?? null
+}
+
+/**
+ * Series colors: each concept uses its configured color when set, otherwise
+ * the rotating chart palette (keyed by index so defaults stay stable).
+ */
+function getSeriesColors(
+  names: string[],
+  conceptIdByName: Record<string, number>,
+  conceptColors: Record<string, string>,
+): string[] {
+  return names.map((name, i) => {
+    const id = conceptIdByName[name]
+    const custom = id != null ? resolveConceptColor(conceptColors[String(id)]) : null
+    return custom ?? resolveCssColor(CSS_COLORS[i % CSS_COLORS.length])
+  })
 }
 
 /**
@@ -109,6 +130,8 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   const showPoints = config.showPoints ?? true
   // strokeWidth comes from a schema `select` (string) but older configs may hold a number.
   const strokeWidth = Number(config.strokeWidth ?? 1.5) || 1.5
+  const conceptColors = config.conceptColors ?? {}
+  const conceptColorsKey = JSON.stringify(conceptColors)
 
   // Stable string key so the fetch effect doesn't re-run on array identity churn.
   const conceptIds = config.conceptIds ?? []
@@ -117,8 +140,16 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
 
+  const wrapperRef = useRef<HTMLDivElement>(null)
   const chartContainerRef = useRef<HTMLDivElement>(null)
   const dygraphRef = useRef<Dygraph | null>(null)
+  // True while we apply a range received from another timeline, so the
+  // resulting drawCallback doesn't re-broadcast (which would ping-pong /
+  // recurse between synced timelines and freeze the interaction).
+  const applyingSyncRef = useRef(false)
+  // Last x-range we broadcast, so drawCallback (which fires on every redraw)
+  // only broadcasts when the visible window actually changed.
+  const lastBroadcastRef = useRef<[number, number] | null>(null)
   const [data, setData] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -178,11 +209,15 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   }, [dataSourceId, schemaMapping, patientId, visitId, conceptIdsKey])
 
   // Reshape data for dygraphs: Array<[Date, number|null, ...]>
-  const { chartData, conceptNames } = useMemo(() => {
-    if (data.length === 0) return { chartData: null, conceptNames: [] }
+  const { chartData, conceptNames, conceptIdByName } = useMemo(() => {
+    if (data.length === 0) return { chartData: null, conceptNames: [], conceptIdByName: {} as Record<string, number> }
 
     const nameSet = new Set<string>()
-    for (const row of data) nameSet.add(row.concept_name)
+    const idByName: Record<string, number> = {}
+    for (const row of data) {
+      nameSet.add(row.concept_name)
+      if (idByName[row.concept_name] == null) idByName[row.concept_name] = row.concept_id
+    }
     const names = [...nameSet]
 
     // Collect all unique timestamps (keyed by ms), sorted
@@ -208,7 +243,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       return [dateMap.get(ms)!, ...vals]
     })
 
-    return { chartData: rows, conceptNames: names }
+    return { chartData: rows, conceptNames: names, conceptIdByName: idByName }
   }, [data])
 
   // Resolve theme-aware colors for canvas-drawn elements
@@ -240,7 +275,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       return
     }
 
-    const colors = getSeriesColors(conceptNames.length)
+    const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors)
     const theme = getThemeColors()
 
     const opts: dygraphs.Options = {
@@ -254,6 +289,25 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       connectSeparatedPoints: true,
       legend: 'follow',
       labelsSeparateLines: true,
+      // Custom legend: a grid so the values line up in their own right-aligned
+      // column (label on the left, number on the right) for easy comparison.
+      legendFormatter: (legendData) => {
+        if (legendData.x == null) return ''
+        const dateStr = legendData.xHTML
+        const rows = legendData.series
+          .filter((s) => s.isVisible && s.yHTML != null)
+          .map(
+            (s) =>
+              `<span style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:${s.color};margin-right:4px;flex:none"></span>` +
+              `<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.labelHTML}</span>` +
+              `<span style="text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${s.yHTML}</span>`,
+          )
+          .join('')
+        return (
+          `<div style="font-weight:600;padding-bottom:3px;margin-bottom:3px;border-bottom:1px solid var(--border)">${dateStr}</div>` +
+          `<div style="display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:1px 6px">${rows}</div>`
+        )
+      },
       ...(yAxisFromZero ? { includeZero: true } : {}),
 
       // Grid & axes
@@ -272,10 +326,17 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
         },
       },
 
-      // Sync: broadcast our visible x-range to other synced timelines in the tab.
-      zoomCallback: (minX, maxX) => {
-        if (!syncTimeRange) return
-        broadcastTimelineRange(tabId, widgetId, { min: minX, max: maxX })
+      // Sync: broadcast our visible x-range on every redraw — drawCallback (not
+      // zoomCallback) is the only hook that also fires when the range selector
+      // is *panned* (dygraphs skips zoomCallback for pans). We broadcast only
+      // when the window actually changed, and never while applying a peer's range.
+      drawCallback: (g) => {
+        if (!syncTimeRange || applyingSyncRef.current) return
+        const [min, max] = g.xAxisRange()
+        const last = lastBroadcastRef.current
+        if (last && Math.abs(last[0] - min) < 1 && Math.abs(last[1] - max) < 1) return
+        lastBroadcastRef.current = [min, max]
+        broadcastTimelineRange(tabId, widgetId, { min, max })
       },
 
       // Range selector (mini timeline for navigation)
@@ -287,28 +348,55 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       rangeSelectorBackgroundStrokeColor: theme.rangeSelectorBackgroundStrokeColor,
       rangeSelectorAlpha: theme.rangeSelectorAlpha,
 
-      // Interaction: default model supports drag-to-zoom on x-axis
+      // Interaction: default model supports drag-to-zoom on x-axis.
       interactionModel: Dygraph.defaultInteractionModel,
-      animatedZooms: true,
+      // No animation: zoomCallback then fires immediately on every change so
+      // synced timelines follow live during a range-selector drag (animated
+      // zooms only fire the callback once, at the end of the transition).
+      animatedZooms: false,
     }
+
+    // Pin dygraph to the WRAPPER's measured pixel size (stable; dygraphs mutates
+    // the inner container's inline size, so measuring it would feed back into a
+    // shrinking ResizeObserver loop). Reserve a small bottom inset so the range
+    // selector stays inside the card.
+    const rect = (wrapperRef.current ?? container).getBoundingClientRect()
+    const sizedOpts: dygraphs.Options =
+      rect.width > 0 && rect.height > 0
+        ? { ...opts, width: Math.floor(rect.width), height: Math.floor(rect.height) - RANGE_SELECTOR_RESERVE }
+        : opts
 
     if (dygraphRef.current) {
       dygraphRef.current.updateOptions({
         file: chartData as unknown as dygraphs.Data,
-        ...opts,
+        ...sizedOpts,
       })
     } else {
       dygraphRef.current = new Dygraph(
         container,
         chartData as unknown as dygraphs.Data,
-        opts,
+        sizedOpts,
       )
     }
 
-    // Prevent native browser image drag on range selector handles
+    // NOTE: do NOT set draggable=false on the range-selector handles. Dygraphs
+    // starts the handle *resize* on the native `dragstart` event (see
+    // rangeselector: dragStartEvent = 'dragstart'); disabling drag kills it and
+    // only the pan (fgcanvas mousedown) keeps working. dygraphs' own
+    // onZoomStart cancels the event, so no ghost drag-image appears.
     container.querySelectorAll<HTMLImageElement>('.dygraph-rangesel-zoomhandle')
-      .forEach((img) => { img.draggable = false })
-  }, [chartData, conceptNames, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, tabId, widgetId])
+      .forEach((img) => { img.style.zIndex = '10' })
+
+    // Re-measure after layout settles, from the stable wrapper.
+    requestAnimationFrame(() => {
+      const g = dygraphRef.current
+      const wrap = wrapperRef.current
+      if (!g || !wrap) return
+      const r = wrap.getBoundingClientRect()
+      if (r.width > 0 && r.height > 0) g.resize(Math.floor(r.width), Math.floor(r.height) - RANGE_SELECTOR_RESERVE)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartData, conceptNames, conceptIdByName, getThemeColors, yAxisFromZero, stepPlot, showPoints, strokeWidth, syncTimeRange, conceptColorsKey, tabId, widgetId])
 
   // Sync: when another timeline in this tab broadcasts a range, adopt it.
   useEffect(() => {
@@ -324,23 +412,46 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       if (sourceId === widgetId) return
       const g = dygraphRef.current
       if (!g) return
-      if (range) {
-        g.updateOptions({ dateWindow: [range.min, range.max ?? range.min] })
-      } else {
-        g.resetZoom()
+      // Skip if we're already showing this window — stops the ping-pong where
+      // applying a peer's range fires our own zoomCallback and bounces back.
+      const cur = g.xAxisRange()
+      const target: [number, number] | null = range
+        ? [range.min, range.max ?? range.min]
+        : null
+      if (target && Math.abs(cur[0] - target[0]) < 1 && Math.abs(cur[1] - target[1]) < 1) return
+      applyingSyncRef.current = true
+      try {
+        if (target) {
+          g.updateOptions({ dateWindow: target })
+        } else {
+          g.resetZoom()
+        }
+      } finally {
+        // Reset after the (possibly animated) zoom settles.
+        setTimeout(() => { applyingSyncRef.current = false }, 0)
       }
     })
     return unsubscribe
   }, [syncTimeRange, tabId, widgetId, chartData])
 
-  // Resize when container changes
+  // Resize when the container changes. Pass explicit pixel dimensions so
+  // dygraphs lays the range selector out within the box — relying on the
+  // `h-full` percentage alone lets it render a few px past the bottom (the
+  // range selector then sits under the card's overflow-hidden edge, which both
+  // hides it and makes its zoom handles unclickable).
   useEffect(() => {
-    const container = chartContainerRef.current
-    if (!container) return
-    const observer = new ResizeObserver(() => {
-      dygraphRef.current?.resize()
-    })
-    observer.observe(container)
+    const wrap = wrapperRef.current
+    if (!wrap) return
+    const apply = () => {
+      const g = dygraphRef.current
+      if (!g) return
+      const { width, height } = wrap.getBoundingClientRect()
+      if (width > 0 && height > 0) g.resize(Math.floor(width), Math.floor(height) - RANGE_SELECTOR_RESERVE)
+    }
+    // Observe the stable wrapper, never the dygraph-mutated inner container.
+    const observer = new ResizeObserver(apply)
+    observer.observe(wrap)
+    apply()
     return () => observer.disconnect()
   }, [])
 
@@ -359,7 +470,7 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
     const observer = new MutationObserver(() => {
       if (dygraphRef.current && chartData) {
         const theme = getThemeColors()
-        const colors = getSeriesColors(conceptNames.length)
+        const colors = getSeriesColors(conceptNames, conceptIdByName, conceptColors)
         dygraphRef.current.updateOptions({
           colors,
           gridLineColor: theme.gridLineColor,
@@ -377,7 +488,8 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
       attributeFilter: ['class'],
     })
     return () => observer.disconnect()
-  }, [chartData, conceptNames, getThemeColors])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartData, conceptNames, conceptIdByName, getThemeColors, conceptColorsKey])
 
   // Determine overlay message (shown on top of the chart container)
   let overlayMessage: string | null = null
@@ -395,13 +507,16 @@ export function TimelineWidget({ widgetId, onConfigureConcepts }: TimelineWidget
   }
 
   return (
-    <div className="relative h-full w-full timeline-widget">
+    <div ref={wrapperRef} className="relative h-full w-full timeline-widget">
       {/* Dygraphs mounts here — always in the DOM to avoid removeChild errors.
+          Absolutely positioned so the inline width/height dygraphs writes on it
+          never feeds back into the parent's layout (which would loop the
+          ResizeObserver and progressively shrink the chart).
           stopPropagation prevents react-grid-layout drag handlers from capturing
           mousedown/touchstart, which would block dygraphs zoom & range selector. */}
       <div
         ref={chartContainerRef}
-        className="h-full w-full"
+        className="absolute inset-0"
         style={{ visibility: overlayMessage ? 'hidden' : 'visible' }}
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}

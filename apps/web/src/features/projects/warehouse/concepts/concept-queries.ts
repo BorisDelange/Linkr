@@ -23,18 +23,18 @@ export interface ColumnDescriptor {
  * Returns stable column descriptors that drive the table, filters, and sort.
  */
 export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescriptor[] {
-  const cols: ColumnDescriptor[] = [
-    { id: 'concept_id', source: 'core', filterable: false },
-    { id: 'concept_name', source: 'core', filterable: false },
-  ]
+  // Order mirrors the conventional concept layout:
+  // vocabulary_id, concept_id, concept_name, concept_code, domain_id,
+  // concept_class_id, [other extras], standard_concept, then counts last.
+  const cols: ColumnDescriptor[] = []
 
-  if (dicts.some((d) => d.codeColumn)) {
-    cols.push({ id: 'concept_code', source: 'code', filterable: false })
-  }
-  // Vocabulary / domain / concept class — sourced from terminologyIdColumn,
-  // categoryColumn, subcategoryColumn (or the deprecated vocabularyColumn).
   if (dicts.some((d) => d.terminologyIdColumn || d.vocabularyColumn)) {
     cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
+  }
+  cols.push({ id: 'concept_id', source: 'core', filterable: false })
+  cols.push({ id: 'concept_name', source: 'core', filterable: false })
+  if (dicts.some((d) => d.codeColumn)) {
+    cols.push({ id: 'concept_code', source: 'code', filterable: false })
   }
   if (dicts.some((d) => d.categoryColumn)) {
     cols.push({ id: 'domain_id', source: 'extra', filterable: true })
@@ -44,18 +44,24 @@ export function computeAvailableColumns(dicts: ConceptDictionary[]): ColumnDescr
   }
 
   // Union of all extraColumns keys across all dicts, skipping any already
-  // emitted above (domain_id / concept_class_id can come from category columns).
+  // emitted above. standard_concept is held back to sit last (before counts).
   const alreadyEmitted = new Set(cols.map((c) => c.id))
   const extraKeys = new Set<string>()
+  let hasStandardConcept = false
   for (const d of dicts) {
     if (d.extraColumns) {
       for (const key of Object.keys(d.extraColumns)) {
-        if (!alreadyEmitted.has(key)) extraKeys.add(key)
+        if (alreadyEmitted.has(key)) continue
+        if (key === 'standard_concept') { hasStandardConcept = true; continue }
+        extraKeys.add(key)
       }
     }
   }
   for (const key of extraKeys) {
     cols.push({ id: key, source: 'extra', filterable: true })
+  }
+  if (hasStandardConcept) {
+    cols.push({ id: 'standard_concept', source: 'extra', filterable: true })
   }
 
   // _dict_key column only if multiple dictionaries

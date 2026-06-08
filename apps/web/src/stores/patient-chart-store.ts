@@ -34,6 +34,8 @@ export interface TimelineConfig {
   showPoints?: boolean
   /** Line thickness in pixels (stored as a string by the schema `select`). */
   strokeWidth?: number | string
+  /** Per-concept line color (concept_id → palette name or hex). */
+  conceptColors?: Record<string, string>
 }
 
 export interface PluginWidgetConfig {

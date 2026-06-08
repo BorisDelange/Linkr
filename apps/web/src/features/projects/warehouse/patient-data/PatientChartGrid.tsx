@@ -85,8 +85,11 @@ export function PatientChartGrid({
   const [containerWidth, setContainerWidth] = useState(1200)
   const [viewportHeight, setViewportHeight] = useState(800)
 
-  // Concept picker state — lifted here so WidgetCard "Edit" can open it
+  // Concept picker state — lifted here so WidgetCard "Edit" can open it.
+  // `editingInitialTab` lets the empty-state "Select concepts" button jump
+  // straight to the Concepts tab, while the kebab "Edit" opens Settings first.
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
+  const [editingInitialTab, setEditingInitialTab] = useState<'settings' | 'concepts'>('settings')
   // Plugin config dialog state
   const [editingPluginWidgetId, setEditingPluginWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
@@ -102,10 +105,16 @@ export function PatientChartGrid({
 
   const handleEditWidget = useCallback((widget: PatientChartWidget) => {
     if (CONCEPT_WIDGET_TYPES.has(widget.type)) {
+      setEditingInitialTab('settings')
       setEditingWidgetId(widget.id)
     } else if (PLUGIN_WIDGET_TYPES.has(widget.type)) {
       setEditingPluginWidgetId(widget.id)
     }
+  }, [])
+
+  const handleConfigureConcepts = useCallback((widgetId: string) => {
+    setEditingInitialTab('concepts')
+    setEditingWidgetId(widgetId)
   }, [])
 
   // Measure the outer (bounded) container for both width and height.
@@ -194,7 +203,13 @@ export function PatientChartGrid({
       autoSize
     >
       {widgets.map((widget) => (
-        <div key={widget.id}>
+        <div
+          key={widget.id}
+          // Timeline's follow-legend can spill past the card; raise the grid
+          // item on hover so it stacks above sibling widgets (each react-grid
+          // item is its own transformed stacking context).
+          className={widget.type === 'timeline' ? 'patient-timeline-item' : undefined}
+        >
           <WidgetCard
             title={widget.name}
             onRemove={() => setConfirmDeleteWidgetId(widget.id)}
@@ -210,7 +225,7 @@ export function PatientChartGrid({
             {renderWidgetContent(
               widget,
               CONCEPT_WIDGET_TYPES.has(widget.type)
-                ? () => setEditingWidgetId(widget.id)
+                ? () => handleConfigureConcepts(widget.id)
                 : undefined,
             )}
           </WidgetCard>
@@ -235,6 +250,7 @@ export function PatientChartGrid({
           (editingWidget?.config as Record<string, unknown>) ?? { conceptIds: [] }
         }
         schema={editingWidgetSchema}
+        initialTab={editingInitialTab}
         onConfirm={handleConceptsConfirm}
       />
 

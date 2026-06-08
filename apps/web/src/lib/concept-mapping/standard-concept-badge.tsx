@@ -32,7 +32,7 @@ export function StandardConceptBadge({ value }: { value: string | null | undefin
     <div className="flex justify-center">
       <Tooltip>
         <TooltipTrigger asChild>{badge}</TooltipTrigger>
-        <TooltipContent side="top" className="text-xs bg-popover text-popover-foreground">{label}</TooltipContent>
+        <TooltipContent side="top">{label}</TooltipContent>
       </Tooltip>
     </div>
   )
