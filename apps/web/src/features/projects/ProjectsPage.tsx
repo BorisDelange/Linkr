@@ -199,6 +199,9 @@ export function ProjectsPage() {
     for (const dd of parsed.datasetData) {
       await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
     }
+    for (const rf of parsed.datasetRawFiles ?? []) {
+      await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
+    }
     for (const meta of parsed.attachmentsMeta) {
       const blobData = parsed.attachmentBlobs.get(meta.id)
       if (blobData) {

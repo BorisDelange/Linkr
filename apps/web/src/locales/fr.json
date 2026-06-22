@@ -2053,7 +2053,8 @@
     "reset": "Réinitialiser",
     "added": "ajouté(s)",
     "replaced": "remplacé(s)",
-    "versioning": "Versioning"
+    "versioning": "Versioning",
+    "all": "Tout"
   },
   "user_menu": {
     "profile": "Paramètres",
@@ -2426,8 +2427,10 @@
     "tab_git_repository": "Dépôt Git",
     "entity_export_git_linked_hint": "Cet élément est lié à un dépôt Git. Dans les exports de workspace, seules ses métadonnées et le lien Git sont inclus — son contenu complet réside dans le dépôt lié.",
     "entity_git_link_hint": "Lier à un dépôt Git permet au portail déployé de reconstituer cet élément depuis son propre dépôt. Une fois lié, les exports de workspace n’incluent que les métadonnées et ce pointeur.",
-    "export_include_entity_data": "— inclure les données",
-    "remote_connected": "Connecté ✓"
+    "export_include_entity_data": "Inclure les fichiers de données",
+    "remote_connected": "Enregistré",
+    "export_git_linked_tooltip": "Seules les métadonnées et le lien Git sont exportés — le contenu complet reste dans le dépôt Git lié.",
+    "export_data_label": "Données :"
   },
   "concept_mapping": {
     "title": "Alignement de concepts",

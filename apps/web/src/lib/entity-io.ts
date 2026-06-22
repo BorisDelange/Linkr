@@ -7,7 +7,7 @@ import { APP_VERSION } from '@/lib/version'
 import type {
   Project, IdeFile, Pipeline, Cohort, IdeConnection,
   Dashboard, DashboardTab, DashboardWidget,
-  DatasetFile, DatasetData, DatasetAnalysis, ReadmeAttachment,
+  DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, ReadmeAttachment,
   Workspace, WikiPage, WikiAttachment,
   SqlScriptCollection, SqlScriptFile,
   EtlPipeline, EtlFile,
@@ -370,7 +370,17 @@ export async function buildProjectZip(
 
       if (includeDataFiles) {
         const data = await storage.datasetData.get(df.id)
-        if (data && data.rows.length > 0) {
+        const raw = await storage.datasetRawFiles.get(df.id)
+
+        if (raw?.blob) {
+          // Original uploaded file (CSV/XLSX/parquet) kept verbatim for the user.
+          zip.file(`datasets/${folderName}/${raw.fileName}`, raw.blob, { compression: 'STORE' })
+          // Parsed rows sidecar so import restores the table without re-parsing XLSX/parquet.
+          if (data && data.rows.length > 0) {
+            zip.file(`datasets/${folderName}/_data.json`, json({ rows: data.rows }))
+          }
+        } else if (data && data.rows.length > 0) {
+          // Computed dataset (no source file): reconstructed CSV, always named .csv.
           const colIds = df.columns?.map(c => c.id) ?? Object.keys(data.rows[0])
           const colNames = df.columns?.map(c => c.name) ?? colIds
           const csvRows = [
@@ -386,7 +396,8 @@ export async function buildProjectZip(
               }).join(',')
             ),
           ]
-          zip.file(`datasets/${folderName}/${dsPath.split('/').pop()}`, csvRows.join('\n'))
+          const baseName = (dsPath.split('/').pop() ?? df.name).replace(/\.[^.]+$/, '')
+          zip.file(`datasets/${folderName}/${baseName}.csv`, csvRows.join('\n'))
         }
       }
     }
@@ -405,7 +416,7 @@ export async function buildProjectZip(
   // --- .gitignore (dynamic based on includeDataFiles option) ---
   const gitignoreLines = ['.cache/']
   if (!includeDataFiles) {
-    gitignoreLines.unshift('datasets/**/*.csv', 'datasets/**/*.parquet')
+    gitignoreLines.unshift('datasets/**/*.csv', 'datasets/**/*.parquet', 'datasets/**/*.xlsx', 'datasets/**/*.xls')
   }
   zip.file('.gitignore', gitignoreLines.join('\n') + '\n')
 
@@ -430,6 +441,8 @@ export interface ParsedProjectZip {
   datasetAnalyses: DatasetAnalysis[]
   /** CSV data parsed from _data/ folder, keyed by datasetFileId */
   datasetData: DatasetData[]
+  /** Original uploaded files (CSV/XLSX/parquet) to restore into datasetRawFiles. */
+  datasetRawFiles: DatasetRawFile[]
   attachmentsMeta: Omit<ReadmeAttachment, 'data'>[]
   /** Keyed by attachment id */
   attachmentBlobs: Map<string, ArrayBuffer>
@@ -574,7 +587,7 @@ async function parseLegacyLayout(zip: JSZip, project: Project): Promise<ParsedPr
   return {
     project, ideFiles, pipelines, cohorts, connections,
     dashboards, dashboardTabs, dashboardWidgets,
-    datasetFiles, datasetAnalyses, datasetData: [], attachmentsMeta, attachmentBlobs,
+    datasetFiles, datasetAnalyses, datasetData: [], datasetRawFiles: [], attachmentsMeta, attachmentBlobs,
   }
 }
 
@@ -661,8 +674,9 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     }
   }
 
-  // --- Dataset data (v3: CSV inside datasets/{folder}/, v2: CSV in _data/) ---
+  // --- Dataset data + raw files (v3: datasets/{folder}/, v2: _data/) ---
   const datasetData: DatasetData[] = []
+  const datasetRawFiles: DatasetRawFile[] = []
   if (datasetFiles.length > 0) {
     const byId = new Map(datasetFiles.map(f => [f.id, f]))
     for (const df of datasetFiles) {
@@ -670,13 +684,40 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
       const dsPath = buildDatasetPath(df, byId)
       const folderName = dsPath.replace(/\.[^.]+$/, '')
       const fileName = dsPath.split('/').pop() ?? dsPath
-      // v3: datasets/{folder}/{name}.csv, v2: _data/{path}
-      const csvEntry = zip.files[`datasets/${folderName}/${fileName}`]
-        ?? zip.files[`_data/${dsPath}`]
-      if (csvEntry) {
-        const csv = await csvEntry.async('string')
-        const parsed = parseCsvToDatasetData(csv, df)
-        if (parsed) datasetData.push(parsed)
+
+      // Find the data file in this dataset's folder (the original upload or reconstructed CSV).
+      // It is the only non-metadata entry besides _columns.json / analysis JSONs / _data.json.
+      const dsFolderPrefix = `datasets/${folderName}/`
+      let rawEntry: { name: string; entry: JSZip.JSZipObject } | null = null
+      for (const [path, entry] of Object.entries(zip.files)) {
+        if (entry.dir || !path.startsWith(dsFolderPrefix)) continue
+        const rest = path.slice(dsFolderPrefix.length)
+        if (rest.includes('/')) continue // belongs to a nested dataset folder
+        if (rest === '_columns.json' || rest === '_data.json' || rest === '_tree.json') continue
+        if (rest.endsWith('.json')) continue // analysis files
+        rawEntry = { name: rest, entry }
+        break
+      }
+
+      // Parsed rows: prefer the _data.json sidecar (format-agnostic), else parse a CSV.
+      const sidecar = zip.files[`datasets/${folderName}/_data.json`]
+      if (sidecar) {
+        const { rows } = JSON.parse(await sidecar.async('string')) as { rows: Record<string, unknown>[] }
+        if (rows?.length) datasetData.push({ datasetFileId: df.id, rows })
+      } else {
+        const csvEntry = rawEntry?.entry
+          ?? zip.files[`datasets/${folderName}/${fileName}`]
+          ?? zip.files[`_data/${dsPath}`]
+        if (csvEntry) {
+          const parsed = parseCsvToDatasetData(await csvEntry.async('string'), df)
+          if (parsed) datasetData.push(parsed)
+        }
+      }
+
+      // Restore the original uploaded file so "Import settings" works after re-import.
+      if (rawEntry) {
+        const blob = await rawEntry.entry.async('blob')
+        datasetRawFiles.push({ datasetFileId: df.id, blob, fileName: rawEntry.name })
       }
     }
   }
@@ -693,7 +734,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   return {
     project, ideFiles, pipelines, cohorts, connections,
     dashboards, dashboardTabs, dashboardWidgets,
-    datasetFiles, datasetAnalyses, datasetData, attachmentsMeta, attachmentBlobs,
+    datasetFiles, datasetAnalyses, datasetData, datasetRawFiles, attachmentsMeta, attachmentBlobs,
   }
 }
 
@@ -753,6 +794,12 @@ export interface BuildWorkspaceZipOptions {
    * Defaults to false (metadata only) when an entity id is absent.
    */
   includeEntityData?: Record<string, boolean>
+  /**
+   * Per-entity opt-out: when an entity id maps to true, that entity is omitted from the
+   * export entirely (no metadata, no git-link entry). Entities are included by default.
+   * Keyed by the same stable ids as includeEntityData.
+   */
+  excludeEntities?: Record<string, boolean>
 }
 
 /** A single git-linked entity recorded in the workspace's git-links.json manifest. */
@@ -896,6 +943,7 @@ export async function buildWorkspaceZip(
   // Git-link manifest: collected across all sections, written as git-links.json at the end.
   const gitLinks: GitLinkEntry[] = []
   const includeData = options.includeEntityData ?? {}
+  const excluded = options.excludeEntities ?? {}
 
   // --- workspace.json ---
   const { readme: wsReadme, ...wsMeta } = workspace
@@ -913,6 +961,7 @@ export async function buildWorkspaceZip(
     const allProjects = await storage.projects.getAll()
     const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
     for (const project of wsProjects) {
+      if (excluded[project.uid]) continue
       const folder = project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
       const { todos: _t, notes: _n, readmeHistory: _rh, gitUrl: _gu, ...projectMeta } = project
@@ -925,7 +974,8 @@ export async function buildWorkspaceZip(
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
-        const sub = await buildProjectZip(project.uid, storage, { includeDataFiles: options.includeDataFiles })
+        // The per-project "include data" checkbox is the request to bundle data files too.
+        const sub = await buildProjectZip(project.uid, storage, { includeDataFiles: true })
         if (sub) {
           const subZip = await JSZip.loadAsync(sub.blob)
           await Promise.all(Object.keys(subZip.files).map(async (path) => {
@@ -997,6 +1047,7 @@ export async function buildWorkspaceZip(
   if (on('sqlScripts')) {
     const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(workspaceId)
     for (const collection of sqlCollections) {
+      if (excluded[collection.id]) continue
       const folder = eid(collection)
       const git = resolveGitRemote(collection)
 
@@ -1019,6 +1070,7 @@ export async function buildWorkspaceZip(
   if (on('etl')) {
     const etlPipelines = await storage.etlPipelines.getByWorkspace(workspaceId)
     for (const pipeline of etlPipelines) {
+      if (excluded[pipeline.id]) continue
       const folder = eid(pipeline)
       const git = resolveGitRemote(pipeline)
 
@@ -1049,6 +1101,7 @@ export async function buildWorkspaceZip(
   if (on('conceptMapping')) {
     const mappingProjects = await storage.mappingProjects.getByWorkspace(workspaceId)
     for (const mp of mappingProjects) {
+      if (excluded[mp.id]) continue
       const folder = eid(mp)
       const git = resolveGitRemote(mp)
 

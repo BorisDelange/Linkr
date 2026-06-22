@@ -117,7 +117,8 @@ export function EntityVersioningDialog({
           </TabsList>
 
           {/* --- Export tab --- */}
-          <TabsContent value="export" className="space-y-3 pt-3">
+          {/* min-h keeps the dialog height stable when switching to the taller Git tab */}
+          <TabsContent value="export" className="min-h-[280px] space-y-3 pt-3">
             {linked ? (
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {t('app_versioning.entity_export_git_linked_hint')}
@@ -141,16 +142,10 @@ export function EntityVersioningDialog({
             ) : (
               <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
             )}
-            <div className="flex justify-end">
-              <Button onClick={handleExport} className="gap-1.5">
-                <Download size={14} />
-                {t('versioning.export_download')}
-              </Button>
-            </div>
           </TabsContent>
 
           {/* --- Git repository tab --- */}
-          <TabsContent value="git" className="space-y-4 pt-3">
+          <TabsContent value="git" className="min-h-[280px] space-y-4 pt-3">
             <div className="space-y-2">
               <Label className="text-xs">{t('versioning.remote_url')}</Label>
               <Input
@@ -187,27 +182,29 @@ export function EntityVersioningDialog({
             <p className="text-xs text-muted-foreground leading-relaxed">
               {t('app_versioning.entity_git_link_hint')}
             </p>
-            {justSaved ? (
-              <Button size="sm" variant="outline" disabled className="gap-1.5 text-green-600 border-green-600/40">
-                <Check size={14} />
-                {t('app_versioning.remote_connected')}
-              </Button>
-            ) : linked ? (
-              <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={saving}>
-                {t('versioning.remote_disconnect')}
-              </Button>
-            ) : (
-              <Button size="sm" onClick={handleConnect} disabled={!canConnect || saving}>
-                {t('versioning.remote_connect')}
-              </Button>
-            )}
           </TabsContent>
         </Tabs>
 
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t('common.close')}
-          </Button>
+          {tab === 'export' ? (
+            <Button onClick={handleExport} className="gap-1.5">
+              <Download size={14} />
+              {t('versioning.export_download')}
+            </Button>
+          ) : justSaved ? (
+            <Button variant="outline" disabled className="gap-1.5 text-muted-foreground transition-opacity">
+              <Check size={14} className="text-primary" />
+              {t('app_versioning.remote_connected')}
+            </Button>
+          ) : linked ? (
+            <Button variant="outline" onClick={handleDisconnect} disabled={saving}>
+              {t('versioning.remote_disconnect')}
+            </Button>
+          ) : (
+            <Button onClick={handleConnect} disabled={!canConnect || saving}>
+              {t('versioning.remote_connect')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

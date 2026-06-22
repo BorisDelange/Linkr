@@ -38,6 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { getStorage } from '@/lib/storage'
@@ -134,6 +135,8 @@ export function WsExportTab() {
   })
   /** Per-entity opt-in to include full content (only meaningful for unlinked entities). */
   const [includeEntityData, setIncludeEntityData] = useState<Set<string>>(() => new Set())
+  /** Entity ids explicitly excluded from the export. Empty = every entity included by default. */
+  const [excludedEntities, setExcludedEntities] = useState<Set<string>>(() => new Set())
 
   // Load section counts
   useEffect(() => {
@@ -201,7 +204,7 @@ export function WsExportTab() {
     })
   }, [])
 
-  const toggleEntity = useCallback((id: string) => {
+  const toggleEntityData = useCallback((id: string) => {
     setIncludeEntityData(prev => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
@@ -209,6 +212,44 @@ export function WsExportTab() {
       return next
     })
   }, [])
+
+  /** Toggle whether an entity is included at all. Excluding also clears its data opt-in. */
+  const toggleEntityIncluded = useCallback((id: string) => {
+    setExcludedEntities(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    setIncludeEntityData(prev => {
+      if (!prev.has(id)) return prev
+      const next = new Set(prev)
+      next.delete(id)
+      return next
+    })
+  }, [])
+
+  /** Every entity id across the four entity sections. */
+  const allEntityIds = useCallback(
+    () => ENTITY_SECTIONS.flatMap(k => entities[k].map(e => e.id)),
+    [entities],
+  )
+
+  /** Unlinked + currently-included entity ids in a section (those that show an "include data" row). */
+  const dataEligibleIds = useCallback(
+    (key: EntitySectionKey) => entities[key].filter(e => !e.gitHost && !excludedEntities.has(e.id)).map(e => e.id),
+    [entities, excludedEntities],
+  )
+
+  /** Check or uncheck every "include data" sub-option in a section at once. */
+  const setSectionData = useCallback((key: EntitySectionKey, on: boolean) => {
+    const ids = dataEligibleIds(key)
+    setIncludeEntityData(prev => {
+      const next = new Set(prev)
+      for (const id of ids) { if (on) next.add(id); else next.delete(id) }
+      return next
+    })
+  }, [dataEligibleIds])
 
   /** Toggle a group parent = toggle all children */
   const toggleGroup = useCallback((children: ExportSection[]) => {
@@ -232,6 +273,7 @@ export function WsExportTab() {
         sections: Object.fromEntries(ALL_KEYS.map(k => [k, selected.has(k)])) as Record<string, boolean>,
         includeCredentials,
         includeEntityData: Object.fromEntries([...includeEntityData].map(id => [id, true])),
+        excludeEntities: Object.fromEntries([...excludedEntities].map(id => [id, true])),
       })
     } finally {
       setExporting(false)
@@ -304,6 +346,22 @@ export function WsExportTab() {
               <span className="text-xs text-muted-foreground ml-0.5">({count})</span>
             )}
           </Label>
+
+          {/* Bulk "include data" toggle for sections with unlinked, included entities */}
+          {ENTITY_SECTIONS.includes(section.key as EntitySectionKey)
+            && selected.has(section.key)
+            && dataEligibleIds(section.key as EntitySectionKey).length > 0 && (
+            <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground/70">
+              {t('app_versioning.export_data_label')}
+              <button type="button" className="underline hover:text-foreground" onClick={() => setSectionData(section.key as EntitySectionKey, true)}>
+                {t('common.all')}
+              </button>
+              <span>/</span>
+              <button type="button" className="underline hover:text-foreground" onClick={() => setSectionData(section.key as EntitySectionKey, false)}>
+                {t('common.none')}
+              </button>
+            </span>
+          )}
         </div>
 
         {/* Databases: sub-option for credentials */}
@@ -333,31 +391,51 @@ export function WsExportTab() {
           && selected.has(section.key)
           && entities[section.key as EntitySectionKey].length > 0 && (
           <div className="pl-12 space-y-1 pt-1">
-            {entities[section.key as EntitySectionKey].map(ent => (
-              <div key={ent.id} className="flex items-center gap-2">
-                {ent.gitHost ? (
-                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <span className="truncate max-w-[14rem]">{ent.name}</span>
-                    <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 leading-none">
-                      <GitBranch size={10} />
-                      {ent.gitHost}
-                    </span>
-                  </span>
-                ) : (
-                  <>
+            {entities[section.key as EntitySectionKey].map(ent => {
+              const included = !excludedEntities.has(ent.id)
+              return (
+                <div key={ent.id} className="space-y-0.5">
+                  {/* Main row: include-or-not + (git badge with tooltip when linked) */}
+                  <div className="flex items-center gap-2">
                     <Checkbox
-                      id={`ws-export-data-${ent.id}`}
-                      checked={includeEntityData.has(ent.id)}
-                      onCheckedChange={() => toggleEntity(ent.id)}
+                      id={`ws-export-entity-${ent.id}`}
+                      checked={included}
+                      onCheckedChange={() => toggleEntityIncluded(ent.id)}
                     />
-                    <Label htmlFor={`ws-export-data-${ent.id}`} className="flex items-center gap-1.5 text-[11px] font-normal cursor-pointer text-muted-foreground">
-                      <span className="truncate max-w-[12rem]">{ent.name}</span>
-                      <span className="text-[10px] text-muted-foreground/70">{t('app_versioning.export_include_entity_data')}</span>
+                    <Label htmlFor={`ws-export-entity-${ent.id}`} className="flex items-center gap-1.5 text-[11px] font-normal cursor-pointer text-muted-foreground">
+                      <span className="truncate max-w-[14rem]">{ent.name}</span>
+                      {ent.gitHost && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex items-center gap-1 rounded-full bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 dark:text-violet-400 leading-none">
+                              <GitBranch size={10} />
+                              {ent.gitHost}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-[15rem]" style={{ textWrap: 'wrap' }}>
+                            {t('app_versioning.export_git_linked_tooltip')}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </Label>
-                  </>
-                )}
-              </div>
-            ))}
+                  </div>
+
+                  {/* Unlinked + included: sub-option to also bundle its data */}
+                  {included && !ent.gitHost && (
+                    <div className="flex items-center gap-2 pl-6">
+                      <Checkbox
+                        id={`ws-export-data-${ent.id}`}
+                        checked={includeEntityData.has(ent.id)}
+                        onCheckedChange={() => toggleEntityData(ent.id)}
+                      />
+                      <Label htmlFor={`ws-export-data-${ent.id}`} className="text-[10px] font-normal cursor-pointer text-muted-foreground/70">
+                        {t('app_versioning.export_include_entity_data')}
+                      </Label>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -379,7 +457,7 @@ export function WsExportTab() {
               variant="outline"
               size="sm"
               className="h-7 px-2.5 text-xs"
-              onClick={() => setSelected(new Set(ALL_KEYS))}
+              onClick={() => { setSelected(new Set(ALL_KEYS)); setExcludedEntities(new Set()) }}
             >
               {t('common.select_all')}
             </Button>
@@ -388,7 +466,7 @@ export function WsExportTab() {
               variant="outline"
               size="sm"
               className="h-7 px-2.5 text-xs"
-              onClick={() => setSelected(new Set())}
+              onClick={() => { setSelected(new Set()); setExcludedEntities(new Set(allEntityIds())); setIncludeEntityData(new Set()) }}
             >
               {t('common.select_none')}
             </Button>

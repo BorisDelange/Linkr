@@ -250,16 +250,39 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
       }
     }
 
-    // Load CSV data
+    // Load parsed rows: prefer a _data.json sidecar (format-agnostic), else a CSV.
+    const findDf = (folder: string) =>
+      datasetFiles.find(f => f.name.replace(/\.[^.]+$/, '') === folder && f.type === 'file')
+
+    const sidecarFolders = new Set(projectIndex?.datasetDataSidecars ?? [])
+    for (const folder of sidecarFolders) {
+      const df = findDf(folder)
+      if (!df) continue
+      const sidecar = await fetchJson<{ rows: Record<string, unknown>[] }>(`${base}/datasets/${folder}/_data.json`)
+      if (sidecar?.rows?.length) {
+        await storage.datasetData.save({ datasetFileId: df.id, rows: sidecar.rows }).catch(() => {})
+      }
+    }
+
     for (const [folder, csvPath] of Object.entries(projectIndex?.datasetCsvFiles ?? {})) {
-      const df = datasetFiles.find(f => f.name.replace(/\.[^.]+$/, '') === folder && f.type === 'file')
+      if (sidecarFolders.has(folder)) continue // rows already loaded from the sidecar
+      const df = findDf(folder)
       if (!df) continue
       const csv = await fetchText(`${base}/datasets/${folder}/${csvPath}`)
       if (!csv) continue
-      // Simple CSV parse — reuse the parseCsvToDatasetData pattern
       const rows = parseSeedCsv(csv, df)
       if (rows.length > 0) {
         await storage.datasetData.save({ datasetFileId: df.id, rows }).catch(() => {})
+      }
+    }
+
+    // Restore original uploaded files so "Import settings" works in the seeded app.
+    for (const [folder, rawName] of Object.entries(projectIndex?.datasetRawFiles ?? {})) {
+      const df = findDf(folder)
+      if (!df) continue
+      const bytes = await fetchBinary(`${base}/datasets/${folder}/${rawName}`)
+      if (bytes) {
+        await storage.datasetRawFiles.save({ datasetFileId: df.id, blob: new Blob([bytes]), fileName: rawName }).catch(() => {})
       }
     }
   }
@@ -603,6 +626,10 @@ interface SeedProjectIndex {
   datasetAnalyses?: Record<string, string[]>
   /** Dataset CSV paths: 'folder/data.csv' */
   datasetCsvFiles?: Record<string, string>
+  /** Original uploaded data file per folder (CSV/XLSX/parquet), filename only. */
+  datasetRawFiles?: Record<string, string>
+  /** Folders that ship a parsed-rows sidecar (_data.json) for format-agnostic restore. */
+  datasetDataSidecars?: string[]
   /** Attachment file names under attachments/ */
   attachments?: string[]
 }
