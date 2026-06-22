@@ -168,7 +168,7 @@ export function EntityVersioningDialog({
                   value={branch}
                   onChange={(e) => setBranch(e.target.value)}
                   placeholder="main"
-                  disabled={isLinked}
+                  disabled={linked}
                   className="h-9 text-sm"
                 />
               </div>
@@ -179,7 +179,7 @@ export function EntityVersioningDialog({
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                   placeholder={t('versioning.remote_token_placeholder')}
-                  disabled={isLinked}
+                  disabled={linked}
                   className="h-9 text-sm"
                 />
               </div>
