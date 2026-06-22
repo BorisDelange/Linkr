@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, GitBranch } from 'lucide-react'
+import { Download, GitBranch, Check } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -54,7 +54,13 @@ export function EntityVersioningDialog({
   const [branch, setBranch] = useState(gitRemote?.branch ?? 'main')
   const [token, setToken] = useState(gitRemote?.authToken ?? '')
 
-  const isLinked = !!gitRemote?.url
+  // The dialog owns the link state after mount so it reflects connect/disconnect
+  // immediately without depending on the parent re-passing a fresh prop.
+  const [linked, setLinked] = useState(!!gitRemote?.url)
+  const [saving, setSaving] = useState(false)
+  // Brief "saved" confirmation shown on the button after a successful connect.
+  const [justSaved, setJustSaved] = useState(false)
+
   const canConnect = url.trim().length > 0
 
   const handleExport = async () => {
@@ -63,15 +69,31 @@ export function EntityVersioningDialog({
   }
 
   const handleConnect = async () => {
-    if (!canConnect) return
-    await onSaveGitRemote({ url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined })
+    if (!canConnect || saving) return
+    setSaving(true)
+    try {
+      await onSaveGitRemote({ url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined })
+      setLinked(true)
+      // Flash a confirmation, then settle into the linked (Disconnect) state.
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 1800)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDisconnect = async () => {
-    await onSaveGitRemote(null)
-    setUrl('')
-    setBranch('main')
-    setToken('')
+    if (saving) return
+    setSaving(true)
+    try {
+      await onSaveGitRemote(null)
+      setLinked(false)
+      setUrl('')
+      setBranch('main')
+      setToken('')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -96,7 +118,7 @@ export function EntityVersioningDialog({
 
           {/* --- Export tab --- */}
           <TabsContent value="export" className="space-y-3 pt-3">
-            {isLinked ? (
+            {linked ? (
               <p className="text-xs text-muted-foreground leading-relaxed">
                 {t('app_versioning.entity_export_git_linked_hint')}
               </p>
@@ -135,7 +157,7 @@ export function EntityVersioningDialog({
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder={t('versioning.remote_url_placeholder')}
-                disabled={isLinked}
+                disabled={linked}
                 className="h-9 text-sm"
               />
             </div>
@@ -165,12 +187,17 @@ export function EntityVersioningDialog({
             <p className="text-xs text-muted-foreground leading-relaxed">
               {t('app_versioning.entity_git_link_hint')}
             </p>
-            {isLinked ? (
-              <Button variant="outline" size="sm" onClick={handleDisconnect}>
+            {justSaved ? (
+              <Button size="sm" variant="outline" disabled className="gap-1.5 text-green-600 border-green-600/40">
+                <Check size={14} />
+                {t('app_versioning.remote_connected')}
+              </Button>
+            ) : linked ? (
+              <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={saving}>
                 {t('versioning.remote_disconnect')}
               </Button>
             ) : (
-              <Button size="sm" onClick={handleConnect} disabled={!canConnect}>
+              <Button size="sm" onClick={handleConnect} disabled={!canConnect || saving}>
                 {t('versioning.remote_connect')}
               </Button>
             )}

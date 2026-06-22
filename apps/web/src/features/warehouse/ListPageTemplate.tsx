@@ -289,7 +289,6 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
           onExport={() => onExport(versioning.item)}
           onSaveGitRemote={async (config) => {
             await onSaveGitRemote(versioning.item, config)
-            setVersioning(null)
           }}
         />
       )}

@@ -2393,7 +2393,8 @@
     "tab_git_repository": "Git repository",
     "entity_export_git_linked_hint": "This item is linked to a Git repository. In workspace exports, only its metadata and the Git link are included — its full content lives in the linked repository.",
     "entity_git_link_hint": "Linking to a Git repository lets the deployed portal rebuild this item from its own repository. When linked, workspace exports include only metadata and this pointer.",
-    "export_include_entity_data": "— include data"
+    "export_include_entity_data": "— include data",
+    "remote_connected": "Connected ✓"
   },
   "concept_mapping": {
     "title": "Concept Mapping",
