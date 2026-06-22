@@ -173,6 +173,8 @@ export interface MappingProject {
   stats?: MappingProjectStats
   /** History of bulk catalog imports. */
   importBatches?: ConceptSetImportBatch[]
+  /** Git repository this mapping project is linked to. When set, workspace export emits metadata + this pointer only. */
+  gitRemoteConfig?: import('./index').GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

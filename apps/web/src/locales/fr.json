@@ -2052,7 +2052,8 @@
     "columns": "Colonnes",
     "reset": "Réinitialiser",
     "added": "ajouté(s)",
-    "replaced": "remplacé(s)"
+    "replaced": "remplacé(s)",
+    "versioning": "Versioning"
   },
   "user_menu": {
     "profile": "Paramètres",
@@ -2419,7 +2420,14 @@
     "export_credentials_confirm_excluded": "Jamais inclus : mots de passe, tokens d'authentification",
     "export_credentials_confirm_action": "Exporter avec les identifiants",
     "import_title": "Importer",
-    "import_description": "Restaurer un workspace à partir d'une archive ZIP. Cela importera tous les projets, pages wiki, scripts SQL, pipelines ETL et autres contenus du workspace."
+    "import_description": "Restaurer un workspace à partir d'une archive ZIP. Cela importera tous les projets, pages wiki, scripts SQL, pipelines ETL et autres contenus du workspace.",
+    "entity_versioning_title": "Versioning et export",
+    "entity_versioning_description": "Exportez cet élément ou liez-le à un dépôt Git.",
+    "tab_git_repository": "Dépôt Git",
+    "entity_export_git_linked_hint": "Cet élément est lié à un dépôt Git. Dans les exports de workspace, seules ses métadonnées et le lien Git sont inclus — son contenu complet réside dans le dépôt lié.",
+    "entity_git_link_hint": "Lier à un dépôt Git permet au portail déployé de reconstituer cet élément depuis son propre dépôt. Une fois lié, les exports de workspace n’incluent que les métadonnées et ce pointeur.",
+    "export_include_entity_data": "— inclure les données",
+    "remote_connected": "Connecté ✓"
   },
   "concept_mapping": {
     "title": "Alignement de concepts",

@@ -4,7 +4,8 @@ import { SquareTerminal } from 'lucide-react'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { buildSqlCollectionFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
+import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
@@ -25,21 +26,22 @@ export function SqlScriptsListPage() {
   const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: import('@/types').SqlScriptFile[] } | null>(null)
 
   const handleExport = useCallback(async (collection: SqlScriptCollection) => {
-    const files = await getStorage().sqlScriptFiles.getByCollection(collection.id)
-    await exportEntityZip(
-      [
-        { filename: 'collection.json', data: collection },
-        { filename: 'files.json', data: files },
-      ],
-      `${slugify(collection.name)}.zip`,
-    )
+    const zip = new JSZip()
+    await buildSqlCollectionFolder(zip, '', collection, getStorage())
+    const blob = await zip.generateAsync({ type: 'blob' })
+    downloadBlob(blob, `${slugify(collection.name)}.zip`)
   }, [])
 
   const handleImport = useCallback(async (file: File) => {
     const parsed = await parseImportZip(file)
-    const collection = parsed['collection.json'] as SqlScriptCollection | undefined
+    // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
+    // to the legacy layout (collection.json + files.json).
+    const collection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
     if (!collection?.id) return
-    const files = (parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[]
+    const tree = parsed['_tree.json'] as import('@/types').SqlScriptFile[] | undefined
+    const files = tree
+      ? reconstructTreeFiles(tree, parsed)
+      : ((parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[])
     const existing = await getStorage().sqlScriptCollections.getById(collection.id)
     if (existing) {
       setConflict({ name: existing.name, pending: collection, pendingFiles: files })
@@ -96,6 +98,12 @@ export function SqlScriptsListPage() {
       onNavigate={(id) => navigate(id)}
       onDelete={(id) => deleteCollection(id)}
       onExport={handleExport}
+      getGitRemote={(c) => c.gitRemoteConfig ?? null}
+      onSaveGitRemote={async (c, config) => {
+        await getStorage().sqlScriptCollections.update(c.id, { gitRemoteConfig: config ?? undefined })
+        await loadCollections()
+      }}
+      exportSupportsIncludeData={false}
       onImport={handleImport}
       renderCardBody={(collection) => (
         <>

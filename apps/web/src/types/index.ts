@@ -107,7 +107,10 @@ export interface Project {
   description: LocalizedString
   shortDescription: LocalizedString
   config: Record<string, unknown>
+  /** @deprecated Use gitRemoteConfig.url. Migrated automatically by the storage layer. */
   gitUrl?: string
+  /** Git repository this project is linked to. When set, workspace export emits metadata + this pointer only. */
+  gitRemoteConfig?: GitRemoteConfig
   ownerId: number
   status?: ProjectStatus
   badges?: ProjectBadge[]
@@ -670,6 +673,8 @@ export interface EtlPipeline {
   status: EtlPipelineStatus
   lastRunAt?: string
   lastRunDurationMs?: number
+  /** Git repository this pipeline is linked to. When set, workspace export emits metadata + this pointer only. */
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }
@@ -739,6 +744,8 @@ export interface SqlScriptCollection {
   name: string
   description: string
   defaultDataSourceId?: string
+  /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
+  gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string
 }

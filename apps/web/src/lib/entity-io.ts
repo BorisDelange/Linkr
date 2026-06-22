@@ -16,6 +16,7 @@ import type {
   SourceConceptIdRange, SourceConceptIdEntry,
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
+  GitRemoteConfig,
 } from '@/types'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 
@@ -745,6 +746,34 @@ export interface BuildWorkspaceZipOptions {
   }
   /** Include connection credentials (host, port, database, schema, username) in database export. Passwords are never included. */
   includeCredentials?: boolean
+  /**
+   * Per-entity opt-in to include full content for entities NOT linked to a git repo.
+   * Keyed by the entity's stable id (project.uid, mappingProject.id, sqlCollection.id, etlPipeline.id).
+   * Git-linked entities always export metadata + git pointer only and ignore this flag.
+   * Defaults to false (metadata only) when an entity id is absent.
+   */
+  includeEntityData?: Record<string, boolean>
+}
+
+/** A single git-linked entity recorded in the workspace's git-links.json manifest. */
+export interface GitLinkEntry {
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline'
+  /** Stable entity id (project.uid or entity id). */
+  id: string
+  /** Folder name used inside the workspace zip (projectId / entityId / slug). */
+  folder: string
+  url: string
+  branch: string
+}
+
+/**
+ * Resolve an entity's git link, tolerating the legacy `Project.gitUrl` field.
+ * Returns null when the entity is not linked to any git repo.
+ */
+export function resolveGitRemote(entity: { gitRemoteConfig?: GitRemoteConfig; gitUrl?: string }): GitRemoteConfig | null {
+  if (entity.gitRemoteConfig?.url) return entity.gitRemoteConfig
+  if (entity.gitUrl) return { url: entity.gitUrl, branch: 'main' }
+  return null
 }
 
 function resolveWorkspaceName(ws: Workspace): string {
@@ -764,6 +793,70 @@ function buildTreePath(file: { id: string; name: string; parentId: string | null
     current = parent
   }
   return parts.join('/')
+}
+
+/**
+ * Lay out a SQL script collection in a git-friendly tree under `prefix`:
+ * `_collection.json` (metadata), `_tree.json` (file hierarchy without content),
+ * and each script written at its real path with its raw `.sql` content.
+ */
+export async function buildSqlCollectionFolder(
+  zip: JSZip,
+  prefix: string,
+  collection: SqlScriptCollection,
+  storage: Storage,
+): Promise<void> {
+  zip.file(`${prefix}_collection.json`, json(collection))
+  const files = await storage.sqlScriptFiles.getByCollection(collection.id)
+  const byId = new Map(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  for (const f of files) {
+    if (f.type === 'file' && f.content != null) {
+      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+    }
+  }
+}
+
+/**
+ * Reconstruct tree files (SqlScriptFile / EtlFile) from a parsed import ZIP that uses
+ * the git-friendly layout (`_tree.json` for metadata + raw files at their real paths).
+ * `parsed` keys are zip paths relative to the collection/pipeline root (after any prefix
+ * is stripped by the caller). Folders carry no content; file content comes from the
+ * raw entry matching the file's reconstructed path.
+ */
+export function reconstructTreeFiles<T extends { id: string; name: string; type: 'file' | 'folder'; parentId: string | null; content?: string }>(
+  tree: T[],
+  parsed: Record<string, unknown>,
+): T[] {
+  const byId = new Map(tree.map(f => [f.id, f]))
+  return tree.map(f => {
+    if (f.type !== 'file') return f
+    const path = buildTreePath(f, byId as Map<string, { id: string; name: string; parentId: string | null }>)
+    const raw = parsed[path]
+    return typeof raw === 'string' ? { ...f, content: raw } : f
+  })
+}
+
+/**
+ * Lay out an ETL pipeline in a git-friendly tree under `prefix`:
+ * `_pipeline.json` (metadata), `_tree.json` (file hierarchy without content),
+ * and each script written at its real path with its raw content.
+ */
+export async function buildEtlPipelineFolder(
+  zip: JSZip,
+  prefix: string,
+  pipeline: EtlPipeline,
+  storage: Storage,
+): Promise<void> {
+  zip.file(`${prefix}_pipeline.json`, json(pipeline))
+  const files = await storage.etlFiles.getByPipeline(pipeline.id)
+  const byId = new Map(files.map(f => [f.id, f]))
+  zip.file(`${prefix}_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
+  for (const f of files) {
+    if (f.type === 'file' && f.content != null) {
+      zip.file(`${prefix}${buildTreePath(f, byId)}`, f.content)
+    }
+  }
 }
 
 /**
@@ -800,6 +893,10 @@ export async function buildWorkspaceZip(
 
   const zip = new JSZip()
 
+  // Git-link manifest: collected across all sections, written as git-links.json at the end.
+  const gitLinks: GitLinkEntry[] = []
+  const includeData = options.includeEntityData ?? {}
+
   // --- workspace.json ---
   const { readme: wsReadme, ...wsMeta } = workspace
   zip.file('workspace.json', json({ ...wsMeta, appVersion: APP_VERSION }))
@@ -809,17 +906,38 @@ export async function buildWorkspaceZip(
     zip.file('README.md', wsReadme)
   }
 
-  // --- projects/ (lightweight: metadata + README only, no full content) ---
+  // --- projects/ ---
+  // Git-linked projects: metadata + README + git pointer only (full content lives in the project's own repo).
+  // Unlinked projects: metadata only by default; full content when includeEntityData[uid] is true.
   if (on('projects')) {
     const allProjects = await storage.projects.getAll()
     const wsProjects = allProjects.filter(p => p.workspaceId === workspaceId)
     for (const project of wsProjects) {
       const folder = project.projectId || slugify(resolveProjectName(project))
-      // Export only catalog-relevant metadata (not full project content)
-      const { todos: _t, notes: _n, readmeHistory: _rh, ...projectMeta } = project
-      zip.file(`projects/${folder}/project.json`, json({ ...projectMeta, appVersion: APP_VERSION }))
-      if (project.readme) {
-        zip.file(`projects/${folder}/README.md`, project.readme)
+      const git = resolveGitRemote(project)
+      const { todos: _t, notes: _n, readmeHistory: _rh, gitUrl: _gu, ...projectMeta } = project
+      const projectMetaOut = { ...projectMeta, ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
+
+      if (git) {
+        // Metadata + git pointer only — content comes from the linked repo at portal build time.
+        zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
+        if (project.readme) zip.file(`projects/${folder}/README.md`, project.readme)
+        gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
+      } else if (includeData[project.uid]) {
+        // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
+        const sub = await buildProjectZip(project.uid, storage, { includeDataFiles: options.includeDataFiles })
+        if (sub) {
+          const subZip = await JSZip.loadAsync(sub.blob)
+          await Promise.all(Object.keys(subZip.files).map(async (path) => {
+            const entry = subZip.files[path]
+            if (entry.dir) return
+            zip.file(`projects/${folder}/${path}`, await entry.async('uint8array'))
+          }))
+        }
+      } else {
+        // Lightweight: catalog-relevant metadata + README only.
+        zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
+        if (project.readme) zip.file(`projects/${folder}/README.md`, project.readme)
       }
     }
   }
@@ -880,17 +998,20 @@ export async function buildWorkspaceZip(
     const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(workspaceId)
     for (const collection of sqlCollections) {
       const folder = eid(collection)
-      const files = await storage.sqlScriptFiles.getByCollection(collection.id)
-      const byId = new Map(files.map(f => [f.id, f]))
+      const git = resolveGitRemote(collection)
 
-      zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
-      zip.file(`sql-scripts/${folder}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
-
-      for (const f of files) {
-        if (f.type === 'file' && f.content != null) {
-          zip.file(`sql-scripts/${folder}/${buildTreePath(f, byId)}`, f.content)
-        }
+      if (git) {
+        // Metadata + git pointer only.
+        zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
+        gitLinks.push({ type: 'sql-collection', id: collection.id, folder, url: git.url, branch: git.branch })
+        continue
       }
+
+      if (!includeData[collection.id]) {
+        zip.file(`sql-scripts/${folder}/_collection.json`, json(collection))
+        continue
+      }
+      await buildSqlCollectionFolder(zip, `sql-scripts/${folder}/`, collection, storage)
     }
   }
 
@@ -899,17 +1020,19 @@ export async function buildWorkspaceZip(
     const etlPipelines = await storage.etlPipelines.getByWorkspace(workspaceId)
     for (const pipeline of etlPipelines) {
       const folder = eid(pipeline)
-      const files = await storage.etlFiles.getByPipeline(pipeline.id)
-      const byId = new Map(files.map(f => [f.id, f]))
+      const git = resolveGitRemote(pipeline)
 
-      zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
-      zip.file(`etl/${folder}/_tree.json`, json(files.map(({ content: _, ...meta }) => meta)))
-
-      for (const f of files) {
-        if (f.type === 'file' && f.content != null) {
-          zip.file(`etl/${folder}/${buildTreePath(f, byId)}`, f.content)
-        }
+      if (git) {
+        zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
+        gitLinks.push({ type: 'etl-pipeline', id: pipeline.id, folder, url: git.url, branch: git.branch })
+        continue
       }
+
+      if (!includeData[pipeline.id]) {
+        zip.file(`etl/${folder}/_pipeline.json`, json(pipeline))
+        continue
+      }
+      await buildEtlPipelineFolder(zip, `etl/${folder}/`, pipeline, storage)
     }
   }
 
@@ -927,6 +1050,23 @@ export async function buildWorkspaceZip(
     const mappingProjects = await storage.mappingProjects.getByWorkspace(workspaceId)
     for (const mp of mappingProjects) {
       const folder = eid(mp)
+      const git = resolveGitRemote(mp)
+
+      if (git) {
+        // Metadata + git pointer only — mappings.json / source-concepts.csv live in the linked repo.
+        const { conceptSetIds: _cs, importBatches: _ib, fileSourceData: _fsd, ...mpMeta } = mp
+        zip.file(`mapping-projects/${folder}/project.json`, json({ ...mpMeta, gitRemoteConfig: git }))
+        gitLinks.push({ type: 'mapping-project', id: mp.id, folder, url: git.url, branch: git.branch })
+        continue
+      }
+
+      if (!includeData[mp.id]) {
+        // Unlinked, data not requested: metadata only (skip mappings + source concepts).
+        const { conceptSetIds: _cs, importBatches: _ib, fileSourceData: _fsd, ...mpMeta } = mp
+        zip.file(`mapping-projects/${folder}/project.json`, json(mpMeta))
+        continue
+      }
+
       await buildMappingProjectFolder(zip, `mapping-projects/${folder}/`, mp, storage)
     }
 
@@ -964,6 +1104,11 @@ export async function buildWorkspaceZip(
         zip.file(`plugins/${folder}/${filename}`, content)
       }
     }
+  }
+
+  // --- git-links.json (manifest of git-linked entities; portal build derives .gitmodules from it) ---
+  if (gitLinks.length > 0) {
+    zip.file('git-links.json', json({ appVersion: APP_VERSION, links: gitLinks }))
   }
 
   const blob = await zip.generateAsync({ type: 'blob' })
