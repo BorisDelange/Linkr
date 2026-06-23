@@ -517,7 +517,6 @@ export function exportUnmappedToStcm(
 
 import type JSZip from 'jszip'
 import type { Storage } from '@/lib/storage'
-import { slugify } from '@/lib/entity-io'
 
 interface BuildMappingProjectFolderOptions {
   /** DuckDB query function — needed for DB-based source concepts export. */

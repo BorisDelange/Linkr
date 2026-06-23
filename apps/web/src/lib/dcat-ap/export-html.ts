@@ -27,14 +27,11 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
 
   // Apply anonymization to concept rows
   let concepts: CatalogConceptRow[]
-  let anonConceptCount = 0
   if (mode === 'suppress') {
     concepts = cache.concepts.filter((r) => r.patientCount >= threshold)
-    anonConceptCount = cache.concepts.length - concepts.length
   } else {
     concepts = cache.concepts.map((r) => {
       if (r.patientCount < threshold) {
-        anonConceptCount++
         return { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
       }
       return r
@@ -43,14 +40,11 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
 
   // Apply anonymization to dimension rows
   let dimensions: CatalogDimensionRow[]
-  let anonDimCount = 0
   if (mode === 'suppress') {
     dimensions = cache.dimensions.filter((r) => r.patientCount >= threshold)
-    anonDimCount = cache.dimensions.length - dimensions.length
   } else {
     dimensions = cache.dimensions.map((r) => {
       if (r.patientCount < threshold) {
-        anonDimCount++
         return { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
       }
       return r

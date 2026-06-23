@@ -111,7 +111,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         })
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [dataSourceId])
 
   // ---------------------------------------------------------------------------

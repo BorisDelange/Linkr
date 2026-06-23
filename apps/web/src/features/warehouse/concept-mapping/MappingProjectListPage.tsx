@@ -96,7 +96,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
-  const loadConceptSets = useConceptMappingStore((s) => s.loadConceptSets)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 

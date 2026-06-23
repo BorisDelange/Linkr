@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -888,9 +888,9 @@ function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMapp
 // ---------------------------------------------------------------------------
 
 function ConceptComparisonTab({
-  sourceDs,
+  sourceDs: _sourceDs,
   targetDs,
-  mappingProjectId,
+  mappingProjectId: _mappingProjectId,
 }: {
   sourceDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
   targetDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined

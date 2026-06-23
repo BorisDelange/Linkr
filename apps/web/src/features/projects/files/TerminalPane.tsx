@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Terminal, X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -32,7 +31,6 @@ interface TerminalPaneProps {
 }
 
 export function TerminalPane({ onClose }: TerminalPaneProps) {
-  const { t } = useTranslation()
   const [tabs, setTabs] = useState<TerminalTab[]>([
     { id: 'term-0', type: 'bash', label: 'Bash' },
   ])

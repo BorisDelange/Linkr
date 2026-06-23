@@ -1,4 +1,4 @@
-import { useMemo, useRef, useEffect, useCallback } from 'react'
+import { useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Activity, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -582,9 +582,9 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
   // At-risk numbers at tick times
   const getAtRisk = (steps: SurvivalStep[], t: number): number => {
-    let nRisk = 0
+    let _nRisk = 0
     for (const step of steps) {
-      if (step.time <= t) nRisk = step.nRisk - step.nEvent - step.nCensor
+      if (step.time <= t) _nRisk = step.nRisk - step.nEvent - step.nCensor
       else break
     }
     // Return the at-risk at the start of that interval

@@ -900,7 +900,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const updateMapping = useConceptMappingStore((s) => s.updateMapping)
   const deleteMapping = useConceptMappingStore((s) => s.deleteMapping)
   const createMappingsBatch = useConceptMappingStore((s) => s.createMappingsBatch)
-  const importExternalMapping = useConceptMappingStore((s) => s.importExternalMapping)
   const loadOtherProjectsDetails = useConceptMappingStore((s) => s.loadOtherProjectsDetails)
   const loadProjectMappings = useConceptMappingStore((s) => s.loadProjectMappings)
   const mappingsVersion = useConceptMappingStore((s) => s.mappingsVersion)
@@ -1059,7 +1058,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   // Set-level memo: only re-derives when the *structure* of mappings changes
   // (create / delete / batch import / reload). A vote that just updates a single row
   // does NOT bump structureVersion, so this memo keeps its cached array reference.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   const projectMappings = useMemo(
     () => mappings.filter((m) => m.projectId === project.id),
     [mappingsStructureVersion, project.id],
@@ -1139,11 +1138,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return map
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [allDisplayMappings, currentUser, mappingsVersion])
-
-  // Backwards-compatible accessor used elsewhere in the component.
-  const effectiveStatus = useCallback((m: ConceptMapping): MappingStatus => {
-    return rowDerived.get(m.id)?.eff ?? m.status
-  }, [rowDerived])
 
   // Apply column filters + status popover filter (client-side)
   const filtered = useMemo(() => allDisplayMappings.filter((m) => {
@@ -1850,7 +1844,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       minSize: 36,
     },
     // bulkSelectedIds is read via the ref above to keep columns referentially stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   ], [t, bulkToggleOne])
 
   const bulkTable = useReactTable({

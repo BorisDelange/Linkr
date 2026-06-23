@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Plus, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
 import {
   Popover,
   PopoverContent,
@@ -30,7 +28,6 @@ function serializeColors(colors: string[]): string {
 }
 
 export function PaletteEditor({ value, onChange, className }: PaletteEditorProps) {
-  const { t } = useTranslation()
   const colors = parseColors(value)
   const [editingIndex, setEditingIndex] = useState<number | null>(null)
 

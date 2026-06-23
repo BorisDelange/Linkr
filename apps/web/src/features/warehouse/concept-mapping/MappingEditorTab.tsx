@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { queryDataSource, mountFileSourceIntoDuckDB, isFileSourceMounted, fileSourceDataSourceId } from '@/lib/duckdb/engine'
+import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import {
   buildSourceConceptsQuery,
@@ -50,7 +50,7 @@ const EMPTY_CONCEPT_DICTS: import('@/types/schema-mapping').ConceptDictionary[] 
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
   const { t } = useTranslation()
-  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, createMapping, deleteMapping, updateMapping, loadOtherProjectsMappedKeys, loadOtherProjectsDetails, importExternalMapping } = useConceptMappingStore()
+  const { selectedSourceConceptId, setSelectedSourceConcept, mappings, loadOtherProjectsMappedKeys, loadOtherProjectsDetails, importExternalMapping } = useConceptMappingStore()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   // Load cross-project data in two passes: the cheap key Set first (used by the
@@ -350,7 +350,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     setRows([])
     setHasMore(false)
     loadConceptsRef.current(0)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter])
 
   // Load more when page increments (scroll infinite)

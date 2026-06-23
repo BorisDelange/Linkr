@@ -54,7 +54,7 @@ interface WikiTreeSidebarProps {
   onChangeIcon: (pageId: string) => void
 }
 
-export function WikiTreeSidebar({ workspaceId, onCreatePage, onSearch, onHistory, onChangeIcon }: WikiTreeSidebarProps) {
+export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSearch, onHistory, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
   const tree = getTree()

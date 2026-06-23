@@ -34,14 +34,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { getAllPlugins } from '@/lib/plugins/registry'
-import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { PluginEditor } from './PluginEditor'

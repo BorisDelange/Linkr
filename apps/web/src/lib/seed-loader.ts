@@ -176,7 +176,6 @@ async function fetchBinary(path: string): Promise<ArrayBuffer | null> {
  */
 async function loadFullProject(projectUid: string, base: string): Promise<void> {
   const storage = getStorage()
-  const now = new Date().toISOString()
 
   // Need a project index to know which files exist
   const projectIndex = await fetchJson<SeedProjectIndex>(`${base}/_index.json`)

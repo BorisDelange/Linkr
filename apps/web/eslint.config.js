@@ -6,7 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `dist` = build output; `public` holds vendored worker bundles (DuckDB-WASM
+  // etc.) we don't author and must never lint.
+  globalIgnores(['dist', 'public']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -18,6 +20,25 @@ export default defineConfig([
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    rules: {
+      // `_`-prefixed names are intentionally unused (e.g. destructuring rest,
+      // ignored callback args, omitted-on-purpose state setters).
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
+    },
+  },
+  {
+    files: ['**/*.test.ts'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ])

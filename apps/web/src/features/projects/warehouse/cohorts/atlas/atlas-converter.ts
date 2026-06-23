@@ -16,7 +16,6 @@ import type {
   CriteriaGroupNode,
   CriteriaTreeNode,
   CriterionNode,
-  CriteriaType,
   Cohort,
   ConceptCriteriaConfig,
   AgeCriteriaConfig,
@@ -493,7 +492,7 @@ export interface ExportResult {
 export function exportToAtlas(cohort: Cohort): ExportResult {
   const warnings: string[] = []
   const conceptSets: AtlasConceptSet[] = []
-  let nextCodesetId = 0
+  const nextCodesetId = 0
 
   // Map to track concept sets we've already created
   const conceptSetIdMap = new Map<string, number>()

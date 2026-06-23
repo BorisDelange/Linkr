@@ -11,7 +11,6 @@ import {
   Database,
   GitBranch,
   Puzzle,
-  Plus,
   Building2,
   Globe,
   Mail,

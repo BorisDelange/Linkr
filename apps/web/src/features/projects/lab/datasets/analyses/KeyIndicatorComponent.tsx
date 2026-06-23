@@ -12,7 +12,7 @@ import {
   Tooltip,
 } from 'recharts'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 

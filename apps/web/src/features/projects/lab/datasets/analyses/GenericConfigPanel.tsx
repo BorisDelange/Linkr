@@ -1159,7 +1159,7 @@ function ColorSelectField({
   field,
   value,
   lang,
-  config,
+  config: _config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'

@@ -20,7 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogPeriodRow } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow } from '@/types'
 
 interface Props {
   catalog: DataCatalog
@@ -139,7 +139,7 @@ function FilterDropdown({ label, values, selected, onToggle, onClear }: FilterDr
 
 // ── Sort button ──────────────────────────────────────────────────
 
-function SortButton({ colKey, sortKey, sortDesc, onSort, children }: {
+function SortButton({ colKey, sortKey: _sortKey, sortDesc: _sortDesc, onSort, children }: {
   colKey: string
   sortKey: string
   sortDesc: boolean

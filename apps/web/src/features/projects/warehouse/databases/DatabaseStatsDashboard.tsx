@@ -282,7 +282,7 @@ function GenderPieChart({ data }: { data: GenderDistribution }) {
           verticalAlign="middle"
           iconSize={8}
           iconType="circle"
-          formatter={(value: string, entry) => {
+          formatter={(value: string, _entry) => {
             const item = chartData.find((d) => d.name === value)
             const pct = item && total > 0 ? ((item.value / total) * 100).toFixed(0) : '0'
             return (

@@ -285,7 +285,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       const totalCount = Number(countResults[0]?.cnt ?? 0)
 
       // Execute attrition (only for auto-generated SQL)
-      let attrition: AttritionStep[] = []
+      const attrition: AttritionStep[] = []
       if (!cohort.customSql) {
         const attritionQueries = buildAttritionQueries(cohort, schemaMapping)
         let prevCount = 0

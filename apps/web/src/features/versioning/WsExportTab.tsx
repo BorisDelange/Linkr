@@ -149,7 +149,7 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
       const storage = getStorage()
       const [
         projects, wikiPages, plugins, schemas,
-        dataSources, mappingProjects, conceptSets,
+        dataSources, mappingProjects, _conceptSets,
         sqlCollections, etlPipelines, dqRuleSets,
         catalogs, serviceMappings,
       ] = await Promise.all([

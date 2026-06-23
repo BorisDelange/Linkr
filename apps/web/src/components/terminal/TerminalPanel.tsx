@@ -135,7 +135,7 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
 
     const config = terminalConfig[terminalType]
     let currentLine = ''
-    let history: string[] = []
+    const history: string[] = []
     let historyIndex = -1
     let executing = false
 

@@ -4,7 +4,6 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import type { DqCheck, DqCheckResult, DqCategory } from '@/lib/duckdb/data-quality'
-import { CATEGORY_COLORS } from './DqConstants'
 
 interface Props {
   checks: DqCheck[]

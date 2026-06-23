@@ -65,7 +65,6 @@ export function buildJsonLd(
   let metadata: Record<string, unknown>
   let schemaMapping: SchemaMapping | null | undefined
   let cache: CatalogResultCache | null | undefined
-  let dataCatalog: DataCatalog | null | undefined
   let conceptCatalogUrl: string | undefined
   let fullSchema: IntrospectedTable[] | null | undefined
 
@@ -74,7 +73,6 @@ export function buildJsonLd(
     metadata = opts.metadata
     schemaMapping = opts.schemaMapping
     cache = opts.cache
-    dataCatalog = opts.catalog
     conceptCatalogUrl = opts.conceptCatalogUrl
     fullSchema = opts.fullSchema
   } else {

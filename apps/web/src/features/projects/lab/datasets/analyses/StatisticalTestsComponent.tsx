@@ -218,7 +218,6 @@ function regularizedGamma(a: number, x: number): number {
     return sum * Math.exp(-x + a * Math.log(x) - gammaLn(a))
   }
   // Continued fraction for upper gamma
-  let f = 1e-30
   let c = 1e-30
   let d = 1 / (x + 1 - a)
   let h = d

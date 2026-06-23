@@ -182,7 +182,7 @@ export function MarkdownRenderer({ content, className, resolveWikilink }: Markdo
   // Custom component overrides for ReactMarkdown
   const components = useCallback(() => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    div: ({ node, ...props }: any) => {
+    div: ({ node: _node, ...props }: any) => {
       const calloutType = props['data-callout']
       if (calloutType && calloutStyles[calloutType]) {
         const style = calloutStyles[calloutType]
@@ -198,7 +198,7 @@ export function MarkdownRenderer({ content, className, resolveWikilink }: Markdo
       return <div {...props} />
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    code: ({ node, className: codeClassName, children, ...props }: any) => {
+    code: ({ node: _node, className: codeClassName, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(codeClassName || '')
       if (match?.[1] === 'mermaid') {
         return <MermaidBlock code={String(children).trim()} />

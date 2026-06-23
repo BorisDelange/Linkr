@@ -145,9 +145,6 @@ export function EtlScriptsTab({ pipelineId }: Props) {
     [pipeline?.targetDataSourceId],
   )
 
-  const selectedFileDataSourceId = resolveFileDataSourceId(selectedFile)
-  const selectedFileDs = dataSources.find((ds) => ds.id === selectedFileDataSourceId)
-
   // Ensure source + target + vocabulary data sources are mounted in DuckDB when pipeline loads
   const ensurePipelineDbsMounted = useCallback(async () => {
     const { testConnection, dataSources: allDs } = useDataSourceStore.getState()

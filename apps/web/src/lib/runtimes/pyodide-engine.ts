@@ -86,7 +86,7 @@ with tarfile.open(${JSON.stringify(tarPath)}, 'w') as _t:
     await idbPutTar(data)
     pyodide.FS.unlink(tarPath)
   } catch (e) {
-    // eslint-disable-next-line no-console
+
     console.warn('[pyodide] failed to persist site-packages:', e)
   }
 }
@@ -162,7 +162,7 @@ json.dumps(os.listdir(${JSON.stringify(_sitePackages)}))
       try {
         await restorePythonSite(pyodide)
       } catch (e) {
-        // eslint-disable-next-line no-console
+
         console.warn('[pyodide] failed to restore site-packages:', e)
       }
 

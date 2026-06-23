@@ -58,7 +58,7 @@ export function ConceptsPage() {
     return () => {
       if (sourceId) columnVisibilityCache.set(sourceId, colVisRef.current)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [sourceId])
 
   // Compute hasValueColumn for the selected concept's dict

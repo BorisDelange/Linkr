@@ -1,7 +1,6 @@
 import { useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ArrowLeft,
   Upload,
   File as FileIcon,
   X,
