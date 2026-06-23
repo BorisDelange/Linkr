@@ -339,6 +339,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     <div className={isSideChart ? 'flex-1 min-w-0' : undefined}>
       {/* Icon + title */}
       <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
+        {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
         <Icon size={iconSize} className={iconColor.text} style={iconColor.isCustom ? { color: iconColor.hex } : undefined} />
         <span
           className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}

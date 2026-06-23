@@ -488,6 +488,7 @@ function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof g
       className={cn('gap-1 py-0 text-[11px]', color ? getBadgeClasses(color) : undefined)}
       style={color ? getBadgeStyle(color) : undefined}
     >
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       <Icon size={10} />
       {name}
     </Badge>
@@ -559,6 +560,7 @@ function ComponentPluginOutput({
   // `compact` matches how the widget renders on the dashboard (full-bleed, no extra chrome).
   return (
     <div className="h-full overflow-hidden">
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       <Component config={config} columns={columns} rows={rows} compact />
     </div>
   )

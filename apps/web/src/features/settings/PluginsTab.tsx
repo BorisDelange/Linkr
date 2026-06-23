@@ -139,6 +139,7 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }
         </DropdownMenu>
       </div>
       <div className="flex items-center gap-2 pr-6">
+        {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
         <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
         <span className="text-sm font-medium truncate">
           {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}

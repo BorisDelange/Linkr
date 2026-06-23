@@ -774,6 +774,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
       centerTitle && 'justify-center',
     )}>
       {Icon && (
+        // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
         <Icon
           size={compact ? 16 : 18}
           className={iconColor ? iconColor.text : hasCardColor ? color.text : 'text-muted-foreground'}

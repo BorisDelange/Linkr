@@ -187,6 +187,7 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
   const header = (Icon || title) ? (
     <div className={cn('flex items-center gap-2', compact ? 'px-4 pt-3 pb-1' : 'mb-2', centerTitle && 'justify-center')}>
       {Icon && (
+        // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
         <Icon
           size={compact ? 16 : 18}
           className={hasCardColor ? cardColor.text : 'text-muted-foreground'}

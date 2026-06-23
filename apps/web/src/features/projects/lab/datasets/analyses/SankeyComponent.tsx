@@ -281,6 +281,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   const Icon = hasIcon ? getLucideIcon(cardIcon) : null
   const header = (Icon || title) ? (
     <div className={cn('flex items-center gap-2', compact ? 'px-4 pt-3 pb-1' : 'mb-2', centerTitle && 'justify-center')}>
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       {Icon && <Icon size={compact ? 16 : 18} className="text-muted-foreground" />}
       {title && <span className="text-xs font-medium truncate text-muted-foreground">{title}</span>}
     </div>

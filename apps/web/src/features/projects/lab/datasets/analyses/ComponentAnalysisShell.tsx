@@ -99,6 +99,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           <Allotment.Pane minSize={200}>
             <div className="h-full overflow-auto">
               {Component ? (
+                // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
                 <Component config={config} columns={columns} rows={rows} />
               ) : (
                 <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">

@@ -139,6 +139,7 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
 
   return (
     <div className="h-full overflow-auto">
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       <Component config={source.config} columns={columns} rows={filteredRows} compact />
     </div>
   )
