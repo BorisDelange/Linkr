@@ -12,7 +12,7 @@ export interface EntityHistoryPanelProps {
   onRestored?: () => void
 }
 
-export function EntityHistoryPanel({ }: EntityHistoryPanelProps) {
+export function EntityHistoryPanel(_props: EntityHistoryPanelProps) {
   const { t } = useTranslation()
 
   return (

@@ -119,7 +119,12 @@ function DdlTableOfContents({
   const lower = filter.toLowerCase()
 
   const toggle = (key: string) =>
-    setCollapsed((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next })
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const scrollTo = (line: number) => {
     const editor = editorRef.current
