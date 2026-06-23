@@ -8,12 +8,12 @@ stages:
 # ---------------------------------------------------------------------------
 # Quality gate. Runs on every branch/MR.
 #
-# Adoption is staged because the repo carries a backlog of pre-existing lint
-# and type errors (see docs/conventions.md / REVIEW-LOG.md):
+# Adoption is staged as the backlog is burned down (see docs/conventions.md /
+# REVIEW-LOG.md):
 #   - test:      BLOCKING — the suite is green, keep it green.
-#   - lint:      non-blocking for now (allow_failure) — visible, not a wall.
-#   - typecheck: non-blocking for now (allow_failure) — ~hundreds of legacy errors.
-# As the backlog is burned down, flip allow_failure → false to make them hard gates.
+#   - lint:      BLOCKING — ESLint errors are at 0 (only non-gating warnings remain).
+#   - typecheck: non-blocking (allow_failure) — ~120 legacy type errors remain.
+# When typecheck reaches 0, flip its allow_failure → false too.
 # ---------------------------------------------------------------------------
 
 .node_setup: &node_setup
@@ -34,7 +34,6 @@ test:
 lint:
   stage: quality
   <<: *node_setup
-  allow_failure: true
   script:
     - cd apps/web && npm run lint
 

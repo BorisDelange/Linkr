@@ -3,8 +3,8 @@
 #
 # Mirrors the GitLab `quality` stage so problems are caught locally first:
 #   - tests:  BLOCKING (suite must stay green)
-#   - lint:   warned, non-blocking (legacy backlog)
-#   - typecheck: warned, non-blocking (legacy backlog)
+#   - lint:   BLOCKING (ESLint errors are at 0 — keep them there)
+#   - typecheck: not run here (still a legacy backlog; CI tracks it non-blocking)
 #
 # Bypass in a real emergency with:  git push --no-verify
 # Install with:  npm run hooks:install   (from repo root)
@@ -23,8 +23,14 @@ if ! ( cd "$WEB" && npm run --silent test ); then
 fi
 echo "✓ tests passed"
 
-echo "▶ pre-push: lint (non-blocking, legacy backlog)…"
-( cd "$WEB" && npm run --silent lint ) || echo "⚠ lint reported issues (not blocking yet)"
+echo "▶ pre-push: lint (blocking)…"
+if ! ( cd "$WEB" && npm run --silent lint ); then
+  echo ""
+  echo "✗ Lint failed — push aborted. Fix the ESLint errors above."
+  echo "  Bypass with 'git push --no-verify' (not recommended)."
+  exit 1
+fi
+echo "✓ lint passed"
 
 echo "✓ pre-push checks done"
 exit 0
