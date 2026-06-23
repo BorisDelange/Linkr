@@ -448,6 +448,85 @@ export interface ParsedProjectZip {
   attachmentBlobs: Map<string, ArrayBuffer>
 }
 
+/**
+ * Write a parsed project's sub-entities (IDE files, pipelines, cohorts, connections,
+ * dashboards + tabs + widgets, datasets + analyses + data + raw files, attachments) into
+ * storage under `projectUid`, remapping every child id to a fresh UUID so records from a
+ * different instance never collide. The project record itself must already exist.
+ * Shared by project import, workspace import, and git clone — does NOT touch in-memory caches.
+ */
+export async function importProjectContent(
+  parsed: ParsedProjectZip,
+  projectUid: string,
+  storage: Storage,
+): Promise<void> {
+  const idMap = new Map<string, string>()
+  const mapId = (oldId: string): string => {
+    if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
+    return idMap.get(oldId)!
+  }
+
+  for (const f of parsed.ideFiles) {
+    await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid, parentId: f.parentId ? mapId(f.parentId) : null })
+  }
+  for (const p of parsed.pipelines) {
+    await storage.pipelines.create({ ...p, id: mapId(p.id), projectUid })
+  }
+  for (const c of parsed.cohorts) {
+    await storage.cohorts.create({ ...c, id: mapId(c.id), projectUid })
+  }
+  for (const c of parsed.connections) {
+    await storage.connections.create({ ...c, id: mapId(c.id), projectUid })
+  }
+  for (const d of parsed.dashboards) {
+    const filterConfig = (d.filterConfig ?? []).map(f => ({
+      ...f,
+      id: mapId(f.id),
+      datasetFileId: mapId(f.datasetFileId),
+      ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
+      ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
+    }))
+    await storage.dashboards.create({
+      ...d,
+      id: mapId(d.id),
+      projectUid,
+      filterConfig,
+      defaultDatasetFileId: d.defaultDatasetFileId ? mapId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
+    })
+  }
+  for (const tab of parsed.dashboardTabs) {
+    await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
+  }
+  for (const w of parsed.dashboardWidgets) {
+    await storage.dashboardWidgets.create({
+      ...w,
+      id: mapId(w.id),
+      tabId: mapId(w.tabId),
+      datasetFileId: w.datasetFileId ? mapId(w.datasetFileId) : w.datasetFileId,
+    })
+  }
+  for (const df of parsed.datasetFiles) {
+    await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid, parentId: df.parentId ? mapId(df.parentId) : null })
+  }
+  for (const a of parsed.datasetAnalyses) {
+    await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
+  }
+  for (const dd of parsed.datasetData) {
+    await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
+  }
+  for (const rf of parsed.datasetRawFiles ?? []) {
+    await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
+  }
+  for (const meta of parsed.attachmentsMeta) {
+    const blobData = parsed.attachmentBlobs.get(meta.id)
+    if (blobData) {
+      await storage.readmeAttachments.create({
+        ...meta, id: mapId(meta.id), projectUid, data: blobData,
+      } as ReadmeAttachment)
+    }
+  }
+}
+
 export async function parseProjectZip(file: File): Promise<ParsedProjectZip | null> {
   const zipData = stripRootFolder(await JSZip.loadAsync(file))
 
@@ -885,6 +964,58 @@ export function reconstructTreeFiles<T extends { id: string; name: string; type:
 }
 
 /**
+ * Apply the content of a cloned git repo (root = one entity's export layout) into storage,
+ * filling in the content of an already-imported, git-linked entity.
+ * Returns true when content was applied, false when the repo didn't match the expected layout.
+ */
+export async function applyClonedEntity(
+  zip: JSZip,
+  type: GitLinkedEntity['type'],
+  targetId: string,
+  storage: Storage,
+): Promise<boolean> {
+  const readJson = async <T>(name: string): Promise<T | null> => {
+    const entry = zip.files[name]
+    return entry ? (JSON.parse(await entry.async('string')) as T) : null
+  }
+
+  if (type === 'sql-collection' || type === 'etl-pipeline') {
+    const treeName = '_tree.json'
+    const tree = (await readJson<(SqlScriptFile | EtlFile)[]>(treeName)) ?? []
+    if (tree.length === 0) return false
+    const byId = new Map(tree.map(f => [f.id, f as { id: string; name: string; parentId: string | null }]))
+    const fkKey = type === 'sql-collection' ? 'collectionId' : 'pipelineId'
+    for (const f of tree) {
+      const rec: Record<string, unknown> = { ...f, [fkKey]: targetId }
+      if (f.type === 'file') {
+        const entry = zip.files[buildTreePath(f, byId)]
+        if (entry) rec.content = await entry.async('string')
+      }
+      if (type === 'sql-collection') await storage.sqlScriptFiles.create(rec as unknown as SqlScriptFile).catch(() => {})
+      else await storage.etlFiles.create(rec as unknown as EtlFile).catch(() => {})
+    }
+    return true
+  }
+
+  if (type === 'mapping-project') {
+    const mappings = (await readJson<ConceptMapping[]>('mappings.json')) ?? []
+    let applied = false
+    for (const m of mappings) {
+      await storage.conceptMappings.create({ ...m, projectId: targetId }).catch(() => {})
+      applied = true
+    }
+    return applied
+  }
+
+  // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
+  const blob = await zip.generateAsync({ type: 'blob' })
+  const parsed = await parseProjectZip(new File([blob], 'clone.zip'))
+  if (!parsed) return false
+  await importProjectContent(parsed, targetId, storage)
+  return true
+}
+
+/**
  * Lay out an ETL pipeline in a git-friendly tree under `prefix`:
  * `_pipeline.json` (metadata), `_tree.json` (file hierarchy without content),
  * and each script written at its real path with its raw content.
@@ -1199,6 +1330,35 @@ export interface ParsedWorkspaceZip {
   catalogs: DataCatalog[]
   serviceMappings: ServiceMapping[]
   plugins: UserPlugin[]
+}
+
+/** A git-linked entity discovered in a parsed workspace ZIP (metadata only — content lives in its repo). */
+export interface GitLinkedEntity {
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline'
+  /** Stable id (project.uid or entity id) of the created record, for a later clone. */
+  id: string
+  name: string
+  url: string
+  branch: string
+}
+
+/**
+ * List every entity in a parsed workspace ZIP that carries a git link.
+ * These import as metadata only — their full content stays in the linked repo
+ * until cloned (the portal build does this; the app can offer a best-effort clone).
+ */
+export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedEntity[] {
+  const out: GitLinkedEntity[] = []
+  const push = (type: GitLinkedEntity['type'], id: string, name: string, cfg?: GitRemoteConfig) => {
+    if (cfg?.url) out.push({ type, id, name, url: cfg.url, branch: cfg.branch || 'main' })
+  }
+  for (const e of parsed.projectEntries) {
+    push('project', e.project.uid, resolveProjectName(e.project), resolveGitRemote(e.project) ?? undefined)
+  }
+  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.id, collection.name, resolveGitRemote(collection) ?? undefined)
+  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.id, pipeline.name, resolveGitRemote(pipeline) ?? undefined)
+  for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, project.name, resolveGitRemote(project) ?? undefined)
+  return out
 }
 
 export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip | null> {

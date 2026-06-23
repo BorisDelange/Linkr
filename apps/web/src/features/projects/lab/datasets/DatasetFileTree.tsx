@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { getStorage } from '@/lib/storage'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
 
@@ -144,12 +145,29 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
     }
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (node.type !== 'file') return
+
+    // Prefer the original uploaded file (XLSX/parquet/CSV) so the download keeps the real
+    // bytes and extension. Only fall back to a reconstructed CSV when there's no source file.
+    const raw = await getStorage().datasetRawFiles.get(node.id)
+    const trigger = (blob: Blob, fileName: string) => {
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = fileName
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    if (raw?.blob) {
+      trigger(raw.blob, raw.fileName || node.name)
+      return
+    }
+
     const rows = useDatasetStore.getState().getFileRows(node.id)
     const columns = node.columns ?? []
     if (columns.length === 0) return
-    // Build CSV
     const header = columns.map((c) => c.name).join(',')
     const lines = rows.map((row) =>
       columns.map((c) => {
@@ -162,13 +180,9 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
       }).join(',')
     )
     const csv = [header, ...lines].join('\n')
-    const blob = new Blob([csv], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = node.name
-    a.click()
-    URL.revokeObjectURL(url)
+    // Reconstructed content is CSV — force a .csv name even if the dataset is named *.xlsx.
+    const csvName = node.name.replace(/\.[^.]+$/, '') + '.csv'
+    trigger(new Blob([csv], { type: 'text/csv' }), csvName)
   }
 
   // --- Drag & drop ---
