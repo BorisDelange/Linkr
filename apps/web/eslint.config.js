@@ -33,6 +33,17 @@ export default defineConfig([
           destructuredArrayIgnorePattern: '^_',
         },
       ],
+      // This only protects Vite's dev-time fast-refresh, not production
+      // correctness. Keep it visible as a warning rather than gating CI on it.
+      'react-refresh/only-export-components': 'warn',
+    },
+  },
+  {
+    // shadcn/ui components ship component + variants from one file by design
+    // (e.g. `Button` + `buttonVariants`). Don't fight the upstream pattern.
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
     },
   },
   {
