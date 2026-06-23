@@ -40,6 +40,11 @@ export default defineConfig([
       // these flag no real runtime bug today. Keep visible (for when we do
       // enable it) without gating CI.
       'react-hooks/preserve-manual-memoization': 'warn',
+      // Also a React Compiler preference. Our 43 occurrences were each reviewed:
+      // all are idiomatic (reset-on-dialog-open, sync-from-prop, reset-on-context-
+      // change, loading flags) with targeted deps and no infinite-loop risk.
+      // Warn (not error) until the compiler is enabled.
+      'react-hooks/set-state-in-effect': 'warn',
     },
   },
   {
