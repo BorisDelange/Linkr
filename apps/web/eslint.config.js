@@ -36,6 +36,10 @@ export default defineConfig([
       // This only protects Vite's dev-time fast-refresh, not production
       // correctness. Keep it visible as a warning rather than gating CI on it.
       'react-refresh/only-export-components': 'warn',
+      // React Compiler rule, but the compiler is NOT enabled in our build, so
+      // these flag no real runtime bug today. Keep visible (for when we do
+      // enable it) without gating CI.
+      'react-hooks/preserve-manual-memoization': 'warn',
     },
   },
   {
