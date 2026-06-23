@@ -1,0 +1,30 @@
+#!/bin/sh
+# Linkr pre-push quality gate — runs before code leaves your machine.
+#
+# Mirrors the GitLab `quality` stage so problems are caught locally first:
+#   - tests:  BLOCKING (suite must stay green)
+#   - lint:   warned, non-blocking (legacy backlog)
+#   - typecheck: warned, non-blocking (legacy backlog)
+#
+# Bypass in a real emergency with:  git push --no-verify
+# Install with:  npm run hooks:install   (from repo root)
+
+set -e
+
+ROOT="$(git rev-parse --show-toplevel)"
+WEB="$ROOT/apps/web"
+
+echo "▶ pre-push: running tests (blocking)…"
+if ! ( cd "$WEB" && npm run --silent test ); then
+  echo ""
+  echo "✗ Tests failed — push aborted."
+  echo "  Fix the failing tests, or bypass with 'git push --no-verify' (not recommended)."
+  exit 1
+fi
+echo "✓ tests passed"
+
+echo "▶ pre-push: lint (non-blocking, legacy backlog)…"
+( cd "$WEB" && npm run --silent lint ) || echo "⚠ lint reported issues (not blocking yet)"
+
+echo "✓ pre-push checks done"
+exit 0

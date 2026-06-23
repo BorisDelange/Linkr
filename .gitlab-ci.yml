@@ -1,8 +1,49 @@
 image: node:22-alpine
 
 stages:
+  - quality
   - build
   - deploy
+
+# ---------------------------------------------------------------------------
+# Quality gate. Runs on every branch/MR.
+#
+# Adoption is staged because the repo carries a backlog of pre-existing lint
+# and type errors (see docs/conventions.md / REVIEW-LOG.md):
+#   - test:      BLOCKING — the suite is green, keep it green.
+#   - lint:      non-blocking for now (allow_failure) — visible, not a wall.
+#   - typecheck: non-blocking for now (allow_failure) — ~hundreds of legacy errors.
+# As the backlog is burned down, flip allow_failure → false to make them hard gates.
+# ---------------------------------------------------------------------------
+
+.node_setup: &node_setup
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+      - apps/web/node_modules/
+  before_script:
+    - npm ci
+
+test:
+  stage: quality
+  <<: *node_setup
+  script:
+    - cd apps/web && npm run test
+
+lint:
+  stage: quality
+  <<: *node_setup
+  allow_failure: true
+  script:
+    - cd apps/web && npm run lint
+
+typecheck:
+  stage: quality
+  <<: *node_setup
+  allow_failure: true
+  script:
+    - cd apps/web && npm run typecheck
 
 build:
   stage: build

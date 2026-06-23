@@ -2,6 +2,7 @@
 
 Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a full rewrite from R/Shiny, with dual deployment: static WASM frontend-only, or full-stack with Python backend.
 
+- **Code conventions (read before writing code)** → `docs/conventions.md`
 - Architecture, navigation, stores, OMOP patterns, database gotchas → `docs/architecture.md`
 - Fuzzy search rules → `docs/fuzzy-search.md`
 - Available shadcn/ui components → `docs/shadcn-components.md`
@@ -41,3 +42,5 @@ docker compose -f docker/docker-compose.yml up
 **File naming** — TypeScript/React: kebab-case files + PascalCase exports. Python: snake_case. API routes: kebab-case URLs.
 
 **No comments** — only add a comment when the WHY is non-obvious (hidden constraint, workaround, surprising invariant). Never describe what the code does.
+
+**Tests follow the code** — when you change or add *pure, critical* logic (SQL escaping/validation, OMOP/query builders, fuzzy-search, import/export, format helpers), add or update its test in the same change. Run `npm run test` before pushing. Do not unit-test volatile UI components. Details → `docs/conventions.md` + `.claude/skills/write-tests/`.
