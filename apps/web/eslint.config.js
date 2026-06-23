@@ -41,9 +41,12 @@ export default defineConfig([
   {
     // shadcn/ui components ship component + variants from one file by design
     // (e.g. `Button` + `buttonVariants`). Don't fight the upstream pattern.
+    // `purity` is also off: the skeleton's `Math.random()` width (in a
+    // useMemo) is intentional upstream code, not a render-purity bug.
     files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
       'react-refresh/only-export-components': 'off',
+      'react-hooks/purity': 'off',
     },
   },
   {
