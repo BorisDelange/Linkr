@@ -579,7 +579,7 @@ async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {
 }
 
 /** Parse CSV text and remap column names → column IDs based on DatasetFile.columns. */
-function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
+export function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
   const lines = csv.split('\n').filter(l => l.length > 0)
   if (lines.length < 2) return null
 
@@ -614,7 +614,7 @@ function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null
 }
 
 /** Simple CSV line parser that handles quoted fields. */
-function parseCsvLine(line: string): string[] {
+export function parseCsvLine(line: string): string[] {
   const result: string[] = []
   let current = ''
   let inQuotes = false
