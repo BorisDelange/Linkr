@@ -124,7 +124,15 @@
     "delete_phase_catalogs": "Suppression des catalogues de données…",
     "delete_phase_plugins": "Suppression des plugins…",
     "delete_phase_schemas": "Suppression des presets de schéma…",
-    "delete_phase_finalizing": "Finalisation…"
+    "delete_phase_finalizing": "Finalisation…",
+    "import_git_linked_title": "Éléments liés à Git importés",
+    "import_git_linked_body": "{{count}} élément(s) sont liés à un dépôt Git et ont été importés en métadonnées uniquement — leur contenu complet réside dans leur dépôt. Déployez via le portail pour le charger, ou ouvrez chaque élément pour voir son lien Git.",
+    "import_git_cors_proxy": "Proxy CORS Git (optionnel)",
+    "import_git_token_optional": "Jeton d'accès (dépôts privés)",
+    "import_git_cors_hint": "Les navigateurs ne peuvent pas cloner un dépôt Git directement ; un proxy CORS est requis. Laissez vide pour ne garder que les métadonnées.",
+    "import_git_clone": "Cloner",
+    "import_git_cloned": "Cloné",
+    "import_git_clone_retry": "Réessayer"
   },
   "project_nav": {
     "summary": "Résumé",
@@ -3236,5 +3244,28 @@
     "freq_continuous": "Continue",
     "auto_filling": "Remplissage…",
     "custom_value_placeholder": "Ajouter une valeur personnalisée…"
+  },
+  "import_source": {
+    "title": "Importer",
+    "description": "Importez depuis un fichier ZIP ou clonez un dépôt Git.",
+    "tab_upload": "Téléverser un ZIP",
+    "tab_git": "Depuis Git",
+    "upload_hint": "Sélectionnez un fichier ZIP exporté depuis Linkr.",
+    "choose_file": "Choisir un fichier",
+    "git_url": "URL du dépôt",
+    "git_branch": "Branche",
+    "git_token": "Jeton",
+    "git_token_ph": "Pour dépôts privés",
+    "cors_proxy": "Proxy CORS",
+    "cors_hint": "Les navigateurs ne peuvent pas cloner un dépôt Git directement ; un proxy CORS est requis. Le clonage fonctionne depuis une instance locale de Linkr — voir « Lancer un proxy local ».",
+    "clone_import": "Cloner et importer",
+    "error_proxy": "Le proxy CORS est injoignable (en panne ou bloqué). Réessayez, ou lancez le vôtre avec « npm run dev:proxy » et renseignez http://localhost:9999 dans le champ ci-dessous.",
+    "error_auth": "Échec d'authentification. Pour un dépôt privé, fournissez un jeton d'accès valide.",
+    "error_not_found": "Dépôt introuvable. Vérifiez l'URL.",
+    "error_ref": "Branche introuvable. Vérifiez le nom de la branche.",
+    "error_network": "Erreur réseau pendant le clonage. Vérifiez votre connexion et le proxy.",
+    "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
+    "run_local_proxy": "Lancer un proxy local",
+    "run_local_proxy_hint": "Lance un proxy CORS sans dépendance sur http://localhost:9999 — collez cette adresse dans le champ ci-dessus. Ne fonctionne qu'avec une instance locale de Linkr (npm run dev). Un Linkr déployé en HTTPS nécessite un proxy hébergé en HTTPS."
   }
 }

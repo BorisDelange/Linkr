@@ -13,8 +13,9 @@ import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -39,10 +40,11 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ExportDialog } from '@/components/ui/export-dialog'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
-import { parseWorkspaceZip, deleteProjectData } from '@/lib/entity-io'
-import type { ParsedWorkspaceZip } from '@/lib/entity-io'
+import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
+import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
+import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
 import { getStorage } from '@/lib/storage'
-import type { Project, ReadmeAttachment, WikiAttachment } from '@/types'
+import type { Project, WikiAttachment } from '@/types'
 
 export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
@@ -63,6 +65,23 @@ export function WorkspacesPage() {
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
+  const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
+  const [corsProxy, setCorsProxy] = useState(() => getGitCorsProxy())
+  const [cloneToken, setCloneToken] = useState('')
+  const [cloneState, setCloneState] = useState<Record<string, 'pending' | 'done' | 'error'>>({})
+
+  const handleCloneEntity = useCallback(async (e: GitLinkedEntity) => {
+    const key = `${e.type}-${e.id}`
+    setCloneState(s => ({ ...s, [key]: 'pending' }))
+    try {
+      const zip = await cloneRepoToZip({ url: e.url, branch: e.branch, token: cloneToken || undefined })
+      const ok = await applyClonedEntity(zip, e.type, e.id, getStorage())
+      setCloneState(s => ({ ...s, [key]: ok ? 'done' : 'error' }))
+    } catch {
+      setCloneState(s => ({ ...s, [key]: 'error' }))
+    }
+  }, [cloneToken])
 
   // Import progress state — modal shown while doImport is running.
   // `phaseKey` is an i18n key under workspaces.import_phase_*.
@@ -167,69 +186,8 @@ export function WorkspacesPage() {
 
       await storage.projects.create(entity)
 
-      // Always remap sub-entity IDs to avoid collisions with existing records
-      const idMap = new Map<string, string>()
-      const mapId = (oldId: string): string => {
-        if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
-        return idMap.get(oldId)!
-      }
-
-      for (const f of parsedProject.ideFiles) {
-        await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid: uid, parentId: f.parentId ? mapId(f.parentId) : null })
-      }
-      for (const p of parsedProject.pipelines) {
-        await storage.pipelines.create({ ...p, id: mapId(p.id), projectUid: uid })
-      }
-      for (const c of parsedProject.cohorts) {
-        await storage.cohorts.create({ ...c, id: mapId(c.id), projectUid: uid })
-      }
-      for (const c of parsedProject.connections) {
-        await storage.connections.create({ ...c, id: mapId(c.id), projectUid: uid })
-      }
-      for (const d of parsedProject.dashboards) {
-        const filterConfig = (d.filterConfig ?? []).map(f => ({
-          ...f,
-          id: mapId(f.id),
-          datasetFileId: mapId(f.datasetFileId),
-          ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
-          ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
-        }))
-        await storage.dashboards.create({
-          ...d,
-          id: mapId(d.id),
-          projectUid: uid,
-          filterConfig,
-          defaultDatasetFileId: d.defaultDatasetFileId ? mapId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
-        })
-      }
-      for (const tab of parsedProject.dashboardTabs) {
-        await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
-      }
-      for (const w of parsedProject.dashboardWidgets) {
-        await storage.dashboardWidgets.create({
-          ...w,
-          id: mapId(w.id),
-          tabId: mapId(w.tabId),
-          datasetFileId: w.datasetFileId ? mapId(w.datasetFileId) : w.datasetFileId,
-        })
-      }
-      for (const df of parsedProject.datasetFiles) {
-        await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid: uid, parentId: df.parentId ? mapId(df.parentId) : null })
-      }
-      for (const a of parsedProject.datasetAnalyses) {
-        await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
-      }
-      for (const dd of parsedProject.datasetData) {
-        await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
-      }
-      for (const meta of parsedProject.attachmentsMeta) {
-        const blobData = parsedProject.attachmentBlobs.get(meta.id)
-        if (blobData) {
-          await storage.readmeAttachments.create({
-            ...meta, id: mapId(meta.id), projectUid: uid, data: blobData,
-          } as ReadmeAttachment)
-        }
-      }
+      // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
+      await importProjectContent(parsedProject, uid, storage)
       projectIdx++
       reportPhase('workspaces.import_phase_projects', projectIdx, parsed.projects.size)
       await yieldToBrowser()
@@ -576,6 +534,9 @@ export function WorkspacesPage() {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
       await doImport(parsed, duplicate)
+      // Surface git-linked entities: they import as metadata only, content stays in their repos.
+      const linked = collectGitLinkedEntities(parsed)
+      if (linked.length > 0) setGitLinkedSummary(linked)
     } catch (err) {
       setImportError(t('workspaces.import_error', { error: err instanceof Error ? err.message : String(err) }))
     } finally {
@@ -861,6 +822,74 @@ export function WorkspacesPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setImportError(null)}>
+              {t('common.ok')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Git-linked entities summary after import (metadata only — content lives in their repos) */}
+      <AlertDialog open={gitLinkedSummary !== null} onOpenChange={(open) => { if (!open) setGitLinkedSummary(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <GitBranch size={18} className="text-violet-500" />
+              {t('workspaces.import_git_linked_title')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('workspaces.import_git_linked_body', { count: gitLinkedSummary?.length ?? 0 })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {/* Optional best-effort clone: needs a CORS proxy (empty = disabled). */}
+          <div className="space-y-2 rounded-md border border-border p-3">
+            <Label className="text-[11px] text-muted-foreground">{t('workspaces.import_git_cors_proxy')}</Label>
+            <Input
+              value={corsProxy}
+              onChange={(e) => { setCorsProxy(e.target.value); setGitCorsProxy(e.target.value) }}
+              placeholder="https://cors.isomorphic-git.org"
+              className="h-8 text-xs"
+            />
+            <Input
+              type="password"
+              value={cloneToken}
+              onChange={(e) => setCloneToken(e.target.value)}
+              placeholder={t('workspaces.import_git_token_optional')}
+              className="h-8 text-xs"
+            />
+            <p className="text-[10px] text-muted-foreground leading-relaxed">{t('workspaces.import_git_cors_hint')}</p>
+          </div>
+
+          <div className="max-h-48 overflow-auto rounded-md border border-border">
+            {(gitLinkedSummary ?? []).map((e) => {
+              const key = `${e.type}-${e.id}`
+              const st = cloneState[key]
+              return (
+                <div key={key} className="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-border last:border-0">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{e.name}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">{e.url}</div>
+                  </div>
+                  {canCloneFromGit() && (
+                    <Button
+                      size="sm" variant="outline"
+                      className="h-7 shrink-0 gap-1 text-[11px]"
+                      disabled={st === 'pending' || st === 'done'}
+                      onClick={() => handleCloneEntity(e)}
+                    >
+                      {st === 'pending' ? <Loader2 size={12} className="animate-spin" />
+                        : st === 'done' ? <Check size={12} className="text-primary" />
+                        : <Download size={12} />}
+                      {st === 'done' ? t('workspaces.import_git_cloned')
+                        : st === 'error' ? t('workspaces.import_git_clone_retry')
+                        : t('workspaces.import_git_clone')}
+                    </Button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogAction onClick={() => { setGitLinkedSummary(null); setCloneState({}) }}>
               {t('common.ok')}
             </AlertDialogAction>
           </AlertDialogFooter>

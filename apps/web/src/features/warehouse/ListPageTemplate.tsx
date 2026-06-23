@@ -1,7 +1,8 @@
-import { useState, useRef, type ReactNode, type LucideIcon } from 'react'
+import { useState, type ReactNode, type LucideIcon } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Plus, Trash2, Pencil, Download, GitBranch, History, MoreHorizontal, Upload } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import type { GitRemoteConfig } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -118,7 +119,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   const [toDelete, setToDelete] = useState<T | null>(null)
   const [toEdit, setToEdit] = useState<T | null>(null)
   const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   const versioningEnabled = !!getGitRemote && !!onSaveGitRemote
 
@@ -127,13 +128,6 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
       await onDelete(toDelete.id)
       setToDelete(null)
     }
-  }
-
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file && onImport) onImport(file)
-    // Reset input so the same file can be re-imported
-    e.target.value = ''
   }
 
   return (
@@ -147,24 +141,15 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
           <div className="mt-3 flex items-center justify-end gap-1">
             {headerActions}
             {onImport ? (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1 text-xs"
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  <Upload size={14} />
-                  {t('common.import')}
-                </Button>
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept={importAccept}
-                  className="hidden"
-                  onChange={handleImportFile}
-                />
-              </>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-xs"
+                onClick={() => setImportOpen(true)}
+              >
+                <Upload size={14} />
+                {t('common.import')}
+              </Button>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -277,6 +262,16 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
         item: toEdit,
         onOpenChange: (open) => { if (!open) setToEdit(null) },
       })}
+
+      {/* Import dialog (ZIP upload or git clone) */}
+      {onImport && (
+        <ImportSourceDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          accept={importAccept}
+          onImport={onImport}
+        />
+      )}
 
       {/* Versioning dialog (export + git link) */}
       {versioning && getGitRemote && onSaveGitRemote && onExport && (

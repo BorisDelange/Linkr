@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams, useParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
@@ -9,7 +9,7 @@ import { useFileStore } from '@/stores/file-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
-import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData } from '@/lib/entity-io'
+import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, History, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,10 +33,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
-import type { Project, ReadmeAttachment } from '@/types'
+import type { Project } from '@/types'
 
 export function ProjectsPage() {
   const { t } = useTranslation()
@@ -47,7 +48,7 @@ export function ProjectsPage() {
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const importInputRef = useRef<HTMLInputElement>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ uid: string; name: string } | null>(null)
@@ -141,75 +142,8 @@ export function ProjectsPage() {
 
     await storage.projects.create(entity)
 
-    // Always remap sub-entity IDs to fresh UUIDs.  Even when not duplicating
-    // the *project* uid, the child IDs (dashboards, tabs, widgets, datasets…)
-    // may collide with existing records from other projects — especially when
-    // the ZIP was exported from a different instance that used sequential IDs.
-    const idMap = new Map<string, string>()
-    const mapId = (oldId: string): string => {
-      if (!idMap.has(oldId)) idMap.set(oldId, crypto.randomUUID())
-      return idMap.get(oldId)!
-    }
-
-    for (const f of parsed.ideFiles) {
-      await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid: uid, parentId: f.parentId ? mapId(f.parentId) : null })
-    }
-    for (const p of parsed.pipelines) {
-      await storage.pipelines.create({ ...p, id: mapId(p.id), projectUid: uid })
-    }
-    for (const c of parsed.cohorts) {
-      await storage.cohorts.create({ ...c, id: mapId(c.id), projectUid: uid })
-    }
-    for (const c of parsed.connections) {
-      await storage.connections.create({ ...c, id: mapId(c.id), projectUid: uid })
-    }
-    for (const d of parsed.dashboards) {
-      const filterConfig = (d.filterConfig ?? []).map(f => ({
-        ...f,
-        id: mapId(f.id),
-        datasetFileId: mapId(f.datasetFileId),
-        ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
-        ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
-      }))
-      await storage.dashboards.create({
-        ...d,
-        id: mapId(d.id),
-        projectUid: uid,
-        filterConfig,
-        defaultDatasetFileId: d.defaultDatasetFileId ? mapId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
-      })
-    }
-    for (const tab of parsed.dashboardTabs) {
-      await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
-    }
-    for (const w of parsed.dashboardWidgets) {
-      await storage.dashboardWidgets.create({
-        ...w,
-        id: mapId(w.id),
-        tabId: mapId(w.tabId),
-        datasetFileId: w.datasetFileId ? mapId(w.datasetFileId) : w.datasetFileId,
-      })
-    }
-    for (const df of parsed.datasetFiles) {
-      await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid: uid, parentId: df.parentId ? mapId(df.parentId) : null })
-    }
-    for (const a of parsed.datasetAnalyses) {
-      await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
-    }
-    for (const dd of parsed.datasetData) {
-      await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
-    }
-    for (const rf of parsed.datasetRawFiles ?? []) {
-      await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
-    }
-    for (const meta of parsed.attachmentsMeta) {
-      const blobData = parsed.attachmentBlobs.get(meta.id)
-      if (blobData) {
-        await storage.readmeAttachments.create({
-          ...meta, id: mapId(meta.id), projectUid: uid, data: blobData,
-        } as ReadmeAttachment)
-      }
-    }
+    // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
+    await importProjectContent(parsed, uid, storage)
 
     // Invalidate in-memory caches so stores reload from IDB on next project open
     useDashboardStore.setState({ activeProjectUid: null, loaded: false })
@@ -224,11 +158,7 @@ export function ProjectsPage() {
     await loadProjects()
   }, [wsUid, activeWorkspaceId, loadProjects])
 
-  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    e.target.value = ''
-
+  const handleImportSource = useCallback(async (file: File) => {
     try {
       const parsed = await parseProjectZip(file)
       if (!parsed) {
@@ -260,18 +190,11 @@ export function ProjectsPage() {
               variant="outline"
               size="sm"
               className="gap-1 text-xs"
-              onClick={() => importInputRef.current?.click()}
+              onClick={() => setImportOpen(true)}
             >
               <Upload size={14} />
               {t('common.import')}
             </Button>
-            <input
-              ref={importInputRef}
-              type="file"
-              accept=".zip"
-              className="hidden"
-              onChange={handleImportFile}
-            />
             <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
               <Plus size={14} />
               {t('projects.create')}
@@ -423,6 +346,9 @@ export function ProjectsPage() {
         onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true); setImportConflict(null) }}
         onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false); setImportConflict(null) }}
       />
+
+      {/* Import project (ZIP upload or git clone) */}
+      <ImportSourceDialog open={importOpen} onOpenChange={setImportOpen} accept=".zip" onImport={handleImportSource} />
 
       {/* Delete project confirmation */}
       <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirm('') } }}>
