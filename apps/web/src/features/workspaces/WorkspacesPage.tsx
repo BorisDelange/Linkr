@@ -13,7 +13,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
@@ -37,7 +37,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
-import { ExportDialog } from '@/components/ui/export-dialog'
+import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import { WsExportTab } from '@/features/versioning/WsExportTab'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
@@ -51,7 +52,7 @@ export function WorkspacesPage() {
   const navigate = useNavigate()
   const { workspaces, _workspacesRaw, openWorkspace, deleteWorkspace } = useWorkspaceStore()
   const { getWorkspaceProjects, loadProjects } = useAppStore()
-  const { exportZip } = useWorkspaceVersioningStore()
+  const { setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const importInputRef = useRef<HTMLInputElement>(null)
 
@@ -59,8 +60,8 @@ export function WorkspacesPage() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
-  // Export dialog state
-  const [exportTarget, setExportTarget] = useState<string | null>(null)
+  // Versioning dialog (export + git link) state
+  const [versioningTarget, setVersioningTarget] = useState<{ id: string; tab: 'export' | 'git' } | null>(null)
 
   // Import conflict state
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
@@ -114,11 +115,6 @@ export function WorkspacesPage() {
       setDeleteProgress(null)
     }
   }
-
-  const handleExportWorkspace = useCallback(async (options: { includeDataFiles: boolean }) => {
-    if (!exportTarget) return
-    await exportZip(exportTarget, { includeDataFiles: options.includeDataFiles })
-  }, [exportZip, exportTarget])
 
   // --- Import logic ---
   const doImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
@@ -654,9 +650,18 @@ export function WorkspacesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setExportTarget(ws.id) }}>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'export' }) }}>
                             <Download size={14} />
                             {t('common.export')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'git' }) }}>
+                            <GitBranch size={14} />
+                            {t('common.versioning')}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem disabled>
+                            <History size={14} />
+                            {t('common.history')}
+                            <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -703,12 +708,24 @@ export function WorkspacesPage() {
 
       <CreateWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
 
-      {/* Export workspace dialog */}
-      <ExportDialog
-        open={exportTarget !== null}
-        onOpenChange={(open) => { if (!open) setExportTarget(null) }}
-        onExport={handleExportWorkspace}
-      />
+      {/* Versioning dialog (export + git link) */}
+      {versioningTarget && (
+        <EntityVersioningDialog
+          open
+          onOpenChange={(open) => { if (!open) setVersioningTarget(null) }}
+          initialTab={versioningTarget.tab}
+          gitRemote={(() => {
+            const w = _workspacesRaw.find((w) => w.id === versioningTarget.id)
+            return w?.gitRemoteConfig?.url ? w.gitRemoteConfig : null
+          })()}
+          onSaveGitRemote={async (cfg) => {
+            if (cfg) await setRemoteConfig(versioningTarget.id, cfg)
+            else await clearRemoteConfig(versioningTarget.id)
+            await useWorkspaceStore.getState().loadWorkspaces()
+          }}
+          exportContent={<WsExportTab workspaceId={versioningTarget.id} />}
+        />
+      )}
 
       {/* Import conflict dialog */}
       <ImportConflictDialog

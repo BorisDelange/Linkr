@@ -1,39 +1,83 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, GitBranch, Check } from 'lucide-react'
+import { Download } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { VersioningTabs, type VersioningTab } from '@/components/versioning/VersioningTabs'
 import type { GitRemoteConfig } from '@/types'
 
 interface EntityVersioningDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  /** Which tab to show first. 'export' or 'git'. */
-  initialTab?: 'export' | 'git'
-  /** Whether the export supports an "include data" toggle (false hides it). */
+  /** Which tab to show first. */
+  initialTab?: VersioningTab
+  /** Whether the export supports an "include data" toggle (false hides it). Ignored when exportContent is given. */
   supportsIncludeData?: boolean
-  /** Run the per-entity export. */
-  onExport: (options: { includeDataFiles: boolean }) => void | Promise<void>
+  /** Run the per-entity export. Required unless a custom exportContent is provided. */
+  onExport?: (options: { includeDataFiles: boolean }) => void | Promise<void>
+  /** Custom export UI (e.g. the full workspace export). Overrides the default entity export tab. */
+  exportContent?: React.ReactNode
   /** Current git link of the entity, or null when unlinked. */
   gitRemote: GitRemoteConfig | null
   /** Persist a git link (or null to unlink) on the entity. */
   onSaveGitRemote: (config: GitRemoteConfig | null) => void | Promise<void>
 }
 
+/** Export tab body for a single entity: include-data option + download (or git-linked hint). */
+function EntityExportContent({
+  supportsIncludeData,
+  isLinked,
+  onExport,
+  onDone,
+}: {
+  supportsIncludeData: boolean
+  isLinked: boolean
+  onExport: (options: { includeDataFiles: boolean }) => void | Promise<void>
+  onDone: () => void
+}) {
+  const { t } = useTranslation()
+  const [includeData, setIncludeData] = useState(false)
+
+  return (
+    <div className="space-y-3">
+      {isLinked ? (
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          {t('app_versioning.entity_export_git_linked_hint')}
+        </p>
+      ) : supportsIncludeData ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Checkbox id="entity-export-include-data" checked={includeData} onCheckedChange={(v) => setIncludeData(v === true)} />
+            <Label htmlFor="entity-export-include-data" className="text-sm font-normal cursor-pointer">
+              {t('versioning.export_include_data')}
+            </Label>
+          </div>
+          <p className="text-xs text-muted-foreground">{t('versioning.export_include_data_hint')}</p>
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
+      )}
+      <div className="flex justify-end">
+        <Button onClick={async () => { await onExport({ includeDataFiles: includeData }); onDone() }} className="gap-1.5">
+          <Download size={14} />
+          {t('versioning.export_download')}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 /**
- * Unified per-entity versioning dialog: Export + Git repository link.
- * Reused by all linkable entities (projects, mapping projects, SQL collections, ETL pipelines).
+ * Per-entity versioning dialog. Renders the shared VersioningTabs (Export · Git · History)
+ * inside a dialog, so it stays consistent with the workspace/project versioning pages.
  */
 export function EntityVersioningDialog({
   open,
@@ -41,171 +85,40 @@ export function EntityVersioningDialog({
   initialTab = 'export',
   supportsIncludeData = true,
   onExport,
+  exportContent,
   gitRemote,
   onSaveGitRemote,
 }: EntityVersioningDialogProps) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'export' | 'git'>(initialTab)
-  const [includeData, setIncludeData] = useState(false)
 
-  // The dialog is mounted fresh each time it opens (parent gates on a non-null target),
-  // so these initializers capture the entity's current link without a re-seed effect.
-  const [url, setUrl] = useState(gitRemote?.url ?? '')
-  const [branch, setBranch] = useState(gitRemote?.branch ?? 'main')
-  const [token, setToken] = useState(gitRemote?.authToken ?? '')
-
-  // The dialog owns the link state after mount so it reflects connect/disconnect
-  // immediately without depending on the parent re-passing a fresh prop.
-  const [linked, setLinked] = useState(!!gitRemote?.url)
-  const [saving, setSaving] = useState(false)
-  // Brief "saved" confirmation shown on the button after a successful connect.
-  const [justSaved, setJustSaved] = useState(false)
-
-  const canConnect = url.trim().length > 0
-
-  const handleExport = async () => {
-    await onExport({ includeDataFiles: includeData })
-    onOpenChange(false)
-  }
-
-  const handleConnect = async () => {
-    if (!canConnect || saving) return
-    setSaving(true)
-    try {
-      await onSaveGitRemote({ url: url.trim(), branch: branch.trim() || 'main', authToken: token || undefined })
-      setLinked(true)
-      // Flash a confirmation, then settle into the linked (Disconnect) state.
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 1800)
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleDisconnect = async () => {
-    if (saving) return
-    setSaving(true)
-    try {
-      await onSaveGitRemote(null)
-      setLinked(false)
-      setUrl('')
-      setBranch('main')
-      setToken('')
-    } finally {
-      setSaving(false)
-    }
-  }
+  // A custom export (e.g. the full workspace export) needs a roomier, fixed-height dialog
+  // whose body scrolls internally.
+  const wide = !!exportContent
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={wide ? 'flex max-h-[85vh] flex-col sm:max-w-2xl' : undefined}>
         <DialogHeader>
           <DialogTitle>{t('app_versioning.entity_versioning_title')}</DialogTitle>
           <DialogDescription>{t('app_versioning.entity_versioning_description')}</DialogDescription>
         </DialogHeader>
 
-        <Tabs value={tab} onValueChange={(v) => setTab(v as 'export' | 'git')}>
-          <TabsList className="w-full">
-            <TabsTrigger value="export" className="flex-1 gap-1.5">
-              <Download size={14} />
-              {t('versioning.tab_export')}
-            </TabsTrigger>
-            <TabsTrigger value="git" className="flex-1 gap-1.5">
-              <GitBranch size={14} />
-              {t('app_versioning.tab_git_repository')}
-            </TabsTrigger>
-          </TabsList>
-
-          {/* --- Export tab --- */}
-          {/* min-h keeps the dialog height stable when switching to the taller Git tab */}
-          <TabsContent value="export" className="min-h-[280px] space-y-3 pt-3">
-            {linked ? (
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                {t('app_versioning.entity_export_git_linked_hint')}
-              </p>
-            ) : supportsIncludeData ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="entity-export-include-data"
-                    checked={includeData}
-                    onCheckedChange={(v) => setIncludeData(v === true)}
-                  />
-                  <Label htmlFor="entity-export-include-data" className="text-sm font-normal cursor-pointer">
-                    {t('versioning.export_include_data')}
-                  </Label>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  {t('versioning.export_include_data_hint')}
-                </p>
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
-            )}
-          </TabsContent>
-
-          {/* --- Git repository tab --- */}
-          <TabsContent value="git" className="min-h-[280px] space-y-4 pt-3">
-            <div className="space-y-2">
-              <Label className="text-xs">{t('versioning.remote_url')}</Label>
-              <Input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder={t('versioning.remote_url_placeholder')}
-                disabled={linked}
-                className="h-9 text-sm"
+        <VersioningTabs
+          initialTab={initialTab}
+          fillHeight={wide}
+          gitRemote={gitRemote}
+          onSaveGitRemote={onSaveGitRemote}
+          exportContent={
+            exportContent ?? (
+              <EntityExportContent
+                supportsIncludeData={supportsIncludeData}
+                isLinked={!!gitRemote?.url}
+                onExport={onExport ?? (() => {})}
+                onDone={() => onOpenChange(false)}
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label className="text-xs">{t('versioning.remote_branch')}</Label>
-                <Input
-                  value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
-                  placeholder="main"
-                  disabled={linked}
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs">{t('versioning.remote_token')}</Label>
-                <Input
-                  type="password"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder={t('versioning.remote_token_placeholder')}
-                  disabled={linked}
-                  className="h-9 text-sm"
-                />
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {t('app_versioning.entity_git_link_hint')}
-            </p>
-          </TabsContent>
-        </Tabs>
-
-        <DialogFooter>
-          {tab === 'export' ? (
-            <Button onClick={handleExport} className="gap-1.5">
-              <Download size={14} />
-              {t('versioning.export_download')}
-            </Button>
-          ) : justSaved ? (
-            <Button variant="outline" disabled className="gap-1.5 text-muted-foreground transition-opacity">
-              <Check size={14} className="text-primary" />
-              {t('app_versioning.remote_connected')}
-            </Button>
-          ) : linked ? (
-            <Button variant="outline" onClick={handleDisconnect} disabled={saving}>
-              {t('versioning.remote_disconnect')}
-            </Button>
-          ) : (
-            <Button onClick={handleConnect} disabled={!canConnect || saving}>
-              {t('versioning.remote_connect')}
-            </Button>
-          )}
-        </DialogFooter>
+            )
+          }
+        />
       </DialogContent>
     </Dialog>
   )

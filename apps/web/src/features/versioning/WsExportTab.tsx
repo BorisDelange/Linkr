@@ -120,9 +120,10 @@ const ALL_KEYS = allLeafKeys(exportSections)
 // Component
 // ---------------------------------------------------------------------------
 
-export function WsExportTab() {
+export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const params = useParams<{ wsUid: string }>()
+  const wsUid = workspaceId ?? params.wsUid
   const { exportZip, loading } = useWorkspaceVersioningStore()
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set(ALL_KEYS))
@@ -444,12 +445,13 @@ export function WsExportTab() {
 
   return (
     <>
-      <Card>
-        <CardHeader>
+      {/* Bounded flex column so all 4 borders stay visible and only the list scrolls. */}
+      <Card className="flex max-h-full min-h-0 flex-col overflow-hidden">
+        <CardHeader className="shrink-0">
           <CardTitle className="text-sm">{t('versioning.export_title')}</CardTitle>
           <CardDescription>{t('app_versioning.export_description')}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="min-h-0 flex-1 space-y-4 overflow-auto">
           {/* Select all / none */}
           <div className="flex gap-2">
             <Button
@@ -476,12 +478,10 @@ export function WsExportTab() {
           <div className="space-y-1">
             {exportSections.map(s => renderSection(s))}
           </div>
+        </CardContent>
 
-          {/* Projects hint */}
-          <p className="text-xs text-muted-foreground pl-6">
-            {t('app_versioning.export_projects_hint')}
-          </p>
-
+        {/* Fixed footer so the Download button (and the card's bottom border) stay visible. */}
+        <div className="shrink-0 flex justify-end border-t border-border px-6 py-3">
           <Button
             size="sm"
             onClick={handleExport}
@@ -491,7 +491,7 @@ export function WsExportTab() {
             {exporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
             {t('versioning.export_download')}
           </Button>
-        </CardContent>
+        </div>
       </Card>
 
       {/* Credentials confirmation dialog */}

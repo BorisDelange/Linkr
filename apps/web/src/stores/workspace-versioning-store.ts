@@ -37,8 +37,9 @@ interface WorkspaceVersioningState {
   restoreEntity: (workspaceId: string, entityType: VersionedEntityType, entityId: string, oid: string) => Promise<RestoreResult>
   restoreToCommit: (workspaceId: string, oid: string) => Promise<RestoreResult>
 
-  setRemoteConfig: (config: GitRemoteConfig) => void
-  clearRemoteConfig: () => void
+  loadRemoteConfig: (workspaceId: string) => Promise<void>
+  setRemoteConfig: (workspaceId: string, config: GitRemoteConfig) => Promise<void>
+  clearRemoteConfig: (workspaceId: string) => Promise<void>
   exportZip: (workspaceId: string, options?: BuildWorkspaceZipOptions) => Promise<void>
 }
 
@@ -71,8 +72,18 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
   restoreEntity: async () => { console.info(BACKEND_MSG); return { success: false, restoredFiles: [] } },
   restoreToCommit: async () => { console.info(BACKEND_MSG); return { success: false, restoredFiles: [] } },
 
-  setRemoteConfig: (config) => set({ remoteConfig: config }),
-  clearRemoteConfig: () => set({ remoteConfig: null }),
+  loadRemoteConfig: async (workspaceId) => {
+    const ws = await getStorage().workspaces.getById(workspaceId)
+    set({ remoteConfig: ws?.gitRemoteConfig?.url ? ws.gitRemoteConfig : null })
+  },
+  setRemoteConfig: async (workspaceId, config) => {
+    set({ remoteConfig: config })
+    await getStorage().workspaces.update(workspaceId, { gitRemoteConfig: config })
+  },
+  clearRemoteConfig: async (workspaceId) => {
+    set({ remoteConfig: null })
+    await getStorage().workspaces.update(workspaceId, { gitRemoteConfig: undefined })
+  },
   exportZip: async (workspaceId: string, options: BuildWorkspaceZipOptions = {}) => {
     set({ loading: true })
     try {
