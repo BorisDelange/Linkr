@@ -59,19 +59,6 @@ export function DqRuleSetListPage() {
     )
   }, [])
 
-  const handleImport = useCallback(async (file: File) => {
-    const parsed = await parseImportZip(file)
-    const rs = parsed['ruleset.json'] as DqRuleSet | undefined
-    if (!rs?.id) return
-    const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
-    const existing = await getStorage().dqRuleSets.getById(rs.id)
-    if (existing) {
-      setConflict({ name: existing.name, pending: rs, pendingChecks: checks })
-    } else {
-      await doImport(rs, checks, false)
-    }
-  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doImport = useCallback(async (rs: DqRuleSet, checks: import('@/types').DqCustomCheck[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : rs.id
@@ -97,6 +84,19 @@ export function DqRuleSetListPage() {
     }
     await loadDqRuleSets()
   }, [activeWorkspaceId, loadDqRuleSets])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const rs = parsed['ruleset.json'] as DqRuleSet | undefined
+    if (!rs?.id) return
+    const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
+    const existing = await getStorage().dqRuleSets.getById(rs.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: rs, pendingChecks: checks })
+    } else {
+      await doImport(rs, checks, false)
+    }
+  }, [doImport])
 
   return (
     <>

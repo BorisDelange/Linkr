@@ -32,24 +32,6 @@ export function SqlScriptsListPage() {
     downloadBlob(blob, `${slugify(collection.name)}.zip`)
   }, [])
 
-  const handleImport = useCallback(async (file: File) => {
-    const parsed = await parseImportZip(file)
-    // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
-    // to the legacy layout (collection.json + files.json).
-    const collection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
-    if (!collection?.id) return
-    const tree = parsed['_tree.json'] as import('@/types').SqlScriptFile[] | undefined
-    const files = tree
-      ? reconstructTreeFiles(tree, parsed)
-      : ((parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[])
-    const existing = await getStorage().sqlScriptCollections.getById(collection.id)
-    if (existing) {
-      setConflict({ name: existing.name, pending: collection, pendingFiles: files })
-    } else {
-      await doImport(collection, files, false)
-    }
-  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doImport = useCallback(async (collection: SqlScriptCollection, files: import('@/types').SqlScriptFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : collection.id
@@ -75,6 +57,24 @@ export function SqlScriptsListPage() {
     }
     await loadCollections()
   }, [activeWorkspaceId, loadCollections])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
+    // to the legacy layout (collection.json + files.json).
+    const collection = (parsed['_collection.json'] ?? parsed['collection.json']) as SqlScriptCollection | undefined
+    if (!collection?.id) return
+    const tree = parsed['_tree.json'] as import('@/types').SqlScriptFile[] | undefined
+    const files = tree
+      ? reconstructTreeFiles(tree, parsed)
+      : ((parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[])
+    const existing = await getStorage().sqlScriptCollections.getById(collection.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: collection, pendingFiles: files })
+    } else {
+      await doImport(collection, files, false)
+    }
+  }, [doImport])
 
   return (
     <>

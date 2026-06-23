@@ -1312,23 +1312,6 @@ export function SchemaPresetsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    try {
-      const text = await file.text()
-      const mapping = JSON.parse(text) as SchemaMapping
-      if (!mapping.presetId || !mapping.presetLabel) return
-      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
-      if (existing) {
-        setImportConflict({ name: existing.mapping.presetLabel, mapping })
-      } else {
-        await doPresetImport(mapping, false)
-      }
-    } catch { /* invalid JSON */ }
-  }, [customPresets]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean) => {
     const now = new Date().toISOString()
     const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
@@ -1350,6 +1333,23 @@ export function SchemaPresetsPage() {
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
   }, [wsUid, loadCustomPresets])
+
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const text = await file.text()
+      const mapping = JSON.parse(text) as SchemaMapping
+      if (!mapping.presetId || !mapping.presetLabel) return
+      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
+      if (existing) {
+        setImportConflict({ name: existing.mapping.presetLabel, mapping })
+      } else {
+        await doPresetImport(mapping, false)
+      }
+    } catch { /* invalid JSON */ }
+  }, [customPresets, doPresetImport])
 
   const [createTemplate, setCreateTemplate] = useState<string>('blank')
 

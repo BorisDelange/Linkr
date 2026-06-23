@@ -48,24 +48,6 @@ export function EtlListPage() {
     downloadBlob(blob, `${slugify(pipeline.name)}.zip`)
   }, [])
 
-  const handleImport = useCallback(async (file: File) => {
-    const parsed = await parseImportZip(file)
-    // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
-    // to the legacy layout (pipeline.json + files.json).
-    const pipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
-    if (!pipeline?.id) return
-    const tree = parsed['_tree.json'] as import('@/types').EtlFile[] | undefined
-    const files = tree
-      ? reconstructTreeFiles(tree, parsed)
-      : ((parsed['files.json'] ?? []) as import('@/types').EtlFile[])
-    const existing = await getStorage().etlPipelines.getById(pipeline.id)
-    if (existing) {
-      setConflict({ name: existing.name, pending: pipeline, pendingFiles: files })
-    } else {
-      await doImport(pipeline, files, false)
-    }
-  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : pipeline.id
@@ -92,6 +74,24 @@ export function EtlListPage() {
     }
     await loadEtlPipelines()
   }, [activeWorkspaceId, loadEtlPipelines])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
+    // to the legacy layout (pipeline.json + files.json).
+    const pipeline = (parsed['_pipeline.json'] ?? parsed['pipeline.json']) as EtlPipeline | undefined
+    if (!pipeline?.id) return
+    const tree = parsed['_tree.json'] as import('@/types').EtlFile[] | undefined
+    const files = tree
+      ? reconstructTreeFiles(tree, parsed)
+      : ((parsed['files.json'] ?? []) as import('@/types').EtlFile[])
+    const existing = await getStorage().etlPipelines.getById(pipeline.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: pipeline, pendingFiles: files })
+    } else {
+      await doImport(pipeline, files, false)
+    }
+  }, [activeWorkspaceId, doImport])
 
   return (
     <>

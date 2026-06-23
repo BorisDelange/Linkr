@@ -152,39 +152,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     downloadBlob(blob, `${slugify(project.name)}.zip`)
   }, [dataSources, ensureMounted])
 
-  const handleImport = useCallback(async (file: File) => {
-    try {
-      const parsed = await parseImportZip(file)
-      const project = parsed['project.json'] as MappingProject | undefined
-      if (!project?.id) {
-        setImportError(t('concept_mapping.import_invalid_zip'))
-        return
-      }
-      const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
-
-      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
-      if (project.sourceType === 'file' && project.fileSourceData) {
-        const sourceCsv = parsed['source-concepts.csv']
-        if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
-          restoreFileSourceDataFromCsv(project, sourceCsv)
-        }
-      }
-
-      // Check for conflict by entityId or name within the current workspace
-      const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
-      const existing = wsProjects.find(p =>
-        (project.entityId && p.entityId === project.entityId) || p.name === project.name
-      )
-      if (existing) {
-        setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
-      } else {
-        await doImport(project, { mappings }, false)
-      }
-    } catch (err) {
-      setImportError(t('concept_mapping.import_error', { error: err instanceof Error ? err.message : String(err) }))
-    }
-  }, [activeWorkspaceId, t]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
     const now = new Date().toISOString()
     // Overwrite: reuse the existing ID after deleting
@@ -229,6 +196,39 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     }
     await loadMappingProjects()
   }, [activeWorkspaceId, loadMappingProjects])
+
+  const handleImport = useCallback(async (file: File) => {
+    try {
+      const parsed = await parseImportZip(file)
+      const project = parsed['project.json'] as MappingProject | undefined
+      if (!project?.id) {
+        setImportError(t('concept_mapping.import_invalid_zip'))
+        return
+      }
+      const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+
+      // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
+      if (project.sourceType === 'file' && project.fileSourceData) {
+        const sourceCsv = parsed['source-concepts.csv']
+        if (typeof sourceCsv === 'string' && sourceCsv.length > 0) {
+          restoreFileSourceDataFromCsv(project, sourceCsv)
+        }
+      }
+
+      // Check for conflict by entityId or name within the current workspace
+      const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
+      const existing = wsProjects.find(p =>
+        (project.entityId && p.entityId === project.entityId) || p.name === project.name
+      )
+      if (existing) {
+        setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
+      } else {
+        await doImport(project, { mappings }, false)
+      }
+    } catch (err) {
+      setImportError(t('concept_mapping.import_error', { error: err instanceof Error ? err.message : String(err) }))
+    }
+  }, [activeWorkspaceId, t, doImport]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
   // Home view — two clickable entry-point widgets
