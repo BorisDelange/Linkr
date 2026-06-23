@@ -117,7 +117,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
 
   // Debounced config for live preview — avoids re-rendering on every keystroke
   const [debouncedConfig, setDebouncedConfig] = useState(config)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     debounceRef.current = setTimeout(() => setDebouncedConfig(config), 300)
     return () => clearTimeout(debounceRef.current)

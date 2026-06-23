@@ -50,7 +50,7 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const handleQueryChange = useCallback((value: string) => {
     setQuery(value)

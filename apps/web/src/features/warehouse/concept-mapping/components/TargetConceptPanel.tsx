@@ -629,7 +629,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       mappingType: 'maps_to',
       equivalence: predicate,
       status: 'unchecked',
-      comment,
       comments: comment ? [{
         id: crypto.randomUUID(),
         authorId: getUserDisplayName(),
@@ -684,7 +683,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         targetConceptCode: '',
         equivalence: 'skos:exactMatch',
         status: 'ignored',
-        comment,
         comments: comment ? [{
           id: crypto.randomUUID(),
           authorId: getUserDisplayName(),

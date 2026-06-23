@@ -1,6 +1,6 @@
-import { useState, type ReactNode, type LucideIcon } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, Download, GitBranch, History, MoreHorizontal, Upload } from 'lucide-react'
+import { Plus, Trash2, Pencil, Download, GitBranch, History, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import type { GitRemoteConfig } from '@/types'

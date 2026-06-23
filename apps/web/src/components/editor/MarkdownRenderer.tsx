@@ -126,7 +126,8 @@ function MermaidBlock({ code }: { code: string }) {
     let cancelled = false
     const render = async () => {
       try {
-        // Dynamic import for mermaid (loaded from CDN if not available)
+        // Dynamic import for mermaid (loaded from CDN if not available).
+        // @ts-expect-error — remote URL import has no local type declarations
         const mermaid = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
         if (cancelled || !containerRef.current) return
         mermaid.default.initialize({
