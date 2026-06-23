@@ -10,6 +10,7 @@
     "build": "turbo build",
     "lint": "turbo lint",
     "dev:web": "cd apps/web && npm run dev",
+    "dev:proxy": "node scripts/cors-proxy.mjs",
     "dev:api": "cd apps/api && uvicorn app.main:app --reload --port 8000",
     "dev:all": "concurrently \"npm run dev:web\" \"npm run dev:api\""
   },
