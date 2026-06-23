@@ -203,7 +203,7 @@ function buildSelectForDict(
   dict: ConceptDictionary,
   allColumns: ColumnDescriptor[],
   filters: ConceptFilters,
-  multiDict: boolean,
+  _multiDict: boolean,
   mapping: SchemaMapping,
 ): string | null {
   const countsSubquery = buildCountsSubquery(mapping, dict.key)

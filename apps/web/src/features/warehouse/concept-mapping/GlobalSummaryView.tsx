@@ -830,12 +830,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         ? { columnId, desc: !prev.desc }
         : { columnId, desc: false },
     )
-    setPage(0)
   }
 
   const updateFilter = (key: keyof GlobalTableFilters, value: string | null | Set<string>) => {
     setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
-    setPage(0)
   }
 
   // ── Badge mode columns ──
@@ -1269,7 +1267,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             onValueChange={(v: 'project' | 'badge') => {
               setGroupMode(v)
               setColFilters({})
-              setPage(0)
             }}
           >
             <SelectTrigger className="h-7 w-32 text-xs">

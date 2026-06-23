@@ -613,7 +613,7 @@ function EditableExtraColumns({
     onChange({ ...(extraColumns ?? {}), '': '' })
   }
 
-  const updateKey = (oldKey: string, newKey: string, index: number) => {
+  const updateKey = (_oldKey: string, newKey: string, index: number) => {
     const newEc: Record<string, string> = {}
     let i = 0
     for (const [k, v] of Object.entries(extraColumns ?? {})) {

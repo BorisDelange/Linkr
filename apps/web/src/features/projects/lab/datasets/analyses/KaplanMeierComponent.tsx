@@ -396,7 +396,7 @@ function logRankTest(groupObs: Observation[][]): LogRankResult | null {
 
 function computeKMResult(
   rows: Record<string, unknown>[],
-  columns: { id: string; name: string; type: string }[],
+  _columns: { id: string; name: string; type: string }[],
   timeId: string,
   eventId: string,
   groupId: string | null,
@@ -582,12 +582,7 @@ function SurvivalPlot({ groups, showCI, showCensor, showMedian, showAtRisk, comp
 
   // At-risk numbers at tick times
   const getAtRisk = (steps: SurvivalStep[], t: number): number => {
-    let _nRisk = 0
-    for (const step of steps) {
-      if (step.time <= t) _nRisk = step.nRisk - step.nEvent - step.nCensor
-      else break
-    }
-    // Return the at-risk at the start of that interval
+    // Return the at-risk at the start of the interval containing t.
     for (let i = steps.length - 1; i >= 0; i--) {
       if (steps[i].time <= t) return steps[i].nRisk
     }
