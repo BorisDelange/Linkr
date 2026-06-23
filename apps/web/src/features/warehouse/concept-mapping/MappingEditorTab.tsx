@@ -364,6 +364,36 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     setPage((p) => p + 1)
   }, [loading, hasMore])
 
+  // Compute mapping status for each source concept (simplified: mapped or not).
+  // Filter to the current project so foreign mappings (loaded for cross-project
+  // detection) don't contaminate the local "mapped" set.
+  // NOTE: these hooks must stay above the early returns below — calling a hook
+  // after a conditional return breaks the Rules of Hooks.
+  const mappingStatusMap = useMemo(() => {
+    const map = new Map<number, 'mapped'>()
+    for (const m of mappings) {
+      if (m.projectId !== project.id) continue
+      if (m.status !== 'ignored') map.set(m.sourceConceptId, 'mapped')
+    }
+    return map
+  }, [mappings, project.id])
+  mappingStatusMapRef.current = mappingStatusMap
+
+  // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
+  const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
+  const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
+  otherProjectsMappedKeysRef.current = otherProjectMappings ?? null
+  const mappedElsewhereIds = useMemo(() => {
+    const result = new Set<number>()
+    if (!otherProjectMappings || otherProjectMappings.size === 0) return result
+    for (const row of rows) {
+      if (mappingStatusMap.has(row.concept_id)) continue // already mapped in this project
+      const key = `${row.vocabulary_id ?? ''}:${row.concept_code ?? ''}`
+      if (otherProjectMappings.has(key)) result.add(row.concept_id)
+    }
+    return result
+  }, [otherProjectMappings, rows, mappingStatusMap])
+
   // --- Validation for database mode ---
   if (!isFileSource) {
     if (!dataSource) {
@@ -411,34 +441,6 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
           patient_count: counts?.patient_count ?? 0,
         }
       })
-
-  // Compute mapping status for each source concept (simplified: mapped or not).
-  // Filter to the current project so foreign mappings (loaded for cross-project
-  // detection) don't contaminate the local "mapped" set.
-  const mappingStatusMap = useMemo(() => {
-    const map = new Map<number, 'mapped'>()
-    for (const m of mappings) {
-      if (m.projectId !== project.id) continue
-      if (m.status !== 'ignored') map.set(m.sourceConceptId, 'mapped')
-    }
-    return map
-  }, [mappings, project.id])
-  mappingStatusMapRef.current = mappingStatusMap
-
-  // Build "mapped elsewhere" set: concepts mapped in other projects with same vocab+code
-  const otherProjectMappings = useConceptMappingStore((s) => s.otherProjectsMappedKeys)
-  const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
-  otherProjectsMappedKeysRef.current = otherProjectMappings ?? null
-  const mappedElsewhereIds = useMemo(() => {
-    const result = new Set<number>()
-    if (!otherProjectMappings || otherProjectMappings.size === 0) return result
-    for (const row of rows) {
-      if (mappingStatusMap.has(row.concept_id)) continue // already mapped in this project
-      const key = `${row.vocabulary_id ?? ''}:${row.concept_code ?? ''}`
-      if (otherProjectMappings.has(key)) result.add(row.concept_id)
-    }
-    return result
-  }, [otherProjectMappings, rows, mappingStatusMap])
 
   const filteredTotalCount = totalCount
 
