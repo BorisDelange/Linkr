@@ -7,6 +7,10 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 - Available shadcn/ui components → `docs/shadcn-components.md`
 - Long-term vision → `docs/vision-roadmap.md`
 
+## Related repos
+
+- **`../linkr-portal`** — template for deploying a pre-seeded Linkr instance (e.g. on GitLab Pages). It aggregates this app + workspace/project git repos as submodules, then `scripts/build.sh` bakes the workspace data into `apps/web/public/data/seed/` and builds a static site. The seed loader (`apps/web/src/lib/seed-loader.ts`) reads that data on startup. When an entity (project, mapping project, SQL collection, ETL pipeline) is git-linked, the workspace export emits only its metadata + a git pointer (+ a root `git-links.json`); the portal clones the linked repo and reconstitutes the full content at build time. Keep the export layout (`buildWorkspaceZip`/`buildProjectZip` in `lib/entity-io.ts`), the seed loader, and the portal's `build.sh`/`sync-git-links.sh` in sync. (`../linkr-portal-ricdc` is one concrete deployment, not the template.)
+
 ## Commands
 
 ```bash
@@ -20,6 +24,7 @@ alembic upgrade head
 
 # Monorepo root
 npm run dev:web / dev:api / dev:all / build
+npm run dev:proxy  # local CORS proxy (port 9999) for in-browser git clone on import
 
 # Docker
 docker compose -f docker/docker-compose.yml up
