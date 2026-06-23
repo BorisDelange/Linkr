@@ -547,8 +547,9 @@ function buildConceptCriteria(
     }
   }
 
-  // Legacy single valueFilter support (for existing saved cohorts)
-  const legacyVf = (config as Record<string, unknown>).valueFilter as { operator: string; value: number; value2?: number } | undefined
+  // Legacy single valueFilter support (for existing saved cohorts). The field
+  // no longer exists on the current type, so read it through `unknown`.
+  const legacyVf = (config as unknown as Record<string, unknown>).valueFilter as { operator: string; value: number; value2?: number } | undefined
   if (legacyVf && et.valueColumn && (!config.valueFilters || config.valueFilters.length === 0)) {
     if (legacyVf.operator === 'between' && legacyVf.value2 != null) {
       conditions.push(`e."${et.valueColumn}" BETWEEN ${legacyVf.value} AND ${legacyVf.value2}`)
@@ -632,6 +633,10 @@ function getBaseTable(level: CohortLevel, mapping: SchemaMapping): string | null
       return mapping.visitTable?.table ?? null
     case 'visit_detail':
       return mapping.visitDetailTable?.table ?? null
+    // 'event' has no single base table (it spans mapping.eventTables); callers
+    // that need an event table resolve it by label elsewhere.
+    case 'event':
+      return null
   }
 }
 
@@ -643,6 +648,8 @@ function getIdColumn(level: CohortLevel, mapping: SchemaMapping): string | null 
       return mapping.visitTable?.idColumn ?? null
     case 'visit_detail':
       return mapping.visitDetailTable?.idColumn ?? null
+    case 'event':
+      return null
   }
 }
 
@@ -654,6 +661,8 @@ function getPatientIdColumn(level: CohortLevel, mapping: SchemaMapping): string 
       return mapping.visitTable?.patientIdColumn ?? null
     case 'visit_detail':
       return mapping.visitDetailTable?.patientIdColumn ?? null
+    case 'event':
+      return null
   }
 }
 
@@ -665,6 +674,8 @@ function getStartDateColumn(level: CohortLevel, mapping: SchemaMapping): string 
       return mapping.visitTable?.startDateColumn ?? null
     case 'visit_detail':
       return mapping.visitDetailTable?.startDateColumn ?? null
+    case 'event':
+      return null
   }
 }
 
@@ -676,6 +687,8 @@ function getEndDateColumn(level: CohortLevel, mapping: SchemaMapping): string | 
       return mapping.visitTable?.endDateColumn ?? null
     case 'visit_detail':
       return mapping.visitDetailTable?.endDateColumn ?? null
+    case 'event':
+      return null
   }
 }
 
