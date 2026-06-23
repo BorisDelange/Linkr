@@ -53,7 +53,9 @@ export function ConceptsPage() {
 
   // Persist column visibility on unmount
   const colVisRef = useRef(columnVisibility)
-  colVisRef.current = columnVisibility
+  useEffect(() => {
+    colVisRef.current = columnVisibility
+  })
   useEffect(() => {
     return () => {
       if (sourceId) columnVisibilityCache.set(sourceId, colVisRef.current)

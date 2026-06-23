@@ -1373,13 +1373,15 @@ function RmdCellBlock({
 
   // Use refs so Monaco keybindings always call the latest version
   const onRunRef = useRef(onRun)
-  onRunRef.current = onRun
   const onAdvanceRef = useRef(onAdvance)
-  onAdvanceRef.current = onAdvance
   const onTogglePreviewRef = useRef(onTogglePreview)
-  onTogglePreviewRef.current = onTogglePreview
   const onFocusRef = useRef(onFocus)
-  onFocusRef.current = onFocus
+  useEffect(() => {
+    onRunRef.current = onRun
+    onAdvanceRef.current = onAdvance
+    onTogglePreviewRef.current = onTogglePreview
+    onFocusRef.current = onFocus
+  })
 
   const [copied, setCopied] = useState(false)
 

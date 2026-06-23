@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react'
+import { useRef, useCallback, useEffect } from 'react'
 import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useAppStore } from '@/stores/app-store'
@@ -95,9 +95,11 @@ export function CodeEditor({
   const onSaveRef = useRef(onSave)
   const onRunSelectionOrLineRef = useRef(onRunSelectionOrLine)
   const onRunFileRef = useRef(onRunFile)
-  onSaveRef.current = onSave
-  onRunSelectionOrLineRef.current = onRunSelectionOrLine
-  onRunFileRef.current = onRunFile
+  useEffect(() => {
+    onSaveRef.current = onSave
+    onRunSelectionOrLineRef.current = onRunSelectionOrLine
+    onRunFileRef.current = onRunFile
+  })
 
   const resolvedTheme =
     editorSettings.theme === 'auto'

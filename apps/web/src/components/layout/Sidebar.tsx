@@ -447,7 +447,9 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {level === 'app' && appNavItems.map(renderAppItem)}
+              {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
               {level === 'workspace' && renderSegmentNav(workspaceNavItems)}
+              {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
               {level === 'project' && renderSegmentNav(projectNavItems)}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -467,6 +469,7 @@ export function AppSidebar() {
         <SidebarFooter>
           <SidebarSeparator />
           <SidebarMenu>
+            {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
             {workspaceBottomItems.map((item) => renderSegmentTopItem(item))}
           </SidebarMenu>
         </SidebarFooter>
@@ -476,6 +479,7 @@ export function AppSidebar() {
         <SidebarFooter>
           <SidebarSeparator />
           <SidebarMenu>
+            {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
             {projectBottomItems.map((item) => renderSegmentTopItem(item))}
           </SidebarMenu>
         </SidebarFooter>
