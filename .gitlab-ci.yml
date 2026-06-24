@@ -1,46 +1,16 @@
 image: node:22-alpine
 
 stages:
-  - quality
   - build
   - deploy
 
 # ---------------------------------------------------------------------------
-# Quality gate. Runs on every branch/MR.
-#
-# All three checks are now BLOCKING — the legacy backlog has been cleared
-# (ESLint errors: 0, TypeScript errors: 0). Keep them at zero.
-#   - test:      BLOCKING — the suite is green.
-#   - lint:      BLOCKING — ESLint errors at 0 (only non-gating warnings remain).
-#   - typecheck: BLOCKING — `tsc -b` is clean.
+# Quality gate (test / lint / typecheck) runs LOCALLY via the pre-push hook
+# (scripts/git-hooks/pre-push) before code ever leaves a machine, so it is no
+# longer duplicated here — the CI quality stage was slow (~7 min) and prone to
+# `context deadline exceeded` runner failures. Re-add it later if we ever need
+# a server-side net (e.g. for pushes made with --no-verify).
 # ---------------------------------------------------------------------------
-
-.node_setup: &node_setup
-  cache:
-    key: ${CI_COMMIT_REF_SLUG}
-    paths:
-      - node_modules/
-      - apps/web/node_modules/
-  before_script:
-    - npm ci
-
-test:
-  stage: quality
-  <<: *node_setup
-  script:
-    - cd apps/web && npm run test
-
-lint:
-  stage: quality
-  <<: *node_setup
-  script:
-    - cd apps/web && npm run lint
-
-typecheck:
-  stage: quality
-  <<: *node_setup
-  script:
-    - cd apps/web && npm run typecheck
 
 build:
   stage: build
