@@ -16,7 +16,7 @@ import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
-import { DASHBOARD_GRID, computeFitRows } from './dashboard-grid'
+import { DASHBOARD_GRID, computeFitRows, colWidthFor } from './dashboard-grid'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -248,22 +248,26 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
   // that pushes another widget past the bottom. Instead we let the resize happen and re-fit the tab
   // afterwards (handleLayoutChange) so the others shrink to make room.
   const fitToHeight = dashboard.fitToHeight !== false
+  // Spacing model (see DASHBOARD_GRID): jointive cells (margin 0) flush to the container edge
+  // (containerPadding 0), so the full cells show right at the border. Each widget is inset by gap/2
+  // (the wrapper below), so two touching widgets are separated by a full `gap` (gap/2 + gap/2,
+  // demarcation centered) while edge widgets sit gap/2 from the border.
+  const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
+  const halfGap = gap / 2
   const fitRows = useMemo(() => {
     if (!fitToHeight || availableHeight === 0) return null
-    const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
-    return computeFitRows(containerWidth, availableHeight, gap)
-  }, [fitToHeight, availableHeight, dashboard.widgetSpacing, containerWidth])
+    return computeFitRows(containerWidth, availableHeight)
+  }, [fitToHeight, availableHeight, containerWidth])
   const fitMaxRows = fitRows?.rows ?? 0
 
   const gridConfig = useMemo(() => {
-    const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
     const base = {
       ...DASHBOARD_GRID,
-      margin: [gap, gap] as [number, number],
-      containerPadding: [gap, gap] as [number, number],
+      margin: [0, 0] as [number, number],
+      containerPadding: [0, 0] as [number, number],
     }
     return fitRows ? { ...base, rowHeight: fitRows.rowHeight } : base
-  }, [dashboard.widgetSpacing, fitRows])
+  }, [fitRows])
 
   // Re-fit when the visible row count changes (entering/leaving fullscreen, window resize) so the
   // tab fills the new height. Keyed on the row count only, so the rescale's own writes don't loop.
@@ -329,23 +333,23 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     [moveTree],
   )
 
-  // In edit mode, paint a faint grid so widget placement is easier to read. The cell pitch
-  // matches the layout maths (column width derived from container width; row pitch from config).
+  // In edit mode, paint a faint cell grid so widget placement is easier to read. The backdrop fills
+  // the whole container flush to the parent (inset 0) and the cell lines start at the top-left
+  // corner (cells are jointive, flush to the edge, pitch = colWidth × rowHeight), so the full first
+  // and last cells are visible right at the border. Lines past the last widget read as free grid.
   const gridBackground = useMemo(() => {
     if (!editMode) return undefined
-    const { cols, rowHeight, margin, containerPadding } = gridConfig
-    const [marginX, marginY] = margin
-    const [padX, padY] = containerPadding
-    const colWidth = (containerWidth - padX * 2 - marginX * (cols - 1)) / cols
-    const colPitch = colWidth + marginX
-    const rowPitch = rowHeight + marginY
-    if (colPitch <= 0 || rowPitch <= 0) return undefined
+    const { rowHeight } = gridConfig
+    const colWidth = colWidthFor(containerWidth)
+    if (colWidth <= 0 || rowHeight <= 0) return undefined
     return {
+      position: 'absolute' as const,
+      inset: 0,
       backgroundImage:
         'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
         'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
-      backgroundSize: `${colPitch}px ${rowPitch}px`,
-      backgroundPosition: `${padX}px ${padY}px`,
+      backgroundSize: `${colWidth}px ${rowHeight}px`,
+      backgroundPosition: '0 0',
       opacity: 0.4,
     } as const
   }, [editMode, gridConfig, containerWidth])
@@ -367,7 +371,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       className="relative w-full"
       style={containerStyle}
     >
-      {gridBackground && <div className="pointer-events-none absolute inset-0" style={gridBackground} />}
+      {gridBackground && <div className="pointer-events-none" style={gridBackground} />}
       <GridLayout
         layout={layout}
         width={containerWidth}
@@ -388,7 +392,17 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           )
           const canMove = [...moveTargetIds].some((id) => id !== widget.tabId)
           return (
-          <div key={widget.id} className="h-full" data-widget-id={widget.id} data-widget-name={widget.name}>
+          // Inset the card inside its jointive grid cell so two adjacent cards show a `gap`-wide
+          // gutter. The top/left padding is `halfGap + 1`: the card's border sits ON the grid line on
+          // those sides (the line is drawn at the cell's top-left), whereas on the bottom/right it
+          // falls just inside, so the extra pixel left/top compensates and the gutters read even.
+          <div
+            key={widget.id}
+            className="box-border h-full"
+            style={{ paddingTop: halfGap + 1, paddingLeft: halfGap + 1, paddingBottom: halfGap, paddingRight: halfGap }}
+            data-widget-id={widget.id}
+            data-widget-name={widget.name}
+          >
             <WidgetCard
               title={widget.name}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
@@ -458,8 +472,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
             moveWidget(movingWidget.id, tabId)
             // In fit-to-height, rescale the target tab so the moved widget fits (like adding one).
             if (fitToHeight) {
-              const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
-              const fit = computeFitRows(containerWidth, availableHeight, gap)
+              const fit = computeFitRows(containerWidth, availableHeight)
               if (fit) fitDashboardToHeight(dashboard.id, fit.rows)
             }
           }}

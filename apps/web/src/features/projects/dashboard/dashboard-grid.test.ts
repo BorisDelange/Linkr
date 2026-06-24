@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeFitRows, fitTabLayouts, DASHBOARD_GRID } from './dashboard-grid'
+import { computeFitRows, fitTabLayouts, DASHBOARD_GRID, colWidthFor } from './dashboard-grid'
 
 const box = (id: string, y: number, h: number, x = 0, w = 48) => ({ id, layout: { x, y, w, h } })
 const bottom = (m: Map<string, { y: number; h: number }>) =>
@@ -50,18 +50,17 @@ describe('fitTabLayouts', () => {
 
 describe('computeFitRows', () => {
   it('returns null when the geometry is unmeasurable', () => {
-    expect(computeFitRows(0, 800, 12)).toBeNull()
-    expect(computeFitRows(1200, 0, 12)).toBeNull()
+    expect(computeFitRows(0, 800)).toBeNull()
+    expect(computeFitRows(1200, 0)).toBeNull()
   })
 
   it('fills the visible height exactly (fractional row height; no leftover band or clipped cell)', () => {
-    const gap = DASHBOARD_GRID.margin[0]
     for (const height of [600, 800, 1040, 1440]) {
-      const fit = computeFitRows(1200, height, gap)
+      const fit = computeFitRows(1200, height)
       expect(fit).not.toBeNull()
       const { rows, rowHeight } = fit!
-      const total = rows * rowHeight + (rows - 1) * gap + gap * 2
-      // Rows + gaps + padding fill the available height to the (sub-)pixel.
+      // Jointive cells flush to the edge: rows × rowHeight spans the full height (no gap, no padding).
+      const total = rows * rowHeight
       expect(total).toBeCloseTo(height, 5)
       expect(rows).toBeGreaterThanOrEqual(1)
       expect(rowHeight).toBeGreaterThanOrEqual(4)
@@ -69,10 +68,9 @@ describe('computeFitRows', () => {
   })
 
   it('produces roughly square cells (row height near column width)', () => {
-    const gap = DASHBOARD_GRID.margin[0]
     const width = 1200
-    const fit = computeFitRows(width, 800, gap)!
-    const colWidth = (width - gap * 2 - gap * (DASHBOARD_GRID.cols - 1)) / DASHBOARD_GRID.cols
+    const fit = computeFitRows(width, 800)!
+    const colWidth = colWidthFor(width)
     // Within one row of the column width — cells are intended to look square, not exact.
     expect(Math.abs(fit.rowHeight - colWidth)).toBeLessThan(colWidth)
   })

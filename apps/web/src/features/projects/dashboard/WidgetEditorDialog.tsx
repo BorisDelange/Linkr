@@ -29,7 +29,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
-import { widgetPixelSize, DASHBOARD_GRID } from './dashboard-grid'
+import { widgetPixelSize, DASHBOARD_GRID, colWidthFor } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
@@ -412,11 +412,11 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
   const { t } = useTranslation()
   const effGridWidth = gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH
 
-  // Cell pitch matching the live dashboard grid, so the preview snaps to whole cells.
+  // Cell pitch matching the live dashboard grid (jointive cells), so the preview snaps to whole
+  // cells. `gap` stays the per-widget gutter so the snap rounding mirrors widgetPixelSize.
   const { colPitch, rowPitch, gap } = useMemo(() => {
     const g = widgetSpacing ?? DASHBOARD_GRID.margin[0]
-    const colWidth = (effGridWidth - g * 2 - g * (DASHBOARD_GRID.cols - 1)) / DASHBOARD_GRID.cols
-    return { colPitch: colWidth + g, rowPitch: DASHBOARD_GRID.rowHeight + g, gap: g }
+    return { colPitch: colWidthFor(effGridWidth), rowPitch: DASHBOARD_GRID.rowHeight, gap: g }
   }, [effGridWidth, widgetSpacing])
 
   const base = useMemo(

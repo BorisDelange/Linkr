@@ -107,7 +107,7 @@ export function DashboardSettingsDialog({
     // area. Measure the live dashboard grid viewport (behind this dialog) for the row count.
     const turnedOn = fitToHeight && dashboard.fitToHeight === false
     if (turnedOn) {
-      const rows = measureFitRows(widgetSpacing)
+      const rows = measureFitRows()
       if (rows) fitDashboardToHeight(dashboard.id, rows)
     }
     onOpenChange(false)

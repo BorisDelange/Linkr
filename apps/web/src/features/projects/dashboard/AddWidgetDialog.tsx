@@ -65,7 +65,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     const dashboardId = tabs.find((tb) => tb.id === tId)?.dashboardId
     const dash = dashboards.find((d) => d.id === dashboardId)
     if (dash && dash.fitToHeight !== false) {
-      const rows = measureFitRows(dash.widgetSpacing ?? 12)
+      const rows = measureFitRows()
       if (rows) fitDashboardToHeight(dash.id, rows)
     }
   }
