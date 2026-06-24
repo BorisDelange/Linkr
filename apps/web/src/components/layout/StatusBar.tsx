@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle, Box } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -65,8 +65,18 @@ export function StatusBar() {
 
   return (
     <footer className="flex h-6 shrink-0 items-center justify-between border-t bg-background px-3 text-[11px] text-muted-foreground">
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <span className="font-medium">Linkr v{APP_VERSION}</span>
+        <span className="opacity-30">|</span>
+        <a
+          href="https://framagit.org/interhop/linkr/linkr"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50 transition-colors"
+        >
+          <GitBranch size={11} />
+          <span>{t('footer.source')}</span>
+        </a>
       </div>
       <div className="flex items-center gap-3">
         {/* Environments (package manager) — global, accessible from every page */}

@@ -2,6 +2,13 @@
   "app": {
     "loading": "Chargement…"
   },
+  "header": {
+    "docs": "Documentation",
+    "docs_short": "Doc"
+  },
+  "footer": {
+    "source": "Code source"
+  },
   "nav": {
     "home": "Accueil",
     "workspaces": "Espaces de travail",

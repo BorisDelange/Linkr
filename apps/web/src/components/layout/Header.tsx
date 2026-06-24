@@ -12,7 +12,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -231,6 +231,23 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-0.5">
+          <Button
+            variant="ghost"
+            size="sm"
+            asChild
+            title={t('header.docs')}
+            className="gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 hover:bg-amber-100 hover:text-amber-800 dark:text-amber-400 dark:bg-amber-950 dark:border-amber-800 dark:hover:bg-amber-900"
+          >
+            <a
+              href={language === 'fr' ? 'https://linkr.interhop.org/docs/' : 'https://linkr.interhop.org/en/docs/'}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <BookOpen size={14} />
+              {t('header.docs_short')}
+            </a>
+          </Button>
+
           <Button variant="ghost" size="sm" onClick={handleLanguageToggle} className="gap-1.5 text-xs">
             <Languages size={14} />
             {language.toUpperCase()}

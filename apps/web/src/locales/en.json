@@ -2,6 +2,13 @@
   "app": {
     "loading": "Loading…"
   },
+  "header": {
+    "docs": "Documentation",
+    "docs_short": "Docs"
+  },
+  "footer": {
+    "source": "Source code"
+  },
   "nav": {
     "home": "Home",
     "workspaces": "Workspaces",
