@@ -29,6 +29,29 @@ Notes / follow-ups:
 
 ---
 
+## 2026-06-24 — ESLint & TypeScript backlog clearance + merge to main
+
+- Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual security pass)
+- Range: 778ff498..04ece659  (19 commits — lint waves, react-hooks fixes, full TS backlog, gates, merge)
+- Last reviewed commit: 04ece6596e0b538ab0d21f117906e88da6a34973
+- Verdict: **Ship it** — merged to main
+- Tests: 55 passed · Lint errors: 0 · Typecheck: 0 (all three gates now BLOCKING)
+
+Findings:
+- ✅ No regressions in hook/ref reordering. All moved `fooRef.current = x` writes (CodeEditor, RmdNotebook, use-pipeline, MappingProjectPage) are read only in async callbacks (Monaco commands, setTimeout, handlers) — safe. The one render-read latch (MappingProjectPage `editorEverOpened`) is monotone and proven behaviour-equivalent.
+- ✅ Two hook-above-early-return moves (MappingEditorTab, EtlPipelinePage) fix **real Rules-of-Hooks crash bugs**; deps all declared before new positions.
+- ✅ 7× `doImport` reorderings: no access-before-declaration, useCallback deps correct.
+- ✅ `ConceptPickerDialog` API alignment (WarehousePluginEditorSheet): `conceptIds` always preserved in returned config — no selection loss.
+- ✅ `cohort-query` `case 'event': return null`: behaviour-equivalent (was `undefined`, also falsy) and gracefully handled by callers (count=0, no invalid SQL).
+- ✅ `idb-storage` store types (`& { id }`, `& { workspaceBadgeKey }`): align type with already-persisted fields; zero runtime change; public read methods still return clean types.
+- ✅ Security: no new unescaped SQL interpolation; 4 new `if (!idColumn)` guards added (defensive); i18n `count`→`formattedCount` consistent across code + en.json + fr.json; no new dangerouslySetInnerHTML; 0 new `as any` / `@ts-ignore` (16 justified `as unknown as` for SQL row projections).
+
+Notes / follow-ups:
+- 140 ESLint **warnings** remain — mostly React Compiler rules (set-state-in-effect, preserve-manual-memoization, react-refresh) kept as warn since the compiler isn't enabled. Revisit if it's ever turned on.
+- Manual runtime testing still recommended for: concept-mapping editor, patient-data widget concept picker, catalog granularity, cohorts, ETL pipeline node-click, import/export round-trips.
+
+---
+
 ## 2026-06-23 — Quality harness branch (`quality-harness`)
 
 - Reviewed by: Claude Opus 4.8
