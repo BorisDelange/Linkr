@@ -5,6 +5,7 @@ import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download, Ma
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { PortalContainerProvider } from '@/lib/portal-container'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardTabBar } from './dashboard/DashboardTabBar'
 import { WidgetGrid } from './dashboard/WidgetGrid'
@@ -39,9 +40,15 @@ export function DashboardPage() {
     }
   }
 
-  // Track fullscreen changes (button click, Esc key, or browser chrome) to keep the icon in sync.
+  // Track fullscreen changes (button click, Esc key, or browser chrome) to keep the icon in sync,
+  // and capture the fullscreen element so Radix portals (menus, dialogs, tooltips) render INSIDE
+  // it — otherwise they'd portal to document.body, outside the fullscreen subtree, and be invisible.
+  const [fullscreenEl, setFullscreenEl] = useState<HTMLElement | null>(null)
   useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement != null)
+    const onChange = () => {
+      setIsFullscreen(document.fullscreenElement != null)
+      setFullscreenEl(document.fullscreenElement as HTMLElement | null)
+    }
     document.addEventListener('fullscreenchange', onChange)
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
@@ -122,6 +129,7 @@ export function DashboardPage() {
   }
 
   return (
+    <PortalContainerProvider value={fullscreenEl}>
     <div ref={rootRef} className="flex h-full flex-col overflow-hidden bg-background">
       {/* Tab bar + actions */}
       <div className="border-b shrink-0">
@@ -312,5 +320,6 @@ export function DashboardPage() {
         preselectWidgetId={exportPreselectId}
       />
     </div>
+    </PortalContainerProvider>
   )
 }

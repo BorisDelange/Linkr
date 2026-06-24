@@ -14,9 +14,95 @@ export function computeFitRows(containerWidth: number, availableHeight: number, 
   const colWidth = (containerWidth - gap * 2 - gap * (cols - 1)) / cols
   if (colWidth <= 0 || availableHeight <= 0) return null
   const innerH = availableHeight - gap * 2
-  const rows = Math.max(1, Math.floor((innerH + gap) / (colWidth + gap)))
-  const rowHeight = Math.max(4, Math.floor((innerH - gap * (rows - 1)) / rows))
+  // Pick a row count that makes cells ~square, then a fractional row height that fills the height
+  // EXACTLY (rows × rowHeight + gaps = innerH). A fractional height is fine — the browser sub-pixel
+  // renders it — and avoids the leftover band (floor) or clipped bottom widget (ceil) that an
+  // integer row height leaves, since an integer can't divide an arbitrary viewport height evenly.
+  const rows = Math.max(1, Math.round((innerH + gap) / (colWidth + gap)))
+  const rowHeight = Math.max(4, (innerH - gap * (rows - 1)) / rows)
   return { rows, rowHeight }
+}
+
+export interface GridLayoutBox { x: number; y: number; w: number; h: number }
+const MIN_WIDGET_ROWS = 2
+
+/**
+ * Recompute a tab's widget layouts so the gap-free stack fills exactly `maxRows`: remove vertical
+ * gaps, scale heights down if the stack is too tall, then make each column land precisely on
+ * maxRows — growing the bottom widget into rounding slack, or shrinking widgets from the bottom up
+ * (cascading past any already at the 2-row minimum) if min-height clamping overshot. Never produces
+ * an overlap. Returns new boxes keyed by input order (widgets must be sorted top-to-bottom first).
+ */
+export function fitTabLayouts(widgets: { id: string; layout: GridLayoutBox }[], maxRows: number): Map<string, GridLayoutBox> {
+  const result = new Map<string, GridLayoutBox>()
+  if (widgets.length === 0 || maxRows < MIN_WIDGET_ROWS) return result
+
+  // Height of the gap-free stack with the current heights (drives the scale factor).
+  let compactedRows = 0
+  {
+    const bottomByCol = new Map<number, number>()
+    for (const wd of widgets) {
+      const { x, w, h } = wd.layout
+      let y = 0
+      for (let c = x; c < x + w; c++) y = Math.max(y, bottomByCol.get(c) ?? 0)
+      for (let c = x; c < x + w; c++) bottomByCol.set(c, y + h)
+      compactedRows = Math.max(compactedRows, y + h)
+    }
+  }
+
+  const factor = compactedRows > maxRows ? maxRows / compactedRows : 1
+  const bottomByCol = new Map<number, number>()
+  const colStack = new Map<number, string[]>()
+  for (const wd of widgets) {
+    const { x, w } = wd.layout
+    let y = 0
+    for (let c = x; c < x + w; c++) y = Math.max(y, bottomByCol.get(c) ?? 0)
+    const h = Math.max(MIN_WIDGET_ROWS, factor < 1 ? Math.floor(wd.layout.h * factor) : wd.layout.h)
+    for (let c = x; c < x + w; c++) {
+      bottomByCol.set(c, y + h)
+      const arr = colStack.get(c) ?? []
+      arr.push(wd.id)
+      colStack.set(c, arr)
+    }
+    result.set(wd.id, { x, y, w, h })
+  }
+
+  // Shrink from the bottom up wherever a column overflows maxRows.
+  for (const [col, ids] of colStack) {
+    let overshoot = (bottomByCol.get(col) ?? 0) - maxRows
+    for (let i = ids.length - 1; i >= 0 && overshoot > 0; i--) {
+      const lay = result.get(ids[i])!
+      const cut = Math.min(lay.h - MIN_WIDGET_ROWS, overshoot)
+      if (cut <= 0) continue
+      lay.h -= cut
+      overshoot -= cut
+    }
+  }
+
+  // Re-flow top-to-bottom from the adjusted heights (no gaps, no overlaps).
+  const reflow = new Map<number, number>()
+  for (const wd of widgets) {
+    const lay = result.get(wd.id)!
+    let y = 0
+    for (let c = lay.x; c < lay.x + lay.w; c++) y = Math.max(y, reflow.get(c) ?? 0)
+    lay.y = y
+    for (let c = lay.x; c < lay.x + lay.w; c++) reflow.set(c, y + lay.h)
+  }
+
+  // Grow each column's bottom widget to fill remaining slack up to maxRows.
+  for (const [col, bottom] of reflow) {
+    const slack = maxRows - bottom
+    if (slack <= 0) continue
+    const ids = colStack.get(col)
+    const lastId = ids?.[ids.length - 1]
+    const lay = lastId ? result.get(lastId) : undefined
+    if (lay && Array.from({ length: lay.w }, (_, i) => lay.x + i).every((c) => colStack.get(c)?.slice(-1)[0] === lastId)) {
+      lay.h += slack
+      for (let c = lay.x; c < lay.x + lay.w; c++) reflow.set(c, lay.y + lay.h)
+    }
+  }
+
+  return result
 }
 
 /** Measure the live dashboard grid viewport and return the fit-to-height row count, or null if

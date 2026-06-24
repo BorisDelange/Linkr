@@ -32,8 +32,8 @@ Notes / follow-ups:
 ## 2026-06-24 — Dashboard rewrite (nested tabs, grid fit-to-height, filters, export/move trees, fullscreen)
 
 - Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual verification pass)
-- Range: 04ece659..15cb5037 (10 commits — Lou's MR squash + tab navigation, 48-col grid, fit-to-height, filter UX, export/move tree views, fullscreen, perf cache, review fixes)
-- Last reviewed commit: 15cb503791200389620c05b643219055ecaa496a
+- Range: 04ece659..35f9160a (10 commits — Lou's MR squash + tab navigation, 48-col grid, fit-to-height, filter UX, export/move tree views, fullscreen, perf cache, review fixes)
+- Last reviewed commit: 35f9160a3312e4b1ecfc28f0e53c26822f218b88
 - Verdict: **Ship it** (after fixes) — merging to main
 - Tests: 70 passed (8 added: dashboard-tree, dashboard-grid) · Lint: 0 errors (136 pre-existing warnings) · Typecheck: 0 errors introduced
 

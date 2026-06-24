@@ -293,19 +293,20 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     isActive && 'border-green-500/40 bg-green-500/5',
                   )}
                 >
-                  {/* Collapsible header: chevron + column name + scope badge + remove */}
-                  <div className="flex items-center gap-1.5 px-2.5 py-2">
+                  {/* Collapsible header. Fixed height so toggling edit mode (which swaps the scope
+                      badge for a taller remove button) doesn't change the collapsed row height. */}
+                  <div className="flex h-9 items-center gap-1.5 px-2.5">
                     <button
                       type="button"
                       onClick={() => toggleExpanded(fc.id)}
-                      className="flex flex-1 items-center gap-1.5 min-w-0 text-left"
+                      className="flex h-full flex-1 items-center gap-1.5 min-w-0 text-left"
                     >
                       <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
                       <span className="text-xs font-medium truncate">{fc.columnName}</span>
                     </button>
                     {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
-                      <Button variant="ghost" size="icon-xs" onClick={() => handleRemoveFilter(fc.id)}>
+                      <Button variant="ghost" size="icon-xs" className="-mr-1 shrink-0" onClick={() => handleRemoveFilter(fc.id)}>
                         <X size={12} />
                       </Button>
                     )}

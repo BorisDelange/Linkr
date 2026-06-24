@@ -5,6 +5,7 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
 import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
 import { invalidateWidgetResult } from '@/features/projects/dashboard/widget-renderers/use-widget-execution'
+import { fitTabLayouts } from '@/features/projects/dashboard/dashboard-grid'
 
 interface DashboardState {
   // Loaded data for current project
@@ -482,58 +483,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const tabIds = new Set(state.tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
     const newLayouts = new Map<string, { x: number; y: number; w: number; h: number }>()
 
+    const widgetById = new Map(state.widgets.map((w) => [w.id, w]))
     for (const tabId of tabIds) {
       const tabWidgets = state.widgets
         .filter((w) => w.tabId === tabId)
         .sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
       if (tabWidgets.length === 0) continue
-
-      // The total height once gaps are removed (each widget keeps its own height for now).
-      const compactedRows = (() => {
-        const bottomByCol = new Map<number, number>()
-        let total = 0
-        for (const wd of tabWidgets) {
-          const { x, w, h } = wd.layout
-          let y = 0
-          for (let col = x; col < x + w; col++) y = Math.max(y, bottomByCol.get(col) ?? 0)
-          for (let col = x; col < x + w; col++) bottomByCol.set(col, y + h)
-          total = Math.max(total, y + h)
-        }
-        return total
-      })()
-
-      // Scale heights so the gap-free stack fits maxRows, then re-stack each column sequentially.
-      // Stacking (rather than scaling y independently) means rounding can never cause an overlap.
-      // floor (not round) so the stack can only shrink — never rounds up past maxRows, which keeps
-      // the post-resize re-fit from oscillating.
-      const factor = compactedRows > maxRows ? maxRows / compactedRows : 1
-      const bottomByCol = new Map<number, number>()
-      // Track, per column, the id of its lowest widget so we can grow it to fill the slack that
-      // flooring leaves (otherwise the grid stops ~one row short of the bottom).
-      const lastInCol = new Map<number, string>()
-      for (const wd of tabWidgets) {
-        const { x, w } = wd.layout
-        let y = 0
-        for (let col = x; col < x + w; col++) y = Math.max(y, bottomByCol.get(col) ?? 0)
-        const scaled = factor < 1 ? Math.floor(wd.layout.h * factor) : wd.layout.h
-        const h = Math.max(2, Math.min(scaled, maxRows - y))
-        for (let col = x; col < x + w; col++) { bottomByCol.set(col, y + h); lastInCol.set(col, wd.id) }
-        newLayouts.set(wd.id, { x, y, w, h: Math.max(2, h) })
-      }
-      // Fill the leftover rows: grow each column's bottom widget down to maxRows. A widget spanning
-      // several columns only grows if it's the bottom-most in all of them (else it would overlap).
-      for (const [col, bottom] of bottomByCol) {
-        const slack = maxRows - bottom
-        if (slack <= 0) continue
-        const id = lastInCol.get(col)
-        const lay = id ? newLayouts.get(id) : undefined
-        if (!lay) continue
-        const isBottomEverywhere = Array.from({ length: lay.w }, (_, i) => lay.x + i)
-          .every((c) => lastInCol.get(c) === id)
-        if (isBottomEverywhere) {
-          lay.h += slack
-          for (let c = lay.x; c < lay.x + lay.w; c++) bottomByCol.set(c, lay.y + lay.h)
-        }
+      const fitted = fitTabLayouts(tabWidgets, maxRows)
+      for (const [id, layout] of fitted) {
+        // Only record real changes — this makes the function a no-op once a tab already fits, so a
+        // post-resize re-fit (which calls this unconditionally) can't loop.
+        const cur = widgetById.get(id)?.layout
+        if (cur && cur.x === layout.x && cur.y === layout.y && cur.w === layout.w && cur.h === layout.h) continue
+        newLayouts.set(id, layout)
       }
     }
 

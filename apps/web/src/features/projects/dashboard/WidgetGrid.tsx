@@ -243,9 +243,18 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
 
   // Widget spacing drives both the inter-widget margin AND the outer padding, so the grid sits
   // flush against the available space (no half-cells at the edges) with one notion of spacing.
-  // With "fit to height" on, a fixed number of rows fills the visible area (cells stay ~square)
-  // and the grid is capped to that many rows so resizing can never overflow into a scroll.
+  // With "fit to height" on, the visible area holds a fixed number of rows (cells stay ~square).
+  // We deliberately DON'T set the grid's maxRows: that would make react-grid-layout block a resize
+  // that pushes another widget past the bottom. Instead we let the resize happen and re-fit the tab
+  // afterwards (handleLayoutChange) so the others shrink to make room.
   const fitToHeight = dashboard.fitToHeight !== false
+  const fitRows = useMemo(() => {
+    if (!fitToHeight || availableHeight === 0) return null
+    const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
+    return computeFitRows(containerWidth, availableHeight, gap)
+  }, [fitToHeight, availableHeight, dashboard.widgetSpacing, containerWidth])
+  const fitMaxRows = fitRows?.rows ?? 0
+
   const gridConfig = useMemo(() => {
     const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
     const base = {
@@ -253,12 +262,15 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       margin: [gap, gap] as [number, number],
       containerPadding: [gap, gap] as [number, number],
     }
-    if (!fitToHeight || availableHeight === 0) return base
-    const fit = computeFitRows(containerWidth, availableHeight, gap)
-    if (!fit) return base
-    // maxRows caps placement/resize so a widget can reach the bottom but never overflow.
-    return { ...base, rowHeight: fit.rowHeight, maxRows: fit.rows }
-  }, [dashboard.widgetSpacing, fitToHeight, containerWidth, availableHeight])
+    return fitRows ? { ...base, rowHeight: fitRows.rowHeight } : base
+  }, [dashboard.widgetSpacing, fitRows])
+
+  // Re-fit when the visible row count changes (entering/leaving fullscreen, window resize) so the
+  // tab fills the new height. Keyed on the row count only, so the rescale's own writes don't loop.
+  useEffect(() => {
+    if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitMaxRows, dashboard.id])
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -293,16 +305,12 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           })
         }
       }
-      // In fit-to-height, a resize can push other widgets past the visible rows (maxRows only
-      // caps the dragged item, not items shoved by compaction). If the layout now overflows,
-      // rescale to fit. This converges: once it fits, factor=1 and nothing changes → no loop.
-      const fitRows = fitToHeight && 'maxRows' in gridConfig ? (gridConfig as { maxRows: number }).maxRows : 0
-      if (fitRows > 0) {
-        const overflow = newLayout.some((item) => item.y + item.h > fitRows)
-        if (overflow) fitDashboardToHeight(dashboard.id, fitRows)
-      }
+      // In fit-to-height, re-fit after a drag/resize so the stack lands on the visible rows: a
+      // resize can leave it too tall or one row short. fitDashboardToHeight is a no-op once the tab
+      // already fits (it records no changes), so this doesn't loop.
+      if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows)
     },
-    [widgets, updateWidgetLayout, fitToHeight, gridConfig, fitDashboardToHeight, dashboard.id]
+    [widgets, updateWidgetLayout, fitMaxRows, fitDashboardToHeight, dashboard.id]
   )
 
   const tabParentById = useMemo(
@@ -342,10 +350,11 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     } as const
   }, [editMode, gridConfig, containerWidth])
 
-  // Heights are driven by the measured viewport (the Radix scroll viewport uses display:table,
-  // so percentage heights don't resolve). In fit-to-height we pin the container to exactly the
-  // viewport and clip overflow, so a widget can fill the screen and resizing never scrolls. In
-  // fixed-height edit mode we only stretch the minimum so the grid backdrop reaches the bottom.
+  // Heights are driven by the measured viewport (the Radix scroll viewport uses display:table, so
+  // percentage heights don't resolve). In fit-to-height we pin the container to the full viewport
+  // and clip overflow: the row height is floored so the grid never exceeds it (no clipped bottom
+  // widget) and the sub-row leftover sits at the very bottom as background. In fixed-height edit
+  // mode we only stretch the minimum so the grid backdrop reaches the bottom.
   const containerStyle = availableHeight > 0
     ? (fitToHeight
         ? { height: availableHeight, overflow: 'hidden' as const }
