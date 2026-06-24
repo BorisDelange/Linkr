@@ -119,6 +119,7 @@
     "xColumn": {
       "type": "column-select",
       "label": { "en": "X variable", "fr": "Variable X" },
+      "optional": true,
       "row": "columns",
       "section": { "en": "Data", "fr": "Données" },
       "hintWhen": {
@@ -254,9 +255,26 @@
         { "value": "top-center", "label": { "en": "Top center", "fr": "Haut centre" } }
       ]
     },
+    "legendFontSize": {
+      "type": "number",
+      "label": { "en": "Legend text size", "fr": "Taille texte légende" },
+      "default": 11,
+      "min": 7,
+      "max": 20,
+      "row": "legendStyle",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "visibleWhen": { "field": "showLegend", "value": true }
+    },
     "xAxisStartZero": {
       "type": "boolean",
       "label": { "en": "X axis starts at 0", "fr": "Axe X commence à 0" },
+      "default": false,
+      "row": "checksRow",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "yAxisStartZero": {
+      "type": "boolean",
+      "label": { "en": "Y axis starts at 0", "fr": "Axe Y commence à 0" },
       "default": false,
       "row": "checksRow",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
@@ -292,6 +310,20 @@
       "max": 15,
       "row": "opacitySize",
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "barSize": {
+      "type": "number",
+      "label": { "en": "Bar thickness", "fr": "Épaisseur des barres" },
+      "default": 0,
+      "min": 0,
+      "max": 120,
+      "row": "barSizeRow",
+      "visibleWhen": { "field": "plotType", "values": ["bar", "histogram"] },
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically.",
+        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique."
+      }
     },
     "xLabelMaxLen": {
       "type": "number",

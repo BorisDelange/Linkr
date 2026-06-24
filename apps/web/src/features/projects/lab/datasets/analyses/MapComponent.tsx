@@ -228,7 +228,9 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
         style={{ background: '#e8eef2' }}
         attributionControl={!compact}
       >
-        {tile && <TileLayer url={tile.url} attribution={tile.attribution} />}
+        {/* crossOrigin makes tiles load via CORS so they pass the page's COEP:credentialless
+            policy (required for WebR/Pyodide); CARTO and OSM both send Access-Control-Allow-Origin. */}
+        {tile && <TileLayer key={basemap} url={tile.url} attribution={tile.attribution} crossOrigin="anonymous" />}
         <FitBounds bounds={bounds} />
         <ResizeHandler />
         {points.map((p, i) => (

@@ -35,7 +35,7 @@ import { FILTER_NONE } from './DashboardDataProvider'
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
   widgets: DashboardWidget[]
-  tabs: { id: string; name: string }[]
+  tabs: { id: string; name: string; parentTabId?: string | null }[]
   editMode: boolean
   onClose: () => void
 }
@@ -191,6 +191,8 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     switch (value.type) {
       case 'categorical': return value.selected.length === 0
       case 'numeric': return value.min == null && value.max == null
+      case 'numeric-double':
+        return value.min1 == null && value.max1 == null && value.min2 == null && value.max2 == null
       case 'date': return value.from == null && value.to == null
       case 'date-relative': return false
     }
@@ -216,6 +218,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     ]
     if (filterType === 'numeric' || filterType === 'date') {
       options.push({ value: 'range', label: t('dashboard.input_type_range') })
+    }
+    if (filterType === 'numeric') {
+      options.push({ value: 'double-range', label: t('dashboard.input_type_double_range') })
     }
     return options
   }
@@ -498,6 +503,17 @@ function FilterControl({
         columnId={fc.columnId}
         rows={rows}
         value={value as (FilterValue & { type: 'numeric' }) | undefined}
+        onChange={onChange}
+      />
+    )
+  }
+
+  if (fc.inputType === 'double-range') {
+    return (
+      <DoubleNumericFilter
+        columnId={fc.columnId}
+        rows={rows}
+        value={value as (FilterValue & { type: 'numeric-double' }) | undefined}
         onChange={onChange}
       />
     )
@@ -896,6 +912,72 @@ function NumericFilter({
   )
 }
 
+// --- Numeric: two disjoint ranges (OR) ---
+
+function DoubleNumericFilter({
+  columnId,
+  rows,
+  value,
+  onChange,
+}: {
+  columnId: string
+  rows: Record<string, unknown>[]
+  value?: { type: 'numeric-double'; min1: number | null; max1: number | null; min2: number | null; max2: number | null }
+  onChange: (value: FilterValue) => void
+}) {
+  const { t } = useTranslation()
+  const range = useMemo(() => {
+    let min = Infinity
+    let max = -Infinity
+    for (const row of rows) {
+      const v = Number(row[columnId])
+      if (!isNaN(v)) {
+        if (v < min) min = v
+        if (v > max) max = v
+      }
+    }
+    return { min: min === Infinity ? 0 : min, max: max === -Infinity ? 100 : max }
+  }, [rows, columnId])
+
+  const current = value ?? { type: 'numeric-double' as const, min1: null, max1: null, min2: null, max2: null }
+  const emit = (patch: Partial<Omit<typeof current, 'type'>>) =>
+    onChange({ ...current, ...patch })
+  const num = (s: string) => (s === '' ? null : Number(s))
+
+  const rangeRow = (
+    minKey: 'min1' | 'min2',
+    maxKey: 'max1' | 'max2',
+    label: string,
+  ) => (
+    <div className="space-y-0.5">
+      <span className="text-[10px] font-medium text-muted-foreground">{label}</span>
+      <div className="grid grid-cols-2 gap-2">
+        <Input
+          type="number"
+          className="h-6 text-xs"
+          placeholder={`${t('dashboard.filter_min', 'Min')} (${range.min})`}
+          value={current[minKey] ?? ''}
+          onChange={(e) => emit({ [minKey]: num(e.target.value) })}
+        />
+        <Input
+          type="number"
+          className="h-6 text-xs"
+          placeholder={`${t('dashboard.filter_max', 'Max')} (${range.max})`}
+          value={current[maxKey] ?? ''}
+          onChange={(e) => emit({ [maxKey]: num(e.target.value) })}
+        />
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-2">
+      {rangeRow('min1', 'max1', t('dashboard.filter_range_1', 'Range 1'))}
+      {rangeRow('min2', 'max2', t('dashboard.filter_range_2', 'Range 2'))}
+    </div>
+  )
+}
+
 // --- Date Filter ---
 
 function DateFilter({
@@ -1051,7 +1133,7 @@ function FilterScopeSelector({
 }: {
   scope: DashboardFilterScope
   onChange: (scope: DashboardFilterScope) => void
-  tabs: { id: string; name: string }[]
+  tabs: { id: string; name: string; parentTabId?: string | null }[]
   widgets: DashboardWidget[]
 }) {
   const { t } = useTranslation()
@@ -1155,7 +1237,10 @@ function FilterScopeSelector({
                   return (
                     <Tooltip key={tab.id}>
                       <TooltipTrigger asChild>
-                        <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1">
+                        <label
+                          className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 rounded px-1.5 py-1"
+                          style={tab.parentTabId ? { paddingLeft: 18 } : undefined}
+                        >
                           <Checkbox
                             checked={selected}
                             onCheckedChange={() => {

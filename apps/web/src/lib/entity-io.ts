@@ -495,7 +495,7 @@ export async function importProjectContent(
     })
   }
   for (const tab of parsed.dashboardTabs) {
-    await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId) })
+    await storage.dashboardTabs.create({ ...tab, id: mapId(tab.id), dashboardId: mapId(tab.dashboardId), parentTabId: tab.parentTabId ? mapId(tab.parentTabId) : (tab.parentTabId ?? null) })
   }
   for (const w of parsed.dashboardWidgets) {
     await storage.dashboardWidgets.create({

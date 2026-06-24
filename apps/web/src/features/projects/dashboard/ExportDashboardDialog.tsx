@@ -49,7 +49,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
   const { t } = useTranslation()
   const [format, setFormat] = useState<ExportFormat>('png')
   const [scope, setScope] = useState<Scope>('all')
-  const [dpi, setDpi] = useState(192)
+  const [dpi, setDpi] = useState(384)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
@@ -167,7 +167,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-1">
+        <div className="min-w-0 space-y-4 py-1">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs">{t('dashboard.export_scope', 'Scope')}</Label>
@@ -250,7 +250,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
                         )}>
                           {isSel && <Check size={10} />}
                         </div>
-                        <span className="truncate">{w.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-left">{w.name}</span>
                       </button>
                     )
                   })}

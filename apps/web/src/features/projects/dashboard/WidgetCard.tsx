@@ -1,11 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MoreHorizontal, Pencil, Trash2, Type, Download, AlertTriangle, RefreshCw } from 'lucide-react'
+import { MoreHorizontal, Pencil, Trash2, Type, Download, AlertTriangle, RefreshCw, Copy, FolderInput } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -19,6 +22,12 @@ interface WidgetCardProps {
   onRename?: (name: string) => void
   /** Opens the dashboard Export dialog preselected to this widget. */
   onExport?: () => void
+  /** Duplicate this widget into its current tab. */
+  onDuplicate?: () => void
+  /** Move this widget to another tab. */
+  onMove?: (tabId: string) => void
+  /** Other tabs of the dashboard the widget can be moved to. */
+  moveTargets?: { id: string; name: string }[]
   /** Existing widget names in the same tab (for uniqueness validation) */
   siblingNames?: Set<string>
   editMode: boolean
@@ -30,7 +39,7 @@ interface WidgetCardProps {
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, moveTargets, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
@@ -84,17 +93,33 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
     </TooltipProvider>
   )
 
+  const acceptItem = stale && onAcceptPluginVersion && (
+    <>
+      <DropdownMenuItem onClick={onAcceptPluginVersion}>
+        <RefreshCw size={14} />
+        {t('dashboard.plugin_drift_accept')}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
+  )
+
+  // Actions available in view mode (non-destructive only); structural edits stay edit-mode only.
+  const hasViewActions = Boolean(onExport) || Boolean(stale && onAcceptPluginVersion)
+  const viewMenuItems = (
+    <>
+      {acceptItem}
+      {onExport && (
+        <DropdownMenuItem onClick={onExport}>
+          <Download size={14} />
+          {t('dashboard.export_widget')}
+        </DropdownMenuItem>
+      )}
+    </>
+  )
+
   const menuItems = (
     <>
-      {stale && onAcceptPluginVersion && (
-        <>
-          <DropdownMenuItem onClick={onAcceptPluginVersion}>
-            <RefreshCw size={14} />
-            {t('dashboard.plugin_drift_accept')}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-        </>
-      )}
+      {acceptItem}
       {onRename && (
         <DropdownMenuItem onClick={() => { renamePendingRef.current = true; setRenaming(true) }}>
           <Type size={14} />
@@ -107,13 +132,34 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
           {t('dashboard.edit_widget')}
         </DropdownMenuItem>
       )}
+      {onDuplicate && (
+        <DropdownMenuItem onClick={onDuplicate}>
+          <Copy size={14} />
+          {t('dashboard.duplicate_widget')}
+        </DropdownMenuItem>
+      )}
+      {onMove && moveTargets && moveTargets.length > 0 && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <FolderInput size={14} />
+            {t('dashboard.move_widget')}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            {moveTargets.map((target) => (
+              <DropdownMenuItem key={target.id} onClick={() => onMove(target.id)}>
+                {target.name}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
       {onExport && (
         <DropdownMenuItem onClick={onExport}>
           <Download size={14} />
           {t('dashboard.export_widget')}
         </DropdownMenuItem>
       )}
-      {(onRename || onEdit || onExport) && <DropdownMenuSeparator />}
+      {(onRename || onEdit || onExport || onDuplicate || onMove) && <DropdownMenuSeparator />}
       <DropdownMenuItem variant="destructive" onClick={onRemove}>
         <Trash2 size={14} />
         {t('common.delete')}
@@ -122,7 +168,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
   )
 
   return (
-    <div className="relative flex h-full flex-col rounded-lg border bg-card shadow-sm overflow-hidden">
+    <div className="group relative flex h-full flex-col rounded-lg border bg-card shadow-sm overflow-hidden">
       {showTitleBar && (
         // min-h reserves the kebab button's height so toggling edit mode doesn't change the title-bar height.
         <div className="flex min-h-10 items-center justify-between border-b px-3 py-1">
@@ -153,10 +199,14 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
               </h3>
             </div>
           )}
-          {editMode && (
+          {(editMode || hasViewActions) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-xs" className="shrink-0">
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className={`shrink-0 ${editMode ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100'}`}
+                >
                   <MoreHorizontal size={12} />
                 </Button>
               </DropdownMenuTrigger>
@@ -172,7 +222,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
                   }
                 }}
               >
-                {menuItems}
+                {editMode ? menuItems : viewMenuItems}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -193,12 +243,16 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
           </TooltipProvider>
         </div>
       )}
-      {/* Floating menu button when title bar is hidden but in edit mode */}
-      {!showTitleBar && editMode && (
+      {/* Floating menu button when title bar is hidden — full menu in edit mode, view actions on hover otherwise */}
+      {!showTitleBar && (editMode || hasViewActions) && (
         <div className="absolute top-1 right-1 z-10">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon-xs" className="shrink-0 bg-card/80 backdrop-blur-sm">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className={`shrink-0 bg-card/80 backdrop-blur-sm ${editMode ? '' : 'opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100'}`}
+              >
                 <MoreHorizontal size={12} />
               </Button>
             </DropdownMenuTrigger>
@@ -211,7 +265,7 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, siblin
                 }
               }}
             >
-              {menuItems}
+              {editMode ? menuItems : viewMenuItems}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

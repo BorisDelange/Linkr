@@ -53,6 +53,18 @@ export function applyFilters(
           if (filter.max != null && num > filter.max) return false
           break
         }
+        case 'numeric-double': {
+          const num = Number(value)
+          if (isNaN(num)) return false
+          const inRange = (min: number | null, max: number | null) =>
+            (min == null && max == null) ? false : (min == null || num >= min) && (max == null || num <= max)
+          // A range with both bounds empty is "unused"; pass if the row falls in either active range.
+          const used1 = filter.min1 != null || filter.max1 != null
+          const used2 = filter.min2 != null || filter.max2 != null
+          if (!used1 && !used2) break // no restriction
+          if (!(inRange(filter.min1, filter.max1) || inRange(filter.min2, filter.max2))) return false
+          break
+        }
         case 'date': {
           const dateStr = String(value ?? '')
           if (filter.from && dateStr < filter.from) return false

@@ -364,7 +364,7 @@ export interface DashboardFilter {
   columnId: string
   columnName: string
   type: 'categorical' | 'numeric' | 'date'
-  inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range'
+  inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range' | 'double-range'
   /** @deprecated Cross-dataset matching is now automatic, governed by `scope`. Retained for stored data. */
   propagate?: boolean
   scope?: DashboardFilterScope
@@ -390,6 +390,9 @@ export interface DashboardTab {
   dashboardId: string
   name: string
   displayOrder: number
+  /** When set, this tab is a sub-tab of the referenced root tab (one level of nesting only).
+   *  A root tab with children acts as a pure container: its widgets live in the sub-tabs. */
+  parentTabId?: string | null
 }
 
 export type DashboardWidgetSource =
@@ -427,6 +430,8 @@ export interface DatePreset {
 export type FilterValue =
   | { type: 'categorical'; selected: string[] }
   | { type: 'numeric'; min: number | null; max: number | null }
+  // Two disjoint numeric ranges (OR): keeps rows in [min1,max1] or [min2,max2].
+  | { type: 'numeric-double'; min1: number | null; max1: number | null; min2: number | null; max2: number | null }
   | { type: 'date'; from: string | null; to: string | null }
   // Relative sliding window: resolved to from/to at render time against today.
   | { type: 'date-relative'; count: number; unit: DatePresetUnit }

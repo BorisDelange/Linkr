@@ -238,12 +238,32 @@ export function interruptR() {
 }
 
 /**
+ * Best-effort vector re-render of a single plot: webR's canvas device is raster, so plots look
+ * soft on screen. Redraw the same code into an svglite device and return its crisp SVG. Returns
+ * null when svglite is unavailable or no valid SVG is produced, so the caller keeps the PNG.
+ * Limited to one plot because svglite has no multi-page support.
+ */
+async function renderRPlotAsSvg(webR: WebR, code: string): Promise<string | null> {
+  await webR.FS.writeFile('/tmp/_linkr_svg_code.R', new TextEncoder().encode(code))
+  const svg = await webR.evalRString(`local({
+    if (!requireNamespace("svglite", quietly = TRUE)) return("")
+    f <- tempfile(fileext = ".svg")
+    if (!isTRUE(tryCatch({ svglite::svglite(f, width = 7, height = 7, pointsize = 11); TRUE }, error = function(e) FALSE))) return("")
+    tryCatch(source("/tmp/_linkr_svg_code.R", local = FALSE, print.eval = TRUE), error = function(e) NULL)
+    try(dev.off(), silent = TRUE)
+    if (file.exists(f) && file.info(f)$size > 0) paste(readLines(f, warn = FALSE), collapse = "\n") else ""
+  })`)
+  return svg.includes('<svg') ? svg : null
+}
+
+/**
  * Execute R code and return structured output.
  */
 export async function executeR(
   code: string,
   activeConnectionId: string | null,
   _signal?: AbortSignal,
+  tryVectorPlot = false,
 ): Promise<RuntimeOutput> {
   const webR = await getWebR()
   setStatus('executing')
@@ -270,10 +290,19 @@ export async function executeR(
     // Use shelter.captureR for output and plot capture
     const shelter = await new (webR as unknown as { Shelter: new () => Promise<Shelter> }).Shelter()
 
+    // webr::canvas() defaults to 1008×1008 @ pointsize 12. Scaling width, height and pointsize
+    // together raises the raster resolution without changing the plot's proportions. This helps
+    // high-DPI export; on-screen sharpness is bounded by the canvas device's raster text rendering.
+    const R_PLOT_SCALE = 2
     const captured = await shelter.captureR(code, {
       withAutoprint: true,
       captureStreams: true,
       captureConditions: false,
+      captureGraphics: {
+        width: 1008 * R_PLOT_SCALE,
+        height: 1008 * R_PLOT_SCALE,
+        pointsize: 12 * R_PLOT_SCALE,
+      },
     })
 
     // Process output lines
@@ -309,6 +338,17 @@ export async function executeR(
         })
       } finally {
         bitmap.close()
+      }
+    }
+
+    // Upgrade a single raster plot to crisp vector SVG when possible (best-effort, falls back
+    // to the PNG above). One plot only — svglite can't write multiple pages.
+    if (tryVectorPlot && figures.length === 1 && figures[0].type === 'png') {
+      try {
+        const svg = await renderRPlotAsSvg(webR, code)
+        if (svg) figures[0] = { ...figures[0], type: 'svg', data: svg }
+      } catch {
+        // keep the PNG fallback
       }
     }
 
@@ -367,6 +407,7 @@ interface Shelter {
     withAutoprint?: boolean
     captureStreams?: boolean
     captureConditions?: boolean
+    captureGraphics?: { width: number; height: number; pointsize: number } | boolean
   }): Promise<{
     result: { type(): Promise<string> }
     output: { type: string; data: unknown }[]

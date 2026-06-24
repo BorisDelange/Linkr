@@ -15,7 +15,8 @@ interface DashboardState {
 
   // Editor state
   activeDashboardId: string | null
-  activeTabId: Record<string, string> // dashboardId → tabId
+  activeTabId: Record<string, string> // dashboardId → active ROOT tabId
+  activeSubTabId: Record<string, string> // parent tabId → active child tabId
 
   // Runtime filter state (not persisted) — keyed by DashboardFilter.id
   activeFilters: Record<string, FilterValue>
@@ -29,14 +30,22 @@ interface DashboardState {
 
   // Tab CRUD
   addTab: (dashboardId: string) => void
+  /** Add a sub-tab to a root tab. If the root currently holds widgets, they move into the
+   *  first sub-tab so nothing is orphaned when it becomes a container. */
+  addSubTab: (parentTabId: string) => void
   removeTab: (tabId: string) => void
   renameTab: (tabId: string, name: string) => void
   reorderTabs: (dashboardId: string, orderedIds: string[]) => void
   setActiveTab: (dashboardId: string, tabId: string) => void
+  setActiveSubTab: (parentTabId: string, childTabId: string) => void
 
   // Widget CRUD
   addWidget: (tabId: string, source: DashboardWidgetSource, name: string, datasetFileId?: string | null) => void
   removeWidget: (widgetId: string) => void
+  /** Move a widget to another tab, dropping it at the bottom of the target tab. */
+  moveWidget: (widgetId: string, newTabId: string) => void
+  /** Clone a widget (config + dataset) into the same or another tab. */
+  duplicateWidget: (widgetId: string, targetTabId?: string) => void
   updateWidgetLayout: (widgetId: string, layout: { x: number; y: number; w: number; h: number }) => void
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
   updateWidgetName: (widgetId: string, name: string) => void
@@ -67,6 +76,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   loaded: false,
   activeDashboardId: null,
   activeTabId: {},
+  activeSubTabId: {},
   activeFilters: {},
 
   loadProjectDashboards: async (projectUid) => {
@@ -96,6 +106,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         loaded: true,
         activeDashboardId: null,
         activeTabId: {},
+        activeSubTabId: {},
         activeFilters: {},
       })
     } catch {
@@ -107,6 +118,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         loaded: true,
         activeDashboardId: null,
         activeTabId: {},
+        activeSubTabId: {},
         activeFilters: {},
       })
     }
@@ -183,12 +195,13 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   addTab: (dashboardId) => {
     const id = uid()
     const tab: DashboardTab = (() => {
-      const existing = get().tabs.filter((t) => t.dashboardId === dashboardId)
+      const roots = get().tabs.filter((t) => t.dashboardId === dashboardId && !t.parentTabId)
       return {
         id,
         dashboardId,
-        name: `Tab ${existing.length + 1}`,
-        displayOrder: existing.length,
+        name: `Tab ${roots.length + 1}`,
+        displayOrder: roots.length,
+        parentTabId: null,
       }
     })()
 
@@ -199,27 +212,80 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     getStorage().dashboardTabs.create(tab).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
+  addSubTab: (parentTabId) => {
+    const parent = get().tabs.find((t) => t.id === parentTabId)
+    if (!parent || parent.parentTabId) return // sub-tabs are one level deep only
+    const existingChildren = get().tabs.filter((t) => t.parentTabId === parentTabId)
+    const id = uid()
+    const child: DashboardTab = {
+      id,
+      dashboardId: parent.dashboardId,
+      name: `Sub-tab ${existingChildren.length + 1}`,
+      displayOrder: existingChildren.length,
+      parentTabId,
+    }
+    // First sub-tab: the parent becomes a container, so its own widgets move into this child.
+    const moveParentWidgets = existingChildren.length === 0
+    const movedWidgetIds = moveParentWidgets
+      ? get().widgets.filter((w) => w.tabId === parentTabId).map((w) => w.id)
+      : []
+
+    set((s) => ({
+      tabs: [...s.tabs, child],
+      widgets: movedWidgetIds.length > 0
+        ? s.widgets.map((w) => (w.tabId === parentTabId ? { ...w, tabId: id } : w))
+        : s.widgets,
+      activeSubTabId: { ...s.activeSubTabId, [parentTabId]: id },
+    }))
+    getStorage().dashboardTabs.create(child).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    for (const wid of movedWidgetIds) {
+      getStorage().dashboardWidgets.update(wid, { tabId: id }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    }
+  },
+
   removeTab: (tabId) =>
     set((s) => {
       const tab = s.tabs.find((t) => t.id === tabId)
       if (!tab) return s
-      const siblings = s.tabs
-        .filter((t) => t.dashboardId === tab.dashboardId && t.id !== tabId)
-        .sort((a, b) => a.displayOrder - b.displayOrder)
-      if (siblings.length === 0) return s // don't remove last tab
-      const newActive =
-        s.activeTabId[tab.dashboardId] === tabId
-          ? siblings[0].id
-          : s.activeTabId[tab.dashboardId]
 
-      // Fire-and-forget storage deletes
-      getStorage().dashboardWidgets.deleteByTab(tabId).catch((e) => console.warn('[dashboard-store] persist error:', e))
-      getStorage().dashboardTabs.delete(tabId).catch((e) => console.warn('[dashboard-store] persist error:', e))
+      if (!tab.parentTabId) {
+        // Root tab: never remove the last root of a dashboard.
+        const rootSiblings = s.tabs.filter(
+          (t) => t.dashboardId === tab.dashboardId && !t.parentTabId && t.id !== tabId,
+        )
+        if (rootSiblings.length === 0) return s
+      }
+
+      // Deleting a container cascades to its sub-tabs (and their widgets).
+      const children = s.tabs.filter((t) => t.parentTabId === tabId)
+      const removeIds = new Set<string>([tabId, ...children.map((c) => c.id)])
+
+      for (const id of removeIds) {
+        getStorage().dashboardWidgets.deleteByTab(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
+        getStorage().dashboardTabs.delete(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
+      }
+
+      // Repair active selections.
+      let activeTabId = s.activeTabId
+      if (!tab.parentTabId && s.activeTabId[tab.dashboardId] === tabId) {
+        const nextRoot = s.tabs
+          .filter((t) => t.dashboardId === tab.dashboardId && !t.parentTabId && t.id !== tabId)
+          .sort((a, b) => a.displayOrder - b.displayOrder)[0]
+        activeTabId = { ...s.activeTabId, [tab.dashboardId]: nextRoot?.id }
+      }
+      let activeSubTabId = s.activeSubTabId
+      if (tab.parentTabId && s.activeSubTabId[tab.parentTabId] === tabId) {
+        const nextChild = s.tabs
+          .filter((t) => t.parentTabId === tab.parentTabId && t.id !== tabId)
+          .sort((a, b) => a.displayOrder - b.displayOrder)[0]
+        activeSubTabId = { ...s.activeSubTabId, [tab.parentTabId]: nextChild?.id }
+      }
 
       return {
-        tabs: s.tabs.filter((t) => t.id !== tabId),
-        widgets: s.widgets.filter((w) => w.tabId !== tabId),
-        activeTabId: { ...s.activeTabId, [tab.dashboardId]: newActive },
+        tabs: s.tabs.filter((t) => !removeIds.has(t.id)),
+        widgets: s.widgets.filter((w) => !removeIds.has(w.tabId)),
+        activeTabId,
+        activeSubTabId,
       }
     }),
 
@@ -251,6 +317,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       activeTabId: { ...s.activeTabId, [dashboardId]: tabId },
     })),
 
+  setActiveSubTab: (parentTabId, childTabId) =>
+    set((s) => ({
+      activeSubTabId: { ...s.activeSubTabId, [parentTabId]: childTabId },
+    })),
+
   // --- Widget CRUD ---
 
   addWidget: (tabId, source, name, datasetFileId) => {
@@ -266,6 +337,45 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   removeWidget: (widgetId) => {
     set((s) => ({ widgets: s.widgets.filter((w) => w.id !== widgetId) }))
     getStorage().dashboardWidgets.delete(widgetId).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  moveWidget: (widgetId, newTabId) => {
+    const widget = get().widgets.find((w) => w.id === widgetId)
+    if (!widget || widget.tabId === newTabId) return
+    const bottom = get().widgets
+      .filter((w) => w.tabId === newTabId)
+      .reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
+    const layout = { ...widget.layout, x: 0, y: bottom }
+    set((s) => ({
+      widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, tabId: newTabId, layout } : w)),
+    }))
+    getStorage().dashboardWidgets.update(widgetId, { tabId: newTabId, layout }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  duplicateWidget: (widgetId, targetTabId) => {
+    const widget = get().widgets.find((w) => w.id === widgetId)
+    if (!widget) return
+    const tabId = targetTabId ?? widget.tabId
+    const siblings = get().widgets.filter((w) => w.tabId === tabId)
+    const bottom = siblings.reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
+
+    // Generate a unique "(copy)" name among the target tab's widgets.
+    const taken = new Set(siblings.map((w) => w.name.toLowerCase()))
+    const base = `${widget.name} (copy)`
+    let name = base
+    let n = 2
+    while (taken.has(name.toLowerCase())) name = `${base} ${n++}`
+
+    const clone: DashboardWidget = {
+      ...widget,
+      id: uid(),
+      tabId,
+      name,
+      layout: { ...widget.layout, x: 0, y: bottom },
+      source: structuredClone(widget.source),
+    }
+    set((s) => ({ widgets: [...s.widgets, clone] }))
+    getStorage().dashboardWidgets.create(clone).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
   updateWidgetLayout: (widgetId, layout) => {

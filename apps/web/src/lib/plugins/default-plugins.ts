@@ -123,6 +123,16 @@ export function registerDefaultPlugins() {
           ],
           filterOptionsByColumn: 'column',
         },
+        excludeNA: {
+          type: 'boolean',
+          label: { en: 'Exclude NA / empty', fr: 'Exclure NA / vide' },
+          default: true,
+          section: { en: 'Data', fr: 'Données' },
+          description: {
+            en: 'Drop rows whose value is null, empty, or NA before computing the indicator. Uncheck to count them.',
+            fr: 'Ignore les lignes dont la valeur est nulle, vide ou NA avant de calculer l’indicateur. Décocher pour les comptabiliser.',
+          },
+        },
         // --- Content ---
         title: {
           type: 'string',

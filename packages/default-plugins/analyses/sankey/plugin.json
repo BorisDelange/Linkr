@@ -122,6 +122,16 @@
         "fr": "Ignore les étapes nulles, vides ou NA avant de construire les liens."
       }
     },
+    "alignEndStates": {
+      "type": "boolean",
+      "label": { "en": "Align end states", "fr": "Aligner les états terminaux" },
+      "default": false,
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Merge each flow's final stage into one last column, so an end state (e.g. Death, Transfer) appears once instead of duplicated across columns when paths have different lengths.",
+        "fr": "Fusionne l'étape finale de chaque flux dans une seule dernière colonne, pour qu'un état terminal (ex : Décès, Transfert) apparaisse une seule fois au lieu d'être dupliqué entre colonnes quand les parcours ont des longueurs différentes."
+      }
+    },
     "addEndNode": {
       "type": "string",
       "label": { "en": "End node label", "fr": "Libellé nœud final" },
@@ -139,10 +149,24 @@
       "default": 1,
       "min": 1,
       "max": 100000,
+      "row": "flowSize",
       "section": { "en": "Data", "fr": "Données" },
       "description": {
         "en": "Hide transitions that occur fewer times than this. Use to remove rare, noisy flows.",
         "fr": "Masque les transitions se produisant moins souvent que cette valeur. Utile pour retirer les flux rares et bruités."
+      }
+    },
+    "maxLinkValue": {
+      "type": "number",
+      "label": { "en": "Max flow size", "fr": "Flux maximum" },
+      "default": 0,
+      "min": 0,
+      "max": 100000,
+      "row": "flowSize",
+      "section": { "en": "Data", "fr": "Données" },
+      "description": {
+        "en": "Hide transitions that occur more times than this. Leave at 0 for no maximum.",
+        "fr": "Masque les transitions se produisant plus souvent que cette valeur. Laisser à 0 pour aucun maximum."
       }
     },
 

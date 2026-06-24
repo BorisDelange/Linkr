@@ -16,7 +16,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, FolderPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardTab } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -41,6 +41,8 @@ import {
 interface DashboardTabBarProps {
   dashboardId: string
   editMode: boolean
+  /** When set, this bar renders the sub-tabs of the given parent (one level deep). */
+  parentTabId?: string | null
 }
 
 function SortableTab({
@@ -48,17 +50,26 @@ function SortableTab({
   isActive,
   canClose,
   editMode,
+  hasChildren,
+  subBar,
   onActivate,
   onClose,
   onStartRename,
+  onAddSubTab,
 }: {
   tab: DashboardTab
   isActive: boolean
   canClose: boolean
   editMode: boolean
+  /** Root tab that contains sub-tabs — shows a container indicator. */
+  hasChildren?: boolean
+  /** Rendered inside a sub-tab bar (smaller, muted styling). */
+  subBar?: boolean
   onActivate: () => void
   onClose: () => void
   onStartRename: () => void
+  /** Only provided for root tabs — adds a sub-tab to this tab. */
+  onAddSubTab?: () => void
 }) {
   const { t } = useTranslation()
 
@@ -89,7 +100,8 @@ function SortableTab({
           onClick={onActivate}
           onDoubleClick={onStartRename}
           className={cn(
-            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
+            'group flex cursor-pointer items-center gap-1.5 border-b-2 font-medium transition-colors whitespace-nowrap select-none',
+            subBar ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs',
             isActive
               ? 'border-primary text-foreground'
               : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
@@ -97,6 +109,9 @@ function SortableTab({
           )}
         >
           <span>{tab.name}</span>
+          {hasChildren && (
+            <Layers size={11} className="text-muted-foreground/70 shrink-0" />
+          )}
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -104,6 +119,12 @@ function SortableTab({
           <Pencil size={14} />
           {t('common.rename')}
         </ContextMenuItem>
+        {onAddSubTab && (
+          <ContextMenuItem onClick={onAddSubTab}>
+            <FolderPlus size={14} />
+            {t('dashboard.add_sub_tab')}
+          </ContextMenuItem>
+        )}
         {canClose && (
           <>
             <ContextMenuSeparator />
@@ -122,12 +143,14 @@ function SortableTab({
 function TabRenameInput({
   tab,
   isActive,
+  subBar,
   siblingNames,
   onFinish,
 }: {
   tab: DashboardTab
   isActive: boolean
-  /** Names of the other tabs in this dashboard (lowercased) — for dup detection. */
+  subBar?: boolean
+  /** Names of the other tabs at this level (lowercased) — for dup detection. */
   siblingNames: Set<string>
   onFinish: (newName: string | null) => void
 }) {
@@ -160,7 +183,8 @@ function TabRenameInput({
   return (
     <div
       className={cn(
-        'flex items-center border-b-2 px-3 py-1.5',
+        'flex items-center border-b-2',
+        subBar ? 'px-2.5 py-1' : 'px-3 py-1.5',
         isActive ? 'border-primary' : 'border-transparent',
       )}
     >
@@ -174,7 +198,8 @@ function TabRenameInput({
           if (e.key === 'Escape') onFinish(null)
         }}
         className={cn(
-          'h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none',
+          'h-auto w-24 bg-transparent px-0 py-0 font-medium outline-none',
+          subBar ? 'text-[11px]' : 'text-xs',
           isDuplicate && 'text-destructive',
         )}
         title={isDuplicate ? t('dashboard.tab_name_exists') : undefined}
@@ -183,26 +208,40 @@ function TabRenameInput({
   )
 }
 
-export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps) {
+export function DashboardTabBar({ dashboardId, editMode, parentTabId }: DashboardTabBarProps) {
   const { t } = useTranslation()
   const {
     tabs: allTabs,
     activeTabId,
+    activeSubTabId,
     addTab,
+    addSubTab,
     removeTab,
     renameTab,
     reorderTabs,
     setActiveTab,
+    setActiveSubTab,
   } = useDashboardStore()
+
+  const isSubBar = parentTabId != null
 
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
   const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
 
+  // Tabs shown at this level: a parent's children for the sub-bar, else the dashboard's root tabs.
   const tabs = allTabs
-    .filter((t) => t.dashboardId === dashboardId)
+    .filter((t) => isSubBar ? t.parentTabId === parentTabId : (t.dashboardId === dashboardId && !t.parentTabId))
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentActiveId = activeTabId[dashboardId] ?? tabs[0]?.id
+
+  // Root tabs that contain sub-tabs (for the container indicator). Empty for the sub-bar.
+  const containerIds = new Set(
+    isSubBar ? [] : allTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string),
+  )
+
+  const currentActiveId = isSubBar
+    ? (activeSubTabId[parentTabId] ?? tabs[0]?.id)
+    : (activeTabId[dashboardId] ?? tabs[0]?.id)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -215,10 +254,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     const oldIndex = tabs.findIndex((t) => t.id === active.id)
     const newIndex = tabs.findIndex((t) => t.id === over.id)
     const reordered = arrayMove(tabs, oldIndex, newIndex)
-    reorderTabs(
-      dashboardId,
-      reordered.map((t) => t.id)
-    )
+    reorderTabs(dashboardId, reordered.map((t) => t.id))
   }
 
   const handleConfirmDelete = () => {
@@ -230,17 +266,20 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
 
   const handleRenameFinish = useCallback((tabId: string, newName: string | null) => {
     if (newName) {
-      const exists = allTabs.some(
-        (t) => t.dashboardId === dashboardId && t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
+      const exists = tabs.some(
+        (t) => t.id !== tabId && t.name.toLowerCase() === newName.toLowerCase(),
       )
       if (!exists) renameTab(tabId, newName)
     }
     setRenamingTabId(null)
-  }, [renameTab, allTabs, dashboardId])
+  }, [renameTab, tabs])
+
+  const activate = (tabId: string) =>
+    isSubBar ? setActiveSubTab(parentTabId, tabId) : setActiveTab(dashboardId, tabId)
 
   return (
     <>
-      <div className="flex items-center overflow-hidden">
+      <div className={cn('flex items-center overflow-hidden', isSubBar && 'bg-muted/30')}>
         <div className="flex items-center overflow-x-auto scrollbar-hide">
           <DndContext
             sensors={sensors}
@@ -257,6 +296,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === currentActiveId}
+                    subBar={isSubBar}
                     siblingNames={new Set(
                       tabs.filter((tt) => tt.id !== tab.id).map((tt) => tt.name.toLowerCase()),
                     )}
@@ -267,11 +307,14 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                     key={tab.id}
                     tab={tab}
                     isActive={tab.id === currentActiveId}
-                    canClose={tabs.length > 1}
+                    canClose={isSubBar ? true : tabs.length > 1}
                     editMode={editMode}
-                    onActivate={() => setActiveTab(dashboardId, tab.id)}
+                    hasChildren={containerIds.has(tab.id)}
+                    subBar={isSubBar}
+                    onActivate={() => activate(tab.id)}
                     onClose={() => setConfirmDeleteTabId(tab.id)}
                     onStartRename={() => setRenamingTabId(tab.id)}
+                    onAddSubTab={!isSubBar ? () => addSubTab(tab.id) : undefined}
                   />
                 )
               )}
@@ -280,9 +323,12 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
         </div>
         {editMode && (
           <button
-            onClick={() => addTab(dashboardId)}
-            className="flex items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            title={t('dashboard.add_tab')}
+            onClick={() => isSubBar ? addSubTab(parentTabId) : addTab(dashboardId)}
+            className={cn(
+              'flex items-center gap-1 border-b-2 border-transparent text-muted-foreground hover:text-foreground transition-colors',
+              isSubBar ? 'px-2 py-1' : 'px-2 py-1.5',
+            )}
+            title={isSubBar ? t('dashboard.add_sub_tab') : t('dashboard.add_tab')}
           >
             <Plus size={12} />
           </button>

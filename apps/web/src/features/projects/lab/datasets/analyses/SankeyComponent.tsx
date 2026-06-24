@@ -26,10 +26,17 @@ interface NodeId { label: string; depth: number }
 /** A counted source→target transition between two positioned nodes. */
 interface LinkCount { source: NodeId; target: NodeId; value: number }
 
+/** Shared column for every flow's terminal node when end-state alignment is on. Far beyond any
+ *  real flow length so d3-sankey still places it last; same value for all terminals of a label
+ *  collapses the per-depth duplicates into one final node. */
+const TERMINAL_DEPTH = 1_000_000
+
 /** A flow is an ordered list of stage labels. Build (source→target) link counts from many flows,
  *  keyed by (label, depth) so the diagram stays acyclic. Keyed on a tab separator internally so
- *  labels containing spaces survive intact, then returned as structured objects. */
-function buildLinks(flows: string[][], collapseRepeats: boolean): LinkCount[] {
+ *  labels containing spaces survive intact, then returned as structured objects.
+ *  When `alignEndStates` is set, each flow's terminal node is keyed by label only (a fixed
+ *  terminal depth) so the same end state in flows of different lengths merges into one column. */
+function buildLinks(flows: string[][], collapseRepeats: boolean, alignEndStates: boolean): LinkCount[] {
   const counts = new Map<string, number>()
   for (const flow of flows) {
     let steps = flow
@@ -37,18 +44,23 @@ function buildLinks(flows: string[][], collapseRepeats: boolean): LinkCount[] {
       steps = flow.filter((s, i) => i === 0 || s !== flow[i - 1])
     }
     for (let i = 0; i + 1 < steps.length; i++) {
-      // depth = position of each endpoint in this flow (i → i+1)
-      const key = `${i}\t${steps[i]}\t${steps[i + 1]}`
+      // depth = position of each endpoint in this flow (i → i+1); the terminal node is the
+      // target of the last link, optionally pinned to a shared terminal column.
+      const isLastLink = i + 2 === steps.length
+      const targetDepth = alignEndStates && isLastLink ? TERMINAL_DEPTH : i + 1
+      const key = `${i}\t${targetDepth}\t${steps[i]}\t${steps[i + 1]}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
   }
   return Array.from(counts, ([key, value]) => {
     const t1 = key.indexOf('\t')
     const t2 = key.indexOf('\t', t1 + 1)
-    const depth = Number(key.slice(0, t1))
+    const t3 = key.indexOf('\t', t2 + 1)
+    const sourceDepth = Number(key.slice(0, t1))
+    const targetDepth = Number(key.slice(t1 + 1, t2))
     return {
-      source: { label: key.slice(t1 + 1, t2), depth },
-      target: { label: key.slice(t2 + 1), depth: depth + 1 },
+      source: { label: key.slice(t2 + 1, t3), depth: sourceDepth },
+      target: { label: key.slice(t3 + 1), depth: targetDepth },
       value,
     }
   })
@@ -144,8 +156,10 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   const sourceMode = (config.sourceMode as string) ?? 'long'
   const collapseRepeats = (config.collapseRepeats as boolean) ?? true
   const excludeNA = (config.excludeNA as boolean) ?? true
+  const alignEndStates = (config.alignEndStates as boolean) ?? false
   const endNode = (config.addEndNode as string)?.trim() ?? ''
   const minLinkValue = Math.max(1, (config.minLinkValue as number) ?? 1)
+  const maxLinkValue = Math.max(0, (config.maxLinkValue as number) ?? 0)
   const title = (config.title as string) ?? ''
   const centerTitle = (config.centerTitle as boolean) ?? true
   const cardIcon = (config.cardIcon as string) ?? '__none__'
@@ -180,7 +194,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
       flows = flows.map(f => (f.length > 0 ? [...f, endNode] : f))
     }
 
-    const linkCounts = buildLinks(flows, collapseRepeats)
+    const linkCounts = buildLinks(flows, collapseRepeats, alignEndStates)
 
     // Map (label, depth) → node indices, keeping only links at/above the threshold.
     // The internal node `name` encodes depth (so the same unit at two positions is two nodes),
@@ -195,14 +209,21 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
       if (i == null) { i = nodeList.length; indexOf.set(key, i); nodeList.push({ name: key, label: n.label }) }
       return i
     }
+    // A node that is never a link source is terminal (an exit state). Entry links leave the first
+    // column (depth 0). The max-flow cap applies only to in-between transitions, so entry and exit
+    // states always stay on the diagram even when their flows are large.
+    const sourceKeys = new Set(linkCounts.map((l) => `${l.source.depth}\t${l.source.label}`))
     for (const { source, target, value } of linkCounts) {
       if (value < minLinkValue) continue
+      const isEntryLink = source.depth === 0
+      const isExitLink = !sourceKeys.has(`${target.depth}\t${target.label}`)
+      if (maxLinkValue > 0 && value > maxLinkValue && !isEntryLink && !isExitLink) continue
       linkList.push({ source: nodeIndex(source), target: nodeIndex(target), value })
       total += value
     }
 
     return { nodes: nodeList, links: linkList, total, error: null as null | 'missing' }
-  }, [config, rows, sourceMode, collapseRepeats, excludeNA, endNode, minLinkValue])
+  }, [config, rows, sourceMode, collapseRepeats, excludeNA, endNode, minLinkValue, maxLinkValue, alignEndStates])
 
   // --- Responsive sizing ---
   // The chart container only mounts once the config is valid (the placeholder branch has no SVG host).

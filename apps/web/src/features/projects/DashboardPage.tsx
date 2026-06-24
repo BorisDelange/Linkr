@@ -34,6 +34,7 @@ export function DashboardPage() {
     tabs,
     widgets,
     activeTabId,
+    activeSubTabId,
     loaded,
     loadProjectDashboards,
     setActiveDashboard,
@@ -58,8 +59,14 @@ export function DashboardPage() {
   const dashboardTabs = tabs
     .filter((tab) => tab.dashboardId === currentDashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  const currentTabId = activeTabId[currentDashboardId] ?? dashboardTabs[0]?.id
-  const tabWidgets = useMemo(() => widgets.filter((w) => w.tabId === currentTabId), [widgets, currentTabId])
+  // The main bar selects a root tab; if that root is a container, the active sub-tab's
+  // widgets are what we actually render.
+  const rootTabs = dashboardTabs.filter((tab) => !tab.parentTabId)
+  const currentRootId = activeTabId[currentDashboardId] ?? rootTabs[0]?.id
+  const childTabs = dashboardTabs.filter((tab) => tab.parentTabId === currentRootId)
+  const isContainer = childTabs.length > 0
+  const currentTabId = isContainer ? (activeSubTabId[currentRootId] ?? childTabs[0]?.id) : currentRootId
+  const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
 
   // All widgets in this dashboard (across all tabs) — for filter sidebar dataset list
   const allDashboardWidgets = widgets.filter((w) => {
@@ -96,7 +103,8 @@ export function DashboardPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Tab bar + actions */}
-      <div className="flex items-center border-b px-3 shrink-0">
+      <div className="border-b shrink-0">
+      <div className="flex items-center px-3">
         <Button
           variant="ghost"
           size="icon-xs"
@@ -167,6 +175,14 @@ export function DashboardPage() {
             {t('dashboard.toggle_filters')}
           </Button>
         </div>
+      </div>
+
+      {/* Sub-tab bar — shown when the active root tab is a container */}
+      {isContainer && (
+        <div className="px-3">
+          <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} parentTabId={currentRootId} />
+        </div>
+      )}
       </div>
 
       {/* Plugin drift banner — a plugin used here changed since some widgets were built. */}

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useParams } from 'react-router'
 import {
@@ -34,6 +34,13 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
   const allDashboards = useDashboardStore((s) => s.dashboards)
   const allTabs = useDashboardStore((s) => s.tabs)
   const allWidgets = useDashboardStore((s) => s.widgets)
+
+  // Populate the dashboard store so the overview's dashboard count is accurate even when landing
+  // here directly — otherwise it reads 0 until the Lab → Dashboards page loads the data.
+  const loadProjectDashboards = useDashboardStore((s) => s.loadProjectDashboards)
+  useEffect(() => {
+    loadProjectDashboards(uid)
+  }, [uid, loadProjectDashboards])
 
   const dataSources = useMemo(() => getProjectSources(uid).filter((ds) => !ds.isVocabularyReference), [getProjectSources, uid])
   const cohorts = useMemo(() => getProjectCohorts(uid), [getProjectCohorts, uid])

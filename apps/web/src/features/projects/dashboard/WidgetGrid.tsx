@@ -10,7 +10,8 @@ import { WidgetCard } from './WidgetCard'
 import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
-import { DashboardDataProvider } from './DashboardDataProvider'
+import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
+import { Filter } from 'lucide-react'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
 import { DASHBOARD_GRID } from './dashboard-grid'
 import {
@@ -34,12 +35,15 @@ interface WidgetGridProps {
   onRequestExport?: (widgetId: string) => void
 }
 
-/** Resolve which filters apply to a given widget, keyed by column ID. */
+/** Resolve which filters apply to a given widget, keyed by column ID. `widgetParentTabId` is the
+ *  parent of the widget's tab (when it's a sub-tab), so a tab-scoped filter targeting a container
+ *  tab also reaches the widgets living in its sub-tabs. */
 function resolveWidgetFilters(
   widget: DashboardWidget,
   dashboard: Dashboard,
   activeFilters: Record<string, FilterValue>,
   columnNameToId: Map<string, string>,
+  widgetParentTabId: string | null | undefined,
 ): Record<string, FilterValue> | undefined {
   const result: Record<string, FilterValue> = {}
   let hasAny = false
@@ -48,9 +52,12 @@ function resolveWidgetFilters(
     const filterValue = activeFilters[filter.id]
     if (!filterValue) continue
 
-    // Check scope: skip if filter is scoped and widget is not in scope
+    // Check scope: skip if filter is scoped and widget is not in scope. A container tab in scope
+    // covers the widgets of its sub-tabs, so match on the parent tab too.
     const scope = filter.scope ?? { type: 'all' }
-    if (scope.type === 'tabs' && !scope.tabIds.includes(widget.tabId)) continue
+    if (scope.type === 'tabs'
+      && !scope.tabIds.includes(widget.tabId)
+      && !(widgetParentTabId != null && scope.tabIds.includes(widgetParentTabId))) continue
     if (scope.type === 'widgets' && !scope.widgetIds.includes(widget.id)) continue
 
     if (filter.datasetFileId === widget.datasetFileId) {
@@ -70,14 +77,60 @@ function resolveWidgetFilters(
   return hasAny ? result : undefined
 }
 
+function formatRange(min: number | null, max: number | null): string {
+  return `${min ?? '−∞'} – ${max ?? '+∞'}`
+}
+
+/** Human-readable summary of the filters that apply to a widget, shown on the chart so it's
+ *  clear the data is restricted (e.g. "Gestational age: 32 – 36"). */
+function buildFilterChips(
+  filters: Record<string, FilterValue>,
+  columns: { id: string; name: string }[],
+): string[] {
+  const nameOf = (id: string) => columns.find((c) => c.id === id)?.name ?? id
+  const chips: string[] = []
+  for (const [colId, v] of Object.entries(filters)) {
+    const name = nameOf(colId)
+    switch (v.type) {
+      case 'categorical':
+        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push(`${name}: ∅`); break }
+        if (v.selected.length === 0) break
+        chips.push(`${name}: ${v.selected.join(', ')}`)
+        break
+      case 'numeric':
+        if (v.min == null && v.max == null) break
+        chips.push(`${name}: ${formatRange(v.min, v.max)}`)
+        break
+      case 'numeric-double': {
+        const parts: string[] = []
+        if (v.min1 != null || v.max1 != null) parts.push(formatRange(v.min1, v.max1))
+        if (v.min2 != null || v.max2 != null) parts.push(formatRange(v.min2, v.max2))
+        if (parts.length === 0) break
+        chips.push(`${name}: ${parts.join(', ')}`)
+        break
+      }
+      case 'date':
+        if (!v.from && !v.to) break
+        chips.push(`${name}: ${v.from ?? '…'} – ${v.to ?? '…'}`)
+        break
+      case 'date-relative':
+        chips.push(`${name}: ${v.count} ${v.unit}`)
+        break
+    }
+  }
+  return chips
+}
+
 function WidgetWithData({
   widget,
   dashboard,
   activeFilters,
+  parentTabId,
 }: {
   widget: DashboardWidget
   dashboard: Dashboard
   activeFilters: Record<string, FilterValue>
+  parentTabId: string | null | undefined
 }) {
   const { files } = useDatasetStore()
   const datasetFile = files.find((f) => f.id === widget.datasetFileId)
@@ -87,20 +140,37 @@ function WidgetWithData({
   )
 
   const filters = useMemo(
-    () => resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId),
-    [widget, dashboard, activeFilters, columnNameToId]
+    () => resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId, parentTabId),
+    [widget, dashboard, activeFilters, columnNameToId, parentTabId]
+  )
+
+  const filterChips = useMemo(
+    () => (filters ? buildFilterChips(filters, datasetFile?.columns ?? []) : []),
+    [filters, datasetFile?.columns]
   )
 
   return (
     <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null} filters={filters}>
-      <div className="h-full">
-        {widget.source.type === 'plugin' ? (
-          <PluginWidgetRenderer widget={widget} />
-        ) : widget.source.type === 'inline' ? (
-          <InlineCodeWidgetRenderer widget={widget} />
-        ) : (
-          <div className="text-xs text-muted-foreground">Unknown widget type</div>
+      <div className="flex h-full flex-col">
+        {filterChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 px-2 pt-1 text-[10px] text-muted-foreground shrink-0">
+            <Filter size={10} className="shrink-0" />
+            {filterChips.map((chip, i) => (
+              <span key={i} className="max-w-[180px] truncate rounded bg-muted px-1.5 py-0.5" title={chip}>
+                {chip}
+              </span>
+            ))}
+          </div>
         )}
+        <div className="min-h-0 flex-1">
+          {widget.source.type === 'plugin' ? (
+            <PluginWidgetRenderer widget={widget} />
+          ) : widget.source.type === 'inline' ? (
+            <InlineCodeWidgetRenderer widget={widget} />
+          ) : (
+            <div className="text-xs text-muted-foreground">Unknown widget type</div>
+          )}
+        </div>
       </div>
     </DashboardDataProvider>
   )
@@ -108,7 +178,7 @@ function WidgetWithData({
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters } = useDashboardStore()
+  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
@@ -173,6 +243,35 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     [widgets, updateWidgetLayout]
   )
 
+  const tabParentById = useMemo(
+    () => new Map(tabs.map((tb) => [tb.id, tb.parentTabId ?? null])),
+    [tabs],
+  )
+
+  // Leaf tabs a widget can be moved to. Container tabs (those with sub-tabs) hold no widgets of
+  // their own, so they're excluded; sub-tabs are labelled with their parent for clarity.
+  const moveTargetTabs = useMemo(() => {
+    const dashTabs = tabs.filter((tb) => tb.dashboardId === dashboard.id)
+    const childrenByParent = new Map<string, typeof dashTabs>()
+    for (const tb of dashTabs) {
+      if (!tb.parentTabId) continue
+      const arr = childrenByParent.get(tb.parentTabId) ?? []
+      arr.push(tb)
+      childrenByParent.set(tb.parentTabId, arr)
+    }
+    const byOrder = (a: { displayOrder: number }, b: { displayOrder: number }) => a.displayOrder - b.displayOrder
+    const targets: { id: string; name: string }[] = []
+    for (const root of dashTabs.filter((t) => !t.parentTabId).sort(byOrder)) {
+      const kids = childrenByParent.get(root.id)
+      if (kids?.length) {
+        for (const k of [...kids].sort(byOrder)) targets.push({ id: k.id, name: `${root.name} / ${k.name}` })
+      } else {
+        targets.push({ id: root.id, name: root.name })
+      }
+    }
+    return targets
+  }, [tabs, dashboard.id])
+
   return (
     <div ref={containerRef} className="w-full">
       <GridLayout
@@ -193,6 +292,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           const siblingNames = new Set(
             widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
           )
+          const moveTargets = moveTargetTabs.filter((tb) => tb.id !== widget.tabId)
           return (
           <div key={widget.id} className="h-full" data-widget-id={widget.id} data-widget-name={widget.name}>
             <WidgetCard
@@ -202,6 +302,9 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
               siblingNames={siblingNames}
               onEdit={() => setEditingWidgetId(widget.id)}
               onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
+              onDuplicate={() => duplicateWidget(widget.id)}
+              onMove={(tabId) => moveWidget(widget.id, tabId)}
+              moveTargets={moveTargets}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
               stale={isWidgetPluginStale(widget)}
@@ -211,6 +314,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
                 widget={widget}
                 dashboard={dashboard}
                 activeFilters={activeFilters}
+                parentTabId={tabParentById.get(widget.tabId)}
               />
             </WidgetCard>
           </div>

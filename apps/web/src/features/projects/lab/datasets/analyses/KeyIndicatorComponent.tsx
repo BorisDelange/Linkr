@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ResponsiveContainer,
@@ -43,6 +43,50 @@ function stddev(arr: number[]): number {
   const mean = arr.reduce((s, v) => s + v, 0) / arr.length
   const variance = arr.reduce((s, v) => s + (v - mean) ** 2, 0) / arr.length
   return Math.sqrt(variance)
+}
+
+/** Lays out its children at the container's width, then scales them down uniformly so they
+ *  always fit the available height — the whole KPI (text + mini-chart) shrinks homogeneously
+ *  instead of overflowing into a scrollbar when the widget is made small. */
+function FitToContainer({ children }: { children: React.ReactNode }) {
+  const contentRef = useRef<HTMLDivElement | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
+  const [box, setBox] = useState<{ width: number; scale: number }>({ width: 0, scale: 1 })
+
+  const setContainer = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    if (!el) return
+    const measure = () => {
+      const content = contentRef.current
+      const cw = el.clientWidth
+      const ch = el.clientHeight
+      if (!content || cw === 0 || ch === 0) return
+      const naturalH = content.scrollHeight
+      const scale = naturalH > 0 ? Math.min(1, ch / naturalH) : 1
+      setBox({ width: cw, scale: Number.isFinite(scale) && scale > 0 ? scale : 1 })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    observerRef.current = ro
+  }, [])
+
+  return (
+    <div ref={setContainer} className="flex h-full w-full items-center justify-center overflow-hidden">
+      <div
+        ref={contentRef}
+        style={{ width: box.width || '100%', transform: `scale(${box.scale})`, transformOrigin: 'center' }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function isEmptyVal(val: unknown): boolean {
+  if (val == null) return true
+  const s = String(val).trim().toLowerCase()
+  return s === '' || s === 'na' || s === 'nan' || s === 'null' || s === 'none'
 }
 
 function computeAggregate(values: number[], fn: string): number | null {
@@ -169,6 +213,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const decimals = (config.decimals as number | undefined) ?? 1
   const unit = (config.unit as string | undefined) ?? ''
   const subtitleStats = (config.subtitleStats as string[] | undefined) ?? ['n']
+  const excludeNA = (config.excludeNA as boolean) ?? true
 
   const isProportion = aggregate === 'proportion'
   const isNoneStat = aggregate === 'none'
@@ -196,11 +241,17 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     return aggregateByEntity(rows, uniquePerId, uniqueAggregation)
   }, [rows, uniquePerId, uniqueAggregation])
 
+  // Rows that feed the indicator: optionally drop NA/empty values of the chosen column.
+  const metricRows = useMemo(() => {
+    if (!excludeNA || !column) return sourceRows
+    return sourceRows.filter(r => !isEmptyVal(r[column.id]))
+  }, [excludeNA, column, sourceRows])
+
   // For proportion mode: compute proportion of target value
   const proportionResult = useMemo(() => {
     if (!isProportion || !column) return null
     const rawValues: unknown[] = []
-    for (const row of sourceRows) {
+    for (const row of metricRows) {
       const raw = row[column.id]
       if (raw != null) rawValues.push(raw)
     }
@@ -222,7 +273,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     const pct = (matchCount / total) * 100
 
     return { result: pct, n: total, matchCount, resolvedTarget }
-  }, [isProportion, column, sourceRows, targetValue])
+  }, [isProportion, column, metricRows, targetValue])
 
   // For numeric mode: compute numeric aggregate + all stats
   const numericResult = useMemo(() => {
@@ -231,17 +282,19 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     let nonNull = 0
     let targetMatches = 0
     const target = (targetValue ?? '').toString()
-    for (const row of sourceRows) {
+    for (const row of metricRows) {
       const raw = row[column.id]
-      if (raw == null || raw === '') continue
+      if (isEmptyVal(raw)) continue
       nonNull++
       if (target && String(raw) === target) targetMatches++
       const num = typeof raw === 'number' ? raw : Number(raw)
       if (!isNaN(num)) vals.push(num)
     }
-    // "Count" = non-empty rows, or rows matching the target value when one is chosen.
-    // Valid even for categorical columns with no numeric values.
-    const res = aggregate === 'count' ? (target ? targetMatches : nonNull) : computeAggregate(vals, aggregate)
+    // "Count" = rows in scope (all rows when NA are kept, else non-empty only), or rows
+    // matching the target value when one is chosen. Valid even for categorical columns.
+    const res = aggregate === 'count'
+      ? (target ? targetMatches : (excludeNA ? nonNull : metricRows.length))
+      : computeAggregate(vals, aggregate)
     const stats: Record<string, number | null> = {
       n: nonNull,
       mean: computeAggregate(vals, 'mean'),
@@ -254,7 +307,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       iqr: computeAggregate(vals, 'iqr'),
     }
     return { values: vals, result: res, allStats: stats, nonNull, targetMatches, target }
-  }, [isProportion, column, sourceRows, aggregate, targetValue])
+  }, [isProportion, column, metricRows, aggregate, targetValue, excludeNA])
 
   // Unified result
   const result = isProportion ? proportionResult?.result ?? null : numericResult?.result ?? null
@@ -325,7 +378,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   const hasChart = chartType !== 'none' && (
     chartType === 'histogram'
       ? values.length > 0
-      : sourceRows.length > 0
+      : metricRows.length > 0
   )
   const isSideChart = hasChart && chartPosition === 'side'
 
@@ -392,7 +445,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             decimals={decimals}
             palette={chartPalette}
             column={column}
-            rows={sourceRows}
+            rows={metricRows}
           />
         </div>
       )}
@@ -414,7 +467,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           decimals={decimals}
           palette={chartPalette}
           column={column}
-          rows={sourceRows}
+          rows={metricRows}
         />
       </div>
     </div>
@@ -428,11 +481,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     else bgClasses = bgColor.bg
   }
 
-  // Compact mode: fill entire widget, no inner card border
+  // Compact mode: fill entire widget, no inner card border. Content auto-scales to fit so a
+  // small widget shrinks everything proportionally rather than introducing a scrollbar.
   if (compact) {
     return (
-      <div className={cn('flex h-full flex-col justify-center p-4', bgClasses)} style={bgStyle}>
-        {content}
+      <div className={cn('h-full w-full p-4', bgClasses)} style={bgStyle}>
+        <FitToContainer>{content}</FitToContainer>
       </div>
     )
   }

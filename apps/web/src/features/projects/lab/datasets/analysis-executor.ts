@@ -141,5 +141,6 @@ export async function executeAnalysisCodeR(
   const preamble = buildRInjectionCode(columns)
   const fullCode = preamble + '\n' + code
 
-  return executeR(fullCode, null)
+  // Enable the vector (svglite) re-render so analysis/dashboard plots are crisp on screen.
+  return executeR(fullCode, null, undefined, true)
 }
