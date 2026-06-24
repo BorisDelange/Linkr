@@ -286,8 +286,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
               const isActive = !!activeFilters[fc.id]
 
               return (
-                <div key={fc.id} className="rounded-lg border">
-                  {/* Collapsible header: chevron + column name + active dot + remove */}
+                <div
+                  key={fc.id}
+                  className={cn(
+                    'rounded-lg border transition-colors',
+                    isActive && 'border-green-500/40 bg-green-500/5',
+                  )}
+                >
+                  {/* Collapsible header: chevron + column name + scope badge + remove */}
                   <div className="flex items-center gap-1.5 px-2.5 py-2">
                     <button
                       type="button"
@@ -296,7 +302,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     >
                       <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
                       <span className="text-xs font-medium truncate">{fc.columnName}</span>
-                      {isActive && <span className="size-1.5 shrink-0 rounded-full bg-green-500" title={t('dashboard.filter_active', 'Active')} />}
                     </button>
                     {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
@@ -1400,8 +1405,8 @@ function FilterScopeBadge({
             className={cn(
               'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium',
               isAll
-                ? 'bg-green-500/15 text-green-700 dark:text-green-400'
-                : 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+                ? 'bg-muted text-muted-foreground'
+                : 'bg-muted text-foreground/70 ring-1 ring-inset ring-border',
             )}
           >
             {label}

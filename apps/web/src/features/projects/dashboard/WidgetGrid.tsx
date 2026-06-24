@@ -7,6 +7,7 @@ import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { WidgetCard } from './WidgetCard'
+import { MoveWidgetDialog, type MoveTarget } from './MoveWidgetDialog'
 import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
@@ -169,7 +170,7 @@ function WidgetWithData({
                 </div>
               </TooltipTrigger>
               <TooltipContent side="right" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
-                <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters')}</p>
+                <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters', { count: filterChips.length })}</p>
                 <div className="space-y-2">
                   {filterChips.map((chip, i) => (
                     <div key={i} className="text-[11px]">
@@ -216,7 +217,9 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
   const [containerWidth, setContainerWidth] = useState(1200)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
+  const [movingWidgetId, setMovingWidgetId] = useState<string | null>(null)
   const confirmDeleteWidget = confirmDeleteWidgetId ? widgets.find(w => w.id === confirmDeleteWidgetId) ?? null : null
+  const movingWidget = movingWidgetId ? widgets.find(w => w.id === movingWidgetId) ?? null : null
 
   const editingWidget = editingWidgetId ? widgets.find(w => w.id === editingWidgetId) ?? null : null
 
@@ -281,28 +284,27 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     [tabs],
   )
 
-  // Leaf tabs a widget can be moved to. Container tabs (those with sub-tabs) hold no widgets of
-  // their own, so they're excluded; sub-tabs are labelled with their parent for clarity.
-  const moveTargetTabs = useMemo(() => {
+  // Leaf tabs a widget can be moved to (any depth). Container tabs hold no widgets of their own,
+  // so they're excluded; each target carries its ancestor path for a breadcrumb in the dialog.
+  const moveTargetTabs = useMemo<MoveTarget[]>(() => {
     const dashTabs = tabs.filter((tb) => tb.dashboardId === dashboard.id)
-    const childrenByParent = new Map<string, typeof dashTabs>()
-    for (const tb of dashTabs) {
-      if (!tb.parentTabId) continue
-      const arr = childrenByParent.get(tb.parentTabId) ?? []
-      arr.push(tb)
-      childrenByParent.set(tb.parentTabId, arr)
-    }
-    const byOrder = (a: { displayOrder: number }, b: { displayOrder: number }) => a.displayOrder - b.displayOrder
-    const targets: { id: string; name: string }[] = []
-    for (const root of dashTabs.filter((t) => !t.parentTabId).sort(byOrder)) {
-      const kids = childrenByParent.get(root.id)
-      if (kids?.length) {
-        for (const k of [...kids].sort(byOrder)) targets.push({ id: k.id, name: `${root.name} / ${k.name}` })
-      } else {
-        targets.push({ id: root.id, name: root.name })
+    const hasChildren = new Set(dashTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string))
+    const nameById = new Map(dashTabs.map((t) => [t.id, t.name]))
+    const pathOf = (tb: typeof dashTabs[number]): string[] => {
+      const path: string[] = []
+      let pid = tb.parentTabId ?? null
+      for (let guard = 0; guard < 100 && pid; guard++) {
+        const name = nameById.get(pid)
+        if (name == null) break
+        path.unshift(name)
+        pid = dashTabs.find((t) => t.id === pid)?.parentTabId ?? null
       }
+      return path
     }
-    return targets
+    return dashTabs
+      .filter((tb) => !hasChildren.has(tb.id)) // leaves only
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+      .map((tb) => ({ id: tb.id, name: tb.name, path: pathOf(tb) }))
   }, [tabs, dashboard.id])
 
   return (
@@ -325,7 +327,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           const siblingNames = new Set(
             widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
           )
-          const moveTargets = moveTargetTabs.filter((tb) => tb.id !== widget.tabId)
+          const canMove = moveTargetTabs.some((tb) => tb.id !== widget.tabId)
           return (
           <div key={widget.id} className="h-full" data-widget-id={widget.id} data-widget-name={widget.name}>
             <WidgetCard
@@ -336,8 +338,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
               onEdit={() => setEditingWidgetId(widget.id)}
               onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
               onDuplicate={() => duplicateWidget(widget.id)}
-              onMove={(tabId) => moveWidget(widget.id, tabId)}
-              moveTargets={moveTargets}
+              onMove={canMove ? () => setMovingWidgetId(widget.id) : undefined}
               editMode={editMode}
               hideTitleBar={hideTitleBars}
               stale={isWidgetPluginStale(widget)}
@@ -386,6 +387,17 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {movingWidget && (
+        <MoveWidgetDialog
+          open={movingWidgetId !== null}
+          onOpenChange={(o) => { if (!o) setMovingWidgetId(null) }}
+          widgetName={movingWidget.name}
+          currentTabId={movingWidget.tabId}
+          targets={moveTargetTabs}
+          onMove={(tabId) => moveWidget(movingWidget.id, tabId)}
+        />
+      )}
     </div>
   )
 }

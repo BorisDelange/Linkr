@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
-import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download } from 'lucide-react'
+import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -28,6 +28,23 @@ export function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPreselectId, setExportPreselectId] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {})
+    } else {
+      rootRef.current?.requestFullscreen().catch(() => {})
+    }
+  }
+
+  // Track fullscreen changes (button click, Esc key, or browser chrome) to keep the icon in sync.
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement != null)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
 
   const {
     dashboards,
@@ -39,6 +56,7 @@ export function DashboardPage() {
     loadProjectDashboards,
     setActiveDashboard,
     acceptAllPluginVersions,
+    enterTab,
   } = useDashboardStore()
 
   const activeFilterCount = Object.keys(activeFilters).length
@@ -104,7 +122,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div ref={rootRef} className="flex h-full flex-col overflow-hidden bg-background">
       {/* Tab bar + actions */}
       <div className="border-b shrink-0">
       <div className="flex items-center px-3">
@@ -169,6 +187,14 @@ export function DashboardPage() {
               ? t('dashboard.toggle_filters_count', { count: activeFilterCount })
               : t('dashboard.toggle_filters')}
           </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? t('dashboard.exit_fullscreen') : t('dashboard.enter_fullscreen')}
+          >
+            {isFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
+          </Button>
         </div>
       </div>
       </div>
@@ -202,9 +228,14 @@ export function DashboardPage() {
                 <h3 className="mt-4 text-sm font-medium text-foreground">
                   {t('dashboard.container_tab_title')}
                 </h3>
-                <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
-                  {t('dashboard.container_tab_description')}
-                </p>
+                <Button
+                  size="sm"
+                  className="mt-4 gap-1.5"
+                  onClick={() => currentTabId && enterTab(currentDashboardId, currentTabId)}
+                >
+                  <Layers size={14} />
+                  {t('dashboard.container_tab_open')}
+                </Button>
               </div>
             </div>
           ) : tabWidgets.length > 0 ? (

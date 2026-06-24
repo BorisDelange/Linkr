@@ -6,9 +6,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
@@ -24,10 +21,8 @@ interface WidgetCardProps {
   onExport?: () => void
   /** Duplicate this widget into its current tab. */
   onDuplicate?: () => void
-  /** Move this widget to another tab. */
-  onMove?: (tabId: string) => void
-  /** Other tabs of the dashboard the widget can be moved to. */
-  moveTargets?: { id: string; name: string }[]
+  /** Open the "move to tab" dialog for this widget. */
+  onMove?: () => void
   /** Existing widget names in the same tab (for uniqueness validation) */
   siblingNames?: Set<string>
   editMode: boolean
@@ -39,7 +34,7 @@ interface WidgetCardProps {
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, moveTargets, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
@@ -138,20 +133,11 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           {t('dashboard.duplicate_widget')}
         </DropdownMenuItem>
       )}
-      {onMove && moveTargets && moveTargets.length > 0 && (
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <FolderInput size={14} />
-            {t('dashboard.move_widget')}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {moveTargets.map((target) => (
-              <DropdownMenuItem key={target.id} onClick={() => onMove(target.id)}>
-                {target.name}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+      {onMove && (
+        <DropdownMenuItem onClick={onMove}>
+          <FolderInput size={14} />
+          {t('dashboard.move_widget')}
+        </DropdownMenuItem>
       )}
       {onExport && (
         <DropdownMenuItem onClick={onExport}>
