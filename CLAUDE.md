@@ -12,6 +12,8 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 
 - **`../linkr-portal`** — template for deploying a pre-seeded Linkr instance (e.g. on GitLab Pages). It aggregates this app + workspace/project git repos as submodules, then `scripts/build.sh` bakes the workspace data into `apps/web/public/data/seed/` and builds a static site. The seed loader (`apps/web/src/lib/seed-loader.ts`) reads that data on startup. When an entity (project, mapping project, SQL collection, ETL pipeline) is git-linked, the workspace export emits only its metadata + a git pointer (+ a root `git-links.json`); the portal clones the linked repo and reconstitutes the full content at build time. Keep the export layout (`buildWorkspaceZip`/`buildProjectZip` in `lib/entity-io.ts`), the seed loader, and the portal's `build.sh`/`sync-git-links.sh` in sync. (`../linkr-portal-ricdc` is one concrete deployment, not the template.)
 
+- **`../linkr-website`** — public site + **user documentation** ([linkr.interhop.org](https://linkr.interhop.org)). Astro 5 + React 19 + MDX, FR/EN, deployed on GitLab Pages. User-facing docs live in `src/pages/docs/` (e.g. `getting-started/`, `concept-mapping/`); also hosts the blog, tools, and people pages. When a change here alters user-visible behaviour or a documented workflow, the matching doc page in `linkr-website` likely needs updating too — it is the source of truth for end-user documentation, not this repo.
+
 ## Commands
 
 ```bash
