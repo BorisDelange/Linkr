@@ -8,12 +8,11 @@ stages:
 # ---------------------------------------------------------------------------
 # Quality gate. Runs on every branch/MR.
 #
-# Adoption is staged as the backlog is burned down (see docs/conventions.md /
-# REVIEW-LOG.md):
-#   - test:      BLOCKING — the suite is green, keep it green.
-#   - lint:      BLOCKING — ESLint errors are at 0 (only non-gating warnings remain).
-#   - typecheck: non-blocking (allow_failure) — ~120 legacy type errors remain.
-# When typecheck reaches 0, flip its allow_failure → false too.
+# All three checks are now BLOCKING — the legacy backlog has been cleared
+# (ESLint errors: 0, TypeScript errors: 0). Keep them at zero.
+#   - test:      BLOCKING — the suite is green.
+#   - lint:      BLOCKING — ESLint errors at 0 (only non-gating warnings remain).
+#   - typecheck: BLOCKING — `tsc -b` is clean.
 # ---------------------------------------------------------------------------
 
 .node_setup: &node_setup
@@ -40,7 +39,6 @@ lint:
 typecheck:
   stage: quality
   <<: *node_setup
-  allow_failure: true
   script:
     - cd apps/web && npm run typecheck
 

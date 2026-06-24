@@ -120,6 +120,19 @@ This is security-critical because user data and user-authored SQL meet here.
 - Models: SQLAlchemy 2.0 style — `Mapped[T] = mapped_column(...)`. i18n names stored as JSON columns.
 - Config: Pydantic `BaseSettings`, env prefix `LINKR_`.
 
+## Quality gates (all blocking)
+
+CI (`.gitlab-ci.yml`) and the pre-push hook (`scripts/git-hooks/pre-push`) both
+enforce three gates. All are at zero and must stay there:
+
+- `npm run test` — Vitest suite (must pass)
+- `npm run lint` — ESLint **errors** = 0 (warnings allowed; mostly React Compiler
+  rules kept as warnings since the compiler isn't enabled — see eslint.config.js)
+- `npm run typecheck` — `tsc -b` clean
+
+Don't reintroduce errors. If a change legitimately needs a type escape, prefer
+`as unknown as T` with a one-line WHY over `as any`; never add `@ts-ignore`.
+
 ## Tests
 
 See `.claude/skills/write-tests/SKILL.md`. Short version:
@@ -127,4 +140,3 @@ See `.claude/skills/write-tests/SKILL.md`. Short version:
 - Test **pure, critical logic** (SQL escaping/validation, OMOP query builders, fuzzy-search, import/export, format helpers). These contracts are stable.
 - Do **not** unit-test volatile React components — they churn every iteration and the tests rot. Cover them via manual/E2E checks instead.
 - When you change a tested function, update its test **in the same change**. A test is part of the contract, not a separate chore.
-- Run `npm run test` (web) before pushing — the pre-push hook enforces it.

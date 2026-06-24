@@ -2,9 +2,9 @@
 # Linkr pre-push quality gate — runs before code leaves your machine.
 #
 # Mirrors the GitLab `quality` stage so problems are caught locally first:
-#   - tests:  BLOCKING (suite must stay green)
-#   - lint:   BLOCKING (ESLint errors are at 0 — keep them there)
-#   - typecheck: not run here (still a legacy backlog; CI tracks it non-blocking)
+#   - tests:     BLOCKING (suite must stay green)
+#   - lint:      BLOCKING (ESLint errors are at 0 — keep them there)
+#   - typecheck: BLOCKING (tsc -b is clean — keep it that way)
 #
 # Bypass in a real emergency with:  git push --no-verify
 # Install with:  npm run hooks:install   (from repo root)
@@ -31,6 +31,15 @@ if ! ( cd "$WEB" && npm run --silent lint ); then
   exit 1
 fi
 echo "✓ lint passed"
+
+echo "▶ pre-push: typecheck (blocking)…"
+if ! ( cd "$WEB" && npm run --silent typecheck ); then
+  echo ""
+  echo "✗ Typecheck failed — push aborted. Fix the TypeScript errors above."
+  echo "  Bypass with 'git push --no-verify' (not recommended)."
+  exit 1
+fi
+echo "✓ typecheck passed"
 
 echo "✓ pre-push checks done"
 exit 0
