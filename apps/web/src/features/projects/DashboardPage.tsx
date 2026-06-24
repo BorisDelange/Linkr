@@ -34,11 +34,14 @@ export function DashboardPage() {
     tabs,
     widgets,
     activeTabId,
+    activeFilters,
     loaded,
     loadProjectDashboards,
     setActiveDashboard,
     acceptAllPluginVersions,
   } = useDashboardStore()
+
+  const activeFilterCount = Object.keys(activeFilters).length
 
   const { loadProjectDatasets } = useDatasetStore()
 
@@ -162,7 +165,9 @@ export function DashboardPage() {
             onClick={() => setFilterOpen(!filterOpen)}
           >
             <Filter size={12} />
-            {t('dashboard.toggle_filters')}
+            {activeFilterCount > 0
+              ? t('dashboard.toggle_filters_count', { count: activeFilterCount })
+              : t('dashboard.toggle_filters')}
           </Button>
         </div>
       </div>

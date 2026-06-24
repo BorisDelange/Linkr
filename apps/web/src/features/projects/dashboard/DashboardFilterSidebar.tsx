@@ -32,6 +32,9 @@ import { useDatasetStore } from '@/stores/dataset-store'
 import { presetLabel } from './date-presets'
 import { FILTER_NONE } from './DashboardDataProvider'
 
+/** Filter cards start collapsed to keep the sidebar compact. */
+const DEFAULT_FILTER_OPEN = false
+
 interface DashboardFilterSidebarProps {
   dashboard: Dashboard
   widgets: DashboardWidget[]
@@ -74,6 +77,12 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
   })
   // Reset per-card open/closed overrides when switching modes (defaults differ: open out of edit, closed in edit).
   useEffect(() => { setExpanded(new Set()) }, [editMode])
+
+  // The `expanded` set flips each card from the collapsed default. So "collapse all" clears it
+  // and "expand all" adds every filter id.
+  const setAllExpanded = (open: boolean) => {
+    setExpanded(open === DEFAULT_FILTER_OPEN ? new Set() : new Set(dashboard.filterConfig.map(fc => fc.id)))
+  }
 
   // "Add filter" flow state
   const [addingFilter, setAddingFilter] = useState(false)
@@ -237,6 +246,17 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
       <div className="flex items-center justify-between px-3 py-2 border-b shrink-0">
         <span className="text-sm font-semibold">{t('dashboard.filter_title')}</span>
         <div className="flex items-center gap-1">
+          {dashboard.filterConfig.length > 1 && (
+            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+              <button type="button" onClick={() => setAllExpanded(true)} className="hover:text-foreground">
+                {t('dashboard.filter_expand_all')}
+              </button>
+              <span className="text-muted-foreground/40">/</span>
+              <button type="button" onClick={() => setAllExpanded(false)} className="hover:text-foreground">
+                {t('dashboard.filter_collapse_all')}
+              </button>
+            </div>
+          )}
           {activeFilterCount > 0 && (
             <Button variant="ghost" size="xs" onClick={handleClearAll}>
               {t('dashboard.filter_clear_all')}
@@ -260,10 +280,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
               const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
               const rows = getFileRows(fc.datasetFileId)
               const inputTypeOptions = getInputTypeOptions(fc.type)
-              // Default: expanded out of edit mode, collapsed in edit mode. The `expanded` set flips that default.
-              const defaultOpen = !editMode
+              // Filters are collapsed by default to save space; the `expanded` set flips that.
               const toggled = expanded.has(fc.id)
-              const isOpen = toggled ? !defaultOpen : defaultOpen
+              const isOpen = toggled ? !DEFAULT_FILTER_OPEN : DEFAULT_FILTER_OPEN
               const isActive = !!activeFilters[fc.id]
 
               return (
@@ -277,8 +296,9 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     >
                       <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
                       <span className="text-xs font-medium truncate">{fc.columnName}</span>
-                      {isActive && <span className="size-1.5 shrink-0 rounded-full bg-primary" title={t('dashboard.filter_active', 'Active')} />}
+                      {isActive && <span className="size-1.5 shrink-0 rounded-full bg-green-500" title={t('dashboard.filter_active', 'Active')} />}
                     </button>
+                    {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
                       <Button variant="ghost" size="icon-xs" onClick={() => handleRemoveFilter(fc.id)}>
                         <X size={12} />
@@ -1337,5 +1357,74 @@ function FilterScopeSelector({
         </Popover>
       )}
     </div>
+  )
+}
+
+/** Read-only badge showing a filter's scope (all tabs vs specific tabs/widgets), with the
+ *  targets listed on hover. Green = applies everywhere; amber = scoped to a subset. */
+function FilterScopeBadge({
+  scope,
+  tabs,
+  widgets,
+}: {
+  scope: DashboardFilterScope
+  tabs: { id: string; name: string; parentTabId?: string | null }[]
+  widgets: DashboardWidget[]
+}) {
+  const { t } = useTranslation()
+  const isAll = scope.type === 'all'
+
+  const targetNames = useMemo(() => {
+    if (scope.type === 'tabs') {
+      const ids = new Set(scope.tabIds)
+      return tabs.filter(tb => ids.has(tb.id)).map(tb => tb.name)
+    }
+    if (scope.type === 'widgets') {
+      const ids = new Set(scope.widgetIds)
+      return widgets.filter(w => ids.has(w.id)).map(w => w.name)
+    }
+    return []
+  }, [scope, tabs, widgets])
+
+  const label = scope.type === 'all'
+    ? t('dashboard.filter_scope_all')
+    : scope.type === 'tabs'
+      ? t('dashboard.filter_scope_tabs_count', { count: targetNames.length })
+      : t('dashboard.filter_scope_widgets_count', { count: targetNames.length })
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span
+            className={cn(
+              'shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium',
+              isAll
+                ? 'bg-green-500/15 text-green-700 dark:text-green-400'
+                : 'bg-amber-500/15 text-amber-700 dark:text-amber-400',
+            )}
+          >
+            {label}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="left" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
+          <p className="mb-1 text-[11px] font-semibold">{t('dashboard.filter_scope')}</p>
+          {isAll ? (
+            <p className="text-[11px]">{t('dashboard.filter_scope_all_hint')}</p>
+          ) : (
+            <ul className="ml-1 list-inside list-disc">
+              {targetNames.slice(0, 12).map((name, i) => (
+                <li key={i} className="text-[11px] font-medium">{name}</li>
+              ))}
+              {targetNames.length > 12 && (
+                <li className="list-none text-[11px] text-background/70">
+                  {t('dashboard.filter_values_more', { count: targetNames.length - 12 })}
+                </li>
+              )}
+            </ul>
+          )}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }

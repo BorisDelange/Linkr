@@ -84,7 +84,7 @@ function formatRange(min: number | null, max: number | null): string {
 
 /** Structured summary of the filters that apply to a widget — one entry per active filter,
  *  with the column name and its restricting value(s) — for the widget's filter tooltip. */
-interface FilterChip { column: string; values: string }
+interface FilterChip { column: string; values: string[] }
 
 function buildFilterChips(
   filters: Record<string, FilterValue>,
@@ -96,28 +96,28 @@ function buildFilterChips(
     const column = nameOf(colId)
     switch (v.type) {
       case 'categorical':
-        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push({ column, values: '∅' }); break }
+        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push({ column, values: ['∅'] }); break }
         if (v.selected.length === 0) break
-        chips.push({ column, values: v.selected.join(', ') })
+        chips.push({ column, values: v.selected })
         break
       case 'numeric':
         if (v.min == null && v.max == null) break
-        chips.push({ column, values: formatRange(v.min, v.max) })
+        chips.push({ column, values: [formatRange(v.min, v.max)] })
         break
       case 'numeric-double': {
         const parts: string[] = []
         if (v.min1 != null || v.max1 != null) parts.push(formatRange(v.min1, v.max1))
         if (v.min2 != null || v.max2 != null) parts.push(formatRange(v.min2, v.max2))
         if (parts.length === 0) break
-        chips.push({ column, values: parts.join(', ') })
+        chips.push({ column, values: parts })
         break
       }
       case 'date':
         if (!v.from && !v.to) break
-        chips.push({ column, values: `${v.from ?? '…'} – ${v.to ?? '…'}` })
+        chips.push({ column, values: [`${v.from ?? '…'} – ${v.to ?? '…'}`] })
         break
       case 'date-relative':
-        chips.push({ column, values: `${v.count} ${v.unit}` })
+        chips.push({ column, values: [`${v.count} ${v.unit}`] })
         break
     }
   }
@@ -164,20 +164,30 @@ function WidgetWithData({
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="absolute right-1.5 top-1.5 z-10 flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
+                <div className="absolute left-1 top-1 z-10 flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
                   <Filter size={11} />
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-64 bg-foreground text-background">
+              <TooltipContent side="right" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
                 <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters')}</p>
-                <div className="space-y-1">
+                <div className="space-y-2">
                   {filterChips.map((chip, i) => (
                     <div key={i} className="text-[11px]">
-                      <span className="text-background/70">{t('dashboard.filter_column')} : </span>
-                      <span className="font-medium">{chip.column}</span>
-                      <br />
-                      <span className="text-background/70">{t('dashboard.filter_values')} : </span>
-                      <span className="font-medium">{chip.values}</span>
+                      <div>
+                        <span className="text-background/70">{t('dashboard.filter_column')} : </span>
+                        <span className="font-medium">{chip.column}</span>
+                      </div>
+                      <div className="text-background/70">{t('dashboard.filter_values')} :</div>
+                      <ul className="ml-1 list-inside list-disc">
+                        {chip.values.slice(0, 12).map((val, j) => (
+                          <li key={j} className="font-medium">{val}</li>
+                        ))}
+                        {chip.values.length > 12 && (
+                          <li className="list-none text-background/70">
+                            {t('dashboard.filter_values_more', { count: chip.values.length - 12 })}
+                          </li>
+                        )}
+                      </ul>
                     </div>
                   ))}
                 </div>
