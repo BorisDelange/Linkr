@@ -30,7 +30,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
 import { widgetPixelSize } from './dashboard-grid'
-import type { DashboardWidget, DashboardWidgetSource } from '@/types'
+import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
 import type * as Monaco from 'monaco-editor'
@@ -134,7 +134,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
   }, [widget.id, widget.datasetFileId])
 
   // Generate code from template
-  const generatedCode = useGeneratedCode(plugin, config, columns, language)
+  const generatedCode = useGeneratedCode(plugin ?? undefined, config, columns, language)
   const currentCode = isInline
     ? ((source as { code: string }).code ?? '')
     : (isCodeCustomized && userCode ? userCode : generatedCode)
@@ -502,7 +502,7 @@ function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof g
 function useGeneratedCode(
   plugin: ReturnType<typeof getPlugin>,
   config: Record<string, unknown>,
-  columns: { id: string; name: string; type: string }[],
+  columns: DatasetColumn[],
   language: 'python' | 'r',
 ): string {
   const [code, setCode] = useState('')
@@ -544,7 +544,7 @@ function ComponentPluginOutput({
 }: {
   componentId: string
   config: Record<string, unknown>
-  columns: { id: string; name: string; type: string }[]
+  columns: DatasetColumn[]
   rows: Record<string, unknown>[]
 }) {
   const Component = getComponent(componentId)

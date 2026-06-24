@@ -9,7 +9,7 @@ export interface PluginBadge {
 
 /** Schema definition for a single config field in a plugin's configSchema. */
 export interface PluginConfigField {
-  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select'
+  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select' | 'palette-editor'
   label: { en: string; fr: string }
   multi?: boolean
   optional?: boolean

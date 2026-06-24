@@ -6,6 +6,7 @@ import type { PeriodCriteriaConfig } from '@/types'
 interface PeriodCriteriaFormProps {
   config: PeriodCriteriaConfig
   onChange: (config: PeriodCriteriaConfig) => void
+  visitDateRange?: { minDate: string; maxDate: string }
 }
 
 export function PeriodCriteriaForm({ config, onChange }: PeriodCriteriaFormProps) {

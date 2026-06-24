@@ -11,6 +11,8 @@ import {
   YAxis,
   Tooltip,
 } from 'recharts'
+import type { ContentType } from 'recharts/types/component/Tooltip'
+import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
@@ -497,6 +499,8 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
   }, [data, values.length, chartType])
 
   // Custom tooltip content for clean display
+  // recharts' ContentType is broader than our narrowed payload shape; the
+  // runtime fields we read (payload[0].payload) are a subset recharts provides.
   const renderTooltip = useCallback(({ active, payload }: { active?: boolean; payload?: { payload: Record<string, unknown> }[] }) => {
     if (!active || !payload?.[0]) return null
     const d = payload[0].payload
@@ -512,7 +516,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
         <div>Proportion: {pct}%</div>
       </div>
     )
-  }, [chartType, totalCount])
+  }, [chartType, totalCount]) as unknown as ContentType<ValueType, NameType>
 
   if (data.length === 0) return null
 

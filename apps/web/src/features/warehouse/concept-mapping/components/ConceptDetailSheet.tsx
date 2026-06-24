@@ -9,7 +9,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table'
-import { Network, DataSet } from 'vis-network/standalone'
+import { Network, DataSet, type Edge } from 'vis-network/standalone'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
   buildConceptRelationsQuery,
@@ -94,7 +94,7 @@ function esc(s: string | number) {
 function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNavigate, fullscreen, onFullscreenChange }: HierarchyGraphProps) {
   const canvasRef = useRef<HTMLDivElement>(null)
   const networkRef = useRef<Network | null>(null)
-  const nodesDataRef = useRef<DataSet<{ id: number; color: unknown; borderWidth: number }> | null>(null)
+  const nodesDataRef = useRef<DataSet<{ id: number; color: unknown; borderWidth: number; font?: unknown }> | null>(null)
   const nodeColorsRef = useRef<Map<number, { bg: string; border: string; border2: number }>>(new Map())
   const pinnedIdRef = useRef<number | null>(null)
   const clickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -272,11 +272,11 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
     hideTooltip()
 
     const nodesDS = new DataSet(nodesList)
-    nodesDataRef.current = nodesDS as unknown as DataSet<{ id: number; color: unknown; borderWidth: number }>
+    nodesDataRef.current = nodesDS as unknown as DataSet<{ id: number; color: unknown; borderWidth: number; font?: unknown }>
 
     networkRef.current = new Network(
       canvasRef.current,
-      { nodes: nodesDS, edges: new DataSet(edges) },
+      { nodes: nodesDS, edges: new DataSet<Edge>(edges) },
       {
         layout: { hierarchical: { enabled: true, direction: 'UD', sortMethod: 'directed', levelSeparation: 60, nodeSpacing: 100 } },
         physics: false,
@@ -292,7 +292,7 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
           keyboard: false,
         },
         nodes: { chosen: false },
-        edges: { color: { color: edgeCol }, smooth: { type: 'cubicBezier', roundness: 0.5 } },
+        edges: { color: { color: edgeCol }, smooth: { enabled: true, type: 'cubicBezier', roundness: 0.5 } },
       }
     )
 

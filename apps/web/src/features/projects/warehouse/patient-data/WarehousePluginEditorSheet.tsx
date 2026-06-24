@@ -26,6 +26,7 @@ import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import {
   usePatientChartStore,
   type PluginWidgetConfig,
+  type PatientChartWidget,
 } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
@@ -67,7 +68,7 @@ function EditorContent({
   widget,
   onClose,
 }: {
-  widget: { id: string; name: string; config: Record<string, unknown> }
+  widget: PatientChartWidget
   onClose: () => void
 }) {
   const { t, i18n } = useTranslation()
@@ -77,7 +78,7 @@ function EditorContent({
 
   const config = widget.config as PluginWidgetConfig | undefined
   const pluginId = config?.pluginId
-  const plugin = pluginId ? getPlugin(pluginId) : null
+  const plugin = pluginId ? getPlugin(pluginId) : undefined
 
   const pluginName = plugin
     ? (plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.manifest.id)
@@ -179,8 +180,8 @@ function EditorContent({
   }, [pluginConfig, isCodeCustomized, persistConfig])
 
   // Concept confirm
-  const handleConceptsConfirm = useCallback((ids: number[]) => {
-    const newConfig = { ...pluginConfig, conceptIds: ids }
+  const handleConceptsConfirm = useCallback((picked: Record<string, unknown>) => {
+    const newConfig = { ...pluginConfig, ...picked }
     setPluginConfig(newConfig)
     persistConfig(newConfig)
     setConceptPickerOpen(false)
@@ -419,7 +420,8 @@ function EditorContent({
         <ConceptPickerDialog
           open={conceptPickerOpen}
           onOpenChange={setConceptPickerOpen}
-          selectedConceptIds={conceptIds}
+          config={pluginConfig}
+          schema={configSchema}
           onConfirm={handleConceptsConfirm}
         />
       )}

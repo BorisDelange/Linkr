@@ -7,6 +7,7 @@ import {
   useReactTable,
   type ColumnDef,
   type VisibilityState,
+  type Table as TanstackTable,
 } from '@tanstack/react-table'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -1214,7 +1215,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       createdAt: String(r.created_at ?? ''),
       updatedAt: String(r.updated_at ?? ''),
       reviews: r.reviews_json ? JSON.parse(String(r.reviews_json)) : [],
-    }))
+    // Projection of dynamic DuckDB rows: only the fields the column defs read
+    // are selected, so this is a partial ConceptMapping shaped at runtime.
+    })) as unknown as GlobalMappingRow[]
   }, [tableRows, groupMode])
 
   const dedupTable = useReactTable({
@@ -1237,7 +1240,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     getCoreRowModel: getCoreRowModel(),
   })
 
-  const activeTable = groupMode === 'badge' ? dedupTable : flatTable
+  // dedupTable and flatTable have different row types; the render path below is
+  // row-type-agnostic (only flexRender + generic cell/header access), so we widen
+  // to a single Table type to avoid an unusable union of contexts.
+  const activeTable = (groupMode === 'badge' ? dedupTable : flatTable) as unknown as TanstackTable<GlobalMappingRow>
 
   const tooltipStyle = {
     backgroundColor: 'var(--color-popover)',

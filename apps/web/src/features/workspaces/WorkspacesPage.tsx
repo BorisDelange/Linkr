@@ -225,9 +225,9 @@ export function WorkspacesPage() {
       await yieldToBrowser()
     }
     for (const sp of parsed.schemas) {
-      const id = duplicate ? crypto.randomUUID() : sp.id
-      if (!duplicate) await storage.schemaPresets.delete(sp.id).catch(() => {})
-      await storage.schemaPresets.save({ ...sp, id, workspaceId: targetWsId })
+      const presetId = duplicate ? crypto.randomUUID() : sp.presetId
+      if (!duplicate) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
+      await storage.schemaPresets.save({ ...sp, presetId, workspaceId: targetWsId })
     }
 
     // --- Import databases (metadata only, no credentials/files) ---

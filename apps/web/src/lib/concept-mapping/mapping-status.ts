@@ -14,10 +14,11 @@ export function effectiveMappingStatus(m: ConceptMapping): EffectiveMappingStatu
   const reviews = m.reviews ?? []
   if (reviews.length === 0) return m.status
   const counts: Record<MappingStatus, number> = {
-    approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0,
+    approved: 0, rejected: 0, flagged: 0, ignored: 0, unchecked: 0, invalid: 0, suggested: 0,
   }
   for (const r of reviews) counts[r.status] = (counts[r.status] ?? 0) + 1
-  // Look at the decisive statuses only (ignore 'unchecked' which means "no opinion").
+  // Look at the decisive statuses only. 'unchecked' and 'suggested' are
+  // pending states ("no opinion" / "awaiting validation"), not decisions.
   const decisive: MappingStatus[] = ['approved', 'rejected', 'flagged', 'ignored', 'invalid']
   const present = decisive.filter((s) => counts[s] > 0)
   if (present.length === 0) return m.status

@@ -143,7 +143,7 @@ export interface ConceptSorting {
 /** Resolve a column alias to the actual SQL column name in a given dictionary. */
 function resolveActualColumn(dict: ConceptDictionary, columnId: string): string | null {
   switch (columnId) {
-    case 'concept_id': return dict.idColumn
+    case 'concept_id': return dict.idColumn ?? null
     case 'concept_name': return dict.nameColumn
     case 'concept_code': return dict.codeColumn ?? null
     case 'vocabulary_id': return dict.terminologyIdColumn ?? dict.vocabularyColumn ?? null

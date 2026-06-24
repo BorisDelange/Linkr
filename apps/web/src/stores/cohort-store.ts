@@ -203,7 +203,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     for (const raw of rawAll) {
       const cohort = migrateCohortIfNeeded(raw as unknown as Record<string, unknown>)
       // Persist migration back to IDB if schema changed
-      if (!(raw as Record<string, unknown>).schemaVersion || (raw as Record<string, unknown>).schemaVersion !== CURRENT_SCHEMA_VERSION) {
+      // schemaVersion is a legacy/migration field not on the Cohort type
+      const rawRecord = raw as unknown as Record<string, unknown>
+      if (!rawRecord.schemaVersion || rawRecord.schemaVersion !== CURRENT_SCHEMA_VERSION) {
         await getStorage().cohorts.update(cohort.id, cohort)
       }
       migrated.push(cohort)

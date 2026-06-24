@@ -145,6 +145,7 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     let cancelled = false
 
     async function loadCounts() {
+      if (!wsUid) return
       setCountsLoading(true)
       const storage = getStorage()
       const [

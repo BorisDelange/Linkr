@@ -322,7 +322,10 @@ export function ConceptTable({
       columnOrder,
       columnSizing,
     },
-    onColumnVisibilityChange: onColumnVisibilityChange,
+    onColumnVisibilityChange: (updater) =>
+      onColumnVisibilityChange(
+        typeof updater === 'function' ? updater(columnVisibility) : updater,
+      ),
     onColumnOrderChange: setColumnOrder,
     onColumnSizingChange: setColumnSizing,
     columnResizeMode: 'onChange',

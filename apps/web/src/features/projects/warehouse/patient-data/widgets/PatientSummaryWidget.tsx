@@ -703,7 +703,8 @@ export function PatientSummaryWidget() {
     if (summSql) {
       queryDataSource(dataSourceId, summSql)
         .then((rows) => {
-          if (!cancelled && rows.length > 0) setSummary(rows[0] as SummaryRow)
+          // SQL result rows are dynamically shaped; trust the query's column layout
+          if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as SummaryRow)
         })
         .catch(() => {
           if (!cancelled) setSummary(null)
@@ -715,7 +716,8 @@ export function PatientSummaryWidget() {
     if (visitSql) {
       queryDataSource(dataSourceId, visitSql)
         .then((rows) => {
-          if (!cancelled) setVisits(rows as VisitRow[])
+          // SQL result rows are dynamically shaped; trust the query's column layout
+          if (!cancelled) setVisits(rows as unknown as VisitRow[])
         })
         .catch(() => {
           if (!cancelled) setVisits([])

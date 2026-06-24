@@ -56,7 +56,7 @@ export function hideLabelTooltip() {
  *  Defaults suit an X (horizontal) axis; pass dx/dy/textAnchor for a Y (vertical category) axis. */
 export function TruncatedTick({ x, y, payload, maxLen = 16, angle = 0, textAnchor = 'middle', fontSize = 9, dx = 0, dy = 12 }: {
   x?: number; y?: number; payload?: { value: string }
-  maxLen?: number; angle?: number; textAnchor?: string; fontSize?: number; dx?: number; dy?: number
+  maxLen?: number; angle?: number; textAnchor?: 'inherit' | 'end' | 'middle' | 'start'; fontSize?: number; dx?: number; dy?: number
 }) {
   const full = String(payload?.value ?? '')
   const display = truncateLabel(full, maxLen)

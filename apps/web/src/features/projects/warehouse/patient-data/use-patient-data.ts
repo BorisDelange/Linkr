@@ -180,7 +180,8 @@ export function usePatientData(
     queryDataSource(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
-          setVisits((rows as VisitRow[]) ?? [])
+          // rows come from a dynamic SQL query shaped to match VisitRow
+          setVisits((rows as unknown as VisitRow[]) ?? [])
           // No auto-selection: a patient defaults to "All hospitalizations"
           // (visitId = null) so widgets show the full record until the user
           // narrows to one hospitalization.
@@ -223,7 +224,8 @@ export function usePatientData(
     queryDataSource(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
-          setVisitDetails((rows as VisitDetailRow[]) ?? [])
+          // rows come from a dynamic SQL query shaped to match VisitDetailRow
+          setVisitDetails((rows as unknown as VisitDetailRow[]) ?? [])
         }
       })
       .catch((err) => {
@@ -258,7 +260,8 @@ export function usePatientData(
     queryDataSource(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled && rows.length > 0) {
-          setDemographics(rows[0] as PatientDemographics)
+          // row comes from a dynamic SQL query shaped to match PatientDemographics
+          setDemographics(rows[0] as unknown as PatientDemographics)
         }
       })
       .catch(() => {

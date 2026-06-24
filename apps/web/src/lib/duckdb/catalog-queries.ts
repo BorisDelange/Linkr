@@ -255,6 +255,7 @@ export function buildBatchedCatalogQueries(
   const batchTemplates: BatchQueryTemplate[] = []
 
   for (const dict of dicts) {
+    if (!dict.idColumn) continue // can't build concept queries without an id column
     const eventParts = buildEventPartsForDict(mapping, dict, pt.idColumn)
     if (eventParts.length === 0) continue
 

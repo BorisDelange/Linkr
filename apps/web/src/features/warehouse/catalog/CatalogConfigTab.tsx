@@ -257,9 +257,11 @@ export function CatalogConfigTab({ catalog }: Props) {
   }
 
   const handleGranularityChange = async (gran: 'month' | 'quarter' | 'year') => {
-    // Sync admission_date dimension step with period granularity
+    // Sync admission_date dimension step with period granularity.
+    // AdmissionDateConfig.step has no 'quarter' (unsupported by buildAdmissionDateExpr) → fall back to 'month'.
+    const step: 'month' | 'year' = gran === 'year' ? 'year' : 'month'
     const newDims = catalog.dimensions.map((d) =>
-      d.id === 'admission_date' ? { ...d, admissionDate: { step: gran } } : d,
+      d.id === 'admission_date' ? { ...d, admissionDate: { step } } : d,
     )
     await updateCatalog(catalog.id, {
       periodConfig: { ...catalog.periodConfig!, granularity: gran },

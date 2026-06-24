@@ -291,7 +291,7 @@ function buildSchemaHtml(fullSchema?: IntrospectedTable[] | null, schemaMapping?
     if (schemaMapping.conceptTables) {
       for (const cd of schemaMapping.conceptTables) {
         mappedTableRoles.set(cd.table, 'Concept dictionary')
-        addKey(keyColumns, cd.table, cd.idColumn)
+        if (cd.idColumn) addKey(keyColumns, cd.table, cd.idColumn)
       }
     }
     if (schemaMapping.eventTables) {
@@ -354,6 +354,7 @@ ${rows}
   }
   if (schemaMapping!.conceptTables) {
     for (const cd of schemaMapping!.conceptTables) {
+      if (!cd.idColumn) continue
       const cols = [{ name: cd.idColumn, datatype: 'integer' }, { name: cd.nameColumn, datatype: 'string' }]
       if (cd.codeColumn) cols.push({ name: cd.codeColumn, datatype: 'string' })
       if (cd.vocabularyColumn) cols.push({ name: cd.vocabularyColumn, datatype: 'string' })

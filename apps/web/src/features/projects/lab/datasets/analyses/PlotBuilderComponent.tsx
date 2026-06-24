@@ -14,6 +14,7 @@ import {
   Tooltip,
   Legend,
 } from 'recharts'
+import type { TooltipContentProps } from 'recharts'
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
@@ -855,9 +856,10 @@ function ScatterPlot({
         <Tooltip
           {...TOOLTIP_STYLE}
           cursor={{ strokeDasharray: '3 3' }}
-          formatter={(_v: unknown, name: string, props: { payload?: { x?: number; y?: number } }) => {
-            if (name === 'x' && xIsDate && props.payload?.x) return formatDateTick(props.payload.x)
-            if (name === 'y' && yIsDate && props.payload?.y) return formatDateTick(props.payload.y)
+          formatter={(_v, name, item) => {
+            const point = item?.payload as { x?: number; y?: number } | undefined
+            if (name === 'x' && xIsDate && point?.x) return formatDateTick(point.x)
+            if (name === 'y' && yIsDate && point?.y) return formatDateTick(point.y)
             return typeof _v === 'number' ? formatNumericTick(decimals)(_v) : String(_v)
           }}
         />
@@ -914,7 +916,7 @@ function LinePlot({
   const xScale = useMemo(() => xIsDate ? null : niceTicks(merged.map(d => d.x as number), xAxisStartZero), [merged, xIsDate, xAxisStartZero])
   const yScale = useMemo(() => {
     const ys: number[] = []
-    for (const row of merged) for (const s of series) { const v = row[s]; if (typeof v === 'number') ys.push(v) }
+    for (const row of merged) for (const s of series) { const v = (row as Record<string, unknown>)[s]; if (typeof v === 'number') ys.push(v) }
     return niceTicks(ys)
   }, [merged, series])
 
@@ -926,8 +928,8 @@ function LinePlot({
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11 } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
         <Tooltip
           {...TOOLTIP_STYLE}
-          labelFormatter={xIsDate ? formatDateTick : undefined}
-          formatter={(v: unknown) => (typeof v === 'number' ? formatNumericTick(decimals)(v) : String(v))}
+          labelFormatter={xIsDate ? (label) => formatDateTick(label as string | number) : undefined}
+          formatter={(v) => (typeof v === 'number' ? formatNumericTick(decimals)(v) : String(v))}
         />
         {showLegend && groupNames && <Legend wrapperStyle={{ fontSize: 11 }} {...legendProps} />}
         {series.map((s, i) => (
@@ -1108,7 +1110,7 @@ function HistogramPlot({
     let total = 0
     for (const d of data) {
       for (const s of series) {
-        total += (d[s] as number) ?? 0
+        total += ((d as Record<string, unknown>)[s] as number) ?? 0
       }
     }
     return total
@@ -1121,17 +1123,18 @@ function HistogramPlot({
   const countAxisLabel = isHorizontal ? xLabel : yLabel
   // Tooltip needs a word for the effectif; only fall back to "Count" there, never on the empty axis title.
   const countLabel = countAxisLabel || 'Count'
-  const renderHistTooltip = useCallback(({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) => {
+  const renderHistTooltip = useCallback(({ active, payload, label }: TooltipContentProps<number, string>) => {
     if (!active || !payload?.length) return null
     return (
       <div style={{ fontSize: 10, padding: '6px 10px', background: 'rgba(0,0,0,.85)', borderRadius: 4, color: '#fff', lineHeight: 1.6 }}>
         <div style={{ fontWeight: 600, marginBottom: 2 }}>{label}</div>
         {payload.map((p, i) => {
-          const pct = totalCount > 0 ? ((p.value / totalCount) * 100).toFixed(1) : '0'
+          const value = typeof p.value === 'number' ? p.value : 0
+          const pct = totalCount > 0 ? ((value / totalCount) * 100).toFixed(1) : '0'
           return (
             <div key={i}>
               {hasGroups && <span style={{ color: p.color }}>{p.name}: </span>}
-              <span>{countLabel}: {p.value.toLocaleString()}</span>
+              <span>{countLabel}: {value.toLocaleString()}</span>
               <span style={{ marginLeft: 8, opacity: 0.7 }}>({pct}%)</span>
             </div>
           )
@@ -1146,7 +1149,7 @@ function HistogramPlot({
   // Axes: in horizontal mode the category/bin axis is Y (vertical) and the count axis is X (horizontal).
   const binAxisProps = {
     dataKey: 'bin',
-    label: binAxisLabel ? { value: binAxisLabel, ...(isHorizontal ? { angle: -90, position: 'insideLeft', offset: 5 } : { position: 'insideBottom', offset: -5 }), fontSize: 11 } : undefined,
+    label: binAxisLabel ? { value: binAxisLabel, ...(isHorizontal ? { angle: -90, position: 'insideLeft' as const, offset: 5 } : { position: 'insideBottom' as const, offset: -5 }), fontSize: 11 } : undefined,
     // On a horizontal chart the bin axis is vertical (Y): right-anchor labels left of the axis and vertically center them.
     tick: isHorizontal
       ? <TruncatedTick maxLen={yLabelMaxLen} textAnchor="end" dx={-4} dy={4} />
@@ -1171,17 +1174,17 @@ function HistogramPlot({
     for (const d of data) {
       if (isStacked) {
         let sum = 0
-        for (const s of series) sum += (d[s] as number) ?? 0
+        for (const s of series) sum += ((d as Record<string, unknown>)[s] as number) ?? 0
         if (sum > max) max = sum
       } else {
-        for (const s of series) { const v = (d[s] as number) ?? 0; if (v > max) max = v }
+        for (const s of series) { const v = ((d as Record<string, unknown>)[s] as number) ?? 0; if (v > max) max = v }
       }
     }
     return niceTicks([0, max], true)
   }, [data, series, isStacked])
 
   const countAxisProps = {
-    label: countAxisLabel ? { value: countAxisLabel, ...(isHorizontal ? { position: 'insideBottom', offset: -5 } : { angle: -90, position: 'insideLeft', offset: 5 }), fontSize: 11 } : undefined,
+    label: countAxisLabel ? { value: countAxisLabel, ...(isHorizontal ? { position: 'insideBottom' as const, offset: -5 } : { angle: -90, position: 'insideLeft' as const, offset: 5 }), fontSize: 11 } : undefined,
     tick: { fontSize: 10 },
     tickFormatter: formatCountTick,
     allowDecimals: false,

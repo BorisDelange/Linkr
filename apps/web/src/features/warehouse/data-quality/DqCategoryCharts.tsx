@@ -84,7 +84,7 @@ export function DqCategoryCharts({ checks, results }: Props) {
               cursor={false}
               itemStyle={{ color: 'var(--color-popover-foreground)' }}
               labelStyle={{ color: 'var(--color-popover-foreground)' }}
-              formatter={(value: number) => [value, t('data_quality.chart_checks')]}
+              formatter={(value) => [Number(value), t('data_quality.chart_checks')]}
             />
             <Bar dataKey="total" radius={[3, 3, 0, 0]}>
               {data.map((entry) => (
@@ -127,7 +127,7 @@ export function DqCategoryCharts({ checks, results }: Props) {
               cursor={false}
               itemStyle={{ color: 'var(--color-popover-foreground)' }}
               labelStyle={{ color: 'var(--color-popover-foreground)' }}
-              formatter={(value: number) => [`${value}%`, t('data_quality.chart_fail_pct')]}
+              formatter={(value) => [`${value}%`, t('data_quality.chart_fail_pct')]}
             />
             <Bar dataKey="failRate" radius={[3, 3, 0, 0]}>
               {data.map((entry) => (

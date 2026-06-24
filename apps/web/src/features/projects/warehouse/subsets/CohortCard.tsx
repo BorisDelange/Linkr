@@ -41,7 +41,7 @@ export function CohortCard({
   const { t } = useTranslation()
 
   const levelLabel = t(`subsets.level_${cohort.level}`)
-  const criteriaCount = cohort.criteria.length
+  const criteriaCount = cohort.criteriaTree.children.length
 
   return (
     <Card>

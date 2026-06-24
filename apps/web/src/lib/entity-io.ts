@@ -1163,7 +1163,8 @@ export async function buildWorkspaceZip(
     const keepCreds = options.includeCredentials === true
     const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
     for (const ds of dataSources) {
-      const { connectionConfig, ...rest } = ds as Record<string, unknown>
+      // DataSource has no index signature; widen via unknown to destructure dynamically
+      const { connectionConfig, ...rest } = ds as unknown as Record<string, unknown>
       const safeDsJson = {
         ...rest,
         connectionConfig: connectionConfig

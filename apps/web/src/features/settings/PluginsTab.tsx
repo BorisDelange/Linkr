@@ -300,7 +300,8 @@ export function PluginsTab() {
       // Overwrite: delete old plugin first
       await getStorage().userPlugins.delete(pluginId).catch(() => {})
     }
-    await getStorage().userPlugins.create({ id, files: updatedFiles })
+    const nowIso = new Date().toISOString()
+    await getStorage().userPlugins.create({ id, files: updatedFiles, createdAt: nowIso, updatedAt: nowIso })
     await refreshPluginList()
   }, [refreshPluginList])
 
@@ -371,7 +372,7 @@ export function PluginsTab() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'warehouse' | 'lab')}>
         <TabsList>
           <TabsTrigger value="warehouse">{t('plugins.tab_warehouse')}</TabsTrigger>
           <TabsTrigger value="lab">{t('plugins.tab_lab')}</TabsTrigger>

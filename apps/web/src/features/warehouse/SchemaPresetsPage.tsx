@@ -701,7 +701,7 @@ function EditableConceptDict({
         </Button>
       </div>
       <EditableField label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
-      <EditableField label="ID column" value={dict.idColumn} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
+      <EditableField label="ID column" value={dict.idColumn ?? ''} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
       <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />
       <EditableField label="Code column" value={dict.codeColumn ?? ''} onChange={(v) => update('codeColumn', v)} />
       <EditableField label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn ?? ''} onChange={(v) => update('terminologyIdColumn', v)} placeholder="vocabulary_id" />
