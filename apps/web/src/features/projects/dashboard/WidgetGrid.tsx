@@ -1,13 +1,14 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GridLayout, type LayoutItem } from 'react-grid-layout'
+import { GridLayout, noCompactor, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { WidgetCard } from './WidgetCard'
-import { MoveWidgetDialog, type MoveTarget } from './MoveWidgetDialog'
+import { MoveWidgetDialog } from './MoveWidgetDialog'
+import { buildDashboardTree } from './dashboard-tree'
 import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
@@ -256,10 +257,12 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     const { cols } = base
     const colWidth = (containerWidth - gap * 2 - gap * (cols - 1)) / cols
     if (colWidth <= 0) return base
-    // Rows that make cells ~square, then the exact row height to fill the visible height with
-    // that many rows. maxRows caps placement/resize so nothing extends past the viewport.
+    // Account for top AND bottom padding: the rows live inside `innerH`, so R rows take
+    // R*rowHeight + (R-1)*gap = innerH. Pick R for ~square cells, then the exact row height so
+    // the last cell sits flush against the bottom padding (no clipped row). maxRows caps
+    // placement/resize so a widget can reach the bottom but never overflow into a scroll.
     const innerH = availableHeight - gap * 2
-    const rows = Math.max(1, Math.round((innerH + gap) / (colWidth + gap)))
+    const rows = Math.max(1, Math.floor((innerH + gap) / (colWidth + gap)))
     const rowHeight = Math.max(4, Math.floor((innerH - gap * (rows - 1)) / rows))
     return { ...base, rowHeight, maxRows: rows }
   }, [dashboard.widgetSpacing, fitToHeight, containerWidth, availableHeight])
@@ -306,28 +309,16 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     [tabs],
   )
 
-  // Leaf tabs a widget can be moved to (any depth). Container tabs hold no widgets of their own,
-  // so they're excluded; each target carries its ancestor path for a breadcrumb in the dialog.
-  const moveTargetTabs = useMemo<MoveTarget[]>(() => {
-    const dashTabs = tabs.filter((tb) => tb.dashboardId === dashboard.id)
-    const hasChildren = new Set(dashTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string))
-    const nameById = new Map(dashTabs.map((t) => [t.id, t.name]))
-    const pathOf = (tb: typeof dashTabs[number]): string[] => {
-      const path: string[] = []
-      let pid = tb.parentTabId ?? null
-      for (let guard = 0; guard < 100 && pid; guard++) {
-        const name = nameById.get(pid)
-        if (name == null) break
-        path.unshift(name)
-        pid = dashTabs.find((t) => t.id === pid)?.parentTabId ?? null
-      }
-      return path
-    }
-    return dashTabs
-      .filter((tb) => !hasChildren.has(tb.id)) // leaves only
-      .sort((a, b) => a.displayOrder - b.displayOrder)
-      .map((tb) => ({ id: tb.id, name: tb.name, path: pathOf(tb) }))
-  }, [tabs, dashboard.id])
+  // Hierarchical tab/widget rows for the Move-to-tab dialog (widgets shown for context).
+  const moveTree = useMemo(
+    () => buildDashboardTree(tabs, widgets, dashboard.id, true),
+    [tabs, widgets, dashboard.id],
+  )
+  // Leaf tabs are the valid move destinations.
+  const moveTargetIds = useMemo(
+    () => new Set(moveTree.filter((r) => r.kind === 'tab' && !r.isContainer).map((r) => r.id)),
+    [moveTree],
+  )
 
   // In edit mode, paint a faint grid so widget placement is easier to read. The cell pitch
   // matches the layout maths (column width derived from container width; row pitch from config).
@@ -378,6 +369,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           enabled: editMode,
         }}
         onLayoutChange={handleLayoutChange}
+        compactor={noCompactor}
         autoSize
       >
         {widgets.map((widget) => {
@@ -385,7 +377,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           const siblingNames = new Set(
             widgets.filter(w => w.id !== widget.id).map(w => w.name.toLowerCase())
           )
-          const canMove = moveTargetTabs.some((tb) => tb.id !== widget.tabId)
+          const canMove = [...moveTargetIds].some((id) => id !== widget.tabId)
           return (
           <div key={widget.id} className="h-full" data-widget-id={widget.id} data-widget-name={widget.name}>
             <WidgetCard
@@ -452,7 +444,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           onOpenChange={(o) => { if (!o) setMovingWidgetId(null) }}
           widgetName={movingWidget.name}
           currentTabId={movingWidget.tabId}
-          targets={moveTargetTabs}
+          rows={moveTree}
           onMove={(tabId) => moveWidget(movingWidget.id, tabId)}
         />
       )}

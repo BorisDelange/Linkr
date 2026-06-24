@@ -283,9 +283,9 @@ function BoxplotChart({
   const plotW = width - marginLeft - marginRight
   const plotH = height - marginTop - marginBottom
 
-  // Tighten category-label truncation to the room each one gets (~5px per char at font-size 10),
-  // so labels don't overlap when there are many categories. Full text shows in the hover tooltip.
-  const effXLabelMaxLen = Math.max(4, Math.min(xLabelMaxLen, Math.floor((plotW / data.length) / 5)))
+  // Tighten category-label truncation to the room each one gets. Box/violin labels sit flat under
+  // the axis, so allow ~7px per char to leave a gap between neighbours. Full text on hover.
+  const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.floor((plotW / data.length) / 7)))
 
   const toY = (val: number) => marginTop + plotH - ((val - plotMin) / plotRange) * plotH
 
@@ -1042,7 +1042,7 @@ function BarPlot({
 
   // The more bars there are, the less horizontal room each label has, so tighten the truncation
   // as the category count grows (the full text stays available in the hover tooltip).
-  const effXLabelMaxLen = Math.max(4, Math.min(xLabelMaxLen, Math.round(160 / Math.max(1, data.length))))
+  const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.round(130 / Math.max(1, data.length))))
 
   return (
     <ResponsiveContainer width="100%" height="100%">

@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Search, FolderInput, ChevronRight } from 'lucide-react'
+import { Search, FolderInput, Layers, LayoutGrid } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -10,35 +10,27 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
-
-export interface MoveTarget {
-  id: string
-  /** Tab's own name. */
-  name: string
-  /** Ancestor names from root down to (but excluding) this tab, for the breadcrumb. */
-  path: string[]
-}
+import type { DashboardTreeRow } from './dashboard-tree'
 
 interface MoveWidgetDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   widgetName: string
-  /** Current tab of the widget — shown as disabled so it's clear where it lives now. */
+  /** Current tab of the widget — shown disabled so it's clear where it lives now. */
   currentTabId: string
-  targets: MoveTarget[]
+  /** Hierarchical tab/widget rows of the dashboard (widgets included for context). */
+  rows: DashboardTreeRow[]
   onMove: (tabId: string) => void
 }
 
-export function MoveWidgetDialog({ open, onOpenChange, widgetName, currentTabId, targets, onMove }: MoveWidgetDialogProps) {
+export function MoveWidgetDialog({ open, onOpenChange, widgetName, currentTabId, rows, onMove }: MoveWidgetDialogProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
 
   const q = search.trim().toLowerCase()
   const filtered = useMemo(
-    () => (q
-      ? targets.filter((tb) => [tb.name, ...tb.path].some((s) => s.toLowerCase().includes(q)))
-      : targets),
-    [targets, q],
+    () => (q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows),
+    [rows, q],
   )
 
   return (
@@ -68,29 +60,40 @@ export function MoveWidgetDialog({ open, onOpenChange, widgetName, currentTabId,
               {t('dashboard.move_widget_no_targets')}
             </p>
           )}
-          {filtered.map((tb) => {
-            const isCurrent = tb.id === currentTabId
+          {filtered.map((row) => {
+            const indent = { paddingLeft: 8 + row.depth * 16 }
+            // Only leaf tabs are valid destinations; containers and widgets are context only.
+            if (row.kind === 'widget') {
+              return (
+                <div key={row.id} style={indent} className="flex items-center gap-2 py-1 pr-2.5 text-[11px] text-muted-foreground">
+                  <LayoutGrid size={11} className="shrink-0 opacity-60" />
+                  <span className="truncate">{row.name}</span>
+                </div>
+              )
+            }
+            if (row.isContainer) {
+              return (
+                <div key={row.id} style={indent} className="flex items-center gap-2 py-1.5 pr-2.5 text-xs font-medium text-muted-foreground">
+                  <Layers size={12} className="shrink-0" />
+                  <span className="truncate">{row.name}</span>
+                </div>
+              )
+            }
+            const isCurrent = row.id === currentTabId
             return (
               <button
-                key={tb.id}
+                key={row.id}
                 type="button"
                 disabled={isCurrent}
-                onClick={() => { onMove(tb.id); onOpenChange(false); setSearch('') }}
+                onClick={() => { onMove(row.id); onOpenChange(false); setSearch('') }}
+                style={indent}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs transition-colors',
+                  'flex w-full items-center gap-2 rounded-md py-2 pr-2.5 text-left text-xs transition-colors',
                   isCurrent ? 'cursor-default opacity-50' : 'hover:bg-accent',
                 )}
               >
                 <FolderInput size={13} className="shrink-0 text-muted-foreground" />
-                <span className="flex min-w-0 flex-1 items-center gap-1">
-                  {tb.path.map((p, i) => (
-                    <span key={i} className="flex min-w-0 items-center gap-1 text-muted-foreground">
-                      <span className="max-w-28 truncate">{p}</span>
-                      <ChevronRight size={11} className="shrink-0 opacity-50" />
-                    </span>
-                  ))}
-                  <span className="truncate font-medium text-foreground">{tb.name}</span>
-                </span>
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">{row.name}</span>
                 {isCurrent && (
                   <span className="shrink-0 text-[10px] text-muted-foreground">{t('dashboard.move_widget_current')}</span>
                 )}

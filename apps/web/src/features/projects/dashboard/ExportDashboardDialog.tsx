@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, Check } from 'lucide-react'
+import { Download, Loader2, Check, Layers } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -28,6 +28,7 @@ import {
   exportWidgetsAsZip,
 } from './figure-export'
 import { OffscreenWidgetCapture } from './OffscreenWidgetCapture'
+import { buildDashboardTree } from './dashboard-tree'
 
 type Scope = 'current' | 'all'
 
@@ -59,15 +60,28 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
 
   const currentTabName = tabs.find(tb => tb.id === currentTabId)?.name ?? dashboard.name
 
-  // Widgets in scope, grouped by tab for display.
-  const scopedTabs = useMemo(() => {
-    const tabsInScope = scope === 'current' ? tabs.filter(tb => tb.id === currentTabId) : tabs
-    return tabsInScope
-      .map(tb => ({ tab: tb, widgets: allWidgets.filter(w => w.tabId === tb.id) }))
-      .filter(g => g.widgets.length > 0)
+  // Hierarchical rows (tabs → sub-tabs → widgets) for the picker. In "current tab" scope we keep
+  // only the active tab's widgets; tab/sub-tab header rows with no widgets in scope are dropped.
+  const treeRows = useMemo(() => {
+    if (!tabs.length) return []
+    const dashboardId = tabs[0].dashboardId
+    const full = buildDashboardTree(tabs, allWidgets, dashboardId, true)
+    if (scope === 'current') {
+      return full.filter(r => r.kind === 'widget' && r.tabId === currentTabId)
+    }
+    // Drop tab headers whose subtree has no widgets, so empty branches don't clutter the list.
+    const keep = new Set<string>()
+    for (let i = full.length - 1; i >= 0; i--) {
+      const r = full[i]
+      if (r.kind === 'widget') { keep.add(r.id); for (let j = i - 1; j >= 0; j--) { if (full[j].kind === 'tab' && full[j].depth < r.depth) { keep.add(full[j].id); if (full[j].depth === 0) break } } }
+    }
+    return full.filter(r => r.kind === 'widget' || keep.has(r.id))
   }, [scope, tabs, currentTabId, allWidgets])
 
-  const scopedWidgets = useMemo(() => scopedTabs.flatMap(g => g.widgets), [scopedTabs])
+  const scopedWidgets = useMemo(
+    () => treeRows.filter(r => r.kind === 'widget').map(r => allWidgets.find(w => w.id === r.id)!).filter(Boolean),
+    [treeRows, allWidgets],
+  )
 
   // Widgets not in the current tab — these must be rendered off-screen before capture.
   const offscreenWidgets = useMemo(
@@ -227,37 +241,42 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
                   {t('dashboard.export_no_widgets', 'No widgets in this scope.')}
                 </p>
               )}
-              {scopedTabs.map(group => (
-                <div key={group.tab.id}>
-                  {scope === 'all' && (
-                    <div className="bg-muted/50 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {group.tab.name}
+              {treeRows.map(row => {
+                const indent = { paddingLeft: 10 + row.depth * 14 }
+                if (row.kind === 'tab') {
+                  return (
+                    <div
+                      key={row.id}
+                      style={indent}
+                      className="flex items-center gap-1.5 bg-muted/40 py-1 pr-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                    >
+                      {row.isContainer ? <Layers size={11} className="shrink-0" /> : null}
+                      <span className="truncate">{row.name}</span>
                     </div>
-                  )}
-                  {group.widgets.map(w => {
-                    const isSel = selected.has(w.id)
-                    return (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => toggle(w.id)}
-                        className={cn(
-                          'flex w-full items-center gap-2 border-t px-2.5 py-1.5 text-xs transition-colors first:border-t-0',
-                          isSel ? 'bg-accent/50' : 'hover:bg-accent/30',
-                        )}
-                      >
-                        <div className={cn(
-                          'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                          isSel ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                        )}>
-                          {isSel && <Check size={10} />}
-                        </div>
-                        <span className="min-w-0 flex-1 truncate text-left">{w.name}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              ))}
+                  )
+                }
+                const isSel = selected.has(row.id)
+                return (
+                  <button
+                    key={row.id}
+                    type="button"
+                    onClick={() => toggle(row.id)}
+                    style={indent}
+                    className={cn(
+                      'flex w-full items-center gap-2 border-t py-1.5 pr-2.5 text-xs transition-colors first:border-t-0',
+                      isSel ? 'bg-accent/50' : 'hover:bg-accent/30',
+                    )}
+                  >
+                    <div className={cn(
+                      'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                      isSel ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
+                    )}>
+                      {isSel && <Check size={10} />}
+                    </div>
+                    <span className="min-w-0 flex-1 truncate text-left">{row.name}</span>
+                  </button>
+                )
+              })}
             </div>
           </div>
 
