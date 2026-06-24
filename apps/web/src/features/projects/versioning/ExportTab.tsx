@@ -38,10 +38,12 @@ export function ExportTab() {
         <p className="text-xs text-muted-foreground">
           {t('versioning.export_include_data_hint')}
         </p>
-        <Button size="sm" onClick={() => exportZip({ includeDataFiles: includeData })} className="gap-1.5">
-          <Download size={14} />
-          {t('versioning.export_download')}
-        </Button>
+        <div className="flex justify-end">
+          <Button size="sm" onClick={() => exportZip({ includeDataFiles: includeData })} className="gap-1.5">
+            <Download size={14} />
+            {t('versioning.export_download')}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )

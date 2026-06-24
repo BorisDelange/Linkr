@@ -747,7 +747,10 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
   const datasetFiles = (await readJsonFileFromEither<DatasetFile[]>(zip, 'datasets/_tree.json', '_datasets/_tree.json')) ?? []
   const datasetAnalyses: DatasetAnalysis[] = []
   for (const [path, entry] of scanFolder(zip, 'datasets/', '_datasets/')) {
-    if (path.endsWith('/_tree.json') || path.endsWith('/_columns.json')) continue
+    // Skip the dataset metadata sidecars — only true analysis JSONs become datasetAnalyses.
+    // (_data.json holds parsed rows, not an analysis: parsing it here pushed an idless object whose
+    //  mapId(undefined) collided across every data file, breaking import with a uniqueness error.)
+    if (path.endsWith('/_tree.json') || path.endsWith('/_columns.json') || path.endsWith('/_data.json')) continue
     if (path.endsWith('.json')) {
       datasetAnalyses.push(JSON.parse(await entry.async('string')))
     }

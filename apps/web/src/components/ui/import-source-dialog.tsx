@@ -42,18 +42,29 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
   const [error, setError] = useState<string | null>(null)
   const [showProxyHelp, setShowProxyHelp] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [dragActive, setDragActive] = useState(false)
 
   const PROXY_CMD = 'npm run dev:proxy'
   const copyCmd = async () => {
     try { await navigator.clipboard.writeText(PROXY_CMD); setCopied(true); setTimeout(() => setCopied(false), 1500) } catch { /* ignore */ }
   }
 
+  const submitFile = async (file: File) => {
+    onOpenChange(false)
+    await onImport(file)
+  }
+
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     e.target.value = ''
-    if (!file) return
-    onOpenChange(false)
-    await onImport(file)
+    if (file) await submitFile(file)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragActive(false)
+    const file = e.dataTransfer.files[0]
+    if (file) await submitFile(file)
   }
 
   const repoName = (u: string) => (u.split('/').pop() || 'repo').replace(/\.git$/, '')
@@ -98,15 +109,22 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
             </TabsTrigger>
           </TabsList>
 
-          {/* Upload ZIP */}
-          <TabsContent value="upload" className="min-h-[230px] flex flex-col items-center justify-center gap-3 pt-3">
-            <Upload size={28} className="text-muted-foreground" />
-            <p className="text-xs text-muted-foreground text-center max-w-xs">{t('import_source.upload_hint')}</p>
-            <Button onClick={() => fileInputRef.current?.click()} className="gap-1.5">
-              <Upload size={14} />
-              {t('import_source.choose_file')}
-            </Button>
-            <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
+          {/* Upload ZIP — drag-and-drop zone (matches the dataset upload dialog) */}
+          <TabsContent value="upload" className="min-h-[230px] pt-3">
+            <div
+              className={`flex h-[214px] flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
+                dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+              }`}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={handleDrop}
+            >
+              <Upload size={32} className="text-muted-foreground/50" />
+              <p className="mt-3 text-sm text-muted-foreground text-center">{t('import_source.drag_drop_or')}</p>
+              <p className="mt-2 text-[10px] text-muted-foreground">{t('import_source.upload_hint')}</p>
+              <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
+            </div>
           </TabsContent>
 
           {/* Clone from Git */}

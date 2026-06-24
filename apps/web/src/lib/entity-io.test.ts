@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { slugify, parseCsvLine, parseCsvToDatasetData } from './entity-io'
+import JSZip from 'jszip'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 
 // slugify produces filesystem-safe names for ZIP entries and folders.
@@ -107,5 +108,39 @@ describe('parseCsvToDatasetData', () => {
       columns: [],
     })
     expect(out!.rows[0]).toEqual({ unknown_col: 'x' })
+  })
+})
+
+// A "data-included" project export writes a _data.json sidecar per dataset folder. parseProjectZip
+// must read those as dataset ROWS, never mistake them for analysis JSONs — doing so pushed idless
+// "analyses" whose ids collided on import (IndexedDB uniqueness error → datasets imported empty).
+describe('parseProjectZip — dataset data sidecars', () => {
+  const makeZip = async () => {
+    const zip = new JSZip()
+    zip.file('project.json', JSON.stringify({
+      uid: 'p1', name: { en: 'P' }, projectId: 'p', workspaceId: 'w', ownerId: 1,
+    }))
+    const tree: DatasetFile[] = [
+      { id: 'a', projectUid: 'p1', name: 'a.csv', type: 'file', parentId: null, columns: [{ id: 'c', name: 'v', type: 'number', order: 0 }], createdAt: '', updatedAt: '' },
+      { id: 'b', projectUid: 'p1', name: 'b.csv', type: 'file', parentId: null, columns: [{ id: 'c', name: 'v', type: 'number', order: 0 }], createdAt: '', updatedAt: '' },
+    ]
+    zip.file('datasets/_tree.json', JSON.stringify(tree))
+    for (const f of tree) {
+      zip.file(`datasets/${f.name.replace(/\.[^.]+$/, '')}/_columns.json`, JSON.stringify(f.columns))
+      zip.file(`datasets/${f.name.replace(/\.[^.]+$/, '')}/_data.json`, JSON.stringify({ rows: [{ c: 1 }, { c: 2 }] }))
+    }
+    // JSZip.loadAsync accepts an ArrayBuffer; we cast since parseProjectZip's param is typed File
+    // (jsdom's Blob isn't reliably readable by JSZip in the test environment).
+    return await zip.generateAsync({ type: 'arraybuffer' }) as unknown as File
+  }
+
+  it('reads _data.json as rows and produces no spurious analyses', async () => {
+    const parsed = await parseProjectZip(await makeZip())
+    expect(parsed).not.toBeNull()
+    // The two _data.json sidecars must NOT have become analyses.
+    expect(parsed!.datasetAnalyses).toHaveLength(0)
+    // Both datasets' rows are loaded.
+    expect(parsed!.datasetData).toHaveLength(2)
+    expect(parsed!.datasetData.every((d) => d.rows.length === 2)).toBe(true)
   })
 })
