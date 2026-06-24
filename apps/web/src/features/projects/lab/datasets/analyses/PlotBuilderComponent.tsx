@@ -283,6 +283,10 @@ function BoxplotChart({
   const plotW = width - marginLeft - marginRight
   const plotH = height - marginTop - marginBottom
 
+  // Tighten category-label truncation to the room each one gets (~5px per char at font-size 10),
+  // so labels don't overlap when there are many categories. Full text shows in the hover tooltip.
+  const effXLabelMaxLen = Math.max(4, Math.min(xLabelMaxLen, Math.floor((plotW / data.length) / 5)))
+
   const toY = (val: number) => marginTop + plotH - ((val - plotMin) / plotRange) * plotH
 
   const boxWidth = Math.min(60, Math.max(20, plotW / data.length - 10))
@@ -368,7 +372,7 @@ function BoxplotChart({
                 strokeOpacity={0.6}
               />
               <line x1={cx - halfW * 0.4} x2={cx + halfW * 0.4} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-              <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={xLabelMaxLen} />
+              <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={effXLabelMaxLen} />
             </g>
           )
         }
@@ -391,7 +395,7 @@ function BoxplotChart({
               rx={2}
             />
             <line x1={cx - halfBox} x2={cx + halfBox} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-            <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={xLabelMaxLen} />
+            <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={effXLabelMaxLen} />
           </g>
         )
       })}

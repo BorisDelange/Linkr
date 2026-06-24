@@ -350,8 +350,22 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     } as const
   }, [editMode, gridConfig, containerWidth])
 
+  // Heights are driven by the measured viewport (the Radix scroll viewport uses display:table,
+  // so percentage heights don't resolve). In fit-to-height we pin the container to exactly the
+  // viewport and clip overflow, so a widget can fill the screen and resizing never scrolls. In
+  // fixed-height edit mode we only stretch the minimum so the grid backdrop reaches the bottom.
+  const containerStyle = availableHeight > 0
+    ? (fitToHeight
+        ? { height: availableHeight, overflow: 'hidden' as const }
+        : (editMode ? { minHeight: availableHeight } : undefined))
+    : undefined
+
   return (
-    <div ref={containerRef} className="relative w-full">
+    <div
+      ref={containerRef}
+      className="relative w-full"
+      style={containerStyle}
+    >
       {gridBackground && <div className="pointer-events-none absolute inset-0" style={gridBackground} />}
       <GridLayout
         layout={layout}

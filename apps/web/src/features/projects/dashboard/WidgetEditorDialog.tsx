@@ -29,7 +29,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
-import { widgetPixelSize } from './dashboard-grid'
+import { widgetPixelSize, DASHBOARD_GRID } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
@@ -410,9 +410,18 @@ const FALLBACK_GRID_WIDTH = 1400
 
 function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: DashboardWidget; gridWidth?: number; widgetSpacing?: number; children: React.ReactNode }) {
   const { t } = useTranslation()
+  const effGridWidth = gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH
+
+  // Cell pitch matching the live dashboard grid, so the preview snaps to whole cells.
+  const { colPitch, rowPitch, gap } = useMemo(() => {
+    const g = widgetSpacing ?? DASHBOARD_GRID.margin[0]
+    const colWidth = (effGridWidth - g * 2 - g * (DASHBOARD_GRID.cols - 1)) / DASHBOARD_GRID.cols
+    return { colPitch: colWidth + g, rowPitch: DASHBOARD_GRID.rowHeight + g, gap: g }
+  }, [effGridWidth, widgetSpacing])
+
   const base = useMemo(
-    () => widgetPixelSize(widget.layout.w, widget.layout.h, gridWidth && gridWidth > 0 ? gridWidth : FALLBACK_GRID_WIDTH, widgetSpacing),
-    [widget.layout.w, widget.layout.h, gridWidth, widgetSpacing],
+    () => widgetPixelSize(widget.layout.w, widget.layout.h, effGridWidth, widgetSpacing),
+    [widget.layout.w, widget.layout.h, effGridWidth, widgetSpacing],
   )
   const [size, setSize] = useState(base)
   // Re-sync to the widget's size when the target widget changes.
@@ -429,11 +438,16 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragRef.current) return
     const d = dragRef.current
+    // Snap the dragged size to whole grid cells, mirroring the dashboard's resize behaviour.
+    const rawW = d.startW + (e.clientX - d.startX)
+    const rawH = d.startH + (e.clientY - d.startY)
+    const cellsW = Math.max(2, Math.round((rawW + gap) / colPitch))
+    const cellsH = Math.max(2, Math.round((rawH + gap) / rowPitch))
     setSize({
-      width: Math.max(160, Math.round(d.startW + (e.clientX - d.startX))),
-      height: Math.max(120, Math.round(d.startH + (e.clientY - d.startY))),
+      width: Math.round(cellsW * colPitch - gap),
+      height: Math.round(cellsH * rowPitch - gap),
     })
-  }, [])
+  }, [colPitch, rowPitch, gap])
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
@@ -441,6 +455,8 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
   }, [])
 
   const isCustomSize = size.width !== base.width || size.height !== base.height
+  const cellsW = Math.max(1, Math.round((size.width + gap) / colPitch))
+  const cellsH = Math.max(1, Math.round((size.height + gap) / rowPitch))
 
   return (
     <div className="flex h-full flex-col">
@@ -452,10 +468,21 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
             {t('dashboard.preview_reset_size', 'Widget size')}
           </button>
         )}
-        <span className="ml-auto">{widget.layout.w} × {widget.layout.h} {t('dashboard.preview_cells', 'cells')}</span>
+        <span className="ml-auto">{cellsW} × {cellsH} {t('dashboard.preview_cells', 'cells')}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-6">
-        <div className="relative" style={{ width: size.width, height: size.height }}>
+        <div
+          className="relative"
+          style={{
+            width: size.width,
+            height: size.height,
+            // Faint grid behind the preview, on the same cell pitch as the dashboard.
+            backgroundImage:
+              'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
+              'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
+            backgroundSize: `${colPitch}px ${rowPitch}px`,
+          }}
+        >
           <div className="h-full w-full overflow-hidden rounded-lg border bg-card shadow-sm">
             {children}
           </div>
