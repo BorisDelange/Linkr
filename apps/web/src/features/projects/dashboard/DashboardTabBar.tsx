@@ -337,8 +337,10 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
           </div>
         )}
 
-        {/* Current-level tabs. Thin bottom scrollbar with padding so it never hides labels. */}
-        <div className="flex min-w-0 flex-1 items-end overflow-x-auto pb-0.5 [scrollbar-width:thin]">
+        {/* Current-level tabs. Thin scrollbar; the row reserves a little extra height (py-1) so
+            the scrollbar sits below the labels and the tabs stay vertically aligned with the
+            breadcrumb instead of being pushed up. */}
+        <div className="flex min-w-0 flex-1 items-center overflow-x-auto py-1 [scrollbar-width:thin]">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

@@ -1036,11 +1036,15 @@ function BarPlot({
     return niceTicks(vals, true)
   }, [data, series])
 
+  // The more bars there are, the less horizontal room each label has, so tighten the truncation
+  // as the category count grows (the full text stays available in the hover tooltip).
+  const effXLabelMaxLen = Math.max(4, Math.min(xLabelMaxLen, Math.round(160 / Math.max(1, data.length))))
+
   return (
     <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
-        <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={xLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
+        <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={effXLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11, style: { textAnchor: 'middle' } } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
         <Tooltip
           {...TOOLTIP_STYLE}
