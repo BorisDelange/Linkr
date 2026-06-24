@@ -4,6 +4,7 @@ import {
 } from 'recharts'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
+import { niceTicks } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 
 interface ConceptStatsPanelProps {
@@ -14,7 +15,7 @@ interface ConceptStatsPanelProps {
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="flex items-center justify-between py-1">
+    <div className="flex items-center justify-between py-0.5">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="text-xs font-medium tabular-nums">{value}</span>
     </div>
@@ -22,18 +23,27 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
 }
 
 function Histogram({ data }: { data: HistogramBin[] }) {
-  const chartData = data.map((bin) => ({
-    label: bin.bin_start,
-    count: bin.count,
-  }))
+  // The SQL bins are anchored on the raw data minimum, so their edges are
+  // arbitrary numbers like -27, 14, 56 — useless as axis labels. Lay a clean
+  // linear grid over the value range and place bars at their real x value.
+  const xs = data.map((b) => b.bin_start)
+  const min = Math.min(...xs)
+  const max = Math.max(...xs)
+  const binWidth = data.length > 1 ? (max - min) / (data.length - 1) : 1
+  // Widen by half a bin each side so the first/last bars aren't clipped.
+  const scale = niceTicks([min - binWidth / 2, max + binWidth / 2])
+  const formatTick = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })
 
   return (
     <ResponsiveContainer width="100%" height={180}>
-      <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+      <BarChart data={data} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
         <XAxis
-          dataKey="label"
+          type="number"
+          dataKey="bin_start"
+          domain={scale ? scale.domain : ['dataMin', 'dataMax']}
+          ticks={scale?.ticks}
           tick={{ fontSize: 10 }}
-          tickFormatter={(v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 1 })}
+          tickFormatter={formatTick}
         />
         <YAxis tick={{ fontSize: 10 }} width={40} />
         <Tooltip
@@ -52,7 +62,7 @@ export function ConceptStatsPanel({ hasValueColumn, stats, isLoading }: ConceptS
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="space-y-1.5">
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-[180px] w-full" />
@@ -69,7 +79,7 @@ export function ConceptStatsPanel({ hasValueColumn, stats, isLoading }: ConceptS
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-1.5">
       <h4 className="text-xs font-medium">{t('concepts.stats_title')}</h4>
       <StatRow label={t('concepts.stats_row_count')} value={stats.rowCount.toLocaleString()} />
 

@@ -100,7 +100,7 @@ export function ConceptStatsPopover({
         </button>
       </PopoverTrigger>
       <PopoverContent
-        className="max-h-[60vh] w-72 overflow-y-auto p-3 [&_.space-y-3]:space-y-1.5 [&_.py-1]:py-0.5"
+        className="max-h-[60vh] w-72 overflow-y-auto p-3"
         align="end"
         side="left"
         collisionPadding={12}

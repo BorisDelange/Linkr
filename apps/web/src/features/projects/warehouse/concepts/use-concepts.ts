@@ -54,6 +54,11 @@ export interface ConceptStats {
 // Module-level state cache (survives component unmount/remount)
 // ---------------------------------------------------------------------------
 
+interface CachedResult {
+  concepts: ConceptRow[]
+  totalCount: number
+}
+
 interface CachedState {
   filters: ConceptFilters
   sorting: ConceptSorting | null
@@ -62,6 +67,7 @@ interface CachedState {
   selectedConceptId: number | null
   filterOptions: Record<string, string[]>
   statsCache: Map<number, ConceptStats>
+  resultCache: Map<string, CachedResult>
 }
 
 const stateCache = new Map<string, CachedState>()
@@ -82,6 +88,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [concepts, setConcepts] = useState<ConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  const resultCache = useRef<Map<string, CachedResult>>(cached?.resultCache ?? new Map())
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
 
   const [selectedConceptId, setSelectedConceptId] = useState<number | null>(cached?.selectedConceptId ?? null)
@@ -108,6 +117,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
           selectedConceptId: s.selectedConceptId,
           filterOptions: s.filterOptions,
           statsCache: statsCache.current,
+          resultCache: resultCache.current,
         })
       }
     }
@@ -118,7 +128,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // Available columns (derived from schema mapping)
   // ---------------------------------------------------------------------------
 
-  const dicts = schemaMapping?.conceptTables ?? []
+  // Stabilize the reference: `?? []` would otherwise mint a fresh empty array
+  // each render, churning availableColumns and re-triggering every dependent
+  // effect (notably the concepts fetch) on remount.
+  const dicts = useMemo(() => schemaMapping?.conceptTables ?? [], [schemaMapping])
   const availableColumns = useMemo(() => computeAvailableColumns(dicts), [dicts])
 
   // ---------------------------------------------------------------------------
@@ -214,33 +227,53 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
 
+    const conceptsSql = buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
+    const countSql = buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
+    if (!conceptsSql || !countSql) {
+      setConcepts([])
+      setTotalCount(0)
+      return
+    }
+
+    // The SQL deterministically encodes filters + page + sorting, so it doubles
+    // as the cache key: a remount with restored UI state hits the cache and skips
+    // the refetch (preserving filters/page across navigation).
+    const cacheKey = `${dataSourceId}::${conceptsSql}`
+    const hit = resultCache.current.get(cacheKey)
+    if (hit) {
+      setConcepts(hit.concepts)
+      setTotalCount(hit.totalCount)
+      setIsLoading(false)
+      return
+    }
+
+    let cancelled = false
     const load = async () => {
       setIsLoading(true)
       try {
-        const conceptsSql = buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
-        const countSql = buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
-        if (!conceptsSql || !countSql) {
-          setConcepts([])
-          setTotalCount(0)
-          return
-        }
         const [rows, countResult] = await Promise.all([
           queryDataSource(dataSourceId, conceptsSql),
           queryDataSource(dataSourceId, countSql),
         ])
-        setConcepts(rows as unknown as ConceptRow[])
-        setTotalCount(Number(countResult[0]?.cnt ?? 0))
+        if (cancelled) return
+        const loadedConcepts = rows as unknown as ConceptRow[]
+        const loadedTotal = Number(countResult[0]?.cnt ?? 0)
+        resultCache.current.set(cacheKey, { concepts: loadedConcepts, totalCount: loadedTotal })
+        setConcepts(loadedConcepts)
+        setTotalCount(loadedTotal)
       } catch (err) {
+        if (cancelled) return
         console.error('Failed to load concepts:', err)
         setConcepts([])
         setTotalCount(0)
       } finally {
-        setIsLoading(false)
+        if (!cancelled) setIsLoading(false)
       }
     }
     load()
+    return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, hasConceptTable, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
+  }, [dataSourceId, schemaMapping, hasConceptTable, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns, refreshTick])
 
   // ---------------------------------------------------------------------------
   // Load selected concept details
@@ -346,6 +379,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   const resetCache = useCallback(() => {
     statsCache.current.clear()
+    resultCache.current.clear()
+    setConceptStats(null)
+    setRefreshTick((t) => t + 1)
   }, [])
 
   const updateFilter = useCallback((key: string, value: string | null) => {
