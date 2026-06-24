@@ -16,10 +16,10 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Pencil, Trash2, Layers, FolderPlus } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, CornerLeftUp, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardTab } from '@/types'
-import { useDashboardStore } from '@/stores/dashboard-store'
+import { useDashboardStore, getChildTabs, getTabPath } from '@/stores/dashboard-store'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -41,8 +41,6 @@ import {
 interface DashboardTabBarProps {
   dashboardId: string
   editMode: boolean
-  /** When set, this bar renders the sub-tabs of the given parent (one level deep). */
-  parentTabId?: string | null
 }
 
 function SortableTab({
@@ -51,7 +49,6 @@ function SortableTab({
   canClose,
   editMode,
   hasChildren,
-  subBar,
   onActivate,
   onClose,
   onStartRename,
@@ -61,15 +58,12 @@ function SortableTab({
   isActive: boolean
   canClose: boolean
   editMode: boolean
-  /** Root tab that contains sub-tabs — shows a container indicator. */
+  /** Tab that contains sub-tabs — shows a container indicator and drills in on click. */
   hasChildren?: boolean
-  /** Rendered inside a sub-tab bar (smaller, muted styling). */
-  subBar?: boolean
   onActivate: () => void
   onClose: () => void
   onStartRename: () => void
-  /** Only provided for root tabs — adds a sub-tab to this tab. */
-  onAddSubTab?: () => void
+  onAddSubTab: () => void
 }) {
   const { t } = useTranslation()
 
@@ -100,8 +94,7 @@ function SortableTab({
           onClick={onActivate}
           onDoubleClick={onStartRename}
           className={cn(
-            'group flex cursor-pointer items-center gap-1.5 border-b-2 font-medium transition-colors whitespace-nowrap select-none',
-            subBar ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs',
+            'group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap select-none',
             isActive
               ? 'border-primary text-foreground'
               : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30',
@@ -119,12 +112,10 @@ function SortableTab({
           <Pencil size={14} />
           {t('common.rename')}
         </ContextMenuItem>
-        {onAddSubTab && (
-          <ContextMenuItem onClick={onAddSubTab}>
-            <FolderPlus size={14} />
-            {t('dashboard.add_sub_tab')}
-          </ContextMenuItem>
-        )}
+        <ContextMenuItem onClick={onAddSubTab}>
+          <FolderPlus size={14} />
+          {t('dashboard.add_sub_tab')}
+        </ContextMenuItem>
         {canClose && (
           <>
             <ContextMenuSeparator />
@@ -143,13 +134,11 @@ function SortableTab({
 function TabRenameInput({
   tab,
   isActive,
-  subBar,
   siblingNames,
   onFinish,
 }: {
   tab: DashboardTab
   isActive: boolean
-  subBar?: boolean
   /** Names of the other tabs at this level (lowercased) — for dup detection. */
   siblingNames: Set<string>
   onFinish: (newName: string | null) => void
@@ -183,8 +172,7 @@ function TabRenameInput({
   return (
     <div
       className={cn(
-        'flex items-center border-b-2',
-        subBar ? 'px-2.5 py-1' : 'px-3 py-1.5',
+        'flex items-center border-b-2 px-3 py-1.5',
         isActive ? 'border-primary' : 'border-transparent',
       )}
     >
@@ -198,8 +186,7 @@ function TabRenameInput({
           if (e.key === 'Escape') onFinish(null)
         }}
         className={cn(
-          'h-auto w-24 bg-transparent px-0 py-0 font-medium outline-none',
-          subBar ? 'text-[11px]' : 'text-xs',
+          'h-auto w-24 bg-transparent px-0 py-0 text-xs font-medium outline-none',
           isDuplicate && 'text-destructive',
         )}
         title={isDuplicate ? t('dashboard.tab_name_exists') : undefined}
@@ -208,40 +195,69 @@ function TabRenameInput({
   )
 }
 
-export function DashboardTabBar({ dashboardId, editMode, parentTabId }: DashboardTabBarProps) {
+export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps) {
   const { t } = useTranslation()
   const {
     tabs: allTabs,
+    widgets,
     activeTabId,
-    activeSubTabId,
     addTab,
     addSubTab,
     removeTab,
     renameTab,
     reorderTabs,
     setActiveTab,
-    setActiveSubTab,
+    enterTab,
   } = useDashboardStore()
-
-  const isSubBar = parentTabId != null
 
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
   const confirmDeleteTab = confirmDeleteTabId ? allTabs.find(t => t.id === confirmDeleteTabId) : null
+  // When sub-tabbing a tab that already holds widgets, ask what to do with them first.
+  const [subTabWidgetsParentId, setSubTabWidgetsParentId] = useState<string | null>(null)
 
-  // Tabs shown at this level: a parent's children for the sub-bar, else the dashboard's root tabs.
-  const tabs = allTabs
-    .filter((t) => isSubBar ? t.parentTabId === parentTabId : (t.dashboardId === dashboardId && !t.parentTabId))
+  // Add a sub-tab. If the tab has no sub-tabs yet but holds widgets, it's about to become a
+  // container (which has no widgets of its own) — confirm whether to move or drop them.
+  const requestAddSubTab = (parentId: string) => {
+    const hasChildren = allTabs.some((tt) => tt.parentTabId === parentId)
+    const ownWidgets = widgets.filter((w) => w.tabId === parentId)
+    if (!hasChildren && ownWidgets.length > 0) {
+      setSubTabWidgetsParentId(parentId)
+    } else {
+      addSubTab(parentId)
+    }
+  }
+  const subTabWidgetCount = subTabWidgetsParentId
+    ? widgets.filter((w) => w.tabId === subTabWidgetsParentId).length
+    : 0
+
+  const dashboardTabs = allTabs.filter((t) => t.dashboardId === dashboardId)
+  const rootTabs = dashboardTabs
+    .filter((t) => !t.parentTabId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
 
-  // Root tabs that contain sub-tabs (for the container indicator). Empty for the sub-bar.
-  const containerIds = new Set(
-    isSubBar ? [] : allTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string),
-  )
+  // The active tab (any level — may be a container) and its ancestor chain. The current
+  // level is the active tab's siblings; ancestors render as a breadcrumb to the left.
+  const activeId = activeTabId[dashboardId] ?? (rootTabs[0]?.id ?? null)
+  const path = activeId ? getTabPath(dashboardTabs, activeId) : []
+  const activeTab = path[path.length - 1] ?? null
+  const parentOfLevel = activeTab?.parentTabId ?? null
+  // Ancestors above the current level. All are clickable jump targets except the immediate
+  // parent (the last one): it's shown for orientation but clicking it re-selects the same
+  // level, so it stays inert — the "up one level" arrow handles going back to it.
+  const ancestors = path.slice(0, -1)
+  const clickableAncestors = ancestors.slice(0, -1)
+  const immediateParent = ancestors[ancestors.length - 1] ?? null
 
-  const currentActiveId = isSubBar
-    ? (activeSubTabId[parentTabId] ?? tabs[0]?.id)
-    : (activeTabId[dashboardId] ?? tabs[0]?.id)
+  // Tabs shown on this single line: the active tab's siblings (or the roots).
+  const tabs = (parentOfLevel
+    ? getChildTabs(dashboardTabs, parentOfLevel)
+    : rootTabs)
+
+  // Tabs at this level that are themselves containers (show the Layers indicator).
+  const containerIds = new Set(
+    dashboardTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string),
+  )
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -253,6 +269,7 @@ export function DashboardTabBar({ dashboardId, editMode, parentTabId }: Dashboar
     if (!over || active.id === over.id) return
     const oldIndex = tabs.findIndex((t) => t.id === active.id)
     const newIndex = tabs.findIndex((t) => t.id === over.id)
+    if (oldIndex < 0 || newIndex < 0) return
     const reordered = arrayMove(tabs, oldIndex, newIndex)
     reorderTabs(dashboardId, reordered.map((t) => t.id))
   }
@@ -274,13 +291,54 @@ export function DashboardTabBar({ dashboardId, editMode, parentTabId }: Dashboar
     setRenamingTabId(null)
   }, [renameTab, tabs])
 
-  const activate = (tabId: string) =>
-    isSubBar ? setActiveSubTab(parentTabId, tabId) : setActiveTab(dashboardId, tabId)
-
   return (
     <>
-      <div className={cn('flex items-center overflow-hidden', isSubBar && 'bg-muted/30')}>
-        <div className="flex items-center overflow-x-auto scrollbar-hide">
+      <div className="flex min-w-0 flex-1 items-center gap-1">
+        {/* Breadcrumb shown once we're below the root level: an "up one level" arrow, a Home
+            crumb back to the dashboard's root tabs, each clickable ancestor, then the immediate
+            parent shown inert (for orientation — it names the level you're currently inside). */}
+        {parentOfLevel && (
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              onClick={() => setActiveTab(dashboardId, parentOfLevel)}
+              className="flex items-center rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              title={t('dashboard.tab_up_one_level')}
+            >
+              <CornerLeftUp size={13} />
+            </button>
+            <button
+              onClick={() => path[0] && setActiveTab(dashboardId, path[0].id)}
+              className="flex items-center rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+              title={t('dashboard.tab_home')}
+            >
+              <Home size={13} />
+            </button>
+            {clickableAncestors.map((anc) => (
+              <span key={anc.id} className="flex items-center gap-0.5">
+                <ChevronRight size={12} className="shrink-0 text-muted-foreground/50" />
+                <button
+                  onClick={() => enterTab(dashboardId, anc.id)}
+                  className="max-w-32 truncate rounded px-1 py-0.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={anc.name}
+                >
+                  {anc.name}
+                </button>
+              </span>
+            ))}
+            {immediateParent && (
+              <span className="flex items-center gap-0.5">
+                <ChevronRight size={12} className="shrink-0 text-muted-foreground/50" />
+                <span className="max-w-32 truncate px-1 py-0.5 text-xs font-medium text-foreground" title={immediateParent.name}>
+                  {immediateParent.name}
+                </span>
+              </span>
+            )}
+            <ChevronRight size={12} className="shrink-0 text-muted-foreground/50" />
+          </div>
+        )}
+
+        {/* Current-level tabs. Thin bottom scrollbar with padding so it never hides labels. */}
+        <div className="flex min-w-0 flex-1 items-end overflow-x-auto pb-0.5 [scrollbar-width:thin]">
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
@@ -295,8 +353,7 @@ export function DashboardTabBar({ dashboardId, editMode, parentTabId }: Dashboar
                   <TabRenameInput
                     key={tab.id}
                     tab={tab}
-                    isActive={tab.id === currentActiveId}
-                    subBar={isSubBar}
+                    isActive={tab.id === activeId}
                     siblingNames={new Set(
                       tabs.filter((tt) => tt.id !== tab.id).map((tt) => tt.name.toLowerCase()),
                     )}
@@ -306,33 +363,33 @@ export function DashboardTabBar({ dashboardId, editMode, parentTabId }: Dashboar
                   <SortableTab
                     key={tab.id}
                     tab={tab}
-                    isActive={tab.id === currentActiveId}
-                    canClose={isSubBar ? true : tabs.length > 1}
+                    isActive={tab.id === activeId}
+                    canClose={parentOfLevel ? true : tabs.length > 1}
                     editMode={editMode}
                     hasChildren={containerIds.has(tab.id)}
-                    subBar={isSubBar}
-                    onActivate={() => activate(tab.id)}
+                    onActivate={() =>
+                      containerIds.has(tab.id)
+                        ? enterTab(dashboardId, tab.id)
+                        : setActiveTab(dashboardId, tab.id)
+                    }
                     onClose={() => setConfirmDeleteTabId(tab.id)}
                     onStartRename={() => setRenamingTabId(tab.id)}
-                    onAddSubTab={!isSubBar ? () => addSubTab(tab.id) : undefined}
+                    onAddSubTab={() => requestAddSubTab(tab.id)}
                   />
                 )
               )}
             </SortableContext>
           </DndContext>
+          {editMode && (
+            <button
+              onClick={() => parentOfLevel ? addSubTab(parentOfLevel) : addTab(dashboardId)}
+              className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-2 py-1.5 text-muted-foreground transition-colors hover:text-foreground"
+              title={parentOfLevel ? t('dashboard.add_sub_tab') : t('dashboard.add_tab')}
+            >
+              <Plus size={12} />
+            </button>
+          )}
         </div>
-        {editMode && (
-          <button
-            onClick={() => isSubBar ? addSubTab(parentTabId) : addTab(dashboardId)}
-            className={cn(
-              'flex items-center gap-1 border-b-2 border-transparent text-muted-foreground hover:text-foreground transition-colors',
-              isSubBar ? 'px-2 py-1' : 'px-2 py-1.5',
-            )}
-            title={isSubBar ? t('dashboard.add_sub_tab') : t('dashboard.add_tab')}
-          >
-            <Plus size={12} />
-          </button>
-        )}
       </div>
 
       <AlertDialog open={confirmDeleteTabId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteTabId(null) }}>
@@ -347,6 +404,39 @@ export function DashboardTabBar({ dashboardId, editMode, parentTabId }: Dashboar
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleConfirmDelete}>
               {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Sub-tabbing a tab that holds widgets: it becomes a container (no widgets of its own),
+          so move the widgets into the new sub-tab or drop them. */}
+      <AlertDialog open={subTabWidgetsParentId !== null} onOpenChange={(open) => { if (!open) setSubTabWidgetsParentId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('dashboard.subtab_widgets_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('dashboard.subtab_widgets_description', { count: subTabWidgetCount })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (subTabWidgetsParentId) addSubTab(subTabWidgetsParentId, false)
+                setSubTabWidgetsParentId(null)
+              }}
+            >
+              {t('dashboard.subtab_widgets_delete')}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                if (subTabWidgetsParentId) addSubTab(subTabWidgetsParentId, true)
+                setSubTabWidgetsParentId(null)
+              }}
+            >
+              {t('dashboard.subtab_widgets_move')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

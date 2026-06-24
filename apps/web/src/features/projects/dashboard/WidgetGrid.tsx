@@ -12,6 +12,7 @@ import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
 import { Filter } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
 import { DASHBOARD_GRID } from './dashboard-grid'
 import {
@@ -81,40 +82,42 @@ function formatRange(min: number | null, max: number | null): string {
   return `${min ?? '−∞'} – ${max ?? '+∞'}`
 }
 
-/** Human-readable summary of the filters that apply to a widget, shown on the chart so it's
- *  clear the data is restricted (e.g. "Gestational age: 32 – 36"). */
+/** Structured summary of the filters that apply to a widget — one entry per active filter,
+ *  with the column name and its restricting value(s) — for the widget's filter tooltip. */
+interface FilterChip { column: string; values: string }
+
 function buildFilterChips(
   filters: Record<string, FilterValue>,
   columns: { id: string; name: string }[],
-): string[] {
+): FilterChip[] {
   const nameOf = (id: string) => columns.find((c) => c.id === id)?.name ?? id
-  const chips: string[] = []
+  const chips: FilterChip[] = []
   for (const [colId, v] of Object.entries(filters)) {
-    const name = nameOf(colId)
+    const column = nameOf(colId)
     switch (v.type) {
       case 'categorical':
-        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push(`${name}: ∅`); break }
+        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push({ column, values: '∅' }); break }
         if (v.selected.length === 0) break
-        chips.push(`${name}: ${v.selected.join(', ')}`)
+        chips.push({ column, values: v.selected.join(', ') })
         break
       case 'numeric':
         if (v.min == null && v.max == null) break
-        chips.push(`${name}: ${formatRange(v.min, v.max)}`)
+        chips.push({ column, values: formatRange(v.min, v.max) })
         break
       case 'numeric-double': {
         const parts: string[] = []
         if (v.min1 != null || v.max1 != null) parts.push(formatRange(v.min1, v.max1))
         if (v.min2 != null || v.max2 != null) parts.push(formatRange(v.min2, v.max2))
         if (parts.length === 0) break
-        chips.push(`${name}: ${parts.join(', ')}`)
+        chips.push({ column, values: parts.join(', ') })
         break
       }
       case 'date':
         if (!v.from && !v.to) break
-        chips.push(`${name}: ${v.from ?? '…'} – ${v.to ?? '…'}`)
+        chips.push({ column, values: `${v.from ?? '…'} – ${v.to ?? '…'}` })
         break
       case 'date-relative':
-        chips.push(`${name}: ${v.count} ${v.unit}`)
+        chips.push({ column, values: `${v.count} ${v.unit}` })
         break
     }
   }
@@ -132,6 +135,7 @@ function WidgetWithData({
   activeFilters: Record<string, FilterValue>
   parentTabId: string | null | undefined
 }) {
+  const { t } = useTranslation()
   const { files } = useDatasetStore()
   const datasetFile = files.find((f) => f.id === widget.datasetFileId)
   const columnNameToId = useMemo(
@@ -150,17 +154,36 @@ function WidgetWithData({
   )
 
   return (
-    <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null} filters={filters}>
-      <div className="flex h-full flex-col">
+    <DashboardDataProvider
+      datasetFileId={widget.datasetFileId ?? null}
+      filters={filters}
+      reloadOnTabSwitch={dashboard.reloadWidgetsOnTabSwitch === true}
+    >
+      <div className="relative flex h-full flex-col">
         {filterChips.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 px-2 pt-1 text-[10px] text-muted-foreground shrink-0">
-            <Filter size={10} className="shrink-0" />
-            {filterChips.map((chip, i) => (
-              <span key={i} className="max-w-[180px] truncate rounded bg-muted px-1.5 py-0.5" title={chip}>
-                {chip}
-              </span>
-            ))}
-          </div>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="absolute right-1.5 top-1.5 z-10 flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
+                  <Filter size={11} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-64 bg-foreground text-background">
+                <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters')}</p>
+                <div className="space-y-1">
+                  {filterChips.map((chip, i) => (
+                    <div key={i} className="text-[11px]">
+                      <span className="text-background/70">{t('dashboard.filter_column')} : </span>
+                      <span className="font-medium">{chip.column}</span>
+                      <br />
+                      <span className="text-background/70">{t('dashboard.filter_values')} : </span>
+                      <span className="font-medium">{chip.values}</span>
+                    </div>
+                  ))}
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         )}
         <div className="min-h-0 flex-1">
           {widget.source.type === 'plugin' ? (

@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import {
@@ -17,7 +16,6 @@ import {
   X,
   Table2,
   Keyboard,
-  ArrowLeft,
   Database,
   Copy,
   Check,
@@ -71,8 +69,6 @@ interface Props {
 
 export function SqlScriptsEditorPage({ collectionId }: Props) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { wsUid } = useParams()
   const {
     collections,
     collectionsLoaded,
@@ -321,18 +317,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center gap-2 border-b px-3 py-2">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-xs" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/sql-scripts`)}>
-                <ArrowLeft size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('sql_scripts.back_to_list')}</TooltipContent>
-          </Tooltip>
-          <span className="text-sm font-medium">{collection.name}</span>
-        </div>
 
         {/* IDE */}
         <div className="flex-1 overflow-hidden">

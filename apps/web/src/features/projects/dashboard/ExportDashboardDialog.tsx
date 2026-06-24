@@ -88,7 +88,6 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, scope, preselectWidgetId])
 
-  const allSelected = scopedWidgets.length > 0 && scopedWidgets.every(w => selected.has(w.id))
   const toggle = (id: string) => {
     setSelected(prev => {
       const next = new Set(prev)
@@ -96,9 +95,6 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
       else next.add(id)
       return next
     })
-  }
-  const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(scopedWidgets.map(w => w.id)))
   }
 
   const chosen = useMemo(() => scopedWidgets.filter(w => selected.has(w.id)), [scopedWidgets, selected])
@@ -159,7 +155,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!exporting) onOpenChange(o) }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="flex max-h-[85vh] max-w-lg flex-col">
         <DialogHeader>
           <DialogTitle>{t('dashboard.export_dashboard', 'Export figures')}</DialogTitle>
           <DialogDescription>
@@ -167,7 +163,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
           </DialogDescription>
         </DialogHeader>
 
-        <div className="min-w-0 space-y-4 py-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col space-y-4 py-1">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs">{t('dashboard.export_scope', 'Scope')}</Label>
@@ -212,14 +208,20 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="flex min-h-0 flex-1 flex-col space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs">{t('dashboard.export_widgets', 'Widgets')}</Label>
-              <button type="button" onClick={toggleAll} className="text-[10px] text-muted-foreground hover:text-foreground">
-                {allSelected ? t('common.select_none') : t('common.select_all')}
-              </button>
+              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                <button type="button" onClick={() => setSelected(new Set(scopedWidgets.map(w => w.id)))} className="hover:text-foreground">
+                  {t('common.select_all')}
+                </button>
+                <span className="text-muted-foreground/40">/</span>
+                <button type="button" onClick={() => setSelected(new Set())} className="hover:text-foreground">
+                  {t('common.select_none')}
+                </button>
+              </div>
             </div>
-            <div className="max-h-56 overflow-y-auto rounded-md border">
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-md border">
               {scopedWidgets.length === 0 && (
                 <p className="py-3 text-center text-[11px] text-muted-foreground">
                   {t('dashboard.export_no_widgets', 'No widgets in this scope.')}

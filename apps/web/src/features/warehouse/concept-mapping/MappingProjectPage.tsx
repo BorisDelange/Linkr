@@ -1,7 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
-import { ArrowLeft, FileSpreadsheet, Database, Settings2 } from 'lucide-react'
+import { FileSpreadsheet, Database, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -22,8 +21,6 @@ interface MappingProjectPageProps {
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { wsUid } = useParams()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('progress')
   // Once the editor has been opened at least once, keep its component mounted so
@@ -83,10 +80,6 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
-        <Button variant="ghost" size="icon-sm" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/concept-mapping`)}>
-          <ArrowLeft size={16} />
-        </Button>
-        <span className="truncate text-sm font-semibold">{project.name}</span>
         {project.status && (
           <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
             <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />

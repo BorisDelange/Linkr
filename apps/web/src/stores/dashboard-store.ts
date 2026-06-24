@@ -15,8 +15,9 @@ interface DashboardState {
 
   // Editor state
   activeDashboardId: string | null
-  activeTabId: Record<string, string> // dashboardId → active ROOT tabId
-  activeSubTabId: Record<string, string> // parent tabId → active child tabId
+  // dashboardId → active LEAF tabId (a tab at any nesting level). The breadcrumb of
+  // ancestors is reconstructed by walking parentTabId up to the root.
+  activeTabId: Record<string, string>
 
   // Runtime filter state (not persisted) — keyed by DashboardFilter.id
   activeFilters: Record<string, FilterValue>
@@ -30,14 +31,19 @@ interface DashboardState {
 
   // Tab CRUD
   addTab: (dashboardId: string) => void
-  /** Add a sub-tab to a root tab. If the root currently holds widgets, they move into the
-   *  first sub-tab so nothing is orphaned when it becomes a container. */
-  addSubTab: (parentTabId: string) => void
+  /** Add a sub-tab to any tab (nesting is unbounded). When the parent already holds widgets
+   *  and this is its first sub-tab, it becomes a container (which has no widgets of its own):
+   *  moveWidgets=true migrates them into the new sub-tab, false deletes them. */
+  addSubTab: (parentTabId: string, moveWidgets?: boolean) => void
   removeTab: (tabId: string) => void
   renameTab: (tabId: string, name: string) => void
   reorderTabs: (dashboardId: string, orderedIds: string[]) => void
+  /** Select a tab as-is. A container has no widgets of its own, so the page shows a
+   *  "pick a sub-tab" hint instead — use enterTab to step into its children. */
   setActiveTab: (dashboardId: string, tabId: string) => void
-  setActiveSubTab: (parentTabId: string, childTabId: string) => void
+  /** Step into a container by selecting its first direct child (one level down). A leaf is
+   *  just selected. Used when clicking a container tab or a breadcrumb ancestor. */
+  enterTab: (dashboardId: string, tabId: string) => void
 
   // Widget CRUD
   addWidget: (tabId: string, source: DashboardWidgetSource, name: string, datasetFileId?: string | null) => void
@@ -68,6 +74,39 @@ function getDefaultLayout(_source: DashboardWidgetSource): { w: number; h: numbe
   return { w: 12, h: 6 }
 }
 
+/** Direct children of a tab, sorted by display order. */
+export function getChildTabs(tabs: DashboardTab[], tabId: string): DashboardTab[] {
+  return tabs
+    .filter((t) => t.parentTabId === tabId)
+    .sort((a, b) => a.displayOrder - b.displayOrder)
+}
+
+/** Walk down through the first child at each level until reaching a leaf (a tab with no
+ *  children). A container holds no widgets of its own, so we always render a leaf. */
+export function firstLeafTab(tabs: DashboardTab[], tabId: string): string {
+  let current = tabId
+  for (let guard = 0; guard < 100; guard++) {
+    const children = getChildTabs(tabs, current)
+    if (children.length === 0) return current
+    current = children[0].id
+  }
+  return current
+}
+
+/** Ancestors→tab chain (root first, the tab itself last), reconstructed via parentTabId. */
+export function getTabPath(tabs: DashboardTab[], tabId: string): DashboardTab[] {
+  const byId = new Map(tabs.map((t) => [t.id, t]))
+  const path: DashboardTab[] = []
+  let current: string | null | undefined = tabId
+  for (let guard = 0; guard < 100 && current; guard++) {
+    const tab = byId.get(current)
+    if (!tab) break
+    path.unshift(tab)
+    current = tab.parentTabId
+  }
+  return path
+}
+
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   dashboards: [],
   tabs: [],
@@ -76,7 +115,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   loaded: false,
   activeDashboardId: null,
   activeTabId: {},
-  activeSubTabId: {},
   activeFilters: {},
 
   loadProjectDashboards: async (projectUid) => {
@@ -106,7 +144,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         loaded: true,
         activeDashboardId: null,
         activeTabId: {},
-        activeSubTabId: {},
         activeFilters: {},
       })
     } catch {
@@ -118,7 +155,6 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         loaded: true,
         activeDashboardId: null,
         activeTabId: {},
-        activeSubTabId: {},
         activeFilters: {},
       })
     }
@@ -212,9 +248,9 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     getStorage().dashboardTabs.create(tab).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
-  addSubTab: (parentTabId) => {
+  addSubTab: (parentTabId, moveWidgets = true) => {
     const parent = get().tabs.find((t) => t.id === parentTabId)
-    if (!parent || parent.parentTabId) return // sub-tabs are one level deep only
+    if (!parent) return
     const existingChildren = get().tabs.filter((t) => t.parentTabId === parentTabId)
     const id = uid()
     const child: DashboardTab = {
@@ -224,22 +260,28 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       displayOrder: existingChildren.length,
       parentTabId,
     }
-    // First sub-tab: the parent becomes a container, so its own widgets move into this child.
-    const moveParentWidgets = existingChildren.length === 0
-    const movedWidgetIds = moveParentWidgets
+    // First sub-tab only: the parent turns into a container. A container holds no widgets,
+    // so the parent's existing widgets are either moved into this first child or dropped.
+    const isFirstChild = existingChildren.length === 0
+    const parentWidgetIds = isFirstChild
       ? get().widgets.filter((w) => w.tabId === parentTabId).map((w) => w.id)
       : []
+    const movedWidgetIds = moveWidgets ? parentWidgetIds : []
+    const deletedWidgetIds = moveWidgets ? [] : parentWidgetIds
 
     set((s) => ({
       tabs: [...s.tabs, child],
-      widgets: movedWidgetIds.length > 0
-        ? s.widgets.map((w) => (w.tabId === parentTabId ? { ...w, tabId: id } : w))
-        : s.widgets,
-      activeSubTabId: { ...s.activeSubTabId, [parentTabId]: id },
+      widgets: s.widgets
+        .filter((w) => !deletedWidgetIds.includes(w.id))
+        .map((w) => (movedWidgetIds.includes(w.id) ? { ...w, tabId: id } : w)),
+      activeTabId: { ...s.activeTabId, [parent.dashboardId]: id },
     }))
     getStorage().dashboardTabs.create(child).catch((e) => console.warn('[dashboard-store] persist error:', e))
     for (const wid of movedWidgetIds) {
       getStorage().dashboardWidgets.update(wid, { tabId: id }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    }
+    for (const wid of deletedWidgetIds) {
+      getStorage().dashboardWidgets.delete(wid).catch((e) => console.warn('[dashboard-store] persist error:', e))
     }
   },
 
@@ -256,36 +298,42 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         if (rootSiblings.length === 0) return s
       }
 
-      // Deleting a container cascades to its sub-tabs (and their widgets).
-      const children = s.tabs.filter((t) => t.parentTabId === tabId)
-      const removeIds = new Set<string>([tabId, ...children.map((c) => c.id)])
+      // Deleting a container cascades to all descendants (any depth) and their widgets.
+      const removeIds = new Set<string>([tabId])
+      for (let added = true; added; ) {
+        added = false
+        for (const t of s.tabs) {
+          if (!removeIds.has(t.id) && t.parentTabId && removeIds.has(t.parentTabId)) {
+            removeIds.add(t.id)
+            added = true
+          }
+        }
+      }
 
       for (const id of removeIds) {
         getStorage().dashboardWidgets.deleteByTab(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
         getStorage().dashboardTabs.delete(id).catch((e) => console.warn('[dashboard-store] persist error:', e))
       }
 
-      // Repair active selections.
+      const remainingTabs = s.tabs.filter((t) => !removeIds.has(t.id))
+
+      // Repair the active leaf: if it was removed, fall back to a sibling of the deleted tab
+      // (or any remaining root), then descend to its first leaf.
       let activeTabId = s.activeTabId
-      if (!tab.parentTabId && s.activeTabId[tab.dashboardId] === tabId) {
-        const nextRoot = s.tabs
-          .filter((t) => t.dashboardId === tab.dashboardId && !t.parentTabId && t.id !== tabId)
+      if (removeIds.has(s.activeTabId[tab.dashboardId])) {
+        const sibling = remainingTabs
+          .filter((t) => (t.parentTabId ?? null) === (tab.parentTabId ?? null) && t.dashboardId === tab.dashboardId)
           .sort((a, b) => a.displayOrder - b.displayOrder)[0]
-        activeTabId = { ...s.activeTabId, [tab.dashboardId]: nextRoot?.id }
-      }
-      let activeSubTabId = s.activeSubTabId
-      if (tab.parentTabId && s.activeSubTabId[tab.parentTabId] === tabId) {
-        const nextChild = s.tabs
-          .filter((t) => t.parentTabId === tab.parentTabId && t.id !== tabId)
-          .sort((a, b) => a.displayOrder - b.displayOrder)[0]
-        activeSubTabId = { ...s.activeSubTabId, [tab.parentTabId]: nextChild?.id }
+          ?? remainingTabs
+            .filter((t) => t.dashboardId === tab.dashboardId && !t.parentTabId)
+            .sort((a, b) => a.displayOrder - b.displayOrder)[0]
+        activeTabId = { ...s.activeTabId, [tab.dashboardId]: sibling ? firstLeafTab(remainingTabs, sibling.id) : undefined as unknown as string }
       }
 
       return {
-        tabs: s.tabs.filter((t) => !removeIds.has(t.id)),
+        tabs: remainingTabs,
         widgets: s.widgets.filter((w) => !removeIds.has(w.tabId)),
         activeTabId,
-        activeSubTabId,
       }
     }),
 
@@ -317,10 +365,11 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       activeTabId: { ...s.activeTabId, [dashboardId]: tabId },
     })),
 
-  setActiveSubTab: (parentTabId, childTabId) =>
-    set((s) => ({
-      activeSubTabId: { ...s.activeSubTabId, [parentTabId]: childTabId },
-    })),
+  enterTab: (dashboardId, tabId) =>
+    set((s) => {
+      const firstChild = getChildTabs(s.tabs, tabId)[0]
+      return { activeTabId: { ...s.activeTabId, [dashboardId]: firstChild?.id ?? tabId } }
+    }),
 
   // --- Widget CRUD ---
 

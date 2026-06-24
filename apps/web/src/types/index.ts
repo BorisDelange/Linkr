@@ -381,6 +381,9 @@ export interface Dashboard {
   defaultDatasetFileId?: string | null
   /** Pixel gap between widgets on the grid. Defaults to DASHBOARD_GRID.margin (12). */
   widgetSpacing?: number
+  /** Re-run widgets every time their tab is shown. Off by default: visited tabs stay mounted
+   *  so switching back is instant and avoids re-executing R/Python. */
+  reloadWidgetsOnTabSwitch?: boolean
   createdAt: string
   updatedAt: string
 }

@@ -10,7 +10,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -121,13 +120,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        <Button variant="ghost" size="icon-xs" onClick={handleBack}>
-          <ArrowLeft size={14} />
-        </Button>
-        <span className="truncate text-sm font-medium">{ruleSet.name}</span>
-
-        <Separator orientation="vertical" className="!h-4 mx-1" />
-
         <div className="flex items-center gap-0.5">
           {TABS.map((tab) => (
             <button

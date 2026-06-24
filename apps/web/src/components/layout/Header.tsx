@@ -12,7 +12,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -103,6 +103,16 @@ export function Header() {
   const catalogId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/catalog\/([^/]+)$/)?.[1]
   const cmId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/concept-mapping\/([^/]+)$/)?.[1]
   const dqId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/data-quality\/([^/]+)$/)?.[1]
+  const schemaId = pathname.match(/\/workspaces\/[^/]+\/warehouse\/schemas\/([^/]+)$/)?.[1]
+
+  // Detail pages get a back arrow before the title that returns to their list view. Each list
+  // path is the detail path with the trailing :id segment removed.
+  const backToListPath = (() => {
+    const detailId = dashboardId ?? cohortId ?? etlId ?? sqlId ?? catalogId ?? cmId ?? dqId ?? schemaId
+    if (!detailId) return null
+    const idx = pathname.lastIndexOf(`/${detailId}`)
+    return idx > 0 ? pathname.slice(0, idx) : null
+  })()
 
   // Only subscribe to the store whose entity is currently displayed
   const dashboardName = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId)?.name : undefined)
@@ -173,6 +183,15 @@ export function Header() {
     <>
       <header className="flex h-12 shrink-0 items-center justify-between border-b bg-background px-4">
         <div className="flex items-center gap-2.5">
+          {backToListPath && (
+            <button
+              onClick={() => navigate(backToListPath)}
+              className="flex items-center text-muted-foreground transition-colors hover:text-foreground"
+              title={t('common.back')}
+            >
+              <ArrowLeft size={15} />
+            </button>
+          )}
           <h1 className="text-[13px] font-medium text-foreground">
             {getPageLabel()}
           </h1>
@@ -232,7 +251,7 @@ export function Header() {
                   </Avatar>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="min-w-max">
+              <DropdownMenuContent align="end" className="min-w-56">
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-0.5">
                     <p className="text-sm font-medium">{displayName}</p>
@@ -242,19 +261,19 @@ export function Header() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate('/profile')}>
+                <DropdownMenuItem onClick={() => navigate('/profile')} className="cursor-pointer">
                   <Settings size={14} />
                   {t('user_menu.profile')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => setResetDialogOpen(true)}
-                  className="text-destructive focus:text-destructive"
+                  className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <Trash2 size={14} className="text-destructive" />
                   {t('user_menu.reset_data')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout}>
+                <DropdownMenuItem onClick={logout} className="cursor-pointer">
                   <LogOut size={14} />
                   {t('user_menu.sign_out')}
                 </DropdownMenuItem>

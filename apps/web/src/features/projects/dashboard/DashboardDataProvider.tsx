@@ -8,6 +8,11 @@ interface DashboardDataContextValue {
   rows: Record<string, unknown>[]
   filteredRows: Record<string, unknown>[]
   hasDataset: boolean
+  /** When true, widgets re-run on every (re)mount instead of reusing their cached result. */
+  reloadOnTabSwitch: boolean
+  /** Stable fingerprint of the data feeding widgets (dataset + active filters). Part of the
+   *  execution cache key, so widgets re-run when the filtered data actually changes. */
+  dataSignature: string
 }
 
 const DashboardDataContext = createContext<DashboardDataContextValue>({
@@ -15,6 +20,8 @@ const DashboardDataContext = createContext<DashboardDataContextValue>({
   rows: [],
   filteredRows: [],
   hasDataset: false,
+  reloadOnTabSwitch: false,
+  dataSignature: '',
 })
 
 export function useDashboardData() {
@@ -88,10 +95,12 @@ interface DashboardDataProviderProps {
   datasetFileId: string | null
   /** Filters to apply, keyed by column ID (not filter ID). */
   filters?: Record<string, FilterValue>
+  /** Propagated to widget renderers to control result caching across tab switches. */
+  reloadOnTabSwitch?: boolean
   children: React.ReactNode
 }
 
-export function DashboardDataProvider({ datasetFileId, filters, children }: DashboardDataProviderProps) {
+export function DashboardDataProvider({ datasetFileId, filters, reloadOnTabSwitch = false, children }: DashboardDataProviderProps) {
   const { files, getFileRows, loadFileData } = useDatasetStore()
   const [dataReady, setDataReady] = useState(false)
 
@@ -111,14 +120,24 @@ export function DashboardDataProvider({ datasetFileId, filters, children }: Dash
     [rows, filters]
   )
 
+  // Cheap fingerprint of the data feeding widgets: dataset, row count, and the active filter
+  // values. Used in the execution cache key so a filter change re-runs widgets, but switching
+  // tabs (same dataset + filters) does not.
+  const dataSignature = useMemo(
+    () => `${datasetFileId ?? ''}|${filteredRows.length}|${JSON.stringify(filters ?? {})}`,
+    [datasetFileId, filteredRows.length, filters]
+  )
+
   const value = useMemo(
     () => ({
       columns,
       rows,
       filteredRows,
       hasDataset: !!datasetFileId,
+      reloadOnTabSwitch,
+      dataSignature,
     }),
-    [columns, rows, filteredRows, datasetFileId]
+    [columns, rows, filteredRows, datasetFileId, reloadOnTabSwitch, dataSignature]
   )
 
   return (

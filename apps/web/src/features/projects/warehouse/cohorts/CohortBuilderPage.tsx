@@ -1,6 +1,6 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router'
+import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -8,7 +8,6 @@ import * as engine from '@/lib/duckdb/engine'
 import {
   Play,
   Loader2,
-  ArrowLeft,
   Code2,
   List,
   Upload,
@@ -48,8 +47,7 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
 
 export function CohortBuilderPage() {
   const { t } = useTranslation()
-  const { uid, wsUid, cohortId } = useParams()
-  const navigate = useNavigate()
+  const { uid, cohortId } = useParams()
   const { cohorts, updateCohort, setCustomSql, executeCohort, executionResults, executionLoading } =
     useCohortStore()
   const { getActiveSource } = useDataSourceStore()
@@ -89,9 +87,6 @@ export function CohortBuilderPage() {
     }).catch(() => {})
   }, [activeSource, mapping?.visitTable])
 
-  const handleBack = () => {
-    navigate(`/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`)
-  }
 
   const handleUpdateTree = useCallback(
     (tree: CriteriaGroupNode) => {
@@ -182,13 +177,6 @@ export function CohortBuilderPage() {
     <div className="flex h-full flex-col">
       {/* Toolbar */}
       <div className="flex items-center gap-2 border-b px-3 py-1.5 shrink-0">
-        <Button variant="ghost" size="icon-sm" onClick={handleBack}>
-          <ArrowLeft size={16} />
-        </Button>
-
-        {/* Name (read-only) */}
-        <span className="text-sm font-semibold truncate">{cohort.name}</span>
-
         {/* Level selector */}
         <Select value={cohort.level} onValueChange={(v) => handleLevelChange(v as CohortLevel)}>
           <SelectTrigger className="h-7 w-40 text-xs">

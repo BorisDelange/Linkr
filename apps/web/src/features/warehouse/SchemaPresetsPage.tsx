@@ -1059,9 +1059,6 @@ function SchemaDetailView({
       {/* Header */}
       <div className="flex items-center justify-between border-b px-6 py-3 shrink-0">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon-sm" onClick={onBack}>
-            <ArrowLeft size={16} />
-          </Button>
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10">
             <Database size={14} className="text-primary" />
           </div>

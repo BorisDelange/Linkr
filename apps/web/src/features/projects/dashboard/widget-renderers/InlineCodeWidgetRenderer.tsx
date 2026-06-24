@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { useDashboardData } from '../DashboardDataProvider'
+import { useWidgetExecution } from './use-widget-execution'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 
 interface InlineCodeWidgetRendererProps {
@@ -18,39 +18,30 @@ export function InlineCodeWidgetRenderer({ widget }: InlineCodeWidgetRendererPro
 
 function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
   const { t } = useTranslation()
-  const { filteredRows, columns } = useDashboardData()
-  const [result, setResult] = useState<RuntimeOutput | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [runCount, setRunCount] = useState(0)
+  const { filteredRows, columns, reloadOnTabSwitch, dataSignature } = useDashboardData()
 
   const source = widget.source as { type: 'inline'; language: string; code: string; config: Record<string, unknown> }
 
-  const execute = useCallback(async () => {
+  const run = async (): Promise<RuntimeOutput> => {
     if (!source.code.trim()) {
-      setResult({ stdout: 'No code to execute', stderr: '', figures: [], table: null, html: null })
-      return
+      return { stdout: 'No code to execute', stderr: '', figures: [], table: null, html: null }
     }
-
-    if (columns.length === 0) return
-
-    setLoading(true)
-    setResult(null)
-
     try {
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
       const exec = source.language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
-      const output = await exec(source.code, filteredRows, columns)
-      setResult(output)
+      return await exec(source.code, filteredRows, columns)
     } catch (err) {
-      setResult({ stdout: '', stderr: String(err), figures: [], table: null, html: null })
-    } finally {
-      setLoading(false)
+      return { stdout: '', stderr: String(err), figures: [], table: null, html: null }
     }
-  }, [filteredRows, columns, source.code, source.language])
+  }
 
-  useEffect(() => {
-    execute()
-  }, [execute, runCount])
+  const { result, loading, rerun } = useWidgetExecution({
+    widgetId: widget.id,
+    signature: `${source.language}|${source.code}|${dataSignature}`,
+    ready: columns.length > 0,
+    alwaysReload: reloadOnTabSwitch,
+    run,
+  })
 
   // No dataset configured
   if (columns.length === 0) {
@@ -67,7 +58,7 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
       <PluginOutputRenderer
         result={result}
         isExecuting={loading}
-        onRerun={() => setRunCount(c => c + 1)}
+        onRerun={rerun}
         compact
       />
     </div>

@@ -56,6 +56,7 @@ export function DashboardSettingsDialog({
   const [showWidgetTitles, setShowWidgetTitles] = useState(dashboard.showWidgetTitles ?? true)
   const [defaultDatasetFileId, setDefaultDatasetFileId] = useState<string | null>(dashboard.defaultDatasetFileId ?? null)
   const [widgetSpacing, setWidgetSpacing] = useState<number>(dashboard.widgetSpacing ?? 12)
+  const [reloadWidgetsOnTabSwitch, setReloadWidgetsOnTabSwitch] = useState(dashboard.reloadWidgetsOnTabSwitch ?? false)
 
   // Bulk-assign confirmation
   const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
@@ -86,14 +87,16 @@ export function DashboardSettingsDialog({
       setShowWidgetTitles(dashboard.showWidgetTitles ?? true)
       setDefaultDatasetFileId(dashboard.defaultDatasetFileId ?? null)
       setWidgetSpacing(dashboard.widgetSpacing ?? 12)
+      setReloadWidgetsOnTabSwitch(dashboard.reloadWidgetsOnTabSwitch ?? false)
     }
-  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing])
+  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing, dashboard.reloadWidgetsOnTabSwitch])
 
   const handleSave = () => {
     updateDashboard(dashboard.id, {
       showWidgetTitles,
       defaultDatasetFileId,
       widgetSpacing,
+      reloadWidgetsOnTabSwitch,
     })
     onOpenChange(false)
   }
@@ -119,11 +122,22 @@ export function DashboardSettingsDialog({
           <DialogDescription>{t('dashboard.settings_description')}</DialogDescription>
         </DialogHeader>
 
-        <Tabs defaultValue="style" className="py-2">
+        <Tabs defaultValue="general" className="py-2">
           <TabsList className="w-full">
+            <TabsTrigger value="general" className="flex-1">{t('dashboard.settings_tab_general', 'General')}</TabsTrigger>
             <TabsTrigger value="style" className="flex-1">{t('dashboard.settings_tab_style', 'Style')}</TabsTrigger>
             <TabsTrigger value="dataset" className="flex-1">{t('dashboard.settings_tab_dataset', 'Dataset')}</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="general" className="space-y-5 pt-3">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">{t('dashboard.reload_widgets_on_tab_switch')}</Label>
+              <p className="text-[11px] text-muted-foreground">{t('dashboard.reload_widgets_on_tab_switch_hint')}</p>
+            </div>
+            <Switch checked={reloadWidgetsOnTabSwitch} onCheckedChange={setReloadWidgetsOnTabSwitch} />
+          </div>
+          </TabsContent>
 
           <TabsContent value="style" className="space-y-5 pt-3">
           <div className="flex items-center justify-between">

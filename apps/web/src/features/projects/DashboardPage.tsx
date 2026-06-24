@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useParams, useNavigate } from 'react-router'
-import { Plus, LayoutGrid, Pencil, Lock, ArrowLeft, Filter, Settings2, Download } from 'lucide-react'
+import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -34,7 +34,6 @@ export function DashboardPage() {
     tabs,
     widgets,
     activeTabId,
-    activeSubTabId,
     loaded,
     loadProjectDashboards,
     setActiveDashboard,
@@ -59,13 +58,14 @@ export function DashboardPage() {
   const dashboardTabs = tabs
     .filter((tab) => tab.dashboardId === currentDashboardId)
     .sort((a, b) => a.displayOrder - b.displayOrder)
-  // The main bar selects a root tab; if that root is a container, the active sub-tab's
-  // widgets are what we actually render.
+  // The tab bar tracks a single active tab (any nesting level). It may be a container — a tab
+  // that has sub-tabs and therefore no widgets of its own; in that case we show a hint to pick
+  // a sub-tab rather than rendering an (empty) grid. Default to the first root tab as-is.
   const rootTabs = dashboardTabs.filter((tab) => !tab.parentTabId)
-  const currentRootId = activeTabId[currentDashboardId] ?? rootTabs[0]?.id
-  const childTabs = dashboardTabs.filter((tab) => tab.parentTabId === currentRootId)
-  const isContainer = childTabs.length > 0
-  const currentTabId = isContainer ? (activeSubTabId[currentRootId] ?? childTabs[0]?.id) : currentRootId
+  const currentTabId = activeTabId[currentDashboardId] ?? rootTabs[0]?.id
+  const activeTabIsContainer = currentTabId
+    ? dashboardTabs.some((tab) => tab.parentTabId === currentTabId)
+    : false
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
 
   // All widgets in this dashboard (across all tabs) — for filter sidebar dataset list
@@ -105,19 +105,9 @@ export function DashboardPage() {
       {/* Tab bar + actions */}
       <div className="border-b shrink-0">
       <div className="flex items-center px-3">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="mr-1"
-          onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards`)}
-          title={t('dashboard.back_to_list')}
-        >
-          <ArrowLeft size={14} />
-        </Button>
-
         <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} />
 
-        <div className="ml-auto flex items-center gap-1 py-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1 py-1 pl-4">
           <Button
             variant={editMode ? 'default' : 'ghost'}
             size="xs"
@@ -176,13 +166,6 @@ export function DashboardPage() {
           </Button>
         </div>
       </div>
-
-      {/* Sub-tab bar — shown when the active root tab is a container */}
-      {isContainer && (
-        <div className="px-3">
-          <DashboardTabBar dashboardId={currentDashboardId} editMode={editMode} parentTabId={currentRootId} />
-        </div>
-      )}
       </div>
 
       {/* Plugin drift banner — a plugin used here changed since some widgets were built. */}
@@ -205,7 +188,21 @@ export function DashboardPage() {
       {/* Main content + filter sidebar */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <ScrollArea className="flex-1 min-h-0 min-w-0">
-          {tabWidgets.length > 0 ? (
+          {activeTabIsContainer ? (
+            <div className="flex h-full min-h-[400px] items-center justify-center p-8">
+              <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+                  <Layers size={24} className="text-muted-foreground" />
+                </div>
+                <h3 className="mt-4 text-sm font-medium text-foreground">
+                  {t('dashboard.container_tab_title')}
+                </h3>
+                <p className="mt-1.5 max-w-xs text-center text-xs text-muted-foreground">
+                  {t('dashboard.container_tab_description')}
+                </p>
+              </div>
+            </div>
+          ) : tabWidgets.length > 0 ? (
             <WidgetGrid
               widgets={tabWidgets}
               editMode={editMode}
