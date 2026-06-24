@@ -54,10 +54,7 @@ if (typeof window === 'undefined') {
                         headers: newHeaders,
                     });
                 })
-                .catch((e) => {
-                    console.error(e);
-                    return fetch(request);
-                })
+                .catch((e) => { console.error(e); return fetch(request); })
         );
     });
 
