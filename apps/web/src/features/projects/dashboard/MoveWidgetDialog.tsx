@@ -28,10 +28,22 @@ export function MoveWidgetDialog({ open, onOpenChange, widgetName, currentTabId,
   const [search, setSearch] = useState('')
 
   const q = search.trim().toLowerCase()
-  const filtered = useMemo(
-    () => (q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows),
-    [rows, q],
-  )
+  const filtered = useMemo(() => {
+    if (!q) return rows
+    // Keep matching rows AND their ancestor tabs, so a match still shows where it sits in the
+    // hierarchy. Rows are pre-ordered parent-before-children, so each row's ancestors are the
+    // nearest preceding rows of strictly decreasing depth.
+    const keep = new Set<number>()
+    rows.forEach((r, i) => {
+      if (!r.name.toLowerCase().includes(q)) return
+      keep.add(i)
+      let needDepth = r.depth - 1
+      for (let j = i - 1; j >= 0 && needDepth >= 0; j--) {
+        if (rows[j].depth === needDepth) { keep.add(j); needDepth-- }
+      }
+    })
+    return rows.filter((_, i) => keep.has(i))
+  }, [rows, q])
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) setSearch(''); onOpenChange(o) }}>

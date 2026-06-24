@@ -47,7 +47,12 @@ export function buildDashboardTree(
   }
 
   const rows: DashboardTreeRow[] = []
+  // `seen` guards against a corrupted parent cycle (which a normal UI can't create) turning this
+  // recursion into a stack overflow that would freeze the app.
+  const seen = new Set<string>()
   const walk = (tab: DashboardTab, depth: number) => {
+    if (seen.has(tab.id)) return
+    seen.add(tab.id)
     const kids = childrenByParent.get(tab.id) ?? []
     const isContainer = kids.length > 0
     rows.push({ kind: 'tab', id: tab.id, name: tab.name, depth, isContainer })

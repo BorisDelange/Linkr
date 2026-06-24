@@ -293,12 +293,13 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
 
   return (
     <>
-      <div className="flex min-w-0 flex-1 items-center gap-1">
-        {/* Breadcrumb shown once we're below the root level: an "up one level" arrow, a Home
-            crumb back to the dashboard's root tabs, each clickable ancestor, then the immediate
-            parent shown inert (for orientation — it names the level you're currently inside). */}
+      <div className="flex min-w-0 flex-1 items-stretch gap-1">
+        {/* Breadcrumb shown once we're below the root level: a Home crumb back to the dashboard's
+            root tabs, each clickable ancestor, then the immediate parent shown inert (for
+            orientation — it names the level you're currently inside). The border-b-2 mirrors the
+            tabs' bottom border so the breadcrumb text lines up with the tab labels. */}
         {parentOfLevel && (
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-0.5 border-b-2 border-transparent">
             <button
               onClick={() => path[0] && setActiveTab(dashboardId, path[0].id)}
               className="flex items-center rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"

@@ -4,6 +4,7 @@ import { getStorage } from '@/lib/storage'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
 import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
+import { invalidateWidgetResult } from '@/features/projects/dashboard/widget-renderers/use-widget-execution'
 
 interface DashboardState {
   // Loaded data for current project
@@ -142,17 +143,25 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       }
 
       // Grid migration 1→2 (24→48 cols, row height halved): double each widget's position and
-      // size once so legacy dashboards keep their visual layout. Stamp gridV=2 to run it once.
+      // size once so legacy dashboards keep their visual layout. Stamp gridV=2 FIRST and await it,
+      // so a crash mid-migration can't re-run (and re-double) the layouts on the next load. The
+      // worst case if widget updates then fail is widgets rendered half-size, not runaway doubling.
       for (const dash of dashboards) {
         if ((dash.gridV ?? 1) >= 2) continue
+        dash.gridV = 2
+        try {
+          await storage.dashboards.update(dash.id, { gridV: 2 })
+        } catch (e) {
+          console.warn('[dashboard-store] grid migrate (skipped, will retry next load):', e)
+          dash.gridV = 1
+          continue
+        }
         const tabIds = new Set(allTabs.filter((t) => t.dashboardId === dash.id).map((t) => t.id))
         for (const w of allWidgets) {
           if (!tabIds.has(w.tabId)) continue
           w.layout = { x: w.layout.x * 2, y: w.layout.y * 2, w: w.layout.w * 2, h: w.layout.h * 2 }
           storage.dashboardWidgets.update(w.id, { layout: w.layout }).catch((e) => console.warn('[dashboard-store] grid migrate:', e))
         }
-        dash.gridV = 2
-        storage.dashboards.update(dash.id, { gridV: 2 }).catch((e) => console.warn('[dashboard-store] grid migrate:', e))
       }
 
       set({
@@ -199,6 +208,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       dashboardId: id,
       name: 'Tab 1',
       displayOrder: 0,
+      parentTabId: null,
     }
 
     set((s) => ({
@@ -347,7 +357,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
           ?? remainingTabs
             .filter((t) => t.dashboardId === tab.dashboardId && !t.parentTabId)
             .sort((a, b) => a.displayOrder - b.displayOrder)[0]
-        activeTabId = { ...s.activeTabId, [tab.dashboardId]: sibling ? firstLeafTab(remainingTabs, sibling.id) : undefined as unknown as string }
+        // A root tab always remains (we never delete the last one), so `sibling` is defined; only
+        // drop the entry if somehow none is left rather than storing an undefined id.
+        if (sibling) {
+          activeTabId = { ...s.activeTabId, [tab.dashboardId]: firstLeafTab(remainingTabs, sibling.id) }
+        } else {
+          const { [tab.dashboardId]: _removed, ...rest } = s.activeTabId
+          activeTabId = rest
+        }
       }
 
       return {
@@ -396,8 +413,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   addWidget: (tabId, source, name, datasetFileId) => {
     const id = uid()
     const stamped = stampPluginVersion(source)
-    // Free placement has no auto-compaction, so place the new widget just below the lowest one
-    // in the tab (always free space) rather than relying on y:Infinity + compaction.
+    // Place the new widget just below the lowest one in the tab.
     const bottom = get().widgets
       .filter((w) => w.tabId === tabId)
       .reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
@@ -410,6 +426,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
   removeWidget: (widgetId) => {
     set((s) => ({ widgets: s.widgets.filter((w) => w.id !== widgetId) }))
+    invalidateWidgetResult(widgetId) // drop the cached execution result so it doesn't linger
     getStorage().dashboardWidgets.delete(widgetId).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
@@ -487,15 +504,36 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
 
       // Scale heights so the gap-free stack fits maxRows, then re-stack each column sequentially.
       // Stacking (rather than scaling y independently) means rounding can never cause an overlap.
+      // floor (not round) so the stack can only shrink — never rounds up past maxRows, which keeps
+      // the post-resize re-fit from oscillating.
       const factor = compactedRows > maxRows ? maxRows / compactedRows : 1
       const bottomByCol = new Map<number, number>()
+      // Track, per column, the id of its lowest widget so we can grow it to fill the slack that
+      // flooring leaves (otherwise the grid stops ~one row short of the bottom).
+      const lastInCol = new Map<number, string>()
       for (const wd of tabWidgets) {
         const { x, w } = wd.layout
-        const h = Math.max(2, Math.round(wd.layout.h * factor))
         let y = 0
         for (let col = x; col < x + w; col++) y = Math.max(y, bottomByCol.get(col) ?? 0)
-        for (let col = x; col < x + w; col++) bottomByCol.set(col, y + h)
-        newLayouts.set(wd.id, { x, y, w, h })
+        const scaled = factor < 1 ? Math.floor(wd.layout.h * factor) : wd.layout.h
+        const h = Math.max(2, Math.min(scaled, maxRows - y))
+        for (let col = x; col < x + w; col++) { bottomByCol.set(col, y + h); lastInCol.set(col, wd.id) }
+        newLayouts.set(wd.id, { x, y, w, h: Math.max(2, h) })
+      }
+      // Fill the leftover rows: grow each column's bottom widget down to maxRows. A widget spanning
+      // several columns only grows if it's the bottom-most in all of them (else it would overlap).
+      for (const [col, bottom] of bottomByCol) {
+        const slack = maxRows - bottom
+        if (slack <= 0) continue
+        const id = lastInCol.get(col)
+        const lay = id ? newLayouts.get(id) : undefined
+        if (!lay) continue
+        const isBottomEverywhere = Array.from({ length: lay.w }, (_, i) => lay.x + i)
+          .every((c) => lastInCol.get(c) === id)
+        if (isBottomEverywhere) {
+          lay.h += slack
+          for (let c = lay.x; c < lay.x + lay.w; c++) bottomByCol.set(c, lay.y + lay.h)
+        }
       }
     }
 

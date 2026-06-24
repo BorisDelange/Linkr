@@ -213,7 +213,7 @@ function WidgetWithData({
 
 export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
-  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget } = useDashboardStore()
+  const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget, fitDashboardToHeight } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
   const [availableHeight, setAvailableHeight] = useState(0)
@@ -293,8 +293,16 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           })
         }
       }
+      // In fit-to-height, a resize can push other widgets past the visible rows (maxRows only
+      // caps the dragged item, not items shoved by compaction). If the layout now overflows,
+      // rescale to fit. This converges: once it fits, factor=1 and nothing changes → no loop.
+      const fitRows = fitToHeight && 'maxRows' in gridConfig ? (gridConfig as { maxRows: number }).maxRows : 0
+      if (fitRows > 0) {
+        const overflow = newLayout.some((item) => item.y + item.h > fitRows)
+        if (overflow) fitDashboardToHeight(dashboard.id, fitRows)
+      }
     },
-    [widgets, updateWidgetLayout]
+    [widgets, updateWidgetLayout, fitToHeight, gridConfig, fitDashboardToHeight, dashboard.id]
   )
 
   const tabParentById = useMemo(
@@ -437,7 +445,15 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           widgetName={movingWidget.name}
           currentTabId={movingWidget.tabId}
           rows={moveTree}
-          onMove={(tabId) => moveWidget(movingWidget.id, tabId)}
+          onMove={(tabId) => {
+            moveWidget(movingWidget.id, tabId)
+            // In fit-to-height, rescale the target tab so the moved widget fits (like adding one).
+            if (fitToHeight) {
+              const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
+              const fit = computeFitRows(containerWidth, availableHeight, gap)
+              if (fit) fitDashboardToHeight(dashboard.id, fit.rows)
+            }
+          }}
         />
       )}
     </div>

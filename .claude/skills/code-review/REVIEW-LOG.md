@@ -29,6 +29,27 @@ Notes / follow-ups:
 
 ---
 
+## 2026-06-24 — Dashboard rewrite (nested tabs, grid fit-to-height, filters, export/move trees, fullscreen)
+
+- Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual verification pass)
+- Range: 04ece659..15cb5037 (10 commits — Lou's MR squash + tab navigation, 48-col grid, fit-to-height, filter UX, export/move tree views, fullscreen, perf cache, review fixes)
+- Last reviewed commit: 15cb503791200389620c05b643219055ecaa496a
+- Verdict: **Ship it** (after fixes) — merging to main
+- Tests: 70 passed (8 added: dashboard-tree, dashboard-grid) · Lint: 0 errors (136 pre-existing warnings) · Typecheck: 0 errors introduced
+
+Findings (verified in code; false positives discarded):
+- 🟠 FIXED — dashboard-store.ts loadProjectDashboards — grid migration gridV 1→2 was not idempotent (crash between widget doubling and gridV stamp could re-double on next load) → now stamps+awaits gridV=2 before doubling; on failure reverts and retries next load.
+- 🟠 FIXED — use-widget-execution.ts / dashboard-store.ts removeWidget — module-level result cache never invalidated on widget delete (memory leak) → removeWidget now calls invalidateWidgetResult.
+- 🟡 FIXED — dashboard-store.ts removeTab — `undefined as unknown as string` cast → replaced with a real branch (drop the key vs store undefined).
+- 🟡 FIXED — dashboard-tree.ts buildDashboardTree — recursion had no cycle guard (corrupted parent loop → stack overflow) → added a `seen` set.
+- 🟡 FIXED — dashboard-store.ts createDashboard — default tab now sets parentTabId: null explicitly (export/import consistency).
+- ✅ DISCARDED (false positives) — fitDashboardToHeight multi-column scaling (shared bottomByCol is correct); parentTabId mapping on import (works).
+- 🟡 NOT BLOCKING — DashboardFilterSidebar.tsx is ~1435 lines (dense but well-commented; future extraction candidate). Orphan i18n key `dashboard.filter_active` left in locales (harmless).
+
+Notes / follow-ups:
+- i18n: 30+ new keys, all present in both en.json and fr.json (verified).
+- New pure logic covered by tests: buildDashboardTree (hierarchy + cycle guard), computeFitRows (fits visible height, ~square cells).
+
 ## 2026-06-24 — ESLint & TypeScript backlog clearance + merge to main
 
 - Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual security pass)
