@@ -64,9 +64,11 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     addWidget(tId, source, name, dsId)
     const dashboardId = tabs.find((tb) => tb.id === tId)?.dashboardId
     const dash = dashboards.find((d) => d.id === dashboardId)
+    // Fit-to-height: only trim if the new widget pushes the stack past the bottom — never
+    // re-stretch the existing widgets to fill the height.
     if (dash && dash.fitToHeight !== false) {
       const rows = measureFitRows()
-      if (rows) fitDashboardToHeight(dash.id, rows)
+      if (rows) fitDashboardToHeight(dash.id, rows, 'shrink-only')
     }
   }
   const { files: datasetFiles, getFileRows } = useDatasetStore()

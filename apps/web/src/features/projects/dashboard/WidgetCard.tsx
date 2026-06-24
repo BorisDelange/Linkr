@@ -214,9 +214,10 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           )}
         </div>
       )}
-      {/* Floating drift warning when the title bar is hidden — surfaced regardless of edit mode. */}
+      {/* Floating drift warning when the title bar is hidden — surfaced regardless of edit mode.
+          z-30 to stay above a widget's own sticky table header (see the menu button below). */}
       {!showTitleBar && stale && (
-        <div className="absolute top-1 left-1 z-10">
+        <div className="absolute top-1 left-1 z-30">
           <TooltipProvider delayDuration={300}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -229,9 +230,10 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           </TooltipProvider>
         </div>
       )}
-      {/* Floating menu button when title bar is hidden — full menu in edit mode, view actions on hover otherwise */}
+      {/* Floating menu button when title bar is hidden — full menu in edit mode, view actions on hover otherwise.
+          z-30 keeps it above a widget's own sticky table header (thead is z-10, sticky cells z-20). */}
       {!showTitleBar && (editMode || hasViewActions) && (
-        <div className="absolute top-1 right-1 z-10">
+        <div className="absolute top-1 right-1 z-30">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button

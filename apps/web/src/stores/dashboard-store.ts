@@ -58,7 +58,7 @@ interface DashboardState {
   /** Remove vertical gaps (compact upward) for every tab of a dashboard, then scale each tab's
    *  widgets down so they fit within maxRows. Called once when a dashboard is switched into
    *  "fit to height" so existing layouts fit the visible area without scrolling. */
-  fitDashboardToHeight: (dashboardId: string, maxRows: number) => void
+  fitDashboardToHeight: (dashboardId: string, maxRows: number, mode?: 'fill' | 'shrink-only') => void
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
   updateWidgetName: (widgetId: string, name: string) => void
   updateWidgetDataset: (widgetId: string, datasetFileId: string | null) => void
@@ -477,7 +477,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     getStorage().dashboardWidgets.update(widgetId, { layout }).catch((e) => console.warn('[dashboard-store] persist error:', e))
   },
 
-  fitDashboardToHeight: (dashboardId, maxRows) => {
+  fitDashboardToHeight: (dashboardId, maxRows, mode = 'shrink-only') => {
     if (maxRows < 1) return
     const state = get()
     const tabIds = new Set(state.tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
@@ -489,7 +489,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         .filter((w) => w.tabId === tabId)
         .sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
       if (tabWidgets.length === 0) continue
-      const fitted = fitTabLayouts(tabWidgets, maxRows)
+      const fitted = fitTabLayouts(tabWidgets, maxRows, mode)
       for (const [id, layout] of fitted) {
         // Only record real changes — this makes the function a no-op once a tab already fits, so a
         // post-resize re-fit (which calls this unconditionally) can't loop.

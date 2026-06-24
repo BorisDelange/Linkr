@@ -16,7 +16,7 @@ import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
-import { DASHBOARD_GRID, computeFitRows, colWidthFor } from './dashboard-grid'
+import { DASHBOARD_GRID, computeFitRows, colWidthFor, FIT_ROWS } from './dashboard-grid'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -261,18 +261,29 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
   const fitMaxRows = fitRows?.rows ?? 0
 
   const gridConfig = useMemo(() => {
+    // Row height = visibleHeight / FIT_ROWS in BOTH modes, so a cell is the same size whether
+    // fit-to-height is on or off (toggling it never resizes the cells). The only difference: with
+    // fit on, layouts are kept within FIT_ROWS so everything is visible; with it off, a tall stack
+    // is free to exceed FIT_ROWS and the grid scrolls. Falls back to the static row height before
+    // the viewport is measured.
+    const rowHeight = availableHeight > 0 ? availableHeight / FIT_ROWS : DASHBOARD_GRID.rowHeight
     const base = {
       ...DASHBOARD_GRID,
+      rowHeight,
       margin: [0, 0] as [number, number],
       containerPadding: [0, 0] as [number, number],
     }
     return fitRows ? { ...base, rowHeight: fitRows.rowHeight } : base
-  }, [fitRows])
+  }, [fitRows, availableHeight])
 
-  // Re-fit when the visible row count changes (entering/leaving fullscreen, window resize) so the
-  // tab fills the new height. Keyed on the row count only, so the rescale's own writes don't loop.
+  // When the visible row count changes (mount, reload, entering/leaving fullscreen, window resize)
+  // we keep the widgets' vertical PROPORTIONS: their heights in rows stay as the user set them, and
+  // since rowHeight (px) is recomputed for the new height, the same rows fill the new viewport
+  // proportionally. So this is always shrink-only — it never re-stretches widgets to fill leftover
+  // space (that would undo half-height layouts on reload/fullscreen); it only trims a real overflow.
+  // Explicit actions still fill: turning the mode on (settings) and adding a widget.
   useEffect(() => {
-    if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows)
+    if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows, 'shrink-only')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitMaxRows, dashboard.id])
 
@@ -309,10 +320,10 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           })
         }
       }
-      // In fit-to-height, re-fit after a drag/resize so the stack lands on the visible rows: a
-      // resize can leave it too tall or one row short. fitDashboardToHeight is a no-op once the tab
-      // already fits (it records no changes), so this doesn't loop.
-      if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows)
+      // In fit-to-height, re-fit after a drag/resize — but shrink-only: only trim widgets when the
+      // change pushes the stack past the bottom. Widening or moving a widget that still fits must
+      // not reflow or re-stretch the others. (A no-op once the tab fits, so this never loops.)
+      if (fitMaxRows > 0) fitDashboardToHeight(dashboard.id, fitMaxRows, 'shrink-only')
     },
     [widgets, updateWidgetLayout, fitMaxRows, fitDashboardToHeight, dashboard.id]
   )
@@ -470,10 +481,11 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           rows={moveTree}
           onMove={(tabId) => {
             moveWidget(movingWidget.id, tabId)
-            // In fit-to-height, rescale the target tab so the moved widget fits (like adding one).
+            // In fit-to-height, only trim the target tab if the moved widget makes it overflow —
+            // never re-stretch its existing widgets.
             if (fitToHeight) {
               const fit = computeFitRows(containerWidth, availableHeight)
-              if (fit) fitDashboardToHeight(dashboard.id, fit.rows)
+              if (fit) fitDashboardToHeight(dashboard.id, fit.rows, 'shrink-only')
             }
           }}
         />

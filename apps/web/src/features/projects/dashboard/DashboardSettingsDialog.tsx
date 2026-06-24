@@ -103,12 +103,13 @@ export function DashboardSettingsDialog({
       reloadWidgetsOnTabSwitch,
       fitToHeight,
     })
-    // Turning "fit to height" on: compact + scale existing layouts once so they fit the visible
-    // area. Measure the live dashboard grid viewport (behind this dialog) for the row count.
+    // Turning "fit to height" on: only trim layouts that overflow the visible area — keep the
+    // widgets' heights otherwise (no re-stretching to fill). Measure the live grid viewport (behind
+    // this dialog) for the row count.
     const turnedOn = fitToHeight && dashboard.fitToHeight === false
     if (turnedOn) {
       const rows = measureFitRows()
-      if (rows) fitDashboardToHeight(dashboard.id, rows)
+      if (rows) fitDashboardToHeight(dashboard.id, rows, 'shrink-only')
     }
     onOpenChange(false)
   }
