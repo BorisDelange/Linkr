@@ -34,6 +34,7 @@ import {
 import type { Dashboard } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { measureFitRows } from './dashboard-grid'
 
 interface DashboardSettingsDialogProps {
   open: boolean
@@ -51,7 +52,7 @@ export function DashboardSettingsDialog({
   currentTabId,
 }: DashboardSettingsDialogProps) {
   const { t } = useTranslation()
-  const { updateDashboard, widgets, tabs, updateWidgetDataset } = useDashboardStore()
+  const { updateDashboard, widgets, tabs, updateWidgetDataset, fitDashboardToHeight } = useDashboardStore()
   const { files: datasetFiles } = useDatasetStore()
 
   const [showWidgetTitles, setShowWidgetTitles] = useState(dashboard.showWidgetTitles ?? true)
@@ -102,6 +103,13 @@ export function DashboardSettingsDialog({
       reloadWidgetsOnTabSwitch,
       fitToHeight,
     })
+    // Turning "fit to height" on: compact + scale existing layouts once so they fit the visible
+    // area. Measure the live dashboard grid viewport (behind this dialog) for the row count.
+    const turnedOn = fitToHeight && dashboard.fitToHeight === false
+    if (turnedOn) {
+      const rows = measureFitRows(widgetSpacing)
+      if (rows) fitDashboardToHeight(dashboard.id, rows)
+    }
     onOpenChange(false)
   }
 

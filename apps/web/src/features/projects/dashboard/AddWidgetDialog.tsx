@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { measureFitRows } from './dashboard-grid'
 import { getLabPlugins } from '@/lib/plugins/registry'
 import { getComponent } from '@/lib/plugins/component-registry'
 import type { Plugin } from '@/types/plugin'
@@ -55,7 +56,19 @@ interface AddWidgetDialogProps {
 
 export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, defaultDatasetFileId }: AddWidgetDialogProps) {
   const { t, i18n } = useTranslation()
-  const { addWidget, widgets } = useDashboardStore()
+  const { addWidget, widgets, tabs, dashboards, fitDashboardToHeight } = useDashboardStore()
+
+  // Add a widget, then — if its dashboard is in "fit to height" — rescale the tab so the new
+  // widget fits the visible grid (existing widgets shrink to make room) instead of overflowing.
+  const addWidgetFitting: typeof addWidget = (tId, source, name, dsId) => {
+    addWidget(tId, source, name, dsId)
+    const dashboardId = tabs.find((tb) => tb.id === tId)?.dashboardId
+    const dash = dashboards.find((d) => d.id === dashboardId)
+    if (dash && dash.fitToHeight !== false) {
+      const rows = measureFitRows(dash.widgetSpacing ?? 12)
+      if (rows) fitDashboardToHeight(dash.id, rows)
+    }
+  }
   const { files: datasetFiles, getFileRows } = useDatasetStore()
 
   // Existing widget names in this tab (for uniqueness check)
@@ -171,7 +184,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
         language: defaultLang,
         config: {},
       }
-      addWidget(tabId, source, defaultName, datasetFileId)
+      addWidgetFitting(tabId, source, defaultName, datasetFileId)
       resetAndClose()
     }
   }
@@ -193,7 +206,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
       language: pluginLanguage,
       config: { ...pluginConfig },
     }
-    addWidget(tabId, source, widgetName.trim() || fallbackName, datasetFileId)
+    addWidgetFitting(tabId, source, widgetName.trim() || fallbackName, datasetFileId)
     resetAndClose()
   }
 
@@ -205,7 +218,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
       config: {},
     }
     const name = widgetName.trim() || makeUniqueName(`Custom ${language}`)
-    addWidget(tabId, source, name, datasetFileId)
+    addWidgetFitting(tabId, source, name, datasetFileId)
     resetAndClose()
   }
 

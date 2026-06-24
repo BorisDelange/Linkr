@@ -53,6 +53,10 @@ interface DashboardState {
   /** Clone a widget (config + dataset) into the same or another tab. */
   duplicateWidget: (widgetId: string, targetTabId?: string) => void
   updateWidgetLayout: (widgetId: string, layout: { x: number; y: number; w: number; h: number }) => void
+  /** Remove vertical gaps (compact upward) for every tab of a dashboard, then scale each tab's
+   *  widgets down so they fit within maxRows. Called once when a dashboard is switched into
+   *  "fit to height" so existing layouts fit the visible area without scrolling. */
+  fitDashboardToHeight: (dashboardId: string, maxRows: number) => void
   updateWidgetSource: (widgetId: string, source: DashboardWidgetSource) => void
   updateWidgetName: (widgetId: string, name: string) => void
   updateWidgetDataset: (widgetId: string, datasetFileId: string | null) => void
@@ -392,7 +396,12 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
   addWidget: (tabId, source, name, datasetFileId) => {
     const id = uid()
     const stamped = stampPluginVersion(source)
-    const layout = { x: 0, y: Infinity, ...getDefaultLayout(stamped) }
+    // Free placement has no auto-compaction, so place the new widget just below the lowest one
+    // in the tab (always free space) rather than relying on y:Infinity + compaction.
+    const bottom = get().widgets
+      .filter((w) => w.tabId === tabId)
+      .reduce((max, w) => Math.max(max, w.layout.y + w.layout.h), 0)
+    const layout = { x: 0, y: bottom, ...getDefaultLayout(stamped) }
     const widget: DashboardWidget = { id, tabId, name, datasetFileId: datasetFileId ?? null, layout, source: stamped }
 
     set((s) => ({ widgets: [...s.widgets, widget] }))
@@ -448,6 +457,55 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       widgets: s.widgets.map((w) => (w.id === widgetId ? { ...w, layout } : w)),
     }))
     getStorage().dashboardWidgets.update(widgetId, { layout }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  fitDashboardToHeight: (dashboardId, maxRows) => {
+    if (maxRows < 1) return
+    const state = get()
+    const tabIds = new Set(state.tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
+    const newLayouts = new Map<string, { x: number; y: number; w: number; h: number }>()
+
+    for (const tabId of tabIds) {
+      const tabWidgets = state.widgets
+        .filter((w) => w.tabId === tabId)
+        .sort((a, b) => a.layout.y - b.layout.y || a.layout.x - b.layout.x)
+      if (tabWidgets.length === 0) continue
+
+      // The total height once gaps are removed (each widget keeps its own height for now).
+      const compactedRows = (() => {
+        const bottomByCol = new Map<number, number>()
+        let total = 0
+        for (const wd of tabWidgets) {
+          const { x, w, h } = wd.layout
+          let y = 0
+          for (let col = x; col < x + w; col++) y = Math.max(y, bottomByCol.get(col) ?? 0)
+          for (let col = x; col < x + w; col++) bottomByCol.set(col, y + h)
+          total = Math.max(total, y + h)
+        }
+        return total
+      })()
+
+      // Scale heights so the gap-free stack fits maxRows, then re-stack each column sequentially.
+      // Stacking (rather than scaling y independently) means rounding can never cause an overlap.
+      const factor = compactedRows > maxRows ? maxRows / compactedRows : 1
+      const bottomByCol = new Map<number, number>()
+      for (const wd of tabWidgets) {
+        const { x, w } = wd.layout
+        const h = Math.max(2, Math.round(wd.layout.h * factor))
+        let y = 0
+        for (let col = x; col < x + w; col++) y = Math.max(y, bottomByCol.get(col) ?? 0)
+        for (let col = x; col < x + w; col++) bottomByCol.set(col, y + h)
+        newLayouts.set(wd.id, { x, y, w, h })
+      }
+    }
+
+    if (newLayouts.size === 0) return
+    set((s) => ({
+      widgets: s.widgets.map((w) => (newLayouts.has(w.id) ? { ...w, layout: newLayouts.get(w.id)! } : w)),
+    }))
+    for (const [id, layout] of newLayouts) {
+      getStorage().dashboardWidgets.update(id, { layout }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    }
   },
 
   updateWidgetSource: (widgetId, source) => {

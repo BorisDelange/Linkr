@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useRef, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GridLayout, noCompactor, type LayoutItem } from 'react-grid-layout'
+import { GridLayout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
@@ -16,7 +16,7 @@ import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
-import { DASHBOARD_GRID } from './dashboard-grid'
+import { DASHBOARD_GRID, computeFitRows } from './dashboard-grid'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -254,17 +254,10 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       containerPadding: [gap, gap] as [number, number],
     }
     if (!fitToHeight || availableHeight === 0) return base
-    const { cols } = base
-    const colWidth = (containerWidth - gap * 2 - gap * (cols - 1)) / cols
-    if (colWidth <= 0) return base
-    // Account for top AND bottom padding: the rows live inside `innerH`, so R rows take
-    // R*rowHeight + (R-1)*gap = innerH. Pick R for ~square cells, then the exact row height so
-    // the last cell sits flush against the bottom padding (no clipped row). maxRows caps
-    // placement/resize so a widget can reach the bottom but never overflow into a scroll.
-    const innerH = availableHeight - gap * 2
-    const rows = Math.max(1, Math.floor((innerH + gap) / (colWidth + gap)))
-    const rowHeight = Math.max(4, Math.floor((innerH - gap * (rows - 1)) / rows))
-    return { ...base, rowHeight, maxRows: rows }
+    const fit = computeFitRows(containerWidth, availableHeight, gap)
+    if (!fit) return base
+    // maxRows caps placement/resize so a widget can reach the bottom but never overflow.
+    return { ...base, rowHeight: fit.rowHeight, maxRows: fit.rows }
   }, [dashboard.widgetSpacing, fitToHeight, containerWidth, availableHeight])
 
   const layout: LayoutItem[] = useMemo(
@@ -369,7 +362,6 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
           enabled: editMode,
         }}
         onLayoutChange={handleLayoutChange}
-        compactor={noCompactor}
         autoSize
       >
         {widgets.map((widget) => {

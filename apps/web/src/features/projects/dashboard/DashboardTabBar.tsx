@@ -16,7 +16,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, CornerLeftUp, Home } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardTab } from '@/types'
 import { useDashboardStore, getChildTabs, getTabPath } from '@/stores/dashboard-store'
@@ -299,13 +299,6 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
             parent shown inert (for orientation — it names the level you're currently inside). */}
         {parentOfLevel && (
           <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              onClick={() => setActiveTab(dashboardId, parentOfLevel)}
-              className="flex items-center rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={t('dashboard.tab_up_one_level')}
-            >
-              <CornerLeftUp size={13} />
-            </button>
             <button
               onClick={() => path[0] && setActiveTab(dashboardId, path[0].id)}
               className="flex items-center rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground"
