@@ -4,7 +4,7 @@ import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
-import { getSchemaPreset, BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { getSchemaPreset } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import type {
   DataSource,

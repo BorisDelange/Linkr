@@ -145,11 +145,12 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
     let cancelled = false
 
     async function loadCounts() {
+      if (!wsUid) return
       setCountsLoading(true)
       const storage = getStorage()
       const [
         projects, wikiPages, plugins, schemas,
-        dataSources, mappingProjects, conceptSets,
+        dataSources, mappingProjects, _conceptSets,
         sqlCollections, etlPipelines, dqRuleSets,
         catalogs, serviceMappings,
       ] = await Promise.all([

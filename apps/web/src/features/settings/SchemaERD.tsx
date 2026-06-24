@@ -200,7 +200,7 @@ function buildERDGraph(mapping: SchemaMapping): { nodes: Node<ERDNodeData>[]; ed
     const startX = centerX(conceptCount)
     mapping.conceptTables.forEach((dict: ConceptDictionary, i: number) => {
       const columns: ColumnDef[] = [
-        { name: dict.idColumn, role: 'pk', handleId: 'pk', handleType: 'target' },
+        { name: dict.idColumn ?? '', role: 'pk', handleId: 'pk', handleType: 'target' },
         { name: dict.nameColumn },
       ]
       if (dict.codeColumn) columns.push({ name: dict.codeColumn })

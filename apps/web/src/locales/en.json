@@ -2944,7 +2944,7 @@
     "suggestions_manage": "Manage suggestions",
     "suggestions_manage_subtitle": "Adjust each method's weight in the combined score.",
     "suggestions_weights_section": "Method weighting",
-    "suggestions_scores_loaded_from": "{{count}} scores loaded from",
+    "suggestions_scores_loaded_from": "{{formattedCount}} scores loaded from",
     "suggestions_no_scores_loaded": "No scores file loaded",
     "suggestions_default_filename": "similarity-scores.parquet",
     "suggestions_import_file": "Import a file…",

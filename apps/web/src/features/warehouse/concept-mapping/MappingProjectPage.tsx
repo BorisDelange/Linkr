@@ -31,7 +31,9 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   // The other tabs stay lazy — their store subscriptions are too heavy to leave
   // running in the background.
   const editorEverOpened = useRef(false)
-  if (activeTab === 'editor') editorEverOpened.current = true
+  useEffect(() => {
+    if (activeTab === 'editor') editorEverOpened.current = true
+  }, [activeTab])
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
@@ -149,6 +151,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           {activeTab === 'concept-sets' && <ConceptSetsTab project={project} dataSource={dataSource} />}
         </TabsContent>
         <TabsContent value="editor" forceMount className={`flex-1 overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
+          {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the editor mounted without going stale */}
           {(activeTab === 'editor' || editorEverOpened.current) && (
             <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
           )}

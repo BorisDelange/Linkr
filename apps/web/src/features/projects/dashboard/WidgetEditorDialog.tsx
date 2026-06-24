@@ -30,7 +30,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
 import { widgetPixelSize } from './dashboard-grid'
-import type { DashboardWidget, DashboardWidgetSource } from '@/types'
+import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
 import type * as Monaco from 'monaco-editor'
@@ -117,7 +117,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
 
   // Debounced config for live preview — avoids re-rendering on every keystroke
   const [debouncedConfig, setDebouncedConfig] = useState(config)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     debounceRef.current = setTimeout(() => setDebouncedConfig(config), 300)
     return () => clearTimeout(debounceRef.current)
@@ -134,7 +134,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
   }, [widget.id, widget.datasetFileId])
 
   // Generate code from template
-  const generatedCode = useGeneratedCode(plugin, config, columns, language)
+  const generatedCode = useGeneratedCode(plugin ?? undefined, config, columns, language)
   const currentCode = isInline
     ? ((source as { code: string }).code ?? '')
     : (isCodeCustomized && userCode ? userCode : generatedCode)
@@ -488,6 +488,7 @@ function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof g
       className={cn('gap-1 py-0 text-[11px]', color ? getBadgeClasses(color) : undefined)}
       style={color ? getBadgeStyle(color) : undefined}
     >
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       <Icon size={10} />
       {name}
     </Badge>
@@ -501,7 +502,7 @@ function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof g
 function useGeneratedCode(
   plugin: ReturnType<typeof getPlugin>,
   config: Record<string, unknown>,
-  columns: { id: string; name: string; type: string }[],
+  columns: DatasetColumn[],
   language: 'python' | 'r',
 ): string {
   const [code, setCode] = useState('')
@@ -543,7 +544,7 @@ function ComponentPluginOutput({
 }: {
   componentId: string
   config: Record<string, unknown>
-  columns: { id: string; name: string; type: string }[]
+  columns: DatasetColumn[]
   rows: Record<string, unknown>[]
 }) {
   const Component = getComponent(componentId)
@@ -559,6 +560,7 @@ function ComponentPluginOutput({
   // `compact` matches how the widget renders on the dashboard (full-bleed, no extra chrome).
   return (
     <div className="h-full overflow-hidden">
+      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       <Component config={config} columns={columns} rows={rows} compact />
     </div>
   )

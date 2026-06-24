@@ -78,7 +78,7 @@ async function persistRLibrary(webR: WebR): Promise<void> {
     await idbPutTar(data)
     await webR.evalRVoid(`unlink('${tarPath}')`)
   } catch (e) {
-    // eslint-disable-next-line no-console
+
     console.warn('[webR] failed to persist R library:', e)
   }
 }
@@ -131,7 +131,7 @@ export async function getWebR(): Promise<WebR> {
       try {
         await restoreRLibrary(webR)
       } catch (e) {
-        // eslint-disable-next-line no-console
+
         console.warn('[webR] failed to restore R library:', e)
       }
       await webR.evalRVoid(`.libPaths(c('${PERSIST_LIB}', .libPaths()))`)

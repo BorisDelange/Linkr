@@ -1,9 +1,7 @@
-import { useTranslation } from 'react-i18next'
 import { PluginsTab } from './PluginsTab'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 
 export function PluginsPage() {
-  const { t } = useTranslation()
   const editingPluginId = usePluginEditorStore((s) => s.editingPluginId)
 
   // When editing a plugin, PluginsTab renders the full-screen editor — skip the page header

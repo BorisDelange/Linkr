@@ -22,7 +22,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Play,
-  PlayCircle,
   ChevronDown,
   Plus,
   FileDown,
@@ -134,7 +133,7 @@ export function FilesPage() {
   const dataSourcesLoaded = useDataSourceStore((s) => s.dataSourcesLoaded)
   const loadCohorts = useCohortStore((s) => s.loadCohorts)
   const loadPipelines = usePipelineStore((s) => s.loadPipelines)
-  const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: datasetDirtyVersion } = useDatasetStore()
+  const { loadProjectDatasets, loadFileData, getFileRows, files: datasetFiles, _dirtyVersion: _datasetDirtyVersion } = useDatasetStore()
   const { nodes } = useProjectTree(activeProjectUid)
 
   const [createFileOpen, setCreateFileOpen] = useState(false)

@@ -32,7 +32,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
-import type { MappingProject, MappingProjectSourceType, FileColumnMapping, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
+import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 
 interface CreateMappingProjectDialogProps {
   open: boolean
@@ -527,14 +527,14 @@ export function CreateMappingProjectDialog({
     }
   }
 
-  const buildParseOptions = () => {
-    const opts: Record<string, unknown> = {}
+  const buildParseOptions = (): FileSourceData['parseOptions'] => {
+    const opts: NonNullable<FileSourceData['parseOptions']> = {}
     if (delimiter !== 'auto') opts.delimiter = delimiter
     if (encoding !== 'UTF-8') opts.encoding = encoding
     if (skipRows > 0) opts.skipRows = skipRows
     if (!hasHeader) opts.hasHeader = false
     if (selectedSheet) opts.sheet = selectedSheet
-    return Object.keys(opts).length > 0 ? opts as FileColumnMapping : undefined
+    return Object.keys(opts).length > 0 ? opts : undefined
   }
 
   const showCSVOptions = file && isCSVLike(file)

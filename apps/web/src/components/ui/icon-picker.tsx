@@ -50,7 +50,7 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   const handleQueryChange = useCallback((value: string) => {
     setQuery(value)
@@ -106,6 +106,7 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
             disabled && 'opacity-50 cursor-not-allowed',
           )}
         >
+          {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
           <Icon size={16} style={colorStyle} className={!iconColor ? 'text-muted-foreground' : undefined} />
           {showLabel && <span className="truncate max-w-[100px]">{value || 'Puzzle'}</span>}
         </button>

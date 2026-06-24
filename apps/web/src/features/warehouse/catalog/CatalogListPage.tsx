@@ -47,18 +47,6 @@ export function CatalogListPage() {
     )
   }, [])
 
-  const handleImport = useCallback(async (file: File) => {
-    const parsed = await parseImportZip(file)
-    const catalog = parsed['catalog.json'] as DataCatalog | undefined
-    if (!catalog?.id) return
-    const existing = await getStorage().dataCatalogs.getById(catalog.id)
-    if (existing) {
-      setConflict({ name: existing.name, pending: catalog })
-    } else {
-      await doImport(catalog, false)
-    }
-  }, [activeWorkspaceId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doImport = useCallback(async (catalog: DataCatalog, duplicate: boolean) => {
     const now = new Date().toISOString()
     const id = duplicate ? crypto.randomUUID() : catalog.id
@@ -76,6 +64,18 @@ export function CatalogListPage() {
     await getStorage().dataCatalogs.create(entity)
     await loadCatalogs()
   }, [activeWorkspaceId, loadCatalogs])
+
+  const handleImport = useCallback(async (file: File) => {
+    const parsed = await parseImportZip(file)
+    const catalog = parsed['catalog.json'] as DataCatalog | undefined
+    if (!catalog?.id) return
+    const existing = await getStorage().dataCatalogs.getById(catalog.id)
+    if (existing) {
+      setConflict({ name: existing.name, pending: catalog })
+    } else {
+      await doImport(catalog, false)
+    }
+  }, [doImport])
 
   return (
     <>

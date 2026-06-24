@@ -119,9 +119,11 @@ export function usePipeline() {
   const nodesRef = useRef(nodes)
   const edgesRef = useRef(edges)
   const pipelineRef = useRef(pipeline)
-  nodesRef.current = nodes
-  edgesRef.current = edges
-  pipelineRef.current = pipeline
+  useEffect(() => {
+    nodesRef.current = nodes
+    edgesRef.current = edges
+    pipelineRef.current = pipeline
+  })
 
   // Load pipeline on mount
   useEffect(() => {

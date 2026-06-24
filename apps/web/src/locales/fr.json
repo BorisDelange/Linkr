@@ -2944,7 +2944,7 @@
     "suggestions_manage": "Gérer les suggestions",
     "suggestions_manage_subtitle": "Ajustez la pondération de chaque méthode dans le score combiné.",
     "suggestions_weights_section": "Pondération des méthodes",
-    "suggestions_scores_loaded_from": "{{count}} scores chargés depuis",
+    "suggestions_scores_loaded_from": "{{formattedCount}} scores chargés depuis",
     "suggestions_no_scores_loaded": "Aucun fichier de scores chargé",
     "suggestions_default_filename": "similarity-scores.parquet",
     "suggestions_import_file": "Importer un fichier…",

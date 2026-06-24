@@ -7,8 +7,14 @@ import type { Project, Workspace, Language, TodoItem, ProjectStatus, ProjectBadg
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
-let _useWorkspaceStore: any = null
-export function registerWorkspaceStore(store: any) {
+// Typed to the minimal surface used here so we avoid importing the full store
+// (which would re-introduce the circular dependency).
+interface WorkspaceStoreLike {
+  getState(): { activeWorkspaceId: string | null; _workspacesRaw: Workspace[] }
+  setState(partial: { activeWorkspaceId: string; activeWorkspaceName: string }): void
+}
+let _useWorkspaceStore: WorkspaceStoreLike | null = null
+export function registerWorkspaceStore(store: WorkspaceStoreLike) {
   _useWorkspaceStore = store
 }
 

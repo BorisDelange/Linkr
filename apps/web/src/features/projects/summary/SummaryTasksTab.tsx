@@ -62,6 +62,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
   const handleAddTodo = () => {
     if (!newTask.trim()) return
     const item: TodoItem = {
+      // eslint-disable-next-line react-hooks/purity -- runs in an event handler, not during render
       id: `t-${Date.now()}`,
       text: newTask.trim(),
       done: false,

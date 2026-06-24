@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
-import { useFileStore, type FileNode } from '@/stores/file-store'
+import { useFileStore } from '@/stores/file-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import {

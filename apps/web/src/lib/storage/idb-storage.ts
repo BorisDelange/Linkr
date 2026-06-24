@@ -1,4 +1,4 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
 import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
@@ -241,7 +241,8 @@ interface LinkrDB extends DBSchema {
   source_concept_id_ranges: {
     /** Composite key: `${workspaceId}__${badgeLabel}` */
     key: string
-    value: SourceConceptIdRange
+    // `id` is the keyPath, computed and added on write.
+    value: SourceConceptIdRange & { id: string }
     indexes: {
       'by-workspace': string
     }
@@ -249,7 +250,8 @@ interface LinkrDB extends DBSchema {
   source_concept_id_entries: {
     /** Composite key: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}` */
     key: string
-    value: SourceConceptIdEntry
+    // `id` is the keyPath; `workspaceBadgeKey` backs the by-workspace-badge index.
+    value: SourceConceptIdEntry & { id: string; workspaceBadgeKey: string }
     indexes: {
       'by-workspace-badge': string
       'by-workspace': string
@@ -501,10 +503,12 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
         const dqCheckStore = db.createObjectStore('dq_custom_checks', { keyPath: 'id' })
         dqCheckStore.createIndex('by-rule-set', 'ruleSetId')
       }
-      // Version 22: Rename dq_suites → dq_rule_sets (if upgrading from 21)
+      // Version 22: Rename dq_suites → dq_rule_sets (if upgrading from 21).
+      // 'dq_suites' is a legacy store no longer in the schema type, hence the cast.
       if (oldVersion === 21) {
-        if (db.objectStoreNames.contains('dq_suites')) {
-          db.deleteObjectStore('dq_suites')
+        const legacyDqSuites = 'dq_suites' as Parameters<typeof db.objectStoreNames.contains>[0]
+        if (db.objectStoreNames.contains(legacyDqSuites)) {
+          db.deleteObjectStore(legacyDqSuites)
         }
         if (db.objectStoreNames.contains('dq_custom_checks')) {
           db.deleteObjectStore('dq_custom_checks')
@@ -657,9 +661,21 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       }
       // Version 28: Ensure by-workspace indexes exist (fixes v27 fresh installs that skipped v26 migration)
       if (oldVersion < 28) {
-        const ensureIndex = (storeName: string, indexName: string, keyPath: string) => {
+        const ensureIndex = (
+          storeName: string,
+          indexName: string,
+          keyPath: string,
+        ) => {
           try {
-            const store = transaction.objectStore(storeName as never)
+            // Dynamic store name in a migration helper: idb's per-store typing
+            // can't follow a runtime string, so treat the store through a
+            // minimal structural type exposing just the index APIs we use.
+            const store = transaction.objectStore(
+              storeName as StoreNames<LinkrDB>,
+            ) as unknown as {
+              indexNames: DOMStringList
+              createIndex(name: string, keyPath: string): unknown
+            }
             if (!store.indexNames.contains(indexName)) {
               store.createIndex(indexName, keyPath)
             }

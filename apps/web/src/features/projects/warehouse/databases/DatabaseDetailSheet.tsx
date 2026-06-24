@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig, TableRowCount } from '@/types'
-import { Users, Building2, Table, Activity, BedDouble } from 'lucide-react'
+import { Users, Table, Activity, BedDouble } from 'lucide-react'
 import {
   Sheet,
   SheetContent,

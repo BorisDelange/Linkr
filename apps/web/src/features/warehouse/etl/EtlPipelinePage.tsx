@@ -52,6 +52,14 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
 
+  // When clicking a script node in the pipeline DAG, switch to scripts tab and
+  // select the file. Must stay above the early returns (Rules of Hooks).
+  const handleSelectFile = useCallback((fileId: string) => {
+    const { selectFile } = useEtlStore.getState()
+    selectFile(fileId)
+    setActiveTab('scripts')
+  }, [])
+
   if (!etlPipelinesLoaded) return null
 
   if (!pipeline) {
@@ -65,13 +73,6 @@ export function EtlPipelinePage({ pipelineId }: Props) {
       </div>
     )
   }
-
-  // When clicking a script node in the pipeline DAG, switch to scripts tab and select the file
-  const handleSelectFile = useCallback((fileId: string) => {
-    const { selectFile } = useEtlStore.getState()
-    selectFile(fileId)
-    setActiveTab('scripts')
-  }, [])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

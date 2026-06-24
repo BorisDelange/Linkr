@@ -59,7 +59,7 @@ export function PatientHoverCard({
     }
     queryDataSource(dataSourceId, sql)
       .then((rows) => {
-        if (!cancelled && rows.length > 0) setSummary(rows[0] as PatientSummary)
+        if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as PatientSummary)
       })
       .catch(() => {
         if (!cancelled) setSummary(null)

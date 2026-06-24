@@ -34,14 +34,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
 import { getAllPlugins } from '@/lib/plugins/registry'
-import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { PluginEditor } from './PluginEditor'
@@ -145,6 +139,7 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }
         </DropdownMenu>
       </div>
       <div className="flex items-center gap-2 pr-6">
+        {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
         <Icon size={18} className={cn('shrink-0', getIconColorProps(plugin.manifest.iconColor).className)} style={getIconColorProps(plugin.manifest.iconColor).style} />
         <span className="text-sm font-medium truncate">
           {plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.id}
@@ -305,7 +300,8 @@ export function PluginsTab() {
       // Overwrite: delete old plugin first
       await getStorage().userPlugins.delete(pluginId).catch(() => {})
     }
-    await getStorage().userPlugins.create({ id, files: updatedFiles })
+    const nowIso = new Date().toISOString()
+    await getStorage().userPlugins.create({ id, files: updatedFiles, createdAt: nowIso, updatedAt: nowIso })
     await refreshPluginList()
   }, [refreshPluginList])
 
@@ -376,7 +372,7 @@ export function PluginsTab() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'warehouse' | 'lab')}>
         <TabsList>
           <TabsTrigger value="warehouse">{t('plugins.tab_warehouse')}</TabsTrigger>
           <TabsTrigger value="lab">{t('plugins.tab_lab')}</TabsTrigger>

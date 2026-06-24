@@ -725,7 +725,7 @@ export function DatasetsPage() {
                                   name={analysis.name}
                                   language={analysis.config.language as AnalysisLanguage | undefined}
                                   type={analysis.type}
-                                  autoRun={analysis.config.autoRun}
+                                  autoRun={analysis.config.autoRun as boolean | undefined}
                                   isActive={analysis.id === selectedAnalysisId}
                                   onActivate={() =>
                                     selectAnalysis(analysis.id === selectedAnalysisId ? null : analysis.id)

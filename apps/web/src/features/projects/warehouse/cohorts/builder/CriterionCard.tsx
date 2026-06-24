@@ -283,23 +283,25 @@ function CriteriaConfigForm({
   schemaMapping?: SchemaMapping
   onOpenConceptPicker?: () => void
 }) {
+  // `type` and `config` are a matched pair (config is built via getDefaultConfig(type)),
+  // but TS can't narrow `config` from the separate `type` discriminant — cast per branch.
   switch (type) {
     case 'age':
-      return <AgeCriteriaForm config={config} onChange={onChange} />
+      return <AgeCriteriaForm config={config as AgeCriteriaConfig} onChange={onChange} />
     case 'sex':
-      return <SexCriteriaForm config={config} onChange={onChange} genderValues={genderValues} />
+      return <SexCriteriaForm config={config as SexCriteriaConfig} onChange={onChange} genderValues={genderValues} />
     case 'death':
-      return <DeathCriteriaForm config={config} onChange={onChange} />
+      return <DeathCriteriaForm config={config as DeathCriteriaConfig} onChange={onChange} />
     case 'period':
-      return <PeriodCriteriaForm config={config} onChange={onChange} visitDateRange={visitDateRange} />
+      return <PeriodCriteriaForm config={config as PeriodCriteriaConfig} onChange={onChange} visitDateRange={visitDateRange} />
     case 'duration':
-      return <DurationCriteriaForm config={config} onChange={onChange} />
+      return <DurationCriteriaForm config={config as DurationCriteriaConfig} onChange={onChange} />
     case 'care_site':
-      return <CareSiteCriteriaForm config={config} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
+      return <CareSiteCriteriaForm config={config as CareSiteCriteriaConfig} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
     case 'concept':
-      return <ConceptCriteriaForm config={config} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
+      return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} />
     case 'text':
-      return <TextCriteriaForm config={config} onChange={onChange} />
+      return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} />
     default:
       return null
   }

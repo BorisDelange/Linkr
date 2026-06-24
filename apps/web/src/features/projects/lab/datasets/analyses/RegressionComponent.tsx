@@ -97,37 +97,6 @@ function regularizedBeta(a: number, b: number, x: number): number {
   return Math.exp(lnPrefix) * h
 }
 
-function regularizedGamma(a: number, x: number): number {
-  if (x <= 0) return 0
-  if (x < a + 1) {
-    let sum = 1 / a
-    let term = 1 / a
-    for (let n = 1; n < 200; n++) {
-      term *= x / (a + n)
-      sum += term
-      if (Math.abs(term) < Math.abs(sum) * 1e-14) break
-    }
-    return sum * Math.exp(-x + a * Math.log(x) - gammaLn(a))
-  }
-  let f = 1e-30
-  let c = 1e-30
-  let d = 1 / (x + 1 - a)
-  let h = d
-  for (let n = 1; n < 200; n++) {
-    const an = -n * (n - a)
-    const bn = x + 2 * n + 1 - a
-    d = bn + an * d
-    if (Math.abs(d) < 1e-30) d = 1e-30
-    d = 1 / d
-    c = bn + an / c
-    if (Math.abs(c) < 1e-30) c = 1e-30
-    const delta = c * d
-    h *= delta
-    if (Math.abs(delta - 1) < 1e-14) break
-  }
-  return 1 - Math.exp(-x + a * Math.log(x) - gammaLn(a)) * h
-}
-
 function tCDF(t: number, df: number): number {
   const x = df / (df + t * t)
   const p = 0.5 * regularizedBeta(df / 2, 0.5, x)
@@ -152,11 +121,6 @@ function normalCDF(z: number): number {
   const t = 1 / (1 + p * x)
   const y = 1 - ((((a5 * t + a4) * t + a3) * t + a2) * t + a1) * t * Math.exp(-x * x)
   return 0.5 * (1 + sign * y)
-}
-
-function chiSquareCDF(x: number, k: number): number {
-  if (x <= 0) return 0
-  return regularizedGamma(k / 2, x / 2)
 }
 
 function fCDF(f: number, d1: number, d2: number): number {
@@ -890,7 +854,7 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
 // ===========================================================================
 
 export function RegressionComponent({ config, columns, rows, compact }: ComponentPluginProps) {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
 
   const outcomeId = (config.outcomeColumn as string) ?? ''

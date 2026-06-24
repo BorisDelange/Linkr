@@ -1085,6 +1085,7 @@ function IconSelectField({
           <button
             className="flex h-8 items-center gap-2 rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
           >
+            {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
             <CurrentIcon size={14} className={isNone ? 'text-muted-foreground/50' : undefined} />
             <span className="text-muted-foreground">{isNone ? t('common.none') : current}</span>
           </button>
@@ -1159,7 +1160,7 @@ function ColorSelectField({
   field,
   value,
   lang,
-  config,
+  config: _config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
   const current = (value as string | undefined) ?? (field.default as string | undefined) ?? 'blue'

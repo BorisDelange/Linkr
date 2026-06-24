@@ -297,8 +297,9 @@ export async function mountEmptyFromDDL(
     // Reset search path
     await conn.query(`SET search_path TO main`)
   } catch (err) {
-    // Reset search path even on error
-    try { await conn.query(`SET search_path TO main`) } catch {}
+    // Reset search path even on error; the original error is what matters, so
+    // a failure to reset here must not mask it.
+    try { await conn.query(`SET search_path TO main`) } catch { /* ignore */ }
     throw err
   } finally {
     await conn.close()

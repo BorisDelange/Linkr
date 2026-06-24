@@ -19,6 +19,7 @@ interface ProgressTabProps {
 
 const STATUS_COLORS: Record<EffectiveMappingStatus, string> = {
   unchecked: '#94a3b8',
+  suggested: '#60a5fa',
   approved: '#34d399',
   rejected: '#ef4444',
   flagged: '#fb923c',

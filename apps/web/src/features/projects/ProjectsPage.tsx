@@ -104,15 +104,6 @@ export function ProjectsPage() {
     downloadBlob(result.blob, `${slugify(result.projectName)}.zip`)
   }, [versioningTarget])
 
-  // --- Duplicate a project (export then re-import as copy) ---
-  const handleDuplicateProject = useCallback(async (projectUid: string) => {
-    const result = await buildProjectZip(projectUid, getStorage())
-    if (!result) return
-    const parsed = await parseProjectZip(new File([result.blob], 'dup.zip'))
-    if (!parsed) return
-    await doImport(parsed, true)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
   // --- Import ---
   const doImport = useCallback(async (parsed: ParsedProjectZip, duplicate: boolean) => {
     const { project } = parsed
@@ -157,6 +148,15 @@ export function ProjectsPage() {
 
     await loadProjects()
   }, [wsUid, activeWorkspaceId, loadProjects])
+
+  // --- Duplicate a project (export then re-import as copy) ---
+  const handleDuplicateProject = useCallback(async (projectUid: string) => {
+    const result = await buildProjectZip(projectUid, getStorage())
+    if (!result) return
+    const parsed = await parseProjectZip(new File([result.blob], 'dup.zip'))
+    if (!parsed) return
+    await doImport(parsed, true)
+  }, [doImport])
 
   const handleImportSource = useCallback(async (file: File) => {
     try {

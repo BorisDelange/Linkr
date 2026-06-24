@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -549,7 +549,7 @@ function DatabaseSidebarDetail({
           {/* Basic info */}
           <div className="space-y-2 text-xs">
             <DetailRow label={t('etl.pipeline_db_name')} value={ds.name} />
-            <DetailRow label={t('etl.pipeline_db_engine')} value={ds.connectionConfig?.engine ?? '—'} />
+            <DetailRow label={t('etl.pipeline_db_engine')} value={(ds.connectionConfig && 'engine' in ds.connectionConfig ? ds.connectionConfig.engine : undefined) ?? '—'} />
             {ds.schemaMapping?.presetLabel && (
               <DetailRow label={t('etl.pipeline_db_schema')} value={ds.schemaMapping.presetLabel} />
             )}
@@ -888,9 +888,9 @@ function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMapp
 // ---------------------------------------------------------------------------
 
 function ConceptComparisonTab({
-  sourceDs,
+  sourceDs: _sourceDs,
   targetDs,
-  mappingProjectId,
+  mappingProjectId: _mappingProjectId,
 }: {
   sourceDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
   targetDs: ReturnType<typeof useDataSourceStore.getState>['dataSources'][0] | undefined
@@ -1224,7 +1224,7 @@ function ConceptComparisonTab({
               {diffCounts.match} OK
             </button>
           )}
-          {table.getColumn('diff')?.getFilterValue() && (
+          {table.getColumn('diff')?.getFilterValue() != null && (
             <button
               onClick={() => table.getColumn('diff')?.setFilterValue(undefined)}
               className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted/80"

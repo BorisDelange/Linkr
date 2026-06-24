@@ -126,7 +126,8 @@ function MermaidBlock({ code }: { code: string }) {
     let cancelled = false
     const render = async () => {
       try {
-        // Dynamic import for mermaid (loaded from CDN if not available)
+        // Dynamic import for mermaid (loaded from CDN if not available).
+        // @ts-expect-error — remote URL import has no local type declarations
         const mermaid = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs')
         if (cancelled || !containerRef.current) return
         mermaid.default.initialize({
@@ -182,7 +183,7 @@ export function MarkdownRenderer({ content, className, resolveWikilink }: Markdo
   // Custom component overrides for ReactMarkdown
   const components = useCallback(() => ({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    div: ({ node, ...props }: any) => {
+    div: ({ node: _node, ...props }: any) => {
       const calloutType = props['data-callout']
       if (calloutType && calloutStyles[calloutType]) {
         const style = calloutStyles[calloutType]
@@ -198,7 +199,7 @@ export function MarkdownRenderer({ content, className, resolveWikilink }: Markdo
       return <div {...props} />
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    code: ({ node, className: codeClassName, children, ...props }: any) => {
+    code: ({ node: _node, className: codeClassName, children, ...props }: any) => {
       const match = /language-(\w+)/.exec(codeClassName || '')
       if (match?.[1] === 'mermaid') {
         return <MermaidBlock code={String(children).trim()} />

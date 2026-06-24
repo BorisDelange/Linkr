@@ -21,7 +21,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
@@ -274,7 +273,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
 
   // Debounced config for preview — avoids re-rendering chart on every keystroke
   const [debouncedConfig, setDebouncedConfig] = useState(pluginConfig)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
     debounceRef.current = setTimeout(() => setDebouncedConfig(pluginConfig), 300)
     return () => clearTimeout(debounceRef.current)

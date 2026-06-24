@@ -125,7 +125,7 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
 
   // Update terminal theme when it changes without recreating the terminal
   useEffect(() => {
-    terminalRef.current?.options.theme && (terminalRef.current.options.theme = xtermTheme)
+    if (terminalRef.current?.options.theme) terminalRef.current.options.theme = xtermTheme
     // Also update container background
     if (containerRef.current) containerRef.current.style.backgroundColor = xtermTheme.background
   }, [xtermTheme])
@@ -135,7 +135,7 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
 
     const config = terminalConfig[terminalType]
     let currentLine = ''
-    let history: string[] = []
+    const history: string[] = []
     let historyIndex = -1
     let executing = false
 

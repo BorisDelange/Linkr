@@ -18,16 +18,6 @@ export function getDictionaryForEvent(mapping: SchemaMapping, eventTable: EventT
   return getDefaultConceptDictionary(mapping)
 }
 
-/** Get all event table labels. */
-function getEventTableLabels(mapping: SchemaMapping): string[] {
-  return mapping.eventTables ? Object.keys(mapping.eventTables) : []
-}
-
-/** Get an event table by label. */
-function getEventTable(mapping: SchemaMapping, label: string): EventTable | undefined {
-  return mapping.eventTables?.[label]
-}
-
 /**
  * Get all event tables that reference a specific concept dictionary.
  * If dictKey matches the default (first) dictionary, also includes event tables with no explicit conceptDictionaryKey.

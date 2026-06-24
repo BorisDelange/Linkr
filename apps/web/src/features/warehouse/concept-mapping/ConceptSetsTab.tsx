@@ -152,7 +152,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { conceptSets, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
+  const [_updatingId, setUpdatingId] = useState<string | null>(null)
 
   // Detail sheet
   const [detailConceptSet, setDetailConceptSet] = useState<ConceptSet | null>(null)
@@ -270,7 +270,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         raw: cs,
       }
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [linkedSets, lang])
 
   // Apply inline column filters

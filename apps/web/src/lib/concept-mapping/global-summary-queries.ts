@@ -317,7 +317,7 @@ function buildDedupWhere(f: GlobalTableFilters): string {
   return clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
 }
 
-function buildOrderBy(sorting: { columnId: string; desc: boolean } | null, mode: 'flat' | 'dedup'): string {
+function buildOrderBy(sorting: { columnId: string; desc: boolean } | null, _mode: 'flat' | 'dedup'): string {
   // Default order: mapped concepts first (is_unmapped ASC), then by name. This puts
   // the user's actual mappings at the top instead of the (often huge) tail of
   // unmapped source concepts.

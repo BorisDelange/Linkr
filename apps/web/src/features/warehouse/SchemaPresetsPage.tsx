@@ -119,7 +119,12 @@ function DdlTableOfContents({
   const lower = filter.toLowerCase()
 
   const toggle = (key: string) =>
-    setCollapsed((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next })
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
 
   const scrollTo = (line: number) => {
     const editor = editorRef.current
@@ -613,7 +618,7 @@ function EditableExtraColumns({
     onChange({ ...(extraColumns ?? {}), '': '' })
   }
 
-  const updateKey = (oldKey: string, newKey: string, index: number) => {
+  const updateKey = (_oldKey: string, newKey: string, index: number) => {
     const newEc: Record<string, string> = {}
     let i = 0
     for (const [k, v] of Object.entries(extraColumns ?? {})) {
@@ -696,7 +701,7 @@ function EditableConceptDict({
         </Button>
       </div>
       <EditableField label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
-      <EditableField label="ID column" value={dict.idColumn} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
+      <EditableField label="ID column" value={dict.idColumn ?? ''} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
       <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />
       <EditableField label="Code column" value={dict.codeColumn ?? ''} onChange={(v) => update('codeColumn', v)} />
       <EditableField label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn ?? ''} onChange={(v) => update('terminologyIdColumn', v)} placeholder="vocabulary_id" />
@@ -1307,23 +1312,6 @@ export function SchemaPresetsPage() {
     URL.revokeObjectURL(url)
   }
 
-  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-    try {
-      const text = await file.text()
-      const mapping = JSON.parse(text) as SchemaMapping
-      if (!mapping.presetId || !mapping.presetLabel) return
-      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
-      if (existing) {
-        setImportConflict({ name: existing.mapping.presetLabel, mapping })
-      } else {
-        await doPresetImport(mapping, false)
-      }
-    } catch { /* invalid JSON */ }
-  }, [customPresets]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const doPresetImport = useCallback(async (mapping: SchemaMapping, duplicate: boolean) => {
     const now = new Date().toISOString()
     const presetId = duplicate ? `custom-${crypto.randomUUID().slice(0, 8)}` : mapping.presetId!
@@ -1345,6 +1333,23 @@ export function SchemaPresetsPage() {
     await getStorage().schemaPresets.save(preset)
     await loadCustomPresets()
   }, [wsUid, loadCustomPresets])
+
+  const handleImportFile = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const text = await file.text()
+      const mapping = JSON.parse(text) as SchemaMapping
+      if (!mapping.presetId || !mapping.presetLabel) return
+      const existing = customPresets.find((p) => p.presetId === mapping.presetId)
+      if (existing) {
+        setImportConflict({ name: existing.mapping.presetLabel, mapping })
+      } else {
+        await doPresetImport(mapping, false)
+      }
+    } catch { /* invalid JSON */ }
+  }, [customPresets, doPresetImport])
 
   const [createTemplate, setCreateTemplate] = useState<string>('blank')
 

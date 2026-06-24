@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams } from 'react-router'
 import { Allotment } from 'allotment'
@@ -78,7 +78,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     collectionsLoaded,
     loadCollections,
     files,
-    filesLoaded,
     loadCollectionFiles,
     selectedFileId,
     openFileIds,

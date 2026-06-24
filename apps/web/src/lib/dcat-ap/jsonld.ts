@@ -65,7 +65,6 @@ export function buildJsonLd(
   let metadata: Record<string, unknown>
   let schemaMapping: SchemaMapping | null | undefined
   let cache: CatalogResultCache | null | undefined
-  let dataCatalog: DataCatalog | null | undefined
   let conceptCatalogUrl: string | undefined
   let fullSchema: IntrospectedTable[] | null | undefined
 
@@ -74,7 +73,6 @@ export function buildJsonLd(
     metadata = opts.metadata
     schemaMapping = opts.schemaMapping
     cache = opts.cache
-    dataCatalog = opts.catalog
     conceptCatalogUrl = opts.conceptCatalogUrl
     fullSchema = opts.fullSchema
   } else {
@@ -384,6 +382,7 @@ function buildCsvwDistribution(mapping: SchemaMapping): Record<string, unknown> 
   // Concept dictionary tables
   if (mapping.conceptTables) {
     for (const cd of mapping.conceptTables) {
+      if (!cd.idColumn) continue
       const cols: Record<string, unknown>[] = [
         col(cd.idColumn, 'Concept ID', 'Primary key — concept identifier', 'integer'),
         col(cd.nameColumn, 'Concept name', 'Human-readable concept label', 'string'),
@@ -549,6 +548,7 @@ function buildSchemaAnnotations(mapping?: SchemaMapping | null): Map<string, Tab
 
   if (mapping.conceptTables) {
     for (const cd of mapping.conceptTables) {
+      if (!cd.idColumn) continue
       const cols: [string, string, string][] = [
         [cd.idColumn, 'Concept ID', 'Primary key — concept identifier'],
         [cd.nameColumn, 'Concept name', 'Human-readable concept label'],

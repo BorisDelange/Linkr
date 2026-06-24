@@ -177,7 +177,7 @@ export function PatientChartGrid({
   const handleConceptsConfirm = useCallback(
     (config: Record<string, unknown>) => {
       if (!editingWidget) return
-      updateWidgetConfig(editingWidget.id, config as TimelineConfig)
+      updateWidgetConfig(editingWidget.id, config as unknown as TimelineConfig)
       setEditingWidgetId(null)
     },
     [editingWidget, updateWidgetConfig],

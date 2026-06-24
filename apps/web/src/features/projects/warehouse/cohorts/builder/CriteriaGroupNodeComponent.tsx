@@ -337,5 +337,7 @@ function getDefaultConfigForType(type: CriteriaType): CriteriaConfig {
       return { careSiteLevel: 'visit_detail', values: [] }
     case 'concept':
       return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
+    case 'text':
+      return { description: '' }
   }
 }

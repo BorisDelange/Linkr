@@ -579,7 +579,7 @@ async function readJsonFile<T>(zip: JSZip, path: string): Promise<T | null> {
 }
 
 /** Parse CSV text and remap column names → column IDs based on DatasetFile.columns. */
-function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
+export function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null {
   const lines = csv.split('\n').filter(l => l.length > 0)
   if (lines.length < 2) return null
 
@@ -614,7 +614,7 @@ function parseCsvToDatasetData(csv: string, df: DatasetFile): DatasetData | null
 }
 
 /** Simple CSV line parser that handles quoted fields. */
-function parseCsvLine(line: string): string[] {
+export function parseCsvLine(line: string): string[] {
   const result: string[] = []
   let current = ''
   let inQuotes = false
@@ -1163,7 +1163,8 @@ export async function buildWorkspaceZip(
     const keepCreds = options.includeCredentials === true
     const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
     for (const ds of dataSources) {
-      const { connectionConfig, ...rest } = ds as Record<string, unknown>
+      // DataSource has no index signature; widen via unknown to destructure dynamically
+      const { connectionConfig, ...rest } = ds as unknown as Record<string, unknown>
       const safeDsJson = {
         ...rest,
         connectionConfig: connectionConfig

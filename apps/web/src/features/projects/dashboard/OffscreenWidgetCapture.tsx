@@ -26,7 +26,7 @@ interface OffscreenWidgetCaptureProps {
  */
 export function OffscreenWidgetCapture({
   widgets,
-  dashboard,
+  dashboard: _dashboard,
   cellWidth = 640,
   cellHeight = 420,
   onReady,

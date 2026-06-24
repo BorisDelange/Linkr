@@ -629,7 +629,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       mappingType: 'maps_to',
       equivalence: predicate,
       status: 'unchecked',
-      comment,
       comments: comment ? [{
         id: crypto.randomUUID(),
         authorId: getUserDisplayName(),
@@ -684,7 +683,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         targetConceptCode: '',
         equivalence: 'skos:exactMatch',
         status: 'ignored',
-        comment,
         comments: comment ? [{
           id: crypto.randomUUID(),
           authorId: getUserDisplayName(),
@@ -1193,7 +1191,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                             domainId: rc.domainId,
                             conceptCode: rc.conceptCode,
                             conceptClassId: rc.conceptClassId,
-                            standardConcept: rc.standardConcept,
+                            standardConcept: rc.standardConcept ?? undefined,
                           })
                         }
                       }}
@@ -1450,7 +1448,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       domain_id: r.domain_id ?? undefined,
                       concept_class_id: r.concept_class_id ?? undefined,
                       standard_concept: r.standard_concept ?? undefined,
-                      invalid_reason: r.invalid_reason ?? undefined,
                     })
                     setConceptDetailOpen(true)
                   }}
@@ -1539,7 +1536,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [suggestionsForConceptId, setSuggestionsForConceptId] = useState<number | null>(null)
   useEffect(() => {
     if (!sourceConcept) { setSuggestions([]); setSuggestionsForConceptId(null); return }
-    const vocabId = sourceConcept.vocabulary_id ?? sourceConcept.terminology ?? ''
+    // `terminology` is a legacy field name not modeled on SourceConceptRow
+    const vocabId = sourceConcept.vocabulary_id ?? (sourceConcept as { terminology?: string }).terminology ?? ''
     const code = sourceConcept.concept_code ?? ''
     const conceptId = sourceConcept.concept_id
     if (!vocabId || !code) { setSuggestions([]); setSuggestionsForConceptId(conceptId); return }
@@ -2096,7 +2094,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <div className="mt-5 border-t pt-3 text-[11px] text-muted-foreground">
             {totalProjectScores > 0 ? (
               <>
-                {t('concept_mapping.suggestions_scores_loaded_from', { count: totalProjectScores.toLocaleString() })}{' '}
+                {t('concept_mapping.suggestions_scores_loaded_from', { formattedCount: totalProjectScores.toLocaleString() })}{' '}
                 <code className="font-mono text-foreground">{t('concept_mapping.suggestions_default_filename')}</code>
               </>
             ) : (

@@ -69,7 +69,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
     )
   }
 
-  const SortIcon = ({ field }: { field: SortField }) => {
+  const renderSortIcon = (field: SortField) => {
     if (sortField !== field) return <ArrowUpDown size={10} className="text-muted-foreground/40" />
     return sortDir === 'asc' ? <ArrowUp size={10} /> : <ArrowDown size={10} />
   }
@@ -84,7 +84,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('status')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_status')} <SortIcon field="status" />
+                {t('data_quality.col_status')} {renderSortIcon('status')}
               </span>
             </th>
             <th
@@ -92,7 +92,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('check')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_check')} <SortIcon field="check" />
+                {t('data_quality.col_check')} {renderSortIcon('check')}
               </span>
             </th>
             <th
@@ -100,7 +100,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('category')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_category')} <SortIcon field="category" />
+                {t('data_quality.col_category')} {renderSortIcon('category')}
               </span>
             </th>
             <th
@@ -108,7 +108,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('table')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_table')} <SortIcon field="table" />
+                {t('data_quality.col_table')} {renderSortIcon('table')}
               </span>
             </th>
             <th
@@ -116,7 +116,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('violated')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_violated')} <SortIcon field="violated" />
+                {t('data_quality.col_violated')} {renderSortIcon('violated')}
               </span>
             </th>
             <th
@@ -124,7 +124,7 @@ export function DqResultsTable({ items, selectedId, onSelect, loading }: Props) 
               onClick={() => handleSort('severity')}
             >
               <span className="inline-flex items-center gap-0.5">
-                {t('data_quality.col_severity')} <SortIcon field="severity" />
+                {t('data_quality.col_severity')} {renderSortIcon('severity')}
               </span>
             </th>
           </tr>

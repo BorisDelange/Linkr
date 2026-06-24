@@ -113,6 +113,7 @@ export function ProjectSettingsPage() {
   const handleAddBadge = () => {
     if (!uid || !newBadgeLabel.trim()) return
     const badge: ProjectBadge = {
+      // eslint-disable-next-line react-hooks/purity -- runs in an event handler, not during render
       id: `b-${Date.now()}`,
       label: newBadgeLabel.trim(),
       color: newBadgeColor,

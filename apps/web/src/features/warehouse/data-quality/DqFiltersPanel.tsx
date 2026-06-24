@@ -28,25 +28,29 @@ export function DqFiltersPanel({ filters, onFiltersChange, report }: Props) {
 
   function toggleStatus(s: DqCheckStatus) {
     const next = new Set(filters.statuses)
-    next.has(s) ? next.delete(s) : next.add(s)
+    if (next.has(s)) next.delete(s)
+    else next.add(s)
     onFiltersChange({ ...filters, statuses: next })
   }
 
   function toggleCategory(c: DqCategory) {
     const next = new Set(filters.categories)
-    next.has(c) ? next.delete(c) : next.add(c)
+    if (next.has(c)) next.delete(c)
+    else next.add(c)
     onFiltersChange({ ...filters, categories: next })
   }
 
   function toggleTable(tbl: string) {
     const next = new Set(filters.tables)
-    next.has(tbl) ? next.delete(tbl) : next.add(tbl)
+    if (next.has(tbl)) next.delete(tbl)
+    else next.add(tbl)
     onFiltersChange({ ...filters, tables: next })
   }
 
   function toggleSeverity(s: DqSeverity) {
     const next = new Set(filters.severities)
-    next.has(s) ? next.delete(s) : next.add(s)
+    if (next.has(s)) next.delete(s)
+    else next.add(s)
     onFiltersChange({ ...filters, severities: next })
   }
 

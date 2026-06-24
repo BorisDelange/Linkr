@@ -7,6 +7,7 @@ import {
   useReactTable,
   type ColumnDef,
   type VisibilityState,
+  type Table as TanstackTable,
 } from '@tanstack/react-table'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
@@ -71,15 +72,6 @@ interface GlobalSummaryViewProps {
   onBack: () => void
 }
 
-const STATUS_COLORS: Record<MappingStatus, string> = {
-  unchecked: '#94a3b8',
-  approved: '#34d399',
-  rejected: '#ef4444',
-  flagged: '#fb923c',
-  invalid: '#f87171',
-  ignored: '#a78bfa',
-}
-
 const STATUS_BAR_COLORS: Record<string, string> = {
   approved: '#34d399',
   flagged: '#fb923c',
@@ -87,14 +79,6 @@ const STATUS_BAR_COLORS: Record<string, string> = {
   ignored: '#a78bfa',  // violet — voluntarily ignored
   unchecked: '#94a3b8', // slate — not yet reviewed
   unmapped: '#e2e8f0',  // very light — not yet touched
-}
-
-const STATUS_BADGE: Record<string, string> = {
-  unchecked: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  approved: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
-  rejected: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
-  flagged: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-  ignored: 'bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400',
 }
 
 const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
@@ -847,12 +831,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         ? { columnId, desc: !prev.desc }
         : { columnId, desc: false },
     )
-    setPage(0)
   }
 
   const updateFilter = (key: keyof GlobalTableFilters, value: string | null | Set<string>) => {
     setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
-    setPage(0)
   }
 
   // ── Badge mode columns ──
@@ -1233,7 +1215,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       createdAt: String(r.created_at ?? ''),
       updatedAt: String(r.updated_at ?? ''),
       reviews: r.reviews_json ? JSON.parse(String(r.reviews_json)) : [],
-    }))
+    // Projection of dynamic DuckDB rows: only the fields the column defs read
+    // are selected, so this is a partial ConceptMapping shaped at runtime.
+    })) as unknown as GlobalMappingRow[]
   }, [tableRows, groupMode])
 
   const dedupTable = useReactTable({
@@ -1256,7 +1240,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     getCoreRowModel: getCoreRowModel(),
   })
 
-  const activeTable = groupMode === 'badge' ? dedupTable : flatTable
+  // dedupTable and flatTable have different row types; the render path below is
+  // row-type-agnostic (only flexRender + generic cell/header access), so we widen
+  // to a single Table type to avoid an unusable union of contexts.
+  const activeTable = (groupMode === 'badge' ? dedupTable : flatTable) as unknown as TanstackTable<GlobalMappingRow>
 
   const tooltipStyle = {
     backgroundColor: 'var(--color-popover)',
@@ -1286,7 +1273,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             onValueChange={(v: 'project' | 'badge') => {
               setGroupMode(v)
               setColFilters({})
-              setPage(0)
             }}
           >
             <SelectTrigger className="h-7 w-32 text-xs">

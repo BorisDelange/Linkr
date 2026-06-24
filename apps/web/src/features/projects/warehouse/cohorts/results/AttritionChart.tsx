@@ -37,8 +37,8 @@ export function AttritionChart({ attrition }: AttritionChartProps) {
               tick={{ fontSize: 11 }}
             />
             <Tooltip
-              formatter={(value: number) => [value.toLocaleString(), t('cohorts.attrition_count')]}
-              labelFormatter={(label: string) => label}
+              formatter={(value) => [Number(value).toLocaleString(), t('cohorts.attrition_count')]}
+              labelFormatter={(label) => label}
             />
             <Bar dataKey="count" radius={[0, 4, 4, 0]}>
               {attrition.map((step, idx) => (
