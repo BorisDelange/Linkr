@@ -384,6 +384,12 @@ export interface Dashboard {
   /** Re-run widgets every time their tab is shown. Off by default: visited tabs stay mounted
    *  so switching back is instant and avoids re-executing R/Python. */
   reloadWidgetsOnTabSwitch?: boolean
+  /** Scale row height so the whole tab fits the visible area (no vertical scroll), instead of
+   *  a fixed pixel row height. On by default; lets widgets fill the screen (incl. fullscreen). */
+  fitToHeight?: boolean
+  /** Grid-resolution version. Absent/1 = legacy 24-col grid; 2 = current 48-col grid. Widget
+   *  layouts are doubled once on load when migrating 1→2 so they keep their visual size. */
+  gridV?: number
   createdAt: string
   updatedAt: string
 }

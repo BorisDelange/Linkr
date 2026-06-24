@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database } from 'lucide-react'
+import { Database, Info } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -57,6 +58,7 @@ export function DashboardSettingsDialog({
   const [defaultDatasetFileId, setDefaultDatasetFileId] = useState<string | null>(dashboard.defaultDatasetFileId ?? null)
   const [widgetSpacing, setWidgetSpacing] = useState<number>(dashboard.widgetSpacing ?? 12)
   const [reloadWidgetsOnTabSwitch, setReloadWidgetsOnTabSwitch] = useState(dashboard.reloadWidgetsOnTabSwitch ?? false)
+  const [fitToHeight, setFitToHeight] = useState(dashboard.fitToHeight !== false)
 
   // Bulk-assign confirmation
   const [bulkAssignScope, setBulkAssignScope] = useState<'all' | 'tab' | null>(null)
@@ -88,8 +90,9 @@ export function DashboardSettingsDialog({
       setDefaultDatasetFileId(dashboard.defaultDatasetFileId ?? null)
       setWidgetSpacing(dashboard.widgetSpacing ?? 12)
       setReloadWidgetsOnTabSwitch(dashboard.reloadWidgetsOnTabSwitch ?? false)
+      setFitToHeight(dashboard.fitToHeight !== false)
     }
-  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing, dashboard.reloadWidgetsOnTabSwitch])
+  }, [open, dashboard.showWidgetTitles, dashboard.defaultDatasetFileId, dashboard.widgetSpacing, dashboard.reloadWidgetsOnTabSwitch, dashboard.fitToHeight])
 
   const handleSave = () => {
     updateDashboard(dashboard.id, {
@@ -97,6 +100,7 @@ export function DashboardSettingsDialog({
       defaultDatasetFileId,
       widgetSpacing,
       reloadWidgetsOnTabSwitch,
+      fitToHeight,
     })
     onOpenChange(false)
   }
@@ -130,9 +134,23 @@ export function DashboardSettingsDialog({
           </TabsList>
 
           <TabsContent value="general" className="space-y-5 pt-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
-              <Label className="text-xs font-medium">{t('dashboard.reload_widgets_on_tab_switch')}</Label>
+              <div className="flex items-center gap-1">
+                <Label className="text-xs font-medium">{t('dashboard.reload_widgets_on_tab_switch')}</Label>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-muted-foreground/70 hover:text-muted-foreground">
+                        <Info size={12} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-64 bg-foreground text-background">
+                      {t('dashboard.reload_widgets_on_tab_switch_info')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.reload_widgets_on_tab_switch_hint')}</p>
             </div>
             <Switch checked={reloadWidgetsOnTabSwitch} onCheckedChange={setReloadWidgetsOnTabSwitch} />
@@ -140,12 +158,19 @@ export function DashboardSettingsDialog({
           </TabsContent>
 
           <TabsContent value="style" className="space-y-5 pt-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label className="text-xs font-medium">{t('dashboard.show_widget_titles')}</Label>
               <p className="text-[11px] text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
             </div>
             <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <Label className="text-xs font-medium">{t('dashboard.fit_to_height')}</Label>
+              <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
+            </div>
+            <Switch checked={fitToHeight} onCheckedChange={setFitToHeight} />
           </div>
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
@@ -160,7 +185,7 @@ export function DashboardSettingsDialog({
               step={2}
               value={widgetSpacing}
               onChange={(e) => setWidgetSpacing(Number(e.target.value))}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+              className="mt-1 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
             />
           </div>
           </TabsContent>
@@ -173,7 +198,7 @@ export function DashboardSettingsDialog({
               value={defaultDatasetFileId ?? '__none__'}
               onValueChange={v => setDefaultDatasetFileId(v === '__none__' ? null : v)}
             >
-              <SelectTrigger className="h-8 text-sm">
+              <SelectTrigger className="mt-1 h-8 text-sm">
                 <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
               </SelectTrigger>
               <SelectContent position="popper" sideOffset={4}>

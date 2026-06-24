@@ -215,6 +215,7 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
   const { updateWidgetLayout, removeWidget, updateWidgetName, acceptPluginVersion, activeFilters, tabs, moveWidget, duplicateWidget } = useDashboardStore()
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1200)
+  const [availableHeight, setAvailableHeight] = useState(0)
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null)
   const [confirmDeleteWidgetId, setConfirmDeleteWidgetId] = useState<string | null>(null)
   const [movingWidgetId, setMovingWidgetId] = useState<string | null>(null)
@@ -224,23 +225,44 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
   const editingWidget = editingWidgetId ? widgets.find(w => w.id === editingWidgetId) ?? null : null
 
   useEffect(() => {
-    if (!containerRef.current) return
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
-      }
-    })
-    observer.observe(containerRef.current)
-    setContainerWidth(containerRef.current.clientWidth)
+    const el = containerRef.current
+    if (!el) return
+    const measure = () => {
+      setContainerWidth(el.clientWidth)
+      const viewport = el.closest('[data-slot="scroll-area-viewport"]') ?? el.parentElement
+      if (viewport) setAvailableHeight(viewport.clientHeight)
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    const viewport = el.closest('[data-slot="scroll-area-viewport"]') ?? el.parentElement
+    if (viewport) observer.observe(viewport)
+    measure()
     return () => observer.disconnect()
   }, [])
 
-  // Per-dashboard widget spacing overrides the default grid margin.
+  // Widget spacing drives both the inter-widget margin AND the outer padding, so the grid sits
+  // flush against the available space (no half-cells at the edges) with one notion of spacing.
+  // With "fit to height" on, a fixed number of rows fills the visible area (cells stay ~square)
+  // and the grid is capped to that many rows so resizing can never overflow into a scroll.
+  const fitToHeight = dashboard.fitToHeight !== false
   const gridConfig = useMemo(() => {
-    const gap = dashboard.widgetSpacing
-    if (gap == null) return DASHBOARD_GRID
-    return { ...DASHBOARD_GRID, margin: [gap, gap] as [number, number] }
-  }, [dashboard.widgetSpacing])
+    const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
+    const base = {
+      ...DASHBOARD_GRID,
+      margin: [gap, gap] as [number, number],
+      containerPadding: [gap, gap] as [number, number],
+    }
+    if (!fitToHeight || availableHeight === 0) return base
+    const { cols } = base
+    const colWidth = (containerWidth - gap * 2 - gap * (cols - 1)) / cols
+    if (colWidth <= 0) return base
+    // Rows that make cells ~square, then the exact row height to fill the visible height with
+    // that many rows. maxRows caps placement/resize so nothing extends past the viewport.
+    const innerH = availableHeight - gap * 2
+    const rows = Math.max(1, Math.round((innerH + gap) / (colWidth + gap)))
+    const rowHeight = Math.max(4, Math.floor((innerH - gap * (rows - 1)) / rows))
+    return { ...base, rowHeight, maxRows: rows }
+  }, [dashboard.widgetSpacing, fitToHeight, containerWidth, availableHeight])
 
   const layout: LayoutItem[] = useMemo(
     () =>
@@ -307,8 +329,30 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
       .map((tb) => ({ id: tb.id, name: tb.name, path: pathOf(tb) }))
   }, [tabs, dashboard.id])
 
+  // In edit mode, paint a faint grid so widget placement is easier to read. The cell pitch
+  // matches the layout maths (column width derived from container width; row pitch from config).
+  const gridBackground = useMemo(() => {
+    if (!editMode) return undefined
+    const { cols, rowHeight, margin, containerPadding } = gridConfig
+    const [marginX, marginY] = margin
+    const [padX, padY] = containerPadding
+    const colWidth = (containerWidth - padX * 2 - marginX * (cols - 1)) / cols
+    const colPitch = colWidth + marginX
+    const rowPitch = rowHeight + marginY
+    if (colPitch <= 0 || rowPitch <= 0) return undefined
+    return {
+      backgroundImage:
+        'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
+        'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
+      backgroundSize: `${colPitch}px ${rowPitch}px`,
+      backgroundPosition: `${padX}px ${padY}px`,
+      opacity: 0.4,
+    } as const
+  }, [editMode, gridConfig, containerWidth])
+
   return (
-    <div ref={containerRef} className="w-full">
+    <div ref={containerRef} className="relative w-full">
+      {gridBackground && <div className="pointer-events-none absolute inset-0" style={gridBackground} />}
       <GridLayout
         layout={layout}
         width={containerWidth}

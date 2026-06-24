@@ -71,7 +71,8 @@ interface DashboardState {
 const uid = () => crypto.randomUUID()
 
 function getDefaultLayout(_source: DashboardWidgetSource): { w: number; h: number } {
-  return { w: 12, h: 6 }
+  // 48-col grid, 20px rows → a quarter-width, ~240px-tall default widget.
+  return { w: 24, h: 12 }
 }
 
 /** Direct children of a tab, sorted by display order. */
@@ -136,6 +137,20 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
         }
       }
 
+      // Grid migration 1→2 (24→48 cols, row height halved): double each widget's position and
+      // size once so legacy dashboards keep their visual layout. Stamp gridV=2 to run it once.
+      for (const dash of dashboards) {
+        if ((dash.gridV ?? 1) >= 2) continue
+        const tabIds = new Set(allTabs.filter((t) => t.dashboardId === dash.id).map((t) => t.id))
+        for (const w of allWidgets) {
+          if (!tabIds.has(w.tabId)) continue
+          w.layout = { x: w.layout.x * 2, y: w.layout.y * 2, w: w.layout.w * 2, h: w.layout.h * 2 }
+          storage.dashboardWidgets.update(w.id, { layout: w.layout }).catch((e) => console.warn('[dashboard-store] grid migrate:', e))
+        }
+        dash.gridV = 2
+        storage.dashboards.update(dash.id, { gridV: 2 }).catch((e) => console.warn('[dashboard-store] grid migrate:', e))
+      }
+
       set({
         dashboards,
         tabs: allTabs,
@@ -168,6 +183,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       projectUid,
       name,
       filterConfig: [],
+      gridV: 2,
       createdAt: now,
       updatedAt: now,
     }

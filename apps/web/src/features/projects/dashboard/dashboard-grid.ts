@@ -1,9 +1,9 @@
 /** Dashboard grid layout constants — shared by the grid renderer and the widget editor preview. */
 export const DASHBOARD_GRID = {
-  cols: 24,
-  rowHeight: 40,
+  cols: 48,
+  rowHeight: 20,
   margin: [12, 12] as [number, number],
-  containerPadding: [16, 16] as [number, number],
+  containerPadding: [12, 12] as [number, number],
 }
 
 /** Pixel size of a widget occupying w×h grid cells, given the grid container's pixel width.
