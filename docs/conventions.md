@@ -142,6 +142,13 @@ behaviour (template logic, config schema, manifest), **bump that plugin's
 version and the two are indistinguishable. Use semver: patch for fixes, minor
 for new config/behaviour, major for breaking template/config changes.
 
+## Commits
+
+Write commit messages **in English**, even though the team discusses the code in
+French. Format: `Scope: short imperative description`, with an optional `(#issue)`
+suffix when it closes/relates to an issue — e.g. `Dashboard: uniform gutters (#42)`.
+Keep the subject concise; put extra detail in the body if needed.
+
 ## Tests
 
 See `.claude/skills/write-tests/SKILL.md`. Short version:
