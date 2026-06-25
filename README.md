@@ -1,9 +1,12 @@
-# Linkr v2
+# Linkr
 
 [![Try Linkr](https://img.shields.io/badge/Try%20Linkr-GitLab%20Pages-2ea44f?style=for-the-badge)](https://linkr-v2-b1800b.frama.io/)
+[![Documentation](https://img.shields.io/badge/Documentation-linkr.interhop.org-2ea44f?style=for-the-badge)](https://linkr.interhop.org/en/docs/)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0)
 
 Healthcare data visualization and analysis platform using the OMOP Common Data Model.
+
+![Linkr dashboard](docs/assets/dashboard-preview.png)
 
 ## Deployment modes
 
