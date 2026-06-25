@@ -428,11 +428,13 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
   useEffect(() => { setSize(base) }, [base])
 
   const dragRef = useRef<{ startX: number; startY: number; startW: number; startH: number } | null>(null)
+  const [resizing, setResizing] = useState(false)
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
     dragRef.current = { startX: e.clientX, startY: e.clientY, startW: size.width, startH: size.height }
+    setResizing(true)
   }, [size])
 
   const onPointerMove = useCallback((e: React.PointerEvent) => {
@@ -451,6 +453,7 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
 
   const onPointerUp = useCallback((e: React.PointerEvent) => {
     dragRef.current = null
+    setResizing(false)
     ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
   }, [])
 
@@ -471,18 +474,12 @@ function SizedPreview({ widget, gridWidth, widgetSpacing, children }: { widget: 
         <span className="ml-auto">{cellsW} × {cellsH} {t('dashboard.preview_cells', 'cells')}</span>
       </div>
       <div className="min-h-0 flex-1 overflow-auto bg-muted/30 p-6">
-        <div
-          className="relative"
-          style={{
-            width: size.width,
-            height: size.height,
-            // Faint grid behind the preview, on the same cell pitch as the dashboard.
-            backgroundImage:
-              'linear-gradient(to right, var(--color-border) 1px, transparent 1px),' +
-              'linear-gradient(to bottom, var(--color-border) 1px, transparent 1px)',
-            backgroundSize: `${colPitch}px ${rowPitch}px`,
-          }}
-        >
+        <div className="relative" style={{ width: size.width, height: size.height }}>
+          {/* Red placeholder mirroring the dashboard's resize feedback — the cells the widget will
+              occupy. Drawn under the widget so its content stays readable while dragging. */}
+          {resizing && (
+            <div className="pointer-events-none absolute inset-0 rounded-lg bg-destructive/20" />
+          )}
           <div className="h-full w-full overflow-hidden rounded-lg border bg-card shadow-sm">
             {children}
           </div>

@@ -12,7 +12,8 @@ import { buildDashboardTree } from './dashboard-tree'
 import { isWidgetPluginStale } from './plugin-drift'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
-import { DashboardDataProvider, FILTER_NONE } from './DashboardDataProvider'
+import { DashboardDataProvider } from './DashboardDataProvider'
+import { resolveWidgetFilters, buildFilterChips, buildFilterLabelMap } from './dashboard-filters'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
@@ -38,123 +39,82 @@ interface WidgetGridProps {
   onRequestExport?: (widgetId: string) => void
 }
 
-/** Resolve which filters apply to a given widget, keyed by column ID. `widgetParentTabId` is the
- *  parent of the widget's tab (when it's a sub-tab), so a tab-scoped filter targeting a container
- *  tab also reaches the widgets living in its sub-tabs. */
-function resolveWidgetFilters(
+/** Filters reaching a widget (for its data provider) + the chips that describe them (for the
+ *  filter badge). Shared so the badge can live in the WidgetCard rail while the provider stays
+ *  with the content. */
+function useWidgetFilters(
   widget: DashboardWidget,
   dashboard: Dashboard,
   activeFilters: Record<string, FilterValue>,
-  columnNameToId: Map<string, string>,
-  widgetParentTabId: string | null | undefined,
-): Record<string, FilterValue> | undefined {
-  const result: Record<string, FilterValue> = {}
-  let hasAny = false
-
-  for (const filter of dashboard.filterConfig) {
-    const filterValue = activeFilters[filter.id]
-    if (!filterValue) continue
-
-    // Check scope: skip if filter is scoped and widget is not in scope. A container tab in scope
-    // covers the widgets of its sub-tabs, so match on the parent tab too.
-    const scope = filter.scope ?? { type: 'all' }
-    if (scope.type === 'tabs'
-      && !scope.tabIds.includes(widget.tabId)
-      && !(widgetParentTabId != null && scope.tabIds.includes(widgetParentTabId))) continue
-    if (scope.type === 'widgets' && !scope.widgetIds.includes(widget.id)) continue
-
-    if (filter.datasetFileId === widget.datasetFileId) {
-      // Direct match: filter targets this widget's dataset
-      result[filter.columnId] = filterValue
-      hasAny = true
-    } else {
-      // Different dataset: match by column name (scope already decided this widget is in range).
-      const targetColumnId = columnNameToId.get(filter.columnName)
-      if (targetColumnId) {
-        result[targetColumnId] = filterValue
-        hasAny = true
-      }
-    }
-  }
-
-  return hasAny ? result : undefined
-}
-
-function formatRange(min: number | null, max: number | null): string {
-  return `${min ?? '−∞'} – ${max ?? '+∞'}`
-}
-
-/** Structured summary of the filters that apply to a widget — one entry per active filter,
- *  with the column name and its restricting value(s) — for the widget's filter tooltip. */
-interface FilterChip { column: string; values: string[] }
-
-function buildFilterChips(
-  filters: Record<string, FilterValue>,
-  columns: { id: string; name: string }[],
-): FilterChip[] {
-  const nameOf = (id: string) => columns.find((c) => c.id === id)?.name ?? id
-  const chips: FilterChip[] = []
-  for (const [colId, v] of Object.entries(filters)) {
-    const column = nameOf(colId)
-    switch (v.type) {
-      case 'categorical':
-        if (v.selected.length === 1 && v.selected[0] === FILTER_NONE) { chips.push({ column, values: ['∅'] }); break }
-        if (v.selected.length === 0) break
-        chips.push({ column, values: v.selected })
-        break
-      case 'numeric':
-        if (v.min == null && v.max == null) break
-        chips.push({ column, values: [formatRange(v.min, v.max)] })
-        break
-      case 'numeric-double': {
-        const parts: string[] = []
-        if (v.min1 != null || v.max1 != null) parts.push(formatRange(v.min1, v.max1))
-        if (v.min2 != null || v.max2 != null) parts.push(formatRange(v.min2, v.max2))
-        if (parts.length === 0) break
-        chips.push({ column, values: parts })
-        break
-      }
-      case 'date':
-        if (!v.from && !v.to) break
-        chips.push({ column, values: [`${v.from ?? '…'} – ${v.to ?? '…'}`] })
-        break
-      case 'date-relative':
-        chips.push({ column, values: [`${v.count} ${v.unit}`] })
-        break
-    }
-  }
-  return chips
-}
-
-function WidgetWithData({
-  widget,
-  dashboard,
-  activeFilters,
-  parentTabId,
-}: {
-  widget: DashboardWidget
-  dashboard: Dashboard
-  activeFilters: Record<string, FilterValue>
-  parentTabId: string | null | undefined
-}) {
-  const { t } = useTranslation()
+  parentTabId: string | null | undefined,
+) {
   const { files } = useDatasetStore()
   const datasetFile = files.find((f) => f.id === widget.datasetFileId)
   const columnNameToId = useMemo(
     () => new Map((datasetFile?.columns ?? []).map((c) => [c.name, c.id])),
     [datasetFile?.columns]
   )
-
   const filters = useMemo(
     () => resolveWidgetFilters(widget, dashboard, activeFilters, columnNameToId, parentTabId),
     [widget, dashboard, activeFilters, columnNameToId, parentTabId]
   )
-
   const filterChips = useMemo(
-    () => (filters ? buildFilterChips(filters, datasetFile?.columns ?? []) : []),
-    [filters, datasetFile?.columns]
+    () => (filters ? buildFilterChips(filters, datasetFile?.columns ?? [], buildFilterLabelMap(dashboard, columnNameToId)) : []),
+    [filters, datasetFile?.columns, dashboard, columnNameToId]
   )
+  return { filters, filterChips }
+}
 
+/** Active-filters indicator for the WidgetCard top-left rail. */
+function WidgetFilterBadge({ chips }: { chips: ReturnType<typeof useWidgetFilters>['filterChips'] }) {
+  const { t } = useTranslation()
+  if (chips.length === 0) return null
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
+            <Filter size={11} />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
+          <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters', { count: chips.length })}</p>
+          <div className="space-y-2">
+            {chips.map((chip, i) => (
+              <div key={i} className="text-[11px]">
+                <div>
+                  <span className="text-background/70">{t('dashboard.filter_column')} : </span>
+                  <span className="font-medium">{chip.column}</span>
+                </div>
+                <div className="text-background/70">{t('dashboard.filter_values')} :</div>
+                <ul className="ml-1 list-inside list-disc">
+                  {chip.values.slice(0, 12).map((val, j) => (
+                    <li key={j} className="font-medium">{val}</li>
+                  ))}
+                  {chip.values.length > 12 && (
+                    <li className="list-none text-background/70">
+                      {t('dashboard.filter_values_more', { count: chip.values.length - 12 })}
+                    </li>
+                  )}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
+function WidgetWithData({
+  widget,
+  dashboard,
+  filters,
+}: {
+  widget: DashboardWidget
+  dashboard: Dashboard
+  filters: Record<string, FilterValue> | undefined
+}) {
   return (
     <DashboardDataProvider
       datasetFileId={widget.datasetFileId ?? null}
@@ -162,41 +122,6 @@ function WidgetWithData({
       reloadOnTabSwitch={dashboard.reloadWidgetsOnTabSwitch === true}
     >
       <div className="relative flex h-full flex-col">
-        {filterChips.length > 0 && (
-          <TooltipProvider delayDuration={150}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="absolute left-1 top-1 z-10 flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
-                  <Filter size={11} />
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
-                <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters', { count: filterChips.length })}</p>
-                <div className="space-y-2">
-                  {filterChips.map((chip, i) => (
-                    <div key={i} className="text-[11px]">
-                      <div>
-                        <span className="text-background/70">{t('dashboard.filter_column')} : </span>
-                        <span className="font-medium">{chip.column}</span>
-                      </div>
-                      <div className="text-background/70">{t('dashboard.filter_values')} :</div>
-                      <ul className="ml-1 list-inside list-disc">
-                        {chip.values.slice(0, 12).map((val, j) => (
-                          <li key={j} className="font-medium">{val}</li>
-                        ))}
-                        {chip.values.length > 12 && (
-                          <li className="list-none text-background/70">
-                            {t('dashboard.filter_values_more', { count: chip.values.length - 12 })}
-                          </li>
-                        )}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-        )}
         <div className="min-h-0 flex-1">
           {widget.source.type === 'plugin' ? (
             <PluginWidgetRenderer widget={widget} />
@@ -208,6 +133,64 @@ function WidgetWithData({
         </div>
       </div>
     </DashboardDataProvider>
+  )
+}
+
+/** One widget: resolves its filters (for the data provider + the filter badge), then renders the
+ *  card with the badge in its top-left rail. Separate component so the filter hook runs per widget
+ *  (hooks can't be called inside the .map callback). */
+function WidgetCell({
+  widget,
+  dashboard,
+  activeFilters,
+  parentTabId,
+  siblingNames,
+  editMode,
+  hideTitleBar,
+  canMove,
+  onRemove,
+  onRename,
+  onEdit,
+  onExport,
+  onDuplicate,
+  onMove,
+  onAcceptPluginVersion,
+}: {
+  widget: DashboardWidget
+  dashboard: Dashboard
+  activeFilters: Record<string, FilterValue>
+  parentTabId: string | null | undefined
+  siblingNames: Set<string>
+  editMode: boolean
+  hideTitleBar?: boolean
+  canMove: boolean
+  onRemove: () => void
+  onRename: (name: string) => void
+  onEdit: () => void
+  onExport?: () => void
+  onDuplicate: () => void
+  onMove: () => void
+  onAcceptPluginVersion: () => void
+}) {
+  const { filters, filterChips } = useWidgetFilters(widget, dashboard, activeFilters, parentTabId)
+  return (
+    <WidgetCard
+      title={widget.name}
+      onRemove={onRemove}
+      onRename={onRename}
+      siblingNames={siblingNames}
+      onEdit={onEdit}
+      onExport={onExport}
+      onDuplicate={onDuplicate}
+      onMove={canMove ? onMove : undefined}
+      editMode={editMode}
+      hideTitleBar={hideTitleBar}
+      stale={isWidgetPluginStale(widget)}
+      onAcceptPluginVersion={onAcceptPluginVersion}
+      topLeftBadges={filterChips.length > 0 ? <WidgetFilterBadge chips={filterChips} /> : undefined}
+    >
+      <WidgetWithData widget={widget} dashboard={dashboard} filters={filters} />
+    </WidgetCard>
   )
 }
 
@@ -414,27 +397,23 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
             data-widget-id={widget.id}
             data-widget-name={widget.name}
           >
-            <WidgetCard
-              title={widget.name}
+            <WidgetCell
+              widget={widget}
+              dashboard={dashboard}
+              activeFilters={activeFilters}
+              parentTabId={tabParentById.get(widget.tabId)}
+              siblingNames={siblingNames}
+              editMode={editMode}
+              hideTitleBar={hideTitleBars}
+              canMove={canMove}
               onRemove={() => setConfirmDeleteWidgetId(widget.id)}
               onRename={(name) => updateWidgetName(widget.id, name)}
-              siblingNames={siblingNames}
               onEdit={() => setEditingWidgetId(widget.id)}
               onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
               onDuplicate={() => duplicateWidget(widget.id)}
-              onMove={canMove ? () => setMovingWidgetId(widget.id) : undefined}
-              editMode={editMode}
-              hideTitleBar={hideTitleBars}
-              stale={isWidgetPluginStale(widget)}
+              onMove={() => setMovingWidgetId(widget.id)}
               onAcceptPluginVersion={() => acceptPluginVersion(widget.id)}
-            >
-              <WidgetWithData
-                widget={widget}
-                dashboard={dashboard}
-                activeFilters={activeFilters}
-                parentTabId={tabParentById.get(widget.tabId)}
-              />
-            </WidgetCard>
+            />
           </div>
           )
         })}

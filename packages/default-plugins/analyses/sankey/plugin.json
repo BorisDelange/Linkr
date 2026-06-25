@@ -8,7 +8,7 @@
     "en": "Visualize flows and transitions between stages: patient pathways, funnels, state changes. Builds links from sequential steps, fixed level columns, or a path string.",
     "fr": "Visualise des flux et transitions entre étapes : parcours patient, entonnoirs, changements d'état. Construit les liens à partir d'étapes successives, de colonnes de niveaux, ou d'une chaîne de parcours."
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "visualization",
   "tags": ["sankey", "flow", "pathway", "funnel", "transition", "visualization"],
   "runtime": ["component"],
@@ -182,6 +182,22 @@
       "label": { "en": "Center title", "fr": "Centrer le titre" },
       "default": true,
       "section": { "en": "Style", "fr": "Style", "defaultOpen": false }
+    },
+    "displayMode": {
+      "type": "select",
+      "label": { "en": "Display", "fr": "Affichage" },
+      "default": "diagram",
+      "section": { "en": "Style", "fr": "Style", "defaultOpen": false },
+      "description": {
+        "en": "Show the flows as a Sankey diagram, as a table (From → To, count, %), both stacked with a draggable divider, or both switchable via tabs.",
+        "fr": "Afficher les flux sous forme de diagramme Sankey, de tableau (De → Vers, effectif, %), les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
+      },
+      "options": [
+        { "value": "diagram", "label": { "en": "Diagram", "fr": "Diagramme" } },
+        { "value": "table", "label": { "en": "Table", "fr": "Tableau" } },
+        { "value": "both", "label": { "en": "Diagram + table (stacked)", "fr": "Diagramme + tableau (empilés)" } },
+        { "value": "both-tabs", "label": { "en": "Diagram + table (tabs)", "fr": "Diagramme + tableau (onglets)" } }
+      ]
     },
     "valueDisplay": {
       "type": "select",

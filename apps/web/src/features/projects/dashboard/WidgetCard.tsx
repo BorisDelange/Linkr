@@ -31,10 +31,13 @@ interface WidgetCardProps {
   stale?: boolean
   /** Realign the widget with the plugin's current version (accept the change). */
   onAcceptPluginVersion?: () => void
+  /** Extra badges (e.g. an active-filters indicator) shown in the floating top-left rail,
+   *  to the right of the plugin-drift warning, when the title bar is hidden. */
+  topLeftBadges?: React.ReactNode
   children: React.ReactNode
 }
 
-export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, children }: WidgetCardProps) {
+export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDuplicate, onMove, siblingNames, editMode, hideTitleBar, stale, onAcceptPluginVersion, topLeftBadges, children }: WidgetCardProps) {
   const { t } = useTranslation()
   const showTitleBar = !hideTitleBar
   const [renaming, setRenaming] = useState(false)
@@ -214,20 +217,25 @@ export function WidgetCard({ title, onRemove, onEdit, onRename, onExport, onDupl
           )}
         </div>
       )}
-      {/* Floating drift warning when the title bar is hidden — surfaced regardless of edit mode.
-          z-30 to stay above a widget's own sticky table header (see the menu button below). */}
-      {!showTitleBar && stale && (
-        <div className="absolute top-1 left-1 z-30">
-          <TooltipProvider delayDuration={300}>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center rounded bg-card/80 p-1 text-amber-500 backdrop-blur-sm">
-                  <AlertTriangle size={12} />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t('dashboard.plugin_drift_widget_tooltip')}</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+      {/* Floating top-left rail when the title bar is hidden — surfaced regardless of edit mode.
+          One row, left-to-right priority: plugin-drift warning first, then any extra badges
+          (e.g. the active-filters indicator). z-30 to stay above a widget's own sticky table
+          header (see the menu button below). */}
+      {!showTitleBar && (stale || topLeftBadges) && (
+        <div className="absolute top-1 left-1 z-30 flex items-center gap-1">
+          {stale && (
+            <TooltipProvider delayDuration={300}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex items-center rounded bg-card/80 p-1 text-amber-500 backdrop-blur-sm">
+                    <AlertTriangle size={12} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t('dashboard.plugin_drift_widget_tooltip')}</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
+          {topLeftBadges}
         </div>
       )}
       {/* Floating menu button when title bar is hidden — full menu in edit mode, view actions on hover otherwise.

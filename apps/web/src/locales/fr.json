@@ -294,6 +294,7 @@
     "filter_propagate": "Propager à tous les datasets",
     "filter_no_datasets": "Aucun dataset utilisé par les widgets",
     "filter_input_type": "Type de contrôle",
+    "filter_label": "Libellé",
     "filter_all": "Tous",
     "filter_none": "Aucun",
     "input_type_checkbox": "Cases à cocher",
@@ -1745,7 +1746,11 @@
       "no_flows": "Aucun flux à afficher avec les réglages actuels.",
       "table_from": "De",
       "table_to": "Vers",
-      "table_count": "Effectif"
+      "table_count": "Effectif",
+      "view_diagram": "Diagramme",
+      "view_table": "Tableau",
+      "filter_all": "Tous",
+      "no_rows": "Aucune ligne ne correspond aux filtres."
     },
     "title": "Plugins",
     "description": "Créer et gérer des plugins d'analyse.",

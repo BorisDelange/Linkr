@@ -294,6 +294,7 @@
     "filter_propagate": "Propagate to all datasets",
     "filter_no_datasets": "No datasets in use by widgets",
     "filter_input_type": "Input type",
+    "filter_label": "Label",
     "filter_all": "All",
     "filter_none": "None",
     "input_type_checkbox": "Checkboxes",
@@ -1745,7 +1746,11 @@
       "no_flows": "No flows to display with the current settings.",
       "table_from": "From",
       "table_to": "To",
-      "table_count": "Count"
+      "table_count": "Count",
+      "view_diagram": "Diagram",
+      "view_table": "Table",
+      "filter_all": "All",
+      "no_rows": "No rows match the filters."
     },
     "title": "Plugins",
     "description": "Create and manage analysis plugins.",

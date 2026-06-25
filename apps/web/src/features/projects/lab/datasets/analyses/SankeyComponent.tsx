@@ -1,7 +1,11 @@
-import { useMemo, useRef, useState, useCallback } from 'react'
+import { useMemo, useRef, useState, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyNode, type SankeyLink } from 'd3-sankey'
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
+import { Workflow, Table as TableIcon, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 
@@ -154,6 +158,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   const { t } = useTranslation()
 
   const sourceMode = (config.sourceMode as string) ?? 'long'
+  const displayMode = (config.displayMode as string) ?? 'diagram'
   const collapseRepeats = (config.collapseRepeats as boolean) ?? true
   const excludeNA = (config.excludeNA as boolean) ?? true
   const alignEndStates = (config.alignEndStates as boolean) ?? false
@@ -234,6 +239,19 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [tooltip, setTooltip] = useState<{ x: number; y: number; title: string; value: string } | null>(null)
   const [hoveredLink, setHoveredLink] = useState<number | null>(null)
+  // In "both-tabs" mode, which of the two views is showing (local, not persisted to config).
+  const [activeView, setActiveView] = useState<'diagram' | 'table'>('diagram')
+  // Clicking a link in a diagram+table layout briefly highlights the matching table row, then it
+  // fades. `flashKey` is the matched "source\ttarget"; `flashNonce` re-triggers the flash when the
+  // same link is clicked twice in a row. A timer clears the key so the row fades back.
+  const [flash, setFlash] = useState<{ key: string; nonce: number } | null>(null)
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const flashRowRef = useRef<HTMLTableRowElement | null>(null)
+  // Table sort + per-column factor filters (From/To). Default sort: biggest flow first — the most
+  // useful reading order for a Sankey (the dominant transitions on top).
+  const [sort, setSort] = useState<{ col: 'source' | 'target' | 'value' | 'percent'; dir: 'asc' | 'desc' }>({ col: 'value', dir: 'desc' })
+  const [fromFilter, setFromFilter] = useState<string[]>([])
+  const [toFilter, setToFilter] = useState<string[]>([])
   const setContainer = useCallback((el: HTMLDivElement | null) => {
     observerRef.current?.disconnect()
     containerRef.current = el
@@ -277,6 +295,47 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   }, [nodes, palette])
   const colorFor = (label: string) => colorMap.get(label) ?? palette[0]
 
+  // Flat list of transitions for the table display.
+  const tableRows = useMemo(
+    () => links.map((l) => ({ source: nodes[l.source]?.label ?? '', target: nodes[l.target]?.label ?? '', value: l.value })),
+    [links, nodes],
+  )
+
+  // Distinct From / To values for the column dropdown filters (sorted alphabetically).
+  const fromOptions = useMemo(
+    () => Array.from(new Set(tableRows.map((r) => r.source))).sort((a, b) => a.localeCompare(b)),
+    [tableRows],
+  )
+  const toOptions = useMemo(
+    () => Array.from(new Set(tableRows.map((r) => r.target))).sort((a, b) => a.localeCompare(b)),
+    [tableRows],
+  )
+
+  // Apply the factor filters, then sort by the active column. Ties fall back to count desc so the
+  // order stays stable and meaningful when sorting by a label column.
+  const displayedRows = useMemo(() => {
+    const fromSet = new Set(fromFilter)
+    const toSet = new Set(toFilter)
+    const filtered = tableRows.filter(
+      (r) => (fromSet.size === 0 || fromSet.has(r.source)) && (toSet.size === 0 || toSet.has(r.target)),
+    )
+    const factor = sort.dir === 'asc' ? 1 : -1
+    return filtered.sort((a, b) => {
+      let cmp: number
+      // Count and % share the same numeric basis (% is value/total), so both sort by value.
+      if (sort.col === 'value' || sort.col === 'percent') cmp = a.value - b.value
+      else cmp = a[sort.col].localeCompare(b[sort.col])
+      return cmp !== 0 ? cmp * factor : b.value - a.value
+    })
+  }, [tableRows, fromFilter, toFilter, sort])
+
+  const toggleSort = useCallback((col: 'source' | 'target' | 'value' | 'percent') => {
+    setSort((prev) => prev.col === col
+      ? { col, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+      // New column: labels default ascending (A→Z), the numeric columns default descending.
+      : { col, dir: col === 'value' || col === 'percent' ? 'desc' : 'asc' })
+  }, [])
+
   const formatValue = (v: number): string => {
     if (valueDisplay === 'percent') {
       return total > 0 ? `${((v / total) * 100).toFixed(1)}%` : ''
@@ -296,6 +355,55 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
     if (!rect) return
     setTooltip({ x: e.clientX - rect.left, y: e.clientY - rect.top, title, value })
   }
+
+  // Both-views layouts let a link click point at its table row. Flash that row, then clear after a
+  // beat so it fades back. In the tabbed layout, switch to the table so the highlighted row shows.
+  const showsTable = displayMode === 'both' || displayMode === 'both-tabs'
+  const flashLink = useCallback((source: string, target: string) => {
+    if (displayMode === 'both-tabs') setActiveView('table')
+    // If the matching row is hidden by the current factor filters, clear them so the flash is
+    // visible — clicking a link should always reveal its transition.
+    setFromFilter((from) => (from.length > 0 && !from.includes(source) ? [] : from))
+    setToFilter((to) => (to.length > 0 && !to.includes(target) ? [] : to))
+    if (flashTimer.current) clearTimeout(flashTimer.current)
+    setFlash((prev) => ({ key: `${source}\t${target}`, nonce: (prev?.nonce ?? 0) + 1 }))
+    flashTimer.current = setTimeout(() => setFlash(null), 1600)
+  }, [displayMode])
+
+  // Clicking a node toggles the table's From filter on that node's label (the flows leaving it):
+  // first click filters to it, clicking the same node again clears the filter.
+  const filterFrom = useCallback((label: string) => {
+    if (displayMode === 'both-tabs') setActiveView('table')
+    setFromFilter((prev) => (prev.length === 1 && prev[0] === label ? [] : [label]))
+  }, [displayMode])
+  useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current) }, [])
+  // Bring the flashed row into view (it may be scrolled off in the stacked layout). Keyed on the
+  // nonce so re-clicking the same link re-scrolls.
+  const flashNonce = flash?.nonce
+  useEffect(() => {
+    if (flashNonce != null) flashRowRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [flashNonce])
+
+  // Diagram/table switch for "both-tabs" mode — shown centered on its own line below the title.
+  const tabBtn = (view: 'diagram' | 'table', label: string) => (
+    <button
+      type="button"
+      onClick={() => setActiveView(view)}
+      className={cn(
+        'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors',
+        activeView === view ? 'bg-muted text-foreground' : 'text-muted-foreground hover:text-foreground',
+      )}
+    >
+      {view === 'diagram' ? <Workflow size={12} /> : <TableIcon size={12} />}
+      {label}
+    </button>
+  )
+  const viewTabs = displayMode === 'both-tabs' ? (
+    <div className={cn('flex shrink-0 items-center justify-center gap-1', compact ? 'px-4 pb-1' : 'mb-2')}>
+      {tabBtn('diagram', t('plugins.sankey.view_diagram', 'Diagram'))}
+      {tabBtn('table', t('plugins.sankey.view_table', 'Table'))}
+    </div>
+  ) : null
 
   // --- Header (matches PlotBuilder card pattern) ---
   const hasIcon = cardIcon !== '__none__' && cardIcon !== ''
@@ -322,7 +430,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
       </div>
     )
   } else {
-    body = (
+    const diagram = (
       <div ref={setContainer} className="relative w-full h-full">
         {graph && (
           <svg width={size.width} height={size.height} className="overflow-visible">
@@ -343,9 +451,10 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
                     stroke={stroke}
                     strokeOpacity={hoveredLink === i ? Math.min(1, linkOpacity + 0.25) : linkOpacity}
                     strokeWidth={Math.max(1, link.width ?? 1)}
-                    className="transition-[stroke-opacity] duration-100"
+                    className={cn('transition-[stroke-opacity] duration-100', showsTable && 'cursor-pointer')}
                     onMouseMove={e => { setHoveredLink(i); onMove(e) }}
                     onMouseLeave={() => { setHoveredLink(null); setTooltip(null) }}
+                    onClick={showsTable ? () => flashLink(src.label, tgt.label) : undefined}
                   />
                 )
               })}
@@ -371,8 +480,10 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
                       height={Math.max(1, h)}
                       fill={fill}
                       rx={1.5}
+                      className={cn(showsTable && 'cursor-pointer')}
                       onMouseMove={onMove}
                       onMouseLeave={() => setTooltip(null)}
+                      onClick={showsTable ? () => filterFrom(node.label) : undefined}
                     />
                     {h >= 8 && (
                       <text
@@ -410,12 +521,120 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
         )}
       </div>
     )
+
+    const sortIcon = (col: 'source' | 'target' | 'value' | 'percent') =>
+      sort.col !== col
+        ? <ChevronsUpDown size={11} className="opacity-40" />
+        : sort.dir === 'asc' ? <ChevronUp size={11} /> : <ChevronDown size={11} />
+    const sortBtnClass = 'flex items-center gap-1 font-medium hover:text-foreground'
+    const table = (
+      <div className="flex h-full flex-col overflow-hidden px-3 pb-3">
+        <div className="overflow-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead className="sticky top-0 z-10 bg-card">
+              <tr className="text-muted-foreground align-bottom">
+                <th className="py-1 pr-2 text-left">
+                  <button type="button" onClick={() => toggleSort('source')} className={sortBtnClass}>
+                    {t('plugins.sankey.table_from', 'From')}{sortIcon('source')}
+                  </button>
+                  <div className="mt-1 max-w-[10rem] font-normal">
+                    <MultiSelectFilter
+                      value={fromFilter}
+                      options={fromOptions}
+                      placeholder={t('plugins.sankey.filter_all', 'All')}
+                      onChange={setFromFilter}
+                    />
+                  </div>
+                </th>
+                <th className="py-1 px-2 text-left">
+                  <button type="button" onClick={() => toggleSort('target')} className={sortBtnClass}>
+                    {t('plugins.sankey.table_to', 'To')}{sortIcon('target')}
+                  </button>
+                  <div className="mt-1 max-w-[10rem] font-normal">
+                    <MultiSelectFilter
+                      value={toFilter}
+                      options={toOptions}
+                      placeholder={t('plugins.sankey.filter_all', 'All')}
+                      onChange={setToFilter}
+                    />
+                  </div>
+                </th>
+                <th className="py-1 pl-2 text-right">
+                  <button type="button" onClick={() => toggleSort('value')} className={cn(sortBtnClass, 'ml-auto')}>
+                    {t('plugins.sankey.table_count', 'Count')}{sortIcon('value')}
+                  </button>
+                </th>
+                <th className="py-1 pl-2 text-right">
+                  <button type="button" onClick={() => toggleSort('percent')} className={cn(sortBtnClass, 'ml-auto')}>
+                    %{sortIcon('percent')}
+                  </button>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedRows.map((r, i) => {
+                const isFlashed = flash?.key === `${r.source}\t${r.target}`
+                return (
+                  <tr
+                    key={i}
+                    ref={isFlashed ? flashRowRef : undefined}
+                    className={cn(
+                      'border-t border-border/50 [&>td]:transition-colors [&>td]:duration-700',
+                      isFlashed && '[&>td]:bg-primary/20',
+                    )}
+                  >
+                    <td className="py-1 pr-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block size-2 shrink-0 rounded-sm" style={{ background: colorFor(r.source) }} />
+                        <span className="truncate">{r.source}</span>
+                      </span>
+                    </td>
+                    <td className="py-1 px-2 truncate">{r.target}</td>
+                    <td className="py-1 pl-2 text-right tabular-nums">{r.value.toLocaleString(undefined, { useGrouping: true, maximumFractionDigits: 0 })}</td>
+                    <td className="py-1 pl-2 text-right tabular-nums text-muted-foreground">{total > 0 ? `${((r.value / total) * 100).toFixed(1)}%` : ''}</td>
+                  </tr>
+                )
+              })}
+              {displayedRows.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-3 text-center text-muted-foreground">
+                    {t('plugins.sankey.no_rows', 'No rows match the filters.')}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+
+    if (displayMode === 'table') {
+      body = table
+    } else if (displayMode === 'both') {
+      // Diagram above, table below, with a draggable divider to rebalance the two panes. The
+      // table pane carries the visible separator (a full-width top border) since Allotment's own
+      // separator line is hidden behind the pane content; its sash still drives the resize on top.
+      body = (
+        <Allotment vertical>
+          <Allotment.Pane minSize={80}>{diagram}</Allotment.Pane>
+          <Allotment.Pane minSize={80} preferredSize="40%">
+            <div className="h-full border-t border-border">{table}</div>
+          </Allotment.Pane>
+        </Allotment>
+      )
+    } else if (displayMode === 'both-tabs') {
+      // Both views available; the diagram/table switch is the centered strip below the title (viewTabs).
+      body = activeView === 'table' ? table : diagram
+    } else {
+      body = diagram
+    }
   }
 
   if (compact) {
     return (
       <div className="flex h-full flex-col">
         {header}
+        {viewTabs}
         <div className="flex-1 min-h-0 px-2 pb-2">{body}</div>
       </div>
     )
@@ -423,6 +642,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   return (
     <div className="flex h-full flex-col p-4 gap-2">
       {header}
+      {viewTabs}
       <div className="flex-1 min-h-0">{body}</div>
     </div>
   )

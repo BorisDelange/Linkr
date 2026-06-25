@@ -16,10 +16,13 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home } from 'lucide-react'
+import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home, Filter } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { DashboardTab } from '@/types'
 import { useDashboardStore, getChildTabs, getTabPath } from '@/stores/dashboard-store'
+import { useDatasetStore } from '@/stores/dataset-store'
+import { buildTabFilterChips, type FilterChip } from './dashboard-filters'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -49,6 +52,7 @@ function SortableTab({
   canClose,
   editMode,
   hasChildren,
+  filterChips,
   onActivate,
   onClose,
   onStartRename,
@@ -60,6 +64,9 @@ function SortableTab({
   editMode: boolean
   /** Tab that contains sub-tabs — shows a container indicator and drills in on click. */
   hasChildren?: boolean
+  /** Active filters reaching this tab's widgets — drives the filter indicator + hover tooltip.
+   *  Empty for container tabs (their own widgets live in sub-tabs). */
+  filterChips: FilterChip[]
   onActivate: () => void
   onClose: () => void
   onStartRename: () => void
@@ -104,6 +111,43 @@ function SortableTab({
           <span>{tab.name}</span>
           {hasChildren && (
             <Layers size={11} className="text-muted-foreground/70 shrink-0" />
+          )}
+          {filterChips.length > 0 && (
+            // Tooltip only on the filter icon (not the whole tab title) — lists the active
+            // filters reaching this tab's widgets, same UI as the per-widget indicator.
+            <TooltipProvider delayDuration={150}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="flex shrink-0 items-center text-muted-foreground/70 hover:text-foreground">
+                    <Filter size={11} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-h-72 max-w-64 overflow-y-auto bg-foreground text-background">
+                  <p className="mb-1 text-[11px] font-semibold">{t('dashboard.active_filters', { count: filterChips.length })}</p>
+                  <div className="space-y-2">
+                    {filterChips.map((chip, i) => (
+                      <div key={i} className="text-[11px]">
+                        <div>
+                          <span className="text-background/70">{t('dashboard.filter_column')} : </span>
+                          <span className="font-medium">{chip.column}</span>
+                        </div>
+                        <div className="text-background/70">{t('dashboard.filter_values')} :</div>
+                        <ul className="ml-1 list-inside list-disc">
+                          {chip.values.slice(0, 12).map((val, j) => (
+                            <li key={j} className="font-medium">{val}</li>
+                          ))}
+                          {chip.values.length > 12 && (
+                            <li className="list-none text-background/70">
+                              {t('dashboard.filter_values_more', { count: chip.values.length - 12 })}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           )}
         </div>
       </ContextMenuTrigger>
@@ -201,6 +245,8 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     tabs: allTabs,
     widgets,
     activeTabId,
+    dashboards,
+    activeFilters,
     addTab,
     addSubTab,
     removeTab,
@@ -209,6 +255,8 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
     setActiveTab,
     enterTab,
   } = useDashboardStore()
+  const { files } = useDatasetStore()
+  const dashboard = dashboards.find((d) => d.id === dashboardId)
 
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null)
   const [confirmDeleteTabId, setConfirmDeleteTabId] = useState<string | null>(null)
@@ -258,6 +306,17 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
   const containerIds = new Set(
     dashboardTabs.filter((t) => t.parentTabId).map((t) => t.parentTabId as string),
   )
+
+  // Filter chips per tab on this level. Container tabs are skipped: filters surface on the
+  // sub-tabs that actually hold the widgets, not on the container.
+  const tabFilterChips = new Map<string, FilterChip[]>()
+  if (dashboard) {
+    for (const tab of tabs) {
+      if (containerIds.has(tab.id)) continue
+      const chips = buildTabFilterChips(tab.id, dashboard, widgets, activeFilters, files)
+      if (chips.length > 0) tabFilterChips.set(tab.id, chips)
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -363,6 +422,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
                     canClose={parentOfLevel ? true : tabs.length > 1}
                     editMode={editMode}
                     hasChildren={containerIds.has(tab.id)}
+                    filterChips={tabFilterChips.get(tab.id) ?? []}
                     onActivate={() =>
                       containerIds.has(tab.id)
                         ? enterTab(dashboardId, tab.id)

@@ -183,6 +183,15 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     })
   }
 
+  const handleLabelChange = (filterId: string, label: string) => {
+    const trimmed = label.trim()
+    updateDashboard(dashboard.id, {
+      filterConfig: dashboard.filterConfig.map((f) =>
+        f.id === filterId ? { ...f, label: trimmed || undefined } : f
+      ),
+    })
+  }
+
   const handleChangeInputType = (filterId: string, inputType: DashboardFilter['inputType']) => {
     updateDashboard(dashboard.id, {
       filterConfig: dashboard.filterConfig.map((f) =>
@@ -302,7 +311,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                       className="flex h-full flex-1 items-center gap-1.5 min-w-0 text-left"
                     >
                       <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
-                      <span className="text-xs font-medium truncate">{fc.columnName}</span>
+                      <span className="text-xs font-medium truncate">{fc.label || fc.columnName}</span>
                     </button>
                     {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
                     {editMode && (
@@ -320,6 +329,18 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                             <Database size={9} />
                             {dsFile?.name ?? '?'}
                           </Badge>
+
+                          {/* Optional display label — shown instead of the column name everywhere. */}
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_label', 'Label')}</Label>
+                            <Input
+                              defaultValue={fc.label ?? ''}
+                              placeholder={fc.columnName}
+                              onBlur={(e) => handleLabelChange(fc.id, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                              className="h-7 text-xs"
+                            />
+                          </div>
 
                           {/* Scope selector — before the input-type dropdown (renders its own label) */}
                           <FilterScopeSelector
