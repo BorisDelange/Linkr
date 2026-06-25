@@ -65,77 +65,45 @@ export function VersionCheckDialog() {
 
   useEffect(() => {
     const result = checkVersion()
-    if (result.kind === 'first-visit' || result.kind === 'up-to-date') {
-      if (result.kind === 'first-visit') acknowledgeVersion()
-      // Store seed hashes if not yet present (first visit or migration from pre-feature build)
+
+    if (result.kind === 'first-visit') {
+      acknowledgeVersion()
+      // Record the baseline seed hashes so future content changes are detectable.
       if (!getStoredSeedHashes()) {
         fetchSeedHashes().then((h) => { if (h) storeSeedHashes(h) })
       }
-    } else if (result.kind === 'new-build') {
-      setStatus(result)
-
-      // For non-schema-breaking updates, check seed changes
-      if (!result.schemaChanged) {
-        setSeedChecking(true)
-        detectSeedChanges().then((diff) => {
-          setSeedDiff(diff)
-          setSeedChecking(false)
-
-          if (!diff.hasChanges || dismissSeedUpdates) {
-            // No changes, or user opted out — silently acknowledge
-            acknowledgeVersion()
-            if (diff.hasChanges) {
-              // Still store new hashes so we don't re-detect same changes
-              fetchSeedHashes().then((h) => { if (h) storeSeedHashes(h) })
-            }
-          }
-        })
-      }
+      return
     }
+
+    // A schema-breaking app update needs its own blocking dialog; skip seed diffing.
+    if (result.kind === 'new-build' && result.schemaChanged) {
+      setStatus(result)
+      return
+    }
+
+    // Otherwise (up-to-date OR a non-breaking new build): the seed content can have
+    // changed even when the app build is identical — portal deployments update the
+    // bundled workspaces/projects far more often than the app itself. So always diff
+    // the seed against the stored baseline, independent of the build hash.
+    if (result.kind === 'new-build') setStatus(result)
+    setSeedChecking(true)
+    detectSeedChanges().then((diff) => {
+      setSeedDiff(diff)
+      setSeedChecking(false)
+
+      if (!diff.hasChanges || dismissSeedUpdates) {
+        // No changes, or user opted out — acknowledge and silently advance the baseline.
+        acknowledgeVersion()
+        if (diff.hasChanges) {
+          fetchSeedHashes().then((h) => { if (h) storeSeedHashes(h) })
+        }
+      }
+    })
   }, [dismissSeedUpdates])
 
-  if (!status || status.kind !== 'new-build') return null
-
-  // --- Schema changed: blocking dialog (unchanged) ---
-  if (status.schemaChanged) {
-    const handleResetData = () => clearAllData()
-
-    const handleDismiss = () => {
-      acknowledgeVersion()
-      setStatus(null)
-    }
-
-    return (
-      <Dialog open onOpenChange={(open) => { if (!open) handleDismiss() }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('version_check.schema_title')}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="mt-3 space-y-3">
-                <p>{t('version_check.schema_description')}</p>
-                <p className="text-xs text-muted-foreground">
-                  {t('version_check.schema_hint')}
-                </p>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="flex-col gap-2 sm:flex-col">
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={handleDismiss}>
-                {t('version_check.dismiss')}
-              </Button>
-              <Button variant="destructive" onClick={handleResetData}>
-                <Trash2 size={14} />
-                {t('version_check.reset_data')}
-              </Button>
-            </div>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
-  }
-
   // --- Seed data changed: blocking dialog with change list ---
+  // Shown whenever the bundled content differs from the local baseline, even if the
+  // app build is unchanged. Checked before the build-status guard below.
   if (seedDiff?.hasChanges && !dismissSeedUpdates) {
     const handleResetData = () => clearAllData()
 
@@ -144,6 +112,7 @@ export function VersionCheckDialog() {
       // Store the new hashes so we don't show this again
       const hashes = await fetchSeedHashes()
       if (hashes) storeSeedHashes(hashes)
+      setSeedDiff(null)
       setStatus(null)
     }
 
@@ -210,6 +179,47 @@ export function VersionCheckDialog() {
               <Trash2 size={14} />
               {t('version_check.reset_data')}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  if (!status || status.kind !== 'new-build') return null
+
+  // --- Schema changed: blocking dialog (unchanged) ---
+  if (status.schemaChanged) {
+    const handleResetData = () => clearAllData()
+
+    const handleDismiss = () => {
+      acknowledgeVersion()
+      setStatus(null)
+    }
+
+    return (
+      <Dialog open onOpenChange={(open) => { if (!open) handleDismiss() }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('version_check.schema_title')}</DialogTitle>
+            <DialogDescription asChild>
+              <div className="mt-3 space-y-3">
+                <p>{t('version_check.schema_description')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('version_check.schema_hint')}
+                </p>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="flex-col gap-2 sm:flex-col">
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={handleDismiss}>
+                {t('version_check.dismiss')}
+              </Button>
+              <Button variant="destructive" onClick={handleResetData}>
+                <Trash2 size={14} />
+                {t('version_check.reset_data')}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

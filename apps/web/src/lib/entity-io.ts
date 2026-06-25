@@ -115,6 +115,88 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
   for (const c of cohorts) await storage.cohorts.delete(c.id)
 }
 
+/**
+ * Delete a workspace and ALL its scoped entities from storage (data-only — no store
+ * state side effects). Mirrors the cascade in workspace-store's deleteWorkspace, so
+ * both the UI delete and the targeted re-seed share one source of truth and can't
+ * drift into leaving orphan rows.
+ */
+export async function deleteWorkspaceData(storage: Storage, id: string): Promise<void> {
+  // Projects (+ their full content)
+  const projects = (await storage.projects.getAll()).filter((p) => p.workspaceId === id)
+  for (const p of projects) {
+    await deleteProjectData(storage, p.uid)
+    await storage.projects.delete(p.uid).catch(() => {})
+  }
+
+  // Data sources (+ files, handles, stats cache)
+  const dataSources = await storage.dataSources.getByWorkspace(id)
+  for (const ds of dataSources) {
+    await storage.files.deleteByDataSource(ds.id).catch(() => {})
+    await storage.fileHandles.deleteByDataSource(ds.id).catch(() => {})
+    await storage.databaseStatsCache.delete(ds.id).catch(() => {})
+    await storage.dataSources.delete(ds.id).catch(() => {})
+  }
+
+  // Wiki
+  await storage.wikiAttachments.deleteByWorkspace(id).catch(() => {})
+  await storage.wikiPages.deleteByWorkspace(id).catch(() => {})
+
+  // SQL script collections
+  const sqlCollections = await storage.sqlScriptCollections.getByWorkspace(id)
+  for (const c of sqlCollections) {
+    await storage.sqlScriptFiles.deleteByCollection(c.id).catch(() => {})
+    await storage.sqlScriptCollections.delete(c.id).catch(() => {})
+  }
+
+  // ETL pipelines (+ files)
+  const etlPipelines = await storage.etlPipelines.getByWorkspace(id)
+  for (const p of etlPipelines) {
+    await storage.etlFiles.deleteByPipeline(p.id).catch(() => {})
+    await storage.etlPipelines.delete(p.id).catch(() => {})
+  }
+
+  // Data quality rule sets (+ custom checks)
+  const dqRuleSets = await storage.dqRuleSets.getByWorkspace(id)
+  for (const rs of dqRuleSets) {
+    await storage.dqCustomChecks.deleteByRuleSet(rs.id).catch(() => {})
+    await storage.dqRuleSets.delete(rs.id).catch(() => {})
+  }
+
+  // Concept mapping projects (+ mappings) and concept sets
+  const mappingProjects = await storage.mappingProjects.getByWorkspace(id)
+  await storage.conceptMappings.deleteByProjectIds(mappingProjects.map((mp) => mp.id)).catch(() => {})
+  for (const mp of mappingProjects) await storage.mappingProjects.delete(mp.id).catch(() => {})
+  try {
+    const remaining = await storage.mappingProjects.getAll()
+    await storage.conceptMappings.deleteOrphans(new Set(remaining.map((p) => p.id)))
+  } catch { /* ignore */ }
+  const conceptSets = await storage.conceptSets.getByWorkspace(id)
+  for (const cs of conceptSets) await storage.conceptSets.delete(cs.id).catch(() => {})
+
+  // Source concept ID registry
+  await storage.sourceConceptIdEntries.deleteByWorkspace(id).catch(() => {})
+  await storage.sourceConceptIdRanges.deleteByWorkspace(id).catch(() => {})
+
+  // Catalogs (+ cached results) & service mappings
+  const catalogs = await storage.dataCatalogs.getByWorkspace(id)
+  for (const cat of catalogs) {
+    await storage.catalogResults.delete(cat.id).catch(() => {})
+    await storage.dataCatalogs.delete(cat.id).catch(() => {})
+  }
+  const serviceMappings = await storage.serviceMappings.getByWorkspace(id)
+  for (const sm of serviceMappings) await storage.serviceMappings.delete(sm.id).catch(() => {})
+
+  // Plugins & schema presets
+  const plugins = await storage.userPlugins.getByWorkspace(id)
+  for (const p of plugins) await storage.userPlugins.delete(p.id).catch(() => {})
+  const schemas = await storage.schemaPresets.getByWorkspace(id)
+  for (const sp of schemas) await storage.schemaPresets.delete(sp.presetId).catch(() => {})
+
+  // The workspace row itself
+  await storage.workspaces.delete(id).catch(() => {})
+}
+
 // ---------------------------------------------------------------------------
 // Slugify
 // ---------------------------------------------------------------------------

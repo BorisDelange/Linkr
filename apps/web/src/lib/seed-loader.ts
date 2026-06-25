@@ -963,6 +963,16 @@ export function isSeeded(): boolean {
   return !!localStorage.getItem(SEED_KEY)
 }
 
+/** Clear a per-entity seed guard flag (e.g. 'dataset-<id>', 'db-<id>') so it re-seeds. */
+export function clearSeedFlag(suffix: string): void {
+  localStorage.removeItem(`linkr-seed-${suffix}`)
+}
+
+/** Clear the global seed guard so seedWorkspaces() re-imports workspace-scoped entities. */
+export function clearGlobalSeedFlag(): void {
+  localStorage.removeItem(SEED_KEY)
+}
+
 /**
  * Load all seed data on first launch.
  * Called from app-store loadProjects() when no workspaces exist.

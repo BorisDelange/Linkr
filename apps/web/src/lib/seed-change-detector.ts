@@ -60,6 +60,55 @@ export function storeSeedHashes(hashes: SeedHashesManifest): void {
   localStorage.setItem(SEED_HASHES_KEY, JSON.stringify(hashes))
 }
 
+/**
+ * Advance the stored baseline to `current` for ONLY the given entities, leaving every
+ * other entity's stored hash untouched. Used after a targeted re-seed so the entities
+ * the user refreshed stop notifying, while the ones they skipped still notify next time.
+ */
+export function mergeSeedHashesFor(
+  stored: SeedHashesManifest | null,
+  current: SeedHashesManifest,
+  entities: Array<{ workspaceFolder: string; entityType: SeedEntityType; entityId: string }>,
+): SeedHashesManifest {
+  // Deep clone the stored baseline (or start from empty) so we never mutate inputs.
+  const merged: SeedHashesManifest = stored
+    ? JSON.parse(JSON.stringify(stored)) as SeedHashesManifest
+    : { workspaces: {} }
+
+  const keyForType = new Map<SeedEntityType, keyof SeedEntityHashes>(
+    ENTITY_KEYS.map(({ key, type }) => [type, key]),
+  )
+
+  for (const { workspaceFolder, entityType, entityId } of entities) {
+    const curWs = current.workspaces[workspaceFolder]
+    if (!curWs) continue
+    if (!merged.workspaces[workspaceFolder]) {
+      // Whole workspace is new in the baseline — copy its current hashes wholesale.
+      merged.workspaces[workspaceFolder] = JSON.parse(JSON.stringify(curWs)) as SeedEntityHashes
+      continue
+    }
+    const mergedWs = merged.workspaces[workspaceFolder]
+
+    if (entityType === 'workspace') {
+      mergedWs.workspace = curWs.workspace
+      continue
+    }
+
+    const mapKey = keyForType.get(entityType)
+    if (!mapKey) continue
+    const curMap = curWs[mapKey] as Record<string, string>
+    const mergedMap = mergedWs[mapKey] as Record<string, string>
+    if (entityId in curMap) {
+      mergedMap[entityId] = curMap[entityId]
+    } else {
+      // Entity was removed from the seed — drop it from the baseline too.
+      delete mergedMap[entityId]
+    }
+  }
+
+  return merged
+}
+
 // ---------------------------------------------------------------------------
 // Fetch hashes from build artifact
 // ---------------------------------------------------------------------------

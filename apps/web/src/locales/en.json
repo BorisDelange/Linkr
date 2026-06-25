@@ -2038,7 +2038,7 @@
     "schema_hint": "You can export your projects before resetting to avoid losing work.",
     "reset_data": "Reset all data",
     "dismiss": "Ignore (may cause errors)",
-    "seed_changed_title": "Demo data has been updated",
+    "seed_changed_title": "Default data has been updated",
     "seed_changed_description": "This update includes changes to the bundled data. You can reset to get the latest data, or keep your current data.",
     "keep_data": "Keep my data",
     "seed_change_added": "New",
