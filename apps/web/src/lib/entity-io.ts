@@ -1055,6 +1055,23 @@ function sanitizeConnectionConfig(config: Record<string, unknown>, keepCredentia
   return minimal
 }
 
+/** Resolve a user plugin's manifest id from its bundled plugin.json (falls back to undefined). */
+function pluginManifestId(plugin: UserPlugin): string | undefined {
+  try {
+    return (JSON.parse(plugin.files['plugin.json'] ?? '{}') as { id?: string }).id
+  } catch {
+    return undefined
+  }
+}
+
+/** Count of workspace plugins that are NOT copies of a built-in (i.e. genuinely exported). */
+export async function countExportablePlugins(workspaceId: string, storage: Storage): Promise<number> {
+  const { getAllPlugins } = await import('@/lib/plugins/registry')
+  const builtinIds = new Set(getAllPlugins().filter(p => !p.workspaceId).map(p => p.manifest.id))
+  const plugins = await storage.userPlugins.getByWorkspace(workspaceId)
+  return plugins.filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id)).length
+}
+
 /**
  * Build a ZIP blob containing all workspace data.
  * Sections can be toggled individually via `options.sections`.
@@ -1157,6 +1174,7 @@ export async function buildWorkspaceZip(
   if (on('schemas')) {
     const schemas = await storage.schemaPresets.getByWorkspace(workspaceId)
     for (const sp of schemas) {
+      if (excluded[sp.presetId]) continue
       zip.file(`schemas/${slugify(sp.presetId)}.json`, json(sp))
     }
   }
@@ -1166,6 +1184,7 @@ export async function buildWorkspaceZip(
     const keepCreds = options.includeCredentials === true
     const dataSources = await storage.dataSources.getByWorkspace(workspaceId)
     for (const ds of dataSources) {
+      if (excluded[ds.id]) continue
       // DataSource has no index signature; widen via unknown to destructure dynamically
       const { connectionConfig, ...rest } = ds as unknown as Record<string, unknown>
       const safeDsJson = {
@@ -1227,6 +1246,7 @@ export async function buildWorkspaceZip(
   if (on('dataQuality')) {
     const dqRuleSets = await storage.dqRuleSets.getByWorkspace(workspaceId)
     for (const rs of dqRuleSets) {
+      if (excluded[rs.id]) continue
       const checks = await storage.dqCustomChecks.getByRuleSet(rs.id)
       zip.file(`data-quality/${eid(rs)}.json`, json({ ruleSet: rs, checks }))
     }
@@ -1273,18 +1293,26 @@ export async function buildWorkspaceZip(
   if (on('catalogs')) {
     const catalogs = await storage.dataCatalogs.getByWorkspace(workspaceId)
     for (const cat of catalogs) {
+      if (excluded[cat.id]) continue
       zip.file(`catalogs/${eid(cat)}.json`, json(cat))
     }
 
     const serviceMappings = await storage.serviceMappings.getByWorkspace(workspaceId)
     for (const sm of serviceMappings) {
+      if (excluded[sm.id]) continue
       zip.file(`service-mappings/${slugify(sm.name || sm.id)}.json`, json(sm))
     }
   }
 
   // --- plugins/ ---
+  // Built-in plugins (added to a workspace via "Add default") are reconstitutable from
+  // the app's own registry on import, so we never bundle their code — only true
+  // workspace-authored plugins are exported.
   if (on('plugins')) {
-    const plugins = await storage.userPlugins.getByWorkspace(workspaceId)
+    const { getAllPlugins } = await import('@/lib/plugins/registry')
+    const builtinIds = new Set(getAllPlugins().filter(p => !p.workspaceId).map(p => p.manifest.id))
+    const plugins = (await storage.userPlugins.getByWorkspace(workspaceId))
+      .filter(p => !builtinIds.has(pluginManifestId(p) ?? p.id))
     for (const plugin of plugins) {
       const folder = plugin.entityId || slugify(plugin.id)
       zip.file(`plugins/${folder}/_plugin.json`, json({ id: plugin.id, entityId: plugin.entityId, workspaceId: plugin.workspaceId, createdAt: plugin.createdAt, updatedAt: plugin.updatedAt }))

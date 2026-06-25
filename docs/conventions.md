@@ -133,6 +133,15 @@ enforce three gates. All are at zero and must stay there:
 Don't reintroduce errors. If a change legitimately needs a type escape, prefer
 `as unknown as T` with a one-line WHY over `as any`; never add `@ts-ignore`.
 
+## Plugins — versioning
+
+Every plugin carries a `version` in its `plugin.json` (under
+`packages/default-plugins/<scope>/<name>/`). When a change modifies a plugin's
+behaviour (template logic, config schema, manifest), **bump that plugin's
+`version` in the same change** — otherwise a new build ships under an unchanged
+version and the two are indistinguishable. Use semver: patch for fixes, minor
+for new config/behaviour, major for breaking template/config changes.
+
 ## Tests
 
 See `.claude/skills/write-tests/SKILL.md`. Short version:

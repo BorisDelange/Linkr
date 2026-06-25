@@ -1742,7 +1742,10 @@
   "plugins": {
     "sankey": {
       "configure": "Choose the columns that describe each flow to build the diagram.",
-      "no_flows": "No flows to display with the current settings."
+      "no_flows": "No flows to display with the current settings.",
+      "table_from": "From",
+      "table_to": "To",
+      "table_count": "Count"
     },
     "title": "Plugins",
     "description": "Create and manage analysis plugins.",
@@ -1814,6 +1817,8 @@
     "tab_results": "Results",
     "tab_warehouse": "Data Warehouse",
     "tab_lab": "Lab",
+    "banner_warehouse": "Data Warehouse plugins power the patient data visualizations in the warehouse — each plugin renders a widget on a patient's record.",
+    "banner_lab": "Lab plugins run analyses on your datasets and produce dashboard widgets in the lab.",
     "scope": "Scope",
     "scope_warehouse": "Data Warehouse",
     "scope_lab": "Lab",
@@ -2464,11 +2469,9 @@
     "export_include_credentials": "Include connection details (host, port, username…)",
     "export_credentials_off_hint": "Only database names and schema mappings are exported. Connection details are excluded.",
     "export_credentials_on_hint": "Connection details (host, port, database, schema, username) will be included. Passwords are never exported.",
-    "export_credentials_confirm_title": "Include connection details?",
-    "export_credentials_confirm_body": "You are about to export database connection details. Make sure this archive will not be shared publicly.",
+    "export_credentials_confirm_body": "You are about to export <b>database connection details</b>. Make sure this archive will <b>not be shared publicly</b>.",
     "export_credentials_confirm_included": "Included: host, port, database name, schema, username",
     "export_credentials_confirm_excluded": "Never included: passwords, authentication tokens",
-    "export_credentials_confirm_action": "Export with credentials",
     "import_title": "Import",
     "import_description": "Restore a workspace from a ZIP archive. This will import all projects, wiki pages, SQL scripts, ETL pipelines, and other workspace content.",
     "entity_versioning_title": "Versioning & export",
@@ -2479,7 +2482,23 @@
     "export_include_entity_data": "Include data files",
     "remote_connected": "Saved",
     "export_git_linked_tooltip": "Only metadata and the Git link are exported — the full content stays in the linked Git repository.",
-    "export_data_label": "Data:"
+    "export_items_label": "Items:",
+    "export_data_warning_tooltip": "This includes data files that may contain sensitive or patient data. Make sure this archive will not be shared publicly.",
+    "export_credentials_warning_tooltip": "This includes database connection details (host, port, database, schema, username). Passwords are never exported. Make sure this archive will not be shared publicly.",
+    "export_confirm_title": "Confirm sensitive export",
+    "export_confirm_action": "Export anyway",
+    "export_data_confirm_body": "You chose to bundle <b>data files</b> for one or more items. These may contain <b>sensitive or patient data</b>. Make sure this archive will <b>not be shared publicly</b>.",
+    "export_section_desc_projects": "Catalog entries: project metadata + README. Full content only when \"include data files\" is checked per project.",
+    "export_section_desc_wiki": "All wiki pages (Markdown), their tree structure and attachments.",
+    "export_section_desc_plugins": "Workspace-authored plugins (code + manifest). Built-in plugins are excluded — they are restored from the app on import.",
+    "export_section_desc_schemas": "Custom OMOP schema presets (table/column mapping definitions).",
+    "export_section_desc_databases": "Database entries: names and schema mappings. Connection details only if opted in; passwords are never exported.",
+    "export_section_desc_conceptMapping": "Mapping project metadata. Mappings and source concept codes only when \"include data files\" is checked.",
+    "export_section_desc_sqlScripts": "SQL collection metadata. Script files only when \"include data files\" is checked.",
+    "export_section_desc_dataQuality": "Data quality rule sets and their custom checks.",
+    "export_section_desc_catalogs": "Data catalogs and service mappings.",
+    "export_section_desc_etl": "ETL pipeline metadata. Pipeline files only when \"include data files\" is checked.",
+    "export_empty_hint": "Nothing to export"
   },
   "concept_mapping": {
     "title": "Concept Mapping",

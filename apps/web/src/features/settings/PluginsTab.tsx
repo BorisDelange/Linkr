@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History, Info } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -53,6 +53,15 @@ function LanguageBadge({ language }: { language: string }) {
     <span className={cn('shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium leading-tight', badge.color)}>
       {badge.label}
     </span>
+  )
+}
+
+function ScopeBanner({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border bg-muted/40 px-3 py-2.5">
+      <Info size={14} className="mt-0.5 shrink-0 text-muted-foreground" />
+      <p className="text-xs text-muted-foreground">{text}</p>
+    </div>
   )
 }
 
@@ -373,14 +382,16 @@ export function PluginsTab() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'warehouse' | 'lab')}>
-        <TabsList>
+        <TabsList className="mx-auto">
           <TabsTrigger value="warehouse">{t('plugins.tab_warehouse')}</TabsTrigger>
           <TabsTrigger value="lab">{t('plugins.tab_lab')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="warehouse" className="mt-4">
+        <TabsContent value="warehouse" className="mt-4 space-y-4">
+          <ScopeBanner text={t('plugins.banner_warehouse')} />
           {renderPluginGrid(warehousePlugins)}
         </TabsContent>
-        <TabsContent value="lab" className="mt-4">
+        <TabsContent value="lab" className="mt-4 space-y-4">
+          <ScopeBanner text={t('plugins.banner_lab')} />
           {renderPluginGrid(labPlugins)}
         </TabsContent>
       </Tabs>
