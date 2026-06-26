@@ -1,9 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Database, FileText, GitBranch, Layout, FolderKanban, Map,
-  ShieldCheck, BookOpen, Plus, Pencil, Minus, RefreshCw, Loader2,
-} from 'lucide-react'
+import { Plus, Pencil, Minus, RefreshCw, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -12,18 +9,11 @@ import {
 } from '@/components/ui/dialog'
 import type { SeedChange, SeedDiffResult, SeedEntityType, SeedChangeType } from '@/lib/seed-change-detector'
 
-const entityIcons: Record<SeedEntityType, typeof Database> = {
-  workspace: FolderKanban,
-  database: Database,
-  conceptMapping: Map,
-  etlScript: GitBranch,
-  dataset: FileText,
-  dashboard: Layout,
-  project: FolderKanban,
-  mappingProject: Map,
-  dqRuleSet: ShieldCheck,
-  catalog: BookOpen,
-}
+/** Display order of entity-type sub-groups within a workspace. */
+const TYPE_ORDER: SeedEntityType[] = [
+  'workspace', 'project', 'dataset', 'dashboard', 'database',
+  'mappingProject', 'conceptMapping', 'etlScript', 'dqRuleSet', 'catalog',
+]
 
 const changeIcons: Record<SeedChangeType, typeof Plus> = {
   added: Plus,
@@ -120,6 +110,54 @@ export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogPro
     }
   }
 
+  // Group a workspace's changes by entity type (stable order), with removed entities
+  // pushed to the end within each type so the actionable (new/updated) ones stay grouped.
+  const groupByType = (changes: SeedChange[]): Array<{ type: SeedEntityType; items: SeedChange[] }> => {
+    const byType = new globalThis.Map<SeedEntityType, SeedChange[]>()
+    for (const c of changes) {
+      if (!byType.has(c.entityType)) byType.set(c.entityType, [])
+      byType.get(c.entityType)!.push(c)
+    }
+    const order = (c: SeedChange) => (c.changeType === 'removed' ? 1 : 0)
+    return TYPE_ORDER
+      .filter((type) => byType.has(type))
+      .map((type) => ({
+        type,
+        items: byType.get(type)!.slice().sort((a, b) => order(a) - order(b)),
+      }))
+  }
+
+  const renderRow = (change: SeedChange) => {
+    const ChangeIcon = changeIcons[change.changeType]
+    const key = changeKey(change)
+    const isRemoved = change.changeType === 'removed'
+    return (
+      <label
+        key={`${change.entityType}-${change.entityId}`}
+        className={`flex items-center gap-2 text-xs ${isRemoved ? 'opacity-70' : 'cursor-pointer'}`}
+      >
+        {isRemoved ? (
+          <span className="w-4 shrink-0" />
+        ) : (
+          <Checkbox
+            checked={selected.has(key)}
+            onCheckedChange={() => toggle(key)}
+            disabled={busy}
+            className="shrink-0"
+          />
+        )}
+        <span className="truncate font-medium">{change.entityLabel}</span>
+        <Badge
+          variant={changeBadgeVariant[change.changeType]}
+          className="ml-auto shrink-0 text-[10px] px-1.5 py-0"
+        >
+          <ChangeIcon size={10} className="mr-0.5" />
+          {t(`version_check.seed_change_${change.changeType}`)}
+        </Badge>
+      </label>
+    )
+  }
+
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onKeep() }}>
       <DialogContent className="sm:max-w-lg">
@@ -133,46 +171,21 @@ export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogPro
         </DialogHeader>
 
         <div className="max-h-[320px] overflow-y-auto rounded-md border p-3">
-          <div className="space-y-4">
+          <div className="space-y-5">
             {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
               <div key={wsFolder}>
-                <p className="text-sm font-medium mb-2">{wsNames[wsFolder] ?? wsFolder}</p>
-                <div className="space-y-1.5">
-                  {changes.map((change) => {
-                    const EntityIcon = entityIcons[change.entityType]
-                    const ChangeIcon = changeIcons[change.changeType]
-                    const key = changeKey(change)
-                    const isRemoved = change.changeType === 'removed'
-                    return (
-                      <label
-                        key={`${change.entityType}-${change.entityId}`}
-                        className={`flex items-center gap-2 text-xs ${isRemoved ? 'opacity-70' : 'cursor-pointer'}`}
-                      >
-                        {isRemoved ? (
-                          <span className="w-4 shrink-0" />
-                        ) : (
-                          <Checkbox
-                            checked={selected.has(key)}
-                            onCheckedChange={() => toggle(key)}
-                            disabled={busy}
-                            className="shrink-0"
-                          />
-                        )}
-                        <EntityIcon size={13} className="shrink-0 text-muted-foreground" />
-                        <span className="text-muted-foreground">
-                          {t(`version_check.seed_entity_${change.entityType}`)}
-                        </span>
-                        <span className="truncate font-medium">{change.entityLabel}</span>
-                        <Badge
-                          variant={changeBadgeVariant[change.changeType]}
-                          className="ml-auto shrink-0 text-[10px] px-1.5 py-0"
-                        >
-                          <ChangeIcon size={10} className="mr-0.5" />
-                          {t(`version_check.seed_change_${change.changeType}`)}
-                        </Badge>
-                      </label>
-                    )
-                  })}
+                <p className="text-sm font-semibold mb-3">{wsNames[wsFolder] ?? wsFolder}</p>
+                <div className="space-y-3 pl-1">
+                  {groupByType(changes).map(({ type, items }) => (
+                    <div key={type}>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                        {t(`version_check.seed_entity_${type}`)}
+                      </p>
+                      <div className="space-y-1 pl-1">
+                        {items.map((change) => renderRow(change))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}

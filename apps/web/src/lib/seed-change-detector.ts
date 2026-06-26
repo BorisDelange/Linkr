@@ -6,7 +6,7 @@
  * produce a detailed list of what changed (added / modified / removed).
  */
 
-import type { SeedHashesManifest, SeedEntityHashes } from '../../vite-plugin-seed-hashes'
+import type { SeedHashesManifest, SeedEntityHashes, SeedEntityNames } from '../../vite-plugin-seed-hashes'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,23 +137,25 @@ function diffHashMap(
   workspaceFolder: string,
   workspaceName: string | undefined,
   changes: SeedChange[],
+  nameMap?: Record<string, string>,
 ): void {
   const prev = oldMap ?? {}
   const next = newMap ?? {}
+  const label = (id: string) => nameMap?.[id] ?? id
 
   // Added or modified
   for (const [id, hash] of Object.entries(next)) {
     if (!(id in prev)) {
-      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: id, changeType: 'added' })
+      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: label(id), changeType: 'added' })
     } else if (prev[id] !== hash) {
-      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: id, changeType: 'modified' })
+      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: label(id), changeType: 'modified' })
     }
   }
 
   // Removed
   for (const id of Object.keys(prev)) {
     if (!(id in next)) {
-      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: id, changeType: 'removed' })
+      changes.push({ workspaceFolder, workspaceName, entityType, entityId: id, entityLabel: label(id), changeType: 'removed' })
     }
   }
 }
@@ -197,14 +199,17 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
   for (const folder of allFolders) {
     const oldWs = stored.workspaces[folder]
     const newWs = current.workspaces[folder]
+    // Readable workspace name comes from the current build (the new name wins on display).
+    const wsName = newWs?.workspaceName ?? oldWs?.workspaceName ?? folder
 
     // Entire workspace added
     if (!oldWs && newWs) {
       changes.push({
         workspaceFolder: folder,
+        workspaceName: wsName,
         entityType: 'workspace',
         entityId: folder,
-        entityLabel: folder,
+        entityLabel: wsName,
         changeType: 'added',
       })
       continue
@@ -214,9 +219,10 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
     if (oldWs && !newWs) {
       changes.push({
         workspaceFolder: folder,
+        workspaceName: wsName,
         entityType: 'workspace',
         entityId: folder,
-        entityLabel: folder,
+        entityLabel: wsName,
         changeType: 'removed',
       })
       continue
@@ -226,22 +232,28 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
     if (oldWs!.workspace !== newWs!.workspace) {
       changes.push({
         workspaceFolder: folder,
+        workspaceName: wsName,
         entityType: 'workspace',
         entityId: folder,
-        entityLabel: folder,
+        entityLabel: wsName,
         changeType: 'modified',
       })
     }
 
-    // Diff each entity type
+    // Diff each entity type, labelling entities with their readable name when available.
     for (const { key, type } of ENTITY_KEYS) {
+      const nameKey = key as keyof SeedEntityNames
+      // Merge stored + current names (current wins). Stored is the only source of a
+      // name for a 'removed' entity — it no longer exists in the current build.
+      const nameMap = { ...(oldWs!.names?.[nameKey] ?? {}), ...(newWs!.names?.[nameKey] ?? {}) }
       diffHashMap(
         oldWs![key] as Record<string, string>,
         newWs![key] as Record<string, string>,
         type,
         folder,
-        undefined,
+        wsName,
         changes,
+        nameMap,
       )
     }
   }
