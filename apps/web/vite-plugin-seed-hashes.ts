@@ -9,8 +9,8 @@
 
 import { createHash } from 'crypto'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
-import { join, resolve } from 'path'
-import type { Plugin } from 'vite'
+import { join, resolve, sep } from 'path'
+import type { Plugin, ViteDevServer } from 'vite'
 
 // ---------------------------------------------------------------------------
 // Types (mirror the relevant parts of seed-loader.ts)
@@ -283,6 +283,15 @@ function generateSeedHashes(publicDir: string): SeedHashesManifest | null {
   return result
 }
 
+/** Generate the hashes and write seed-hashes.json. Returns true if it wrote a file. */
+function writeSeedHashes(publicDir: string): boolean {
+  const hashes = generateSeedHashes(publicDir)
+  if (!hashes) return false
+  const outPath = join(publicDir, 'data/seed/seed-hashes.json')
+  writeFileSync(outPath, JSON.stringify(hashes, null, 2), 'utf-8')
+  return true
+}
+
 // ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
@@ -299,12 +308,31 @@ export default function seedHashesPlugin(): Plugin {
 
     // Generate hashes at build start and dev server start
     buildStart() {
-      const hashes = generateSeedHashes(publicDir)
-      if (!hashes) return
+      if (writeSeedHashes(publicDir)) console.info('[seed-hashes] Generated seed-hashes.json')
+    },
 
-      const outPath = join(publicDir, 'data/seed/seed-hashes.json')
-      writeFileSync(outPath, JSON.stringify(hashes, null, 2), 'utf-8')
-      console.info('[seed-hashes] Generated seed-hashes.json')
+    // In dev, regenerate whenever a seed file changes so editing the seed no longer
+    // requires a dev-server restart for the change-detection dialog to see it.
+    configureServer(server: ViteDevServer) {
+      const seedDir = join(publicDir, 'data', 'seed')
+      const ownOutput = join(seedDir, 'seed-hashes.json')
+
+      const regenerate = (file: string) => {
+        // Watch the seed dir, plus the data/*.json files it references (datasets,
+        // mappings, etl scripts live under public/data/, not under seed/).
+        const inSeed = file.startsWith(seedDir + sep)
+        const inData = file.startsWith(join(publicDir, 'data') + sep) && file.endsWith('.json')
+        if (!inSeed && !inData) return
+        if (file === ownOutput) return // ignore our own write, avoid a feedback loop
+        if (writeSeedHashes(publicDir)) {
+          server.config.logger.info('[seed-hashes] Regenerated seed-hashes.json', { timestamp: true })
+        }
+      }
+
+      server.watcher.add(seedDir)
+      server.watcher.on('add', regenerate)
+      server.watcher.on('change', regenerate)
+      server.watcher.on('unlink', regenerate)
     },
   }
 }
