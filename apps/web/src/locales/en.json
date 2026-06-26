@@ -2043,6 +2043,7 @@
     "keep_data": "Keep my data",
     "update_selected": "Update selected",
     "seed_removed_hint": "Removed items are kept in your local data. Delete them manually or reset all data if you want them gone.",
+    "seed_removed_deletable_hint": "Removed items were taken out of the default data. Check one to delete its local copy. Only items created from the default data can be removed — your own content is never touched.",
     "seed_change_added": "New",
     "seed_change_modified": "Updated",
     "seed_change_removed": "Removed",

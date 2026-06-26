@@ -2043,6 +2043,7 @@
     "keep_data": "Conserver mes données",
     "update_selected": "Mettre à jour la sélection",
     "seed_removed_hint": "Les éléments supprimés sont conservés dans vos données locales. Supprimez-les manuellement ou réinitialisez toutes les données pour les retirer.",
+    "seed_removed_deletable_hint": "Ces éléments ont été retirés des données par défaut. Cochez-en un pour supprimer sa copie locale. Seuls les éléments issus des données par défaut peuvent être supprimés — votre propre contenu n'est jamais touché.",
     "seed_change_added": "Nouveau",
     "seed_change_modified": "Modifié",
     "seed_change_removed": "Supprimé",

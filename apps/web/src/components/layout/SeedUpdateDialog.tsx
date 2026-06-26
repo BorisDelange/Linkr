@@ -49,22 +49,43 @@ async function fetchWorkspaceName(folder: string, language: string): Promise<str
 
 interface SeedUpdateDialogProps {
   diff: SeedDiffResult
-  /** Re-import the chosen entities, then advance their baseline. */
-  onReseed: (changes: SeedChange[]) => Promise<void>
+  /**
+   * Apply the selection: re-import `reseed` (added/modified) and delete the local copy of
+   * `remove` (removed-from-seed, seed-origin only), then advance their baseline.
+   */
+  onApply: (reseed: SeedChange[], remove: SeedChange[]) => Promise<void>
   /** Keep all local data; advance the whole baseline so this stops showing. */
   onKeep: () => void
+  /**
+   * Resolve whether a removed entity's local copy was seed-created (safe to delete).
+   * User-created content (or pre-origin-field data) returns false and stays read-only.
+   */
+  canDeleteRemoved: (change: SeedChange) => Promise<boolean>
 }
 
-export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogProps) {
+export function SeedUpdateDialog({ diff, onApply, onKeep, canDeleteRemoved }: SeedUpdateDialogProps) {
   const { t, i18n } = useTranslation()
 
-  // Re-importable changes (added/modified) vs notify-only (removed).
+  // Re-importable changes (added/modified) vs removed-from-seed.
   const reseedable = useMemo(() => diff.changes.filter((c) => c.changeType !== 'removed'), [diff.changes])
   const removed = useMemo(() => diff.changes.filter((c) => c.changeType === 'removed'), [diff.changes])
 
-  // Selection: all re-importable entities checked by default.
+  // Selection: re-importable entities checked by default; removed ones unchecked (destructive).
   const [selected, setSelected] = useState<Set<string>>(() => new Set(reseedable.map(changeKey)))
   const [busy, setBusy] = useState(false)
+
+  // Which removed entities are safe to delete (seed-origin). Resolved async; until then a
+  // removed row stays read-only. User content is never offered for deletion.
+  const [deletable, setDeletable] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    let cancelled = false
+    Promise.all(removed.map(async (c) => [changeKey(c), await canDeleteRemoved(c)] as const))
+      .then((pairs) => {
+        if (cancelled) return
+        setDeletable(new Set(pairs.filter(([, ok]) => ok).map(([k]) => k)))
+      })
+    return () => { cancelled = true }
+  }, [removed, canDeleteRemoved])
 
   const byWorkspace = useMemo(() => {
     const map = new globalThis.Map<string, SeedChange[]>()
@@ -99,12 +120,14 @@ export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogPro
     })
   }
 
-  const handleUpdate = async () => {
-    const picked = reseedable.filter((c) => selected.has(changeKey(c)))
-    if (picked.length === 0) return
+  const pickedReseed = reseedable.filter((c) => selected.has(changeKey(c)))
+  const pickedRemove = removed.filter((c) => deletable.has(changeKey(c)) && selected.has(changeKey(c)))
+
+  const handleApply = async () => {
+    if (pickedReseed.length === 0 && pickedRemove.length === 0) return
     setBusy(true)
     try {
-      await onReseed(picked)
+      await onApply(pickedReseed, pickedRemove)
     } finally {
       setBusy(false)
     }
@@ -131,20 +154,23 @@ export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogPro
     const ChangeIcon = changeIcons[change.changeType]
     const key = changeKey(change)
     const isRemoved = change.changeType === 'removed'
+    // A removed row is checkable only once confirmed seed-origin (safe to delete). User
+    // content / pre-origin data stays read-only.
+    const canCheck = isRemoved ? deletable.has(key) : true
     return (
       <label
         key={`${change.entityType}-${change.entityId}`}
-        className={`flex items-center gap-2 text-xs ${isRemoved ? 'opacity-70' : 'cursor-pointer'}`}
+        className={`flex items-center gap-2 text-xs ${canCheck ? 'cursor-pointer' : 'opacity-70'}`}
       >
-        {isRemoved ? (
-          <span className="w-4 shrink-0" />
-        ) : (
+        {canCheck ? (
           <Checkbox
             checked={selected.has(key)}
             onCheckedChange={() => toggle(key)}
             disabled={busy}
-            className="shrink-0"
+            className={`shrink-0 ${isRemoved ? 'data-[state=checked]:bg-destructive data-[state=checked]:border-destructive' : ''}`}
           />
+        ) : (
+          <span className="w-4 shrink-0" />
         )}
         <span className="truncate font-medium">{change.entityLabel}</span>
         <Badge
@@ -193,14 +219,14 @@ export function SeedUpdateDialog({ diff, onReseed, onKeep }: SeedUpdateDialogPro
         </div>
 
         {removed.length > 0 && (
-          <p className="text-xs text-muted-foreground">{t('version_check.seed_removed_hint')}</p>
+          <p className="text-xs text-muted-foreground">{t('version_check.seed_removed_deletable_hint')}</p>
         )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onKeep} disabled={busy}>
             {t('version_check.keep_data')}
           </Button>
-          <Button onClick={handleUpdate} disabled={busy || selected.size === 0}>
+          <Button onClick={handleApply} disabled={busy || (pickedReseed.length === 0 && pickedRemove.length === 0)}>
             {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
             {t('version_check.update_selected')}
           </Button>

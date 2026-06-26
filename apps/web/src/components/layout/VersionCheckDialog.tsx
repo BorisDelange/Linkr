@@ -16,7 +16,7 @@ import {
   detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
   type SeedChange, type SeedDiffResult,
 } from '@/lib/seed-change-detector'
-import { reseedSelection } from '@/lib/targeted-reseed'
+import { reseedSelection, deleteRemovedSelection, isSeedOrigin } from '@/lib/targeted-reseed'
 import { refreshStoresAfterReseed } from '@/lib/seed-store-refresh'
 import { SeedUpdateDialog } from './SeedUpdateDialog'
 
@@ -82,22 +82,24 @@ export function VersionCheckDialog() {
       setStatus(null)
     }
 
-    const handleReseed = async (changes: SeedChange[]) => {
-      const reseeded = await reseedSelection(changes)
+    const handleApply = async (reseed: SeedChange[], remove: SeedChange[]) => {
+      const reseeded = await reseedSelection(reseed)
+      const deleted = await deleteRemovedSelection(remove)
       acknowledgeVersion()
       setSeedDiff(null)
       setStatus(null)
       // Refresh just the affected stores from IndexedDB; fall back to a full reload only
-      // if a re-seeded type has no clean in-memory refresh path.
-      const refreshed = await refreshStoresAfterReseed(reseeded)
+      // if a touched type has no clean in-memory refresh path.
+      const refreshed = await refreshStoresAfterReseed([...reseeded, ...deleted])
       if (!refreshed) window.location.reload()
     }
 
     return (
       <SeedUpdateDialog
         diff={seedDiff}
-        onReseed={handleReseed}
+        onApply={handleApply}
         onKeep={handleKeepData}
+        canDeleteRemoved={isSeedOrigin}
       />
     )
   }

@@ -116,6 +116,64 @@ async function deleteEntity(change: SeedChange): Promise<void> {
 }
 
 /**
+ * Resolve whether the local entity behind a change was created by the seed loader
+ * (`origin === 'seed'`). Entities that predate the origin field (origin undefined) are
+ * treated as user content and reported as not-seed, so we never auto-delete them.
+ *
+ * For aggregate types (conceptMapping, etlScript), origin is carried by the parent row
+ * (the mapping project / pipeline), which is what entityId points at.
+ */
+export async function isSeedOrigin(change: SeedChange): Promise<boolean> {
+  const storage = getStorage()
+  const { entityType, entityId } = change
+  const seeded = (row: { origin?: string } | undefined | null) => row?.origin === 'seed'
+
+  switch (entityType) {
+    case 'workspace': return seeded(await storage.workspaces.getById(entityId))
+    case 'project': {
+      const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
+      return seeded(proj)
+    }
+    case 'database': return seeded(await storage.dataSources.getById(entityId))
+    case 'dataset': return seeded(await storage.datasetFiles.getById(entityId))
+    case 'dashboard': return seeded(await storage.dashboards.getById(entityId))
+    case 'mappingProject':
+    case 'conceptMapping': return seeded(await storage.mappingProjects.getById(entityId))
+    case 'etlScript': return seeded(await storage.etlPipelines.getById(entityId))
+    case 'dqRuleSet': return seeded(await storage.dqRuleSets.getById(entityId))
+    case 'catalog': return seeded(await storage.dataCatalogs.getById(entityId))
+  }
+}
+
+/**
+ * Delete the local copy of entities that were removed from the seed. Only entities the seed
+ * loader created (origin === 'seed') are deleted — user content is never touched, even if it
+ * happens to share an id. Returns the changes that were actually deleted.
+ */
+export async function deleteRemovedSelection(changes: SeedChange[]): Promise<SeedChange[]> {
+  const removed = changes.filter((c) => c.changeType === 'removed')
+  if (removed.length === 0) return []
+
+  const deleted: SeedChange[] = []
+  for (const change of removed) {
+    if (!(await isSeedOrigin(change))) continue
+    await deleteEntity(change)
+    deleted.push(change)
+  }
+  if (deleted.length === 0) return []
+
+  // Drop the deleted entities from the baseline so they stop being reported as 'removed'.
+  // mergeSeedHashesFor drops any entity that is absent from `current` (which they are).
+  const current = await fetchSeedHashes()
+  if (current) {
+    const merged = mergeSeedHashesFor(getStoredSeedHashes(), current, deleted)
+    storeSeedHashes(merged)
+  }
+
+  return deleted
+}
+
+/**
  * Re-seed the selected changes. Ignores 'removed' changes (nothing to re-import).
  * Returns the entities that were actually re-seeded (for caller feedback).
  */
