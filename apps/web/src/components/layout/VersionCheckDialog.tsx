@@ -75,9 +75,16 @@ export function VersionCheckDialog() {
   if (seedDiff?.hasChanges && !dismissSeedUpdates) {
     const handleKeepData = async () => {
       acknowledgeVersion()
-      // Advance the whole baseline so this stops showing.
+      // "Keep my data" is a deliberate choice: advance the whole baseline so this stops showing.
       const hashes = await fetchSeedHashes()
       if (hashes) storeSeedHashes(hashes)
+      setSeedDiff(null)
+      setStatus(null)
+    }
+
+    // Closing without choosing (click-outside / Esc / X) is NOT a decision: dismiss for this
+    // session only, leaving the baseline untouched so the dialog reappears on the next reload.
+    const handleDismiss = () => {
       setSeedDiff(null)
       setStatus(null)
     }
@@ -99,6 +106,7 @@ export function VersionCheckDialog() {
         diff={seedDiff}
         onApply={handleApply}
         onKeep={handleKeepData}
+        onDismiss={handleDismiss}
         canDeleteRemoved={isSeedOrigin}
       />
     )

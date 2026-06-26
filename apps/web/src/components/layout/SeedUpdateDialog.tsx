@@ -54,8 +54,10 @@ interface SeedUpdateDialogProps {
    * `remove` (removed-from-seed, seed-origin only), then advance their baseline.
    */
   onApply: (reseed: SeedChange[], remove: SeedChange[]) => Promise<void>
-  /** Keep all local data; advance the whole baseline so this stops showing. */
+  /** Keep all local data; advance the whole baseline so this stops showing (deliberate choice). */
   onKeep: () => void
+  /** Close for this session without deciding (click-outside / Esc / X) — baseline untouched. */
+  onDismiss: () => void
   /**
    * Resolve whether a removed entity's local copy was seed-created (safe to delete).
    * User-created content (or pre-origin-field data) returns false and stays read-only.
@@ -63,7 +65,7 @@ interface SeedUpdateDialogProps {
   canDeleteRemoved: (change: SeedChange) => Promise<boolean>
 }
 
-export function SeedUpdateDialog({ diff, onApply, onKeep, canDeleteRemoved }: SeedUpdateDialogProps) {
+export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRemoved }: SeedUpdateDialogProps) {
   const { t, i18n } = useTranslation()
 
   // Re-importable changes (added/modified) vs removed-from-seed.
@@ -185,7 +187,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, canDeleteRemoved }: Se
   }
 
   return (
-    <Dialog open onOpenChange={(open) => { if (!open && !busy) onKeep() }}>
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onDismiss() }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('version_check.seed_changed_title')}</DialogTitle>
