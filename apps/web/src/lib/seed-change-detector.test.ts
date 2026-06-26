@@ -15,12 +15,14 @@ function emptyEntity(workspace = 'w0') {
 }
 
 const stored: SeedHashesManifest = {
+  schemaVersion: 2,
   workspaces: {
     ricdc: { ...emptyEntity('w0'), projects: { neoclip: 'old1', other: 'old2' } },
   },
 }
 
 const current: SeedHashesManifest = {
+  schemaVersion: 2,
   workspaces: {
     ricdc: { ...emptyEntity('w1'), projects: { neoclip: 'new1', other: 'new2' } },
   },
@@ -45,6 +47,7 @@ describe('mergeSeedHashesFor', () => {
 
   it('drops an entity from the baseline when it was removed from the seed', () => {
     const currentRemoved: SeedHashesManifest = {
+      schemaVersion: 2,
       workspaces: { ricdc: { ...emptyEntity('w0'), projects: { other: 'old2' } } },
     }
     const merged = mergeSeedHashesFor(stored, currentRemoved, [
@@ -55,6 +58,7 @@ describe('mergeSeedHashesFor', () => {
 
   it('copies a brand-new workspace wholesale', () => {
     const currentNew: SeedHashesManifest = {
+      schemaVersion: 2,
       workspaces: {
         ricdc: stored.workspaces.ricdc,
         extra: { ...emptyEntity('we'), datasets: { d1: 'h1' } },

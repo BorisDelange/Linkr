@@ -91,31 +91,70 @@ interface SeedDataset {
 interface SeedDashboard {
   /** Path to the JSON file with dashboard + tabs + widgets */
   file: string
+  /** Dashboard id (matches the bundle's dashboard.id). */
+  id: string
   /** Project UID to attach to */
   projectUid: string
 }
 
-/** A single workspace entry in seed.json */
-export interface SeedWorkspaceEntry {
-  /** Folder name inside public/data/seed/ */
-  folder: string
-  /** Organization metadata (optional, created if provided) */
-  organization?: Organization
-  /** Databases to seed with Parquet data */
-  databases?: SeedDatabase[]
-  /** Concept mappings to seed from JSON files */
-  conceptMappings?: SeedConceptMappings[]
-  /** ETL scripts to seed */
-  etlScripts?: SeedEtlScripts[]
-  /** Datasets to seed */
-  datasets?: SeedDataset[]
-  /** Dashboards to seed */
-  dashboards?: SeedDashboard[]
+// ---------------------------------------------------------------------------
+// Unified manifest (schemaVersion 2)
+// ---------------------------------------------------------------------------
+//
+// Every workspace ships ONE `<folder>/manifest.json` listing all its entities in a flat,
+// homogeneous form. It is the single source of truth for "what this workspace contains":
+// the seed loader, the change-detection hash plugin and the targeted re-seed all iterate
+// the same list, so they can't drift. Each entity gets a uniform `linkr-seed-<type>-<id>`
+// guard flag and a single hash.
+//
+// Entities load in two phases (the split is load-bearing — see seedWorkspaces/seedDatabases):
+//   - phase 'structure': projects (+ full content), mapping projects, dq rule sets, catalogs.
+//   - phase 'data': databases (parquet/mount), concept mappings, etl scripts, datasets,
+//     dashboards — these depend on structural rows and on each other, in that order.
+
+/** Entity types that appear as first-class manifest entities. */
+export type SeedEntityKind =
+  | 'database' | 'conceptMapping' | 'etlScript' | 'dataset' | 'dashboard'
+  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog'
+
+/** Per-kind payload carried by a manifest entity (the config its loader needs). */
+interface SeedEntitySpecs {
+  database: SeedDatabase
+  conceptMapping: SeedConceptMappings
+  etlScript: SeedEtlScripts
+  dataset: SeedDataset
+  dashboard: SeedDashboard
+  /** Folder name under `projects/` (full or lightweight project export). */
+  project: { folder: string; full?: boolean }
+  /** Folder name under `mapping-projects/`. */
+  mappingProject: { folder: string }
+  /** Path (relative to the workspace folder) to the rule-set bundle JSON. */
+  dqRuleSet: { path: string }
+  /** Path (relative to the workspace folder) to the catalog JSON. */
+  catalog: { path: string }
 }
 
-/** Root seed.json schema */
+/** One entity in a workspace manifest: a kind tag + its loader payload. */
+export type SeedManifestEntity = {
+  [K in SeedEntityKind]: { type: K; id: string } & SeedEntitySpecs[K]
+}[SeedEntityKind]
+
+/** A workspace's unified manifest (`<folder>/manifest.json`). */
+export interface WorkspaceManifest {
+  schemaVersion: 2
+  /** Organization metadata (optional, created if provided). */
+  organization?: Organization
+  /** All first-class entities of this workspace, in declaration order. */
+  entities: SeedManifestEntity[]
+  /** Non-re-seedable bootstrap content (wiki, sql-scripts, plugins, …). Optional. */
+  internals?: WorkspaceInternals
+}
+
+/** Root `seed.json`: just the list of workspace folders (schemaVersion 2). */
 export interface SeedManifest {
-  workspaces: SeedWorkspaceEntry[]
+  schemaVersion: 2
+  /** Folder names under public/data/seed/, each holding a `manifest.json`. */
+  workspaces: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -339,26 +378,30 @@ function parseSeedCsv(csv: string, df: DatasetFile): Record<string, unknown>[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Load and persist a workspace from its seed folder.
- * Reads the same structure as a workspace export ZIP, but from individual files.
+ * Load a workspace's structure (phase 1): organization, workspace.json, built-in schemas
+ * and plugins, the workspace "internals" (wiki, sql-scripts, etl pipelines, …) and the
+ * structural first-class entities (projects, mapping projects, dq rule sets, catalogs).
+ *
+ * The "data" entities (databases, concept mappings, etl scripts, datasets, dashboards) are
+ * loaded later by seedDatabases() — they depend on these structural rows and on each other.
  */
-async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
+async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): Promise<void> {
   const storage = getStorage()
-  const base = `${SEED_BASE}/${entry.folder}`
+  const base = `${SEED_BASE}/${folder}`
   const now = new Date().toISOString()
 
   // --- Organization ---
-  if (entry.organization) {
-    const existing = await storage.organizations.getById(entry.organization.id)
+  if (manifest.organization) {
+    const existing = await storage.organizations.getById(manifest.organization.id)
     if (!existing) {
-      await storage.organizations.create(entry.organization)
+      await storage.organizations.create(manifest.organization)
     }
   }
 
   // --- workspace.json ---
   const workspace = await fetchJson<Workspace>(`${base}/workspace.json`)
   if (!workspace?.id) {
-    console.warn(`[seed-loader] No valid workspace.json in ${entry.folder}, skipping`)
+    console.warn(`[seed-loader] No valid workspace.json in ${folder}, skipping`)
     return
   }
 
@@ -397,13 +440,106 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     await storage.userPlugins.create(userPlugin).catch(() => {})
   }
 
-  // --- _index.json (lists all files in the seed folder) ---
-  // Since we can't list files via fetch, we need an index file
-  const index = await fetchJson<SeedFolderIndex>(`${base}/_index.json`)
-  if (!index) {
-    console.warn(`[seed-loader] No _index.json in ${entry.folder}, skipping content import`)
-    return
+  // --- Workspace internals (non-re-seedable bootstrap content) ---
+  // The manifest's `internals` mirrors the old `_index.json` minus the first-class entity
+  // types, which now live in `manifest.entities`. The `default` seed omits it entirely.
+  const internals = manifest.internals ?? {}
+  await loadWorkspaceInternals(base, wsId, now, internals)
+
+  // --- Structural first-class entities (phase 1: projects, mapping projects, dq, catalogs) ---
+  for (const entity of manifest.entities) {
+    if (!STRUCTURAL_KINDS.has(entity.type)) continue
+    try {
+      await loadStructuralEntity(entity, base, wsId, now)
+    } catch (err) {
+      console.error(`[seed-loader] Failed to load ${entity.type} ${entity.id}:`, err)
+    }
   }
+
+  console.info(`[seed-loader] Workspace "${folder}" loaded successfully`)
+}
+
+/** Phase-1 entity kinds, loaded by loadSeedWorkspace before databases/datasets/etc. */
+const STRUCTURAL_KINDS = new Set<SeedEntityKind>(['project', 'mappingProject', 'dqRuleSet', 'catalog'])
+
+/** Load one structural (phase-1) entity. Idempotent via a uniform `linkr-seed-<type>-<id>` flag. */
+async function loadStructuralEntity(
+  entity: SeedManifestEntity, base: string, wsId: string, now: string,
+): Promise<void> {
+  const storage = getStorage()
+  const flag = `${entity.type}-${entity.id}`
+  if (localStorage.getItem(`linkr-seed-${flag}`)) return
+
+  switch (entity.type) {
+    case 'project': {
+      const folder = entity.folder
+      const project = await fetchJson<Project>(`${base}/projects/${folder}/project.json`)
+      if (!project?.uid) return
+      const projectReadme = await fetchText(`${base}/projects/${folder}/README.md`)
+      const tasksData = await fetchJson<{ todos?: unknown[]; notes?: string }>(`${base}/projects/${folder}/tasks.json`)
+      if (projectReadme) project.readme = projectReadme
+      if (tasksData) {
+        project.todos = (tasksData.todos ?? []) as Project['todos']
+        project.notes = tasksData.notes ?? ''
+      }
+
+      const existingProject = await storage.projects.getById(project.uid)
+      if (existingProject) {
+        await storage.projects.update(project.uid, { ...project, workspaceId: wsId, origin: 'seed', updatedAt: now })
+      } else {
+        await storage.projects.create({ ...project, workspaceId: wsId, origin: 'seed', readme: project.readme ?? '', updatedAt: now })
+      }
+
+      // Full project: load scripts, pipelines, cohorts, dashboards, datasets, etc.
+      const isFull = entity.full
+        || (await fetchJson(`${base}/projects/${folder}/scripts/_tree.json`)) !== null
+      if (isFull) {
+        await loadFullProject(project.uid, `${base}/projects/${folder}`)
+      }
+      break
+    }
+    case 'mappingProject': {
+      const mpFolder = entity.folder
+      const project = await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/_project.json`)
+        ?? await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/project.json`)
+      if (!project) return
+      // Restore source concepts from CSV (file-based projects)
+      if (project.sourceType === 'file' && project.fileSourceData) {
+        const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
+        if (csvText) restoreFileSourceDataFromCsv(project, csvText)
+      }
+      await storage.mappingProjects.create({ ...project, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
+      if (mappings.length > 0) {
+        await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
+      }
+      break
+    }
+    case 'dqRuleSet': {
+      const bundle = await fetchJson<{ ruleSet: DqRuleSet; checks: Array<{ id: string; ruleSetId: string; [k: string]: unknown }> }>(`${base}/${entity.path}`)
+      if (!bundle?.ruleSet) return
+      await storage.dqRuleSets.create({ ...bundle.ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      for (const check of bundle.checks ?? []) {
+        await storage.dqCustomChecks.create({ ...check, ruleSetId: bundle.ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
+      }
+      break
+    }
+    case 'catalog': {
+      const cat = await fetchJson<DataCatalog>(`${base}/${entity.path}`)
+      if (!cat) return
+      await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      break
+    }
+  }
+
+  localStorage.setItem(`linkr-seed-${flag}`, '1')
+}
+
+/** Load the non-re-seedable bootstrap content of a workspace (wiki, sql, etl pipelines, …). */
+async function loadWorkspaceInternals(
+  base: string, wsId: string, now: string, index: WorkspaceInternals,
+): Promise<void> {
+  const storage = getStorage()
 
   // --- schemas/ ---
   for (const path of index.schemas ?? []) {
@@ -426,34 +562,6 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
       createdAt: now,
       updatedAt: now,
     } as DataSource)
-  }
-
-  // --- projects/ ---
-  const fullProjectSet = new Set(index.fullProjects ?? [])
-  for (const folder of index.projects ?? []) {
-    const project = await fetchJson<Project>(`${base}/projects/${folder}/project.json`)
-    if (!project?.uid) continue
-    const projectReadme = await fetchText(`${base}/projects/${folder}/README.md`)
-    const tasksData = await fetchJson<{ todos?: unknown[]; notes?: string }>(`${base}/projects/${folder}/tasks.json`)
-    if (projectReadme) project.readme = projectReadme
-    if (tasksData) {
-      project.todos = (tasksData.todos ?? []) as Project['todos']
-      project.notes = tasksData.notes ?? ''
-    }
-
-    const existingProject = await storage.projects.getById(project.uid)
-    if (existingProject) {
-      await storage.projects.update(project.uid, { ...project, workspaceId: wsId, origin: 'seed', updatedAt: now })
-    } else {
-      await storage.projects.create({ ...project, workspaceId: wsId, origin: 'seed', readme: project.readme ?? '', updatedAt: now })
-    }
-
-    // Full project: load scripts, pipelines, cohorts, dashboards, datasets, etc.
-    const isFull = fullProjectSet.has(folder)
-      || (await fetchJson(`${base}/projects/${folder}/scripts/_tree.json`)) !== null
-    if (isFull) {
-      await loadFullProject(project.uid, `${base}/projects/${folder}`)
-    }
   }
 
   // --- wiki/ ---
@@ -482,7 +590,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     }
   }
 
-  // --- etl/ ---
+  // --- etl/ (pipeline rows + script files; the generated scripts are seeded in phase 2) ---
   for (const etlFolder of index.etlPipelines ?? []) {
     const pipeline = await fetchJson<EtlPipeline>(`${base}/etl/${etlFolder}/_pipeline.json`)
     if (!pipeline) continue
@@ -500,38 +608,11 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     }
   }
 
-  // --- data-quality/ ---
-  for (const path of index.dqRuleSets ?? []) {
-    const bundle = await fetchJson<{ ruleSet: DqRuleSet; checks: Array<{ id: string; ruleSetId: string; [k: string]: unknown }> }>(`${base}/${path}`)
-    if (!bundle?.ruleSet) continue
-    await storage.dqRuleSets.create({ ...bundle.ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
-    for (const check of bundle.checks ?? []) {
-      await storage.dqCustomChecks.create({ ...check, ruleSetId: bundle.ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
-    }
-  }
-
   // --- concept-sets/ ---
   for (const path of index.conceptSets ?? []) {
     const cs = await fetchJson<ConceptSet>(`${base}/${path}`)
     if (!cs) continue
     await storage.conceptSets.create({ ...cs, workspaceId: wsId, updatedAt: now }).catch(() => {})
-  }
-
-  // --- mapping-projects/ ---
-  for (const mpFolder of index.mappingProjects ?? []) {
-    const project = await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/_project.json`)
-      ?? await fetchJson<MappingProject>(`${base}/mapping-projects/${mpFolder}/project.json`)
-    if (!project) continue
-    // Restore source concepts from CSV (file-based projects)
-    if (project.sourceType === 'file' && project.fileSourceData) {
-      const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
-      if (csvText) restoreFileSourceDataFromCsv(project, csvText)
-    }
-    await storage.mappingProjects.create({ ...project, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
-    const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
-    if (mappings.length > 0) {
-      await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
-    }
   }
 
   // --- source-concept-ids/ (cross-project ID assignment registry) ---
@@ -545,13 +626,6 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     await storage.sourceConceptIdEntries.saveBatch(
       idEntries.map(e => ({ ...e, workspaceId: wsId }))
     ).catch(() => {})
-  }
-
-  // --- catalogs/ ---
-  for (const path of index.catalogs ?? []) {
-    const cat = await fetchJson<DataCatalog>(`${base}/${path}`)
-    if (!cat) continue
-    await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
   }
 
   // --- service-mappings/ ---
@@ -580,29 +654,22 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
     }
     await storage.userPlugins.create(userPlugin).catch(() => {})
   }
-
-  console.info(`[seed-loader] Workspace "${entry.folder}" loaded successfully`)
 }
 
-/** Index of files in a seed folder (needed because we can't list directories via fetch) */
-interface SeedFolderIndex {
+/**
+ * Non-re-seedable bootstrap content of a workspace, listed in `manifest.internals`.
+ * Mirrors the old `_index.json` minus the first-class entity types, which are now
+ * `manifest.entities`. (We can't list directories via fetch, hence these explicit lists.)
+ */
+export interface WorkspaceInternals {
   schemas?: string[]
   databases?: string[]
-  /** Project folder names. Each can be lightweight (just project.json + README.md)
-   *  or full (complete project export with scripts/, dashboards/, datasets/, etc.) */
-  projects?: string[]
-  /** Which projects are "full" (complete export). If omitted, auto-detected by
-   *  checking for scripts/_tree.json in the project folder. */
-  fullProjects?: string[]
   wikiPages?: string[]             // paths like 'wiki/slug--id.md'
   sqlCollections?: string[]        // folder names under sql-scripts/
   sqlScriptFiles?: Record<string, string>  // 'collection/filename' → relative path
-  etlPipelines?: string[]          // folder names under etl/
+  etlPipelines?: string[]          // folder names under etl/ (pipeline rows + files)
   etlFiles?: Record<string, string>  // 'pipeline/filename' → relative path
-  dqRuleSets?: string[]            // paths like 'data-quality/slug.json'
   conceptSets?: string[]           // paths like 'concept-sets/slug.json'
-  mappingProjects?: string[]       // folder names under mapping-projects/
-  catalogs?: string[]              // paths like 'catalogs/slug.json'
   serviceMappings?: string[]       // paths like 'service-mappings/slug.json'
   pluginFolders?: string[]         // folder names under plugins/
   pluginFiles?: Record<string, string[]>  // folder → list of file names
@@ -643,7 +710,7 @@ interface SeedProjectIndex {
  * Fetches files in parallel, stores in IndexedDB, mounts in DuckDB.
  */
 async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
-  const lsKey = `linkr-seed-db-${db.id}`
+  const lsKey = `linkr-seed-database-${db.id}`
   if (localStorage.getItem(lsKey)) return
 
   const storage = getStorage()
@@ -770,7 +837,7 @@ interface CompactMapping {
 }
 
 async function seedConceptMappings(config: SeedConceptMappings): Promise<void> {
-  const lsKey = `linkr-seed-mappings-${config.projectId}`
+  const lsKey = `linkr-seed-conceptMapping-${config.projectId}`
   if (localStorage.getItem(lsKey)) return
 
   const storage = getStorage()
@@ -824,7 +891,7 @@ interface EtlScriptRow {
 }
 
 async function seedEtlScripts(config: SeedEtlScripts): Promise<void> {
-  const lsKey = `linkr-seed-etl-${config.pipelineId}`
+  const lsKey = `linkr-seed-etlScript-${config.pipelineId}`
   if (localStorage.getItem(lsKey)) return
 
   const storage = getStorage()
@@ -927,7 +994,7 @@ async function seedDataset(config: SeedDataset): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function seedDashboardFromFile(config: SeedDashboard): Promise<void> {
-  const lsKey = `linkr-seed-dashboard-${config.projectUid}`
+  const lsKey = `linkr-seed-dashboard-${config.id}`
   if (localStorage.getItem(lsKey)) return
 
   const data = await fetchJson<{
@@ -967,7 +1034,7 @@ export function isSeeded(): boolean {
   return !!localStorage.getItem(SEED_KEY)
 }
 
-/** Clear a per-entity seed guard flag (e.g. 'dataset-<id>', 'db-<id>') so it re-seeds. */
+/** Clear a per-entity seed guard flag (e.g. 'dataset-<id>', 'database-<id>') so it re-seeds. */
 export function clearSeedFlag(suffix: string): void {
   localStorage.removeItem(`linkr-seed-${suffix}`)
 }
@@ -978,27 +1045,81 @@ export function clearGlobalSeedFlag(): void {
 }
 
 /**
+ * Find the seed entities that belong to a project (datasets/dashboards attached via
+ * projectUid). Used by the targeted re-seed to cascade a project re-import to its children,
+ * declaratively from the manifest instead of hardcoding the child types.
+ */
+export async function fetchProjectChildEntities(
+  projectUid: string,
+): Promise<Array<{ type: SeedEntityKind; id: string }>> {
+  const children: Array<{ type: SeedEntityKind; id: string }> = []
+  const folders = await fetchSeedRoot()
+  for (const folder of folders) {
+    const manifest = await fetchWorkspaceManifest(folder)
+    if (!manifest) continue
+    for (const entity of manifest.entities) {
+      if ((entity.type === 'dataset' || entity.type === 'dashboard') && entity.projectUid === projectUid) {
+        children.push({ type: entity.type, id: entity.id })
+      }
+    }
+  }
+  return children
+}
+
+/** Fetch the root seed.json and return its (validated) list of workspace folders. */
+async function fetchSeedRoot(): Promise<string[]> {
+  const root = await fetchJson<SeedManifest>(`${SEED_BASE}/seed.json`)
+  return root?.workspaces ?? []
+}
+
+/** Fetch and lightly validate a workspace's unified manifest. */
+async function fetchWorkspaceManifest(folder: string): Promise<WorkspaceManifest | null> {
+  const manifest = await fetchJson<WorkspaceManifest>(`${SEED_BASE}/${folder}/manifest.json`)
+  if (!manifest || !Array.isArray(manifest.entities)) {
+    console.warn(`[seed-loader] No valid manifest.json in ${folder}, skipping`)
+    return null
+  }
+  return manifest
+}
+
+/** Phase-2 entity kinds, in dependency order (databases → mappings → etl → datasets → dashboards). */
+const DATA_KIND_ORDER: SeedEntityKind[] = ['database', 'conceptMapping', 'etlScript', 'dataset', 'dashboard']
+
+/** Load one data (phase-2) entity. Each seeder owns its own uniform guard flag + IDB check. */
+async function loadDataEntity(entity: SeedManifestEntity, wsId: string): Promise<void> {
+  switch (entity.type) {
+    case 'database': return seedDatabase({ ...entity }, wsId)
+    case 'conceptMapping': return seedConceptMappings(entity)
+    case 'etlScript': return seedEtlScripts(entity)
+    case 'dataset': return seedDataset(entity)
+    case 'dashboard': return seedDashboardFromFile(entity)
+  }
+}
+
+/**
  * Load all seed data on first launch.
  * Called from app-store loadProjects() when no workspaces exist.
  *
- * Phase 1: Loads workspace structure (metadata, projects, mapping projects, etc.)
- * Returns quickly so the UI can render.
+ * Phase 1: Loads workspace structure (metadata, internals, projects, mapping projects, dq,
+ * catalogs). Returns quickly so the UI can render. Databases/datasets/dashboards/mappings/etl
+ * are loaded in phase 2 (seedDatabases) — they depend on these rows.
  */
 export async function seedWorkspaces(): Promise<void> {
   if (isSeeded()) return
 
-  const manifest = await fetchJson<SeedManifest>(`${SEED_BASE}/seed.json`)
-  if (!manifest?.workspaces?.length) {
+  const folders = await fetchSeedRoot()
+  if (!folders.length) {
     console.warn('[seed-loader] No seed.json found or empty, skipping seed')
     localStorage.setItem(SEED_KEY, '1')
     return
   }
 
-  for (const entry of manifest.workspaces) {
+  for (const folder of folders) {
     try {
-      await loadSeedWorkspace(entry)
+      const manifest = await fetchWorkspaceManifest(folder)
+      if (manifest) await loadSeedWorkspace(folder, manifest)
     } catch (err) {
-      console.error(`[seed-loader] Failed to load workspace "${entry.folder}":`, err)
+      console.error(`[seed-loader] Failed to load workspace "${folder}":`, err)
     }
   }
 
@@ -1008,60 +1129,29 @@ export async function seedWorkspaces(): Promise<void> {
 
 /**
  * Phase 2: Seed databases, concept mappings, ETL scripts, datasets, dashboards.
- * Called from App.tsx after stores are loaded.
- * Each step is idempotent and guarded by localStorage flags.
+ * Called from App.tsx after stores are loaded. Entities load in dependency order
+ * (DATA_KIND_ORDER); each step is idempotent via its uniform localStorage flag.
  */
 export async function seedDatabases(): Promise<void> {
-  const manifest = await fetchJson<SeedManifest>(`${SEED_BASE}/seed.json`)
-  if (!manifest?.workspaces?.length) return
+  const folders = await fetchSeedRoot()
+  if (!folders.length) return
 
-  for (const entry of manifest.workspaces) {
-    const workspace = await fetchJson<Workspace>(`${SEED_BASE}/${entry.folder}/workspace.json`)
+  for (const folder of folders) {
+    const workspace = await fetchJson<Workspace>(`${SEED_BASE}/${folder}/workspace.json`)
     if (!workspace?.id) continue
     const wsId = workspace.id
 
-    // Seed databases with Parquet files
-    for (const db of entry.databases ?? []) {
-      try {
-        await seedDatabase({ ...db }, wsId)
-      } catch (err) {
-        console.error(`[seed-loader] Failed to seed database "${db.name}":`, err)
-      }
-    }
+    const manifest = await fetchWorkspaceManifest(folder)
+    if (!manifest) continue
 
-    // Seed concept mappings
-    for (const cm of entry.conceptMappings ?? []) {
-      try {
-        await seedConceptMappings(cm)
-      } catch (err) {
-        console.error(`[seed-loader] Failed to seed concept mappings:`, err)
-      }
-    }
-
-    // Seed ETL scripts
-    for (const etl of entry.etlScripts ?? []) {
-      try {
-        await seedEtlScripts(etl)
-      } catch (err) {
-        console.error(`[seed-loader] Failed to seed ETL scripts:`, err)
-      }
-    }
-
-    // Seed datasets
-    for (const ds of entry.datasets ?? []) {
-      try {
-        await seedDataset(ds)
-      } catch (err) {
-        console.error(`[seed-loader] Failed to seed dataset:`, err)
-      }
-    }
-
-    // Seed dashboards
-    for (const db of entry.dashboards ?? []) {
-      try {
-        await seedDashboardFromFile(db)
-      } catch (err) {
-        console.error(`[seed-loader] Failed to seed dashboard:`, err)
+    for (const kind of DATA_KIND_ORDER) {
+      for (const entity of manifest.entities) {
+        if (entity.type !== kind) continue
+        try {
+          await loadDataEntity(entity, wsId)
+        } catch (err) {
+          console.error(`[seed-loader] Failed to seed ${entity.type} ${entity.id}:`, err)
+        }
       }
     }
   }

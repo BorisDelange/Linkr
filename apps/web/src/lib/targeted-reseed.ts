@@ -4,7 +4,7 @@
  *
  * Strategy (works for every entity type without exposing the seed-loader internals):
  *   1. delete the selected entity's rows from IndexedDB (+ children),
- *   2. clear its localStorage seed guard flag(s),
+ *   2. clear its uniform `linkr-seed-<type>-<id>` guard flag,
  *   3. re-run the idempotent top-level seeders (seedWorkspaces / seedDatabases) — they
  *      only re-create what was deleted/unflagged and skip everything still present,
  *   4. advance the stored seed-hash baseline for the re-seeded entities only.
@@ -16,14 +16,18 @@ import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import {
   seedWorkspaces, seedDatabases, clearSeedFlag, clearGlobalSeedFlag,
+  fetchProjectChildEntities,
 } from '@/lib/seed-loader'
 import {
   fetchSeedHashes, getStoredSeedHashes, storeSeedHashes, mergeSeedHashesFor,
-  type SeedChange,
+  type SeedChange, type SeedEntityType,
 } from '@/lib/seed-change-detector'
 
-/** Entity types loaded inside loadSeedWorkspace — only seedWorkspaces() can re-create them. */
-const WORKSPACE_SCOPED = new Set<SeedChange['entityType']>([
+/**
+ * Entity types recreated by seedWorkspaces() (the structural phase, gated by the global
+ * SEED_KEY). Re-seeding any of these requires clearing that global flag.
+ */
+const STRUCTURAL: Set<SeedEntityType> = new Set([
   'workspace', 'project', 'mappingProject', 'dqRuleSet', 'catalog',
 ])
 
@@ -42,14 +46,15 @@ async function deleteEntity(change: SeedChange): Promise<void> {
       const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
       if (proj) {
         // deleteProjectData also drops the project's datasets and dashboards, which are
-        // seeded separately (seedDatabases) and guarded by their own flags. Clear those
-        // flags so the re-seed re-imports them instead of skipping → empty project.
-        const datasetFiles = await storage.datasetFiles.getByProject(proj.uid)
-        for (const df of datasetFiles) clearSeedFlag(`dataset-${df.id}`)
-        clearSeedFlag(`dashboard-${proj.uid}`)
+        // separate manifest entities guarded by their own flags. Derive those children from
+        // the seed manifest and clear their flags so the re-seed re-imports them too
+        // (otherwise the re-seeded project comes back empty).
+        const children = await fetchProjectChildEntities(proj.uid)
+        for (const child of children) clearSeedFlag(`${child.type}-${child.id}`)
         await deleteProjectData(storage, proj.uid)
         await storage.projects.delete(proj.uid).catch(() => {})
       }
+      clearSeedFlag(`project-${entityId}`)
       break
     }
     case 'dataset': {
@@ -61,14 +66,11 @@ async function deleteEntity(change: SeedChange): Promise<void> {
       break
     }
     case 'dashboard': {
-      // entityId is the projectUid (the seed guard granularity); drop all its dashboards.
-      const dashboards = await storage.dashboards.getByProject(entityId)
-      for (const d of dashboards) {
-        const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-        for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id).catch(() => {})
-        await storage.dashboardTabs.deleteByDashboard(d.id).catch(() => {})
-        await storage.dashboards.delete(d.id).catch(() => {})
-      }
+      // entityId is the dashboard id; drop it and its tabs/widgets.
+      const tabs = await storage.dashboardTabs.getByDashboard(entityId)
+      for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id).catch(() => {})
+      await storage.dashboardTabs.deleteByDashboard(entityId).catch(() => {})
+      await storage.dashboards.delete(entityId).catch(() => {})
       clearSeedFlag(`dashboard-${entityId}`)
       break
     }
@@ -77,34 +79,37 @@ async function deleteEntity(change: SeedChange): Promise<void> {
       await storage.fileHandles.deleteByDataSource(entityId).catch(() => {})
       await storage.databaseStatsCache.delete(entityId).catch(() => {})
       await storage.dataSources.delete(entityId).catch(() => {})
-      clearSeedFlag(`db-${entityId}`)
+      clearSeedFlag(`database-${entityId}`)
       break
     }
     case 'conceptMapping': {
       // entityId is the mapping-project id whose mappings are re-seeded as a unit.
       await storage.conceptMappings.deleteByProject(entityId).catch(() => {})
-      clearSeedFlag(`mappings-${entityId}`)
+      clearSeedFlag(`conceptMapping-${entityId}`)
       break
     }
     case 'etlScript': {
       // entityId is the pipeline id; drop its files (the pipeline row is recreated by seedWorkspaces).
       await storage.etlFiles.deleteByPipeline(entityId).catch(() => {})
-      clearSeedFlag(`etl-${entityId}`)
+      clearSeedFlag(`etlScript-${entityId}`)
       break
     }
     case 'mappingProject': {
       await storage.conceptMappings.deleteByProject(entityId).catch(() => {})
       await storage.mappingProjects.delete(entityId).catch(() => {})
+      clearSeedFlag(`mappingProject-${entityId}`)
       break
     }
     case 'dqRuleSet': {
       await storage.dqCustomChecks.deleteByRuleSet(entityId).catch(() => {})
       await storage.dqRuleSets.delete(entityId).catch(() => {})
+      clearSeedFlag(`dqRuleSet-${entityId}`)
       break
     }
     case 'catalog': {
       await storage.catalogResults.delete(entityId).catch(() => {})
       await storage.dataCatalogs.delete(entityId).catch(() => {})
+      clearSeedFlag(`catalog-${entityId}`)
       break
     }
   }
@@ -122,15 +127,15 @@ export async function reseedSelection(changes: SeedChange[]): Promise<SeedChange
     await deleteEntity(change)
   }
 
-  // Workspace-scoped entities can only be recreated by seedWorkspaces(), which is gated
-  // by the global SEED_KEY — clear it so the re-run actually re-imports them.
-  const needsWorkspaceReseed = toReseed.some((c) => WORKSPACE_SCOPED.has(c.entityType))
+  // Structural entities can only be recreated by seedWorkspaces(), which is gated by the
+  // global SEED_KEY — clear it so the re-run actually re-imports them.
+  const needsWorkspaceReseed = toReseed.some((c) => STRUCTURAL.has(c.entityType))
   if (needsWorkspaceReseed) {
     clearGlobalSeedFlag()
     await seedWorkspaces()
   }
-  // seedDatabases() re-creates per-entity items (db/dataset/dashboard/mappings/etl) whose
-  // guard flags we cleared above; everything still flagged is skipped.
+  // seedDatabases() re-creates the data-phase entities (database/conceptMapping/etlScript/
+  // dataset/dashboard) whose guard flags we cleared above; everything still flagged is skipped.
   await seedDatabases()
 
   // Advance the baseline for the re-seeded entities only, so the others still notify later.

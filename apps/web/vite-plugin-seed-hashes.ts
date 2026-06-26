@@ -1,68 +1,54 @@
 /**
  * Vite plugin that generates per-entity SHA-256 hashes for seed data.
  *
- * At build time (and dev server start), it reads `public/data/seed/seed.json`,
- * traverses every referenced file, and writes `public/data/seed/seed-hashes.json`
- * with one hash per logical entity. The frontend then compares these hashes
- * against localStorage to detect seed data updates between deployments.
+ * At build time (and dev server start, and on HMR), it reads the root
+ * `public/data/seed/seed.json` (the list of workspace folders), then each workspace's
+ * unified `<folder>/manifest.json`, and writes `public/data/seed/seed-hashes.json` with
+ * one hash per logical entity. The frontend compares these hashes against localStorage to
+ * detect seed data updates between deployments.
+ *
+ * The plugin iterates the SAME `manifest.entities` list the seed loader consumes, so the
+ * change-detection baseline can't drift from what actually gets loaded.
  */
 
 import { createHash } from 'crypto'
 import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { join, resolve, sep } from 'path'
 import type { Plugin, ViteDevServer } from 'vite'
+import { SEED_HASHES_SCHEMA_VERSION } from './src/lib/seed-schema-version'
 
 // ---------------------------------------------------------------------------
-// Types (mirror the relevant parts of seed-loader.ts)
+// Types (mirror the relevant parts of seed-loader.ts's WorkspaceManifest)
 // ---------------------------------------------------------------------------
 
-interface SeedDatabase {
+type SeedEntityKind =
+  | 'database' | 'conceptMapping' | 'etlScript' | 'dataset' | 'dashboard'
+  | 'project' | 'mappingProject' | 'dqRuleSet' | 'catalog'
+
+interface ManifestEntity {
+  type: SeedEntityKind
   id: string
+  // database
+  name?: string
+  // conceptMapping / etlScript / dataset / dashboard
+  file?: string
+  fileName?: string
+  customMappingsFile?: string
+  // project / mappingProject
+  folder?: string
+  // dqRuleSet / catalog
+  path?: string
   [key: string]: unknown
 }
 
-interface SeedConceptMappings {
-  file: string
-  projectId: string
+interface WorkspaceManifest {
+  schemaVersion?: number
+  entities?: ManifestEntity[]
 }
 
-interface SeedEtlScripts {
-  file: string
-  pipelineId: string
-  customMappingsFile?: string
-}
-
-interface SeedDataset {
-  file: string
-  id: string
-  fileName?: string
-}
-
-interface SeedDashboard {
-  file: string
-  projectUid: string
-}
-
-interface SeedWorkspaceEntry {
-  folder: string
-  organization?: unknown
-  databases?: SeedDatabase[]
-  conceptMappings?: SeedConceptMappings[]
-  etlScripts?: SeedEtlScripts[]
-  datasets?: SeedDataset[]
-  dashboards?: SeedDashboard[]
-}
-
-interface SeedManifest {
-  workspaces: SeedWorkspaceEntry[]
-}
-
-interface WorkspaceIndex {
-  projects?: string[]
-  mappingProjects?: string[]
-  etlPipelines?: string[]
-  dqRuleSets?: string[]
-  catalogs?: string[]
+interface SeedRoot {
+  schemaVersion?: number
+  workspaces?: string[]
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +88,8 @@ export interface SeedEntityNames {
 }
 
 export interface SeedHashesManifest {
+  /** Bumped when the baseline schema changes; an old/absent value triggers a silent reset. */
+  schemaVersion: number
   workspaces: Record<string, SeedEntityHashes>
 }
 
@@ -121,10 +109,7 @@ function readFileOrEmpty(filePath: string): string {
   }
 }
 
-/**
- * Hash a file referenced by a path relative to `public/`.
- * The path may start with `/` (e.g. `/data/mimic-iv-concept-mappings.json`).
- */
+/** Hash a file referenced by a path relative to `public/` (may start with `/`). */
 function hashPublicFile(publicDir: string, filePath: string): string {
   const resolved = resolve(publicDir, filePath.replace(/^\//, ''))
   return sha256(readFileOrEmpty(resolved))
@@ -150,6 +135,95 @@ function nameFromFile(absPath: string, get: (o: Record<string, unknown>) => unkn
   }
 }
 
+/** Empty per-type hash/name maps. */
+function emptyMaps(): SeedEntityNames {
+  return {
+    databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
+    dashboards: {}, projects: {}, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
+  }
+}
+
+/** Map an entity kind to the SeedEntityHashes map key it lives under. */
+const KIND_TO_KEY: Record<SeedEntityKind, keyof SeedEntityNames> = {
+  database: 'databases',
+  conceptMapping: 'conceptMappings',
+  etlScript: 'etlScripts',
+  dataset: 'datasets',
+  dashboard: 'dashboards',
+  project: 'projects',
+  mappingProject: 'mappingProjects',
+  dqRuleSet: 'dqRuleSets',
+  catalog: 'catalogs',
+}
+
+// ---------------------------------------------------------------------------
+// Per-entity hashing (mirrors what the seed loader reads for each kind)
+// ---------------------------------------------------------------------------
+
+/** Returns [hash, name] for one manifest entity, or null to skip. */
+function hashEntity(
+  publicDir: string, wsDir: string, entity: ManifestEntity,
+): { hash: string; name: string } | null {
+  switch (entity.type) {
+    case 'database':
+      // Config only (not parquet bytes), like the old seed.json-entry hash.
+      return { hash: sha256(JSON.stringify(entity)), name: readableName(entity.name) ?? entity.id }
+
+    case 'conceptMapping':
+      if (!entity.file) return null
+      return { hash: hashPublicFile(publicDir, entity.file), name: entity.id }
+
+    case 'etlScript': {
+      if (!entity.file) return null
+      let content = readFileOrEmpty(resolve(publicDir, entity.file.replace(/^\//, '')))
+      if (entity.customMappingsFile) {
+        content += readFileOrEmpty(resolve(publicDir, entity.customMappingsFile.replace(/^\//, '')))
+      }
+      return { hash: sha256(content), name: entity.id }
+    }
+
+    case 'dataset':
+      if (!entity.file) return null
+      return { hash: hashPublicFile(publicDir, entity.file), name: entity.fileName ?? entity.id }
+
+    case 'dashboard': {
+      if (!entity.file) return null
+      const abs = resolve(publicDir, entity.file.replace(/^\//, ''))
+      const name = nameFromFile(abs, (o) => (o.dashboard as Record<string, unknown> | undefined)?.name) ?? entity.id
+      return { hash: hashPublicFile(publicDir, entity.file), name }
+    }
+
+    case 'project': {
+      const projDir = join(wsDir, 'projects', entity.folder ?? entity.id)
+      const projJson = readFileOrEmpty(join(projDir, 'project.json'))
+      const readme = readFileOrEmpty(join(projDir, 'README.md'))
+      const name = nameFromFile(join(projDir, 'project.json'), (o) => o.name) ?? (entity.folder ?? entity.id)
+      return { hash: sha256(projJson + readme), name }
+    }
+
+    case 'mappingProject': {
+      const mpDir = join(wsDir, 'mapping-projects', entity.folder ?? entity.id)
+      const projJson = readFileOrEmpty(join(mpDir, '_project.json'))
+      const name = nameFromFile(join(mpDir, '_project.json'), (o) => o.name) ?? (entity.folder ?? entity.id)
+      return { hash: sha256(projJson), name }
+    }
+
+    case 'dqRuleSet': {
+      if (!entity.path) return null
+      const abs = join(wsDir, entity.path)
+      const name = nameFromFile(abs, (o) => (o.ruleSet as Record<string, unknown> | undefined)?.name ?? o.name) ?? entity.id
+      return { hash: sha256(readFileOrEmpty(abs)), name }
+    }
+
+    case 'catalog': {
+      if (!entity.path) return null
+      const abs = join(wsDir, entity.path)
+      const name = nameFromFile(abs, (o) => o.name) ?? entity.id
+      return { hash: sha256(readFileOrEmpty(abs)), name }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Core logic
 // ---------------------------------------------------------------------------
@@ -158,126 +232,44 @@ function generateSeedHashes(publicDir: string): SeedHashesManifest | null {
   const seedJsonPath = join(publicDir, 'data/seed/seed.json')
   if (!existsSync(seedJsonPath)) return null
 
-  const manifest: SeedManifest = JSON.parse(readFileSync(seedJsonPath, 'utf-8'))
-  if (!manifest?.workspaces?.length) return null
+  const root: SeedRoot = JSON.parse(readFileSync(seedJsonPath, 'utf-8'))
+  if (!root?.workspaces?.length) return null
 
-  const result: SeedHashesManifest = { workspaces: {} }
+  const result: SeedHashesManifest = { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
 
-  for (const entry of manifest.workspaces) {
-    const wsDir = join(publicDir, 'data/seed', entry.folder)
-    const names: SeedEntityNames = {
-      databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
-      dashboards: {}, projects: {}, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
-    }
+  for (const folder of root.workspaces) {
+    const wsDir = join(publicDir, 'data/seed', folder)
+    const manifestPath = join(wsDir, 'manifest.json')
+    if (!existsSync(manifestPath)) continue
+    let manifest: WorkspaceManifest
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf-8'))
+    } catch { continue }
+
+    const names = emptyMaps()
     const entityHashes: SeedEntityHashes = {
       workspace: '',
-      databases: {},
-      conceptMappings: {},
-      etlScripts: {},
-      datasets: {},
-      dashboards: {},
-      projects: {},
-      mappingProjects: {},
-      dqRuleSets: {},
-      catalogs: {},
+      databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
+      dashboards: {}, projects: {}, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
       names,
     }
 
-    // --- Workspace metadata ---
+    // Workspace metadata: workspace.json + the manifest itself (so internals/org edits show up).
     const wsJson = readFileOrEmpty(join(wsDir, 'workspace.json'))
-    const indexJson = readFileOrEmpty(join(wsDir, '_index.json'))
-    entityHashes.workspace = sha256(wsJson + indexJson)
-    entityHashes.workspaceName = nameFromFile(join(wsDir, 'workspace.json'), (o) => o.name) ?? entry.folder
+    const manifestJson = readFileOrEmpty(manifestPath)
+    entityHashes.workspace = sha256(wsJson + manifestJson)
+    entityHashes.workspaceName = nameFromFile(join(wsDir, 'workspace.json'), (o) => o.name) ?? folder
 
-    // --- Databases (from seed.json entries — config only, not parquet data) ---
-    for (const db of entry.databases ?? []) {
-      entityHashes.databases[db.id] = sha256(JSON.stringify(db))
-      names.databases[db.id] = readableName(db.name) ?? db.id
+    for (const entity of manifest.entities ?? []) {
+      const key = KIND_TO_KEY[entity.type]
+      if (!key) continue
+      const hashed = hashEntity(publicDir, wsDir, entity)
+      if (!hashed) continue
+      ;(entityHashes[key] as Record<string, string>)[entity.id] = hashed.hash
+      names[key][entity.id] = hashed.name
     }
 
-    // --- Concept mappings (hash the referenced file; name = its mapping project) ---
-    for (const cm of entry.conceptMappings ?? []) {
-      entityHashes.conceptMappings[cm.projectId] = hashPublicFile(publicDir, cm.file)
-    }
-
-    // --- ETL scripts (hash file + optional custom mappings file) ---
-    for (const etl of entry.etlScripts ?? []) {
-      let content = readFileOrEmpty(resolve(publicDir, etl.file.replace(/^\//, '')))
-      if (etl.customMappingsFile) {
-        content += readFileOrEmpty(resolve(publicDir, etl.customMappingsFile.replace(/^\//, '')))
-      }
-      entityHashes.etlScripts[etl.pipelineId] = sha256(content)
-    }
-
-    // --- Datasets (hash the referenced file; name = its fileName) ---
-    for (const ds of entry.datasets ?? []) {
-      entityHashes.datasets[ds.id] = hashPublicFile(publicDir, ds.file)
-      names.datasets[ds.id] = ds.fileName ?? ds.id
-    }
-
-    // --- Dashboards (hash the referenced file; name from the bundle's dashboard.name) ---
-    for (const db of entry.dashboards ?? []) {
-      entityHashes.dashboards[db.projectUid] = hashPublicFile(publicDir, db.file)
-      const n = nameFromFile(resolve(publicDir, db.file.replace(/^\//, "")), (o) => (o.dashboard as Record<string, unknown> | undefined)?.name)
-      if (n) names.dashboards[db.projectUid] = n
-    }
-
-    // --- Projects & mapping projects from _index.json ---
-    let index: WorkspaceIndex = {}
-    try {
-      index = JSON.parse(indexJson) as WorkspaceIndex
-    } catch { /* empty */ }
-
-    for (const projFolder of index.projects ?? []) {
-      const projDir = join(wsDir, 'projects', projFolder)
-      const projJson = readFileOrEmpty(join(projDir, 'project.json'))
-      const readme = readFileOrEmpty(join(projDir, 'README.md'))
-      entityHashes.projects[projFolder] = sha256(projJson + readme)
-      names.projects[projFolder] = nameFromFile(join(projDir, 'project.json'), (o) => o.name) ?? projFolder
-    }
-
-    for (const mpFolder of index.mappingProjects ?? []) {
-      const mpDir = join(wsDir, 'mapping-projects', mpFolder)
-      const projJson = readFileOrEmpty(join(mpDir, '_project.json'))
-      entityHashes.mappingProjects[mpFolder] = sha256(projJson)
-      names.mappingProjects[mpFolder] = nameFromFile(join(mpDir, '_project.json'), (o) => o.name) ?? mpFolder
-    }
-
-    // Concept-mapping names mirror their mapping project (matched by id). Done after the
-    // mapping-projects loop so the lookup map is complete; falls back to the id.
-    const mpNameById = new Map<string, string>()
-    for (const mpFolder of index.mappingProjects ?? []) {
-      const id = nameFromFile(join(wsDir, 'mapping-projects', mpFolder, '_project.json'), (o) => o.id)
-      const nm = names.mappingProjects[mpFolder]
-      if (id && nm) mpNameById.set(id, nm)
-    }
-    for (const cm of entry.conceptMappings ?? []) {
-      names.conceptMappings[cm.projectId] = mpNameById.get(cm.projectId) ?? cm.projectId
-    }
-
-    // ETL names come from each pipeline's _pipeline.json (matched by id == pipelineId).
-    for (const pFolder of index.etlPipelines ?? []) {
-      const pj = join(wsDir, 'etl', pFolder, '_pipeline.json')
-      const id = nameFromFile(pj, (o) => o.id)
-      const nm = nameFromFile(pj, (o) => o.name)
-      if (id && nm) names.etlScripts[id] = nm
-    }
-
-    // --- DQ rule sets ---
-    for (const dqPath of index.dqRuleSets ?? []) {
-      const content = readFileOrEmpty(join(wsDir, dqPath))
-      entityHashes.dqRuleSets[dqPath] = sha256(content)
-      names.dqRuleSets[dqPath] = nameFromFile(join(wsDir, dqPath), (o) => (o.ruleSet as Record<string, unknown> | undefined)?.name ?? o.name) ?? dqPath
-    }
-
-    // --- Catalogs ---
-    for (const catPath of index.catalogs ?? []) {
-      const content = readFileOrEmpty(join(wsDir, catPath))
-      entityHashes.catalogs[catPath] = sha256(content)
-      names.catalogs[catPath] = nameFromFile(join(wsDir, catPath), (o) => o.name) ?? catPath
-    }
-
-    result.workspaces[entry.folder] = entityHashes
+    result.workspaces[folder] = entityHashes
   }
 
   return result

@@ -6,6 +6,7 @@
  * produce a detailed list of what changed (added / modified / removed).
  */
 
+import { SEED_HASHES_SCHEMA_VERSION } from './seed-schema-version'
 import type { SeedHashesManifest, SeedEntityHashes, SeedEntityNames } from '../../vite-plugin-seed-hashes'
 
 // ---------------------------------------------------------------------------
@@ -73,7 +74,7 @@ export function mergeSeedHashesFor(
   // Deep clone the stored baseline (or start from empty) so we never mutate inputs.
   const merged: SeedHashesManifest = stored
     ? JSON.parse(JSON.stringify(stored)) as SeedHashesManifest
-    : { workspaces: {} }
+    : { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
 
   const keyForType = new Map<SeedEntityType, keyof SeedEntityHashes>(
     ENTITY_KEYS.map(({ key, type }) => [type, key]),
@@ -182,9 +183,10 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
   if (!current) return { hasChanges: false, changes: [] }
 
   const stored = getStoredSeedHashes()
-  if (!stored) {
-    // No stored hashes — first visit or pre-feature build.
-    // Store current and report no changes (will be seeded fresh).
+  if (!stored || stored.schemaVersion !== SEED_HASHES_SCHEMA_VERSION) {
+    // No stored hashes (first visit), OR a baseline in an older schema (e.g. the pre-manifest
+    // format). Treat both as a fresh baseline: silently store the current hashes and report no
+    // changes, so an obsolete baseline never triggers a spurious "everything changed" dialog.
     storeSeedHashes(current)
     return { hasChanges: false, changes: [] }
   }
