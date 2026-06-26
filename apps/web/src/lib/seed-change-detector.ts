@@ -204,53 +204,28 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
     // Readable workspace name comes from the current build (the new name wins on display).
     const wsName = newWs?.workspaceName ?? oldWs?.workspaceName ?? folder
 
-    // Entire workspace added
+    // Workspace-level row: added / removed (whole workspace) or modified (metadata only).
+    // We fall through to the per-type diff in every case, so a brand-new or fully-removed
+    // workspace also lists its child entities (the user sees what they'll get / lose).
     if (!oldWs && newWs) {
-      changes.push({
-        workspaceFolder: folder,
-        workspaceName: wsName,
-        entityType: 'workspace',
-        entityId: folder,
-        entityLabel: wsName,
-        changeType: 'added',
-      })
-      continue
-    }
-
-    // Entire workspace removed
-    if (oldWs && !newWs) {
-      changes.push({
-        workspaceFolder: folder,
-        workspaceName: wsName,
-        entityType: 'workspace',
-        entityId: folder,
-        entityLabel: wsName,
-        changeType: 'removed',
-      })
-      continue
-    }
-
-    // Both exist — check workspace metadata
-    if (oldWs!.workspace !== newWs!.workspace) {
-      changes.push({
-        workspaceFolder: folder,
-        workspaceName: wsName,
-        entityType: 'workspace',
-        entityId: folder,
-        entityLabel: wsName,
-        changeType: 'modified',
-      })
+      changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'added' })
+    } else if (oldWs && !newWs) {
+      changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'removed' })
+    } else if (oldWs!.workspace !== newWs!.workspace) {
+      changes.push({ workspaceFolder: folder, workspaceName: wsName, entityType: 'workspace', entityId: folder, entityLabel: wsName, changeType: 'modified' })
     }
 
     // Diff each entity type, labelling entities with their readable name when available.
+    // Either side may be undefined (a whole workspace added or removed) — diffHashMap and the
+    // name merge below both treat a missing side as an empty map.
     for (const { key, type } of ENTITY_KEYS) {
       const nameKey = key as keyof SeedEntityNames
       // Merge stored + current names (current wins). Stored is the only source of a
       // name for a 'removed' entity — it no longer exists in the current build.
-      const nameMap = { ...(oldWs!.names?.[nameKey] ?? {}), ...(newWs!.names?.[nameKey] ?? {}) }
+      const nameMap = { ...(oldWs?.names?.[nameKey] ?? {}), ...(newWs?.names?.[nameKey] ?? {}) }
       diffHashMap(
-        oldWs![key] as Record<string, string>,
-        newWs![key] as Record<string, string>,
+        oldWs?.[key] as Record<string, string> | undefined,
+        newWs?.[key] as Record<string, string> | undefined,
         type,
         folder,
         wsName,
