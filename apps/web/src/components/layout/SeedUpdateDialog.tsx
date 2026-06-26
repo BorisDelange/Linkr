@@ -7,6 +7,9 @@ import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
+} from '@/components/ui/tooltip'
 import type { SeedChange, SeedDiffResult, SeedEntityType, SeedChangeType } from '@/lib/seed-change-detector'
 
 /** Display order of entity-type sub-groups within a workspace. */
@@ -113,6 +116,23 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     return () => { cancelled = true }
   }, [diff.changes, i18n.language])
 
+  // Folders whose whole workspace is added or removed. There the re-seed/delete granularity is
+  // the workspace itself (seedWorkspaces loads it as a block), so its child rows are shown
+  // read-only and ride along with the workspace row.
+  const wholeWorkspaceFolders = useMemo(() => {
+    const set = new Set<string>()
+    for (const c of diff.changes) {
+      if (c.entityType === 'workspace' && (c.changeType === 'added' || c.changeType === 'removed')) {
+        set.add(c.workspaceFolder)
+      }
+    }
+    return set
+  }, [diff.changes])
+
+  /** A row is its own control unless it's a child of a wholly added/removed workspace. */
+  const isChildOfWholeWorkspace = (c: SeedChange) =>
+    c.entityType !== 'workspace' && wholeWorkspaceFolders.has(c.workspaceFolder)
+
   const toggle = (key: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
@@ -122,8 +142,33 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     })
   }
 
-  const pickedReseed = reseedable.filter((c) => selected.has(changeKey(c)))
-  const pickedRemove = removed.filter((c) => deletable.has(changeKey(c)) && selected.has(changeKey(c)))
+  // Expand a selected whole-workspace row into all its child changes of a given change type,
+  // so checking the workspace applies to everything inside it (children are read-only).
+  const childrenOf = (folder: string, changeTypes: SeedChange['changeType'][]) =>
+    diff.changes.filter((c) =>
+      c.workspaceFolder === folder && c.entityType !== 'workspace' && changeTypes.includes(c.changeType),
+    )
+
+  const pickedReseed = reseedable.filter((c) => {
+    if (isChildOfWholeWorkspace(c)) return false // ride along with the workspace row instead
+    if (!selected.has(changeKey(c))) return false
+    return true
+  }).concat(
+    // children of any selected, wholly-added workspace
+    [...wholeWorkspaceFolders]
+      .filter((f) => selected.has(`${f}:workspace:${f}`))
+      .flatMap((f) => childrenOf(f, ['added', 'modified'])),
+  )
+
+  const pickedRemove = removed.filter((c) => {
+    if (isChildOfWholeWorkspace(c)) return false
+    return deletable.has(changeKey(c)) && selected.has(changeKey(c))
+  }).concat(
+    // children of any selected, wholly-removed workspace (origin-guarded later in deleteRemovedSelection)
+    [...wholeWorkspaceFolders]
+      .filter((f) => selected.has(`${f}:workspace:${f}`))
+      .flatMap((f) => childrenOf(f, ['removed'])),
+  )
 
   const handleApply = async () => {
     if (pickedReseed.length === 0 && pickedRemove.length === 0) return
@@ -156,24 +201,38 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     const ChangeIcon = changeIcons[change.changeType]
     const key = changeKey(change)
     const isRemoved = change.changeType === 'removed'
-    // A removed row is checkable only once confirmed seed-origin (safe to delete). User
-    // content / pre-origin data stays read-only.
-    const canCheck = isRemoved ? deletable.has(key) : true
+    // A child of a wholly added/removed workspace rides along with the workspace: shown as a
+    // checked-but-locked box with a tooltip. A removed row is checkable only once confirmed
+    // seed-origin (safe to delete); other non-seed removed rows stay read-only.
+    const ridesAlong = isChildOfWholeWorkspace(change)
+    const canCheck = ridesAlong ? false : isRemoved ? deletable.has(key) : true
+
+    const checkboxSlot = ridesAlong ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="shrink-0 cursor-help">
+            <Checkbox checked disabled className="pointer-events-none" />
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>{t('version_check.seed_child_included_tooltip')}</TooltipContent>
+      </Tooltip>
+    ) : canCheck ? (
+      <Checkbox
+        checked={selected.has(key)}
+        onCheckedChange={() => toggle(key)}
+        disabled={busy}
+        className={`shrink-0 ${isRemoved ? 'data-[state=checked]:bg-destructive data-[state=checked]:border-destructive' : ''}`}
+      />
+    ) : (
+      <span className="w-4 shrink-0" />
+    )
+
     return (
       <label
         key={`${change.entityType}-${change.entityId}`}
         className={`flex items-center gap-2 text-xs ${canCheck ? 'cursor-pointer' : 'opacity-70'}`}
       >
-        {canCheck ? (
-          <Checkbox
-            checked={selected.has(key)}
-            onCheckedChange={() => toggle(key)}
-            disabled={busy}
-            className={`shrink-0 ${isRemoved ? 'data-[state=checked]:bg-destructive data-[state=checked]:border-destructive' : ''}`}
-          />
-        ) : (
-          <span className="w-4 shrink-0" />
-        )}
+        {checkboxSlot}
         <span className="truncate font-medium">{change.entityLabel}</span>
         <Badge
           variant={changeBadgeVariant[change.changeType]}
@@ -198,11 +257,19 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
           </DialogDescription>
         </DialogHeader>
 
+        <TooltipProvider delayDuration={200}>
         <div className="max-h-[320px] overflow-y-auto rounded-md border p-3">
           <div className="space-y-5">
             {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
               <div key={wsFolder}>
-                <p className="text-sm font-semibold mb-3">{wsNames[wsFolder] ?? wsFolder}</p>
+                <p className="text-sm font-semibold mb-3">
+                  {wsNames[wsFolder] ?? wsFolder}
+                  {wholeWorkspaceFolders.has(wsFolder) && (
+                    <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                      {t('version_check.seed_whole_workspace_hint')}
+                    </span>
+                  )}
+                </p>
                 <div className="space-y-3 pl-1">
                   {groupByType(changes).map(({ type, items }) => (
                     <div key={type}>
@@ -219,6 +286,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
             ))}
           </div>
         </div>
+        </TooltipProvider>
 
         {removed.length > 0 && (
           <p className="text-xs text-muted-foreground">{t('version_check.seed_removed_deletable_hint')}</p>
