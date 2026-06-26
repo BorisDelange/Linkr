@@ -13,7 +13,7 @@
  * user is only notified and decides whether to delete the local copy manually.
  */
 import { getStorage } from '@/lib/storage'
-import { deleteProjectData, deleteWorkspaceData } from '@/lib/entity-io'
+import { deleteProjectData } from '@/lib/entity-io'
 import {
   seedWorkspaces, seedDatabases, clearSeedFlag, clearGlobalSeedFlag,
 } from '@/lib/seed-loader'
@@ -27,35 +27,26 @@ const WORKSPACE_SCOPED = new Set<SeedChange['entityType']>([
   'workspace', 'project', 'mappingProject', 'dqRuleSet', 'catalog',
 ])
 
-/** Map a seed folder name to the workspace row id by reading its bundled workspace.json. */
-async function resolveWorkspaceId(folder: string): Promise<string | null> {
-  const base = `${import.meta.env.BASE_URL}data/seed/${folder}/workspace.json`.replace(/\/\//g, '/')
-  try {
-    const res = await fetch(base)
-    if (!res.ok) return null
-    const ws = await res.json() as { id?: string }
-    return ws.id ?? null
-  } catch {
-    return null
-  }
-}
-
 /** Delete one selected entity's rows (+ children) from IndexedDB and clear its guard flag. */
 async function deleteEntity(change: SeedChange): Promise<void> {
   const storage = getStorage()
   const { entityType, entityId } = change
 
   switch (entityType) {
-    case 'workspace': {
-      // entityId is the seed folder name, not the workspace row id. Resolve the real id
-      // from the bundled workspace.json so we cascade-delete the right rows.
-      const wsId = await resolveWorkspaceId(entityId)
-      if (wsId) await deleteWorkspaceData(storage, wsId)
+    case 'workspace':
+      // A workspace 'added'/'modified' change only touches workspace.json metadata — its
+      // components diff individually. loadSeedWorkspace() updates the existing row in place,
+      // so nothing needs deleting; the re-seed below refreshes the metadata.
       break
-    }
     case 'project': {
       const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
       if (proj) {
+        // deleteProjectData also drops the project's datasets and dashboards, which are
+        // seeded separately (seedDatabases) and guarded by their own flags. Clear those
+        // flags so the re-seed re-imports them instead of skipping → empty project.
+        const datasetFiles = await storage.datasetFiles.getByProject(proj.uid)
+        for (const df of datasetFiles) clearSeedFlag(`dataset-${df.id}`)
+        clearSeedFlag(`dashboard-${proj.uid}`)
         await deleteProjectData(storage, proj.uid)
         await storage.projects.delete(proj.uid).catch(() => {})
       }

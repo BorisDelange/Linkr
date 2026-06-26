@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Trash2, X, Info, Database, FileText, GitBranch,
-  Layout, FolderKanban, Map, ShieldCheck, BookOpen,
-  Plus, Pencil, Minus,
-} from 'lucide-react'
+import { Trash2, X, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Dialog,
   DialogContent,
@@ -20,37 +14,10 @@ import { useAppStore } from '@/stores/app-store'
 import { checkVersion, acknowledgeVersion, clearAllData, type VersionStatus } from '@/lib/version-check'
 import {
   detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
-  type SeedChange, type SeedDiffResult, type SeedEntityType, type SeedChangeType,
+  type SeedChange, type SeedDiffResult,
 } from '@/lib/seed-change-detector'
-
-// ---------------------------------------------------------------------------
-// Entity type → icon mapping
-// ---------------------------------------------------------------------------
-
-const entityIcons: Record<SeedEntityType, typeof Database> = {
-  workspace: FolderKanban,
-  database: Database,
-  conceptMapping: Map,
-  etlScript: GitBranch,
-  dataset: FileText,
-  dashboard: Layout,
-  project: FolderKanban,
-  mappingProject: Map,
-  dqRuleSet: ShieldCheck,
-  catalog: BookOpen,
-}
-
-const changeIcons: Record<SeedChangeType, typeof Plus> = {
-  added: Plus,
-  modified: Pencil,
-  removed: Minus,
-}
-
-const changeBadgeVariant: Record<SeedChangeType, 'default' | 'secondary' | 'destructive'> = {
-  added: 'default',
-  modified: 'secondary',
-  removed: 'destructive',
-}
+import { reseedSelection } from '@/lib/targeted-reseed'
+import { SeedUpdateDialog } from './SeedUpdateDialog'
 
 // ---------------------------------------------------------------------------
 // Component
@@ -101,87 +68,32 @@ export function VersionCheckDialog() {
     })
   }, [dismissSeedUpdates])
 
-  // --- Seed data changed: blocking dialog with change list ---
+  // --- Seed data changed: selection dialog (re-import a chosen subset) ---
   // Shown whenever the bundled content differs from the local baseline, even if the
   // app build is unchanged. Checked before the build-status guard below.
   if (seedDiff?.hasChanges && !dismissSeedUpdates) {
-    const handleResetData = () => clearAllData()
-
     const handleKeepData = async () => {
       acknowledgeVersion()
-      // Store the new hashes so we don't show this again
+      // Advance the whole baseline so this stops showing.
       const hashes = await fetchSeedHashes()
       if (hashes) storeSeedHashes(hashes)
       setSeedDiff(null)
       setStatus(null)
     }
 
-    // Group changes by workspace
-    const byWorkspace = new globalThis.Map<string, SeedChange[]>()
-    for (const change of seedDiff.changes) {
-      const key = change.workspaceFolder
-      if (!byWorkspace.has(key)) byWorkspace.set(key, [])
-      byWorkspace.get(key)!.push(change)
+    const handleReseed = async (changes: SeedChange[]) => {
+      await reseedSelection(changes)
+      acknowledgeVersion()
+      // Reload so every store re-reads the freshly re-seeded IndexedDB cleanly.
+      window.location.reload()
     }
 
     return (
-      <Dialog open onOpenChange={(open) => { if (!open) handleKeepData() }}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t('version_check.seed_changed_title')}</DialogTitle>
-            <DialogDescription asChild>
-              <div className="mt-3 space-y-3">
-                <p>{t('version_check.seed_changed_description')}</p>
-              </div>
-            </DialogDescription>
-          </DialogHeader>
-
-          <ScrollArea className="max-h-[300px] rounded-md border p-3">
-            <div className="space-y-4">
-              {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
-                <div key={wsFolder}>
-                  <p className="text-sm font-medium mb-2">{wsFolder}</p>
-                  <div className="space-y-1.5">
-                    {changes.map((change) => {
-                      const EntityIcon = entityIcons[change.entityType]
-                      const ChangeIcon = changeIcons[change.changeType]
-                      return (
-                        <div
-                          key={`${change.entityType}-${change.entityId}`}
-                          className="flex items-center gap-2 text-xs"
-                        >
-                          <EntityIcon size={13} className="shrink-0 text-muted-foreground" />
-                          <span className="text-muted-foreground">
-                            {t(`version_check.seed_entity_${change.entityType}`)}
-                          </span>
-                          <span className="truncate font-medium">{change.entityLabel}</span>
-                          <Badge
-                            variant={changeBadgeVariant[change.changeType]}
-                            className="ml-auto shrink-0 text-[10px] px-1.5 py-0"
-                          >
-                            <ChangeIcon size={10} className="mr-0.5" />
-                            {t(`version_check.seed_change_${change.changeType}`)}
-                          </Badge>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={handleKeepData}>
-              {t('version_check.keep_data')}
-            </Button>
-            <Button variant="destructive" onClick={handleResetData}>
-              <Trash2 size={14} />
-              {t('version_check.reset_data')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SeedUpdateDialog
+        diff={seedDiff}
+        onReseed={handleReseed}
+        onKeep={handleKeepData}
+      />
     )
   }
 

@@ -2041,6 +2041,8 @@
     "seed_changed_title": "Default data has been updated",
     "seed_changed_description": "This update includes changes to the bundled data. You can reset to get the latest data, or keep your current data.",
     "keep_data": "Keep my data",
+    "update_selected": "Update selected",
+    "seed_removed_hint": "Removed items are kept in your local data. Delete them manually or reset all data if you want them gone.",
     "seed_change_added": "New",
     "seed_change_modified": "Updated",
     "seed_change_removed": "Removed",

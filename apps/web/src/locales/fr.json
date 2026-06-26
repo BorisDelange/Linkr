@@ -2041,6 +2041,8 @@
     "seed_changed_title": "Les données ont été mises à jour",
     "seed_changed_description": "Cette mise à jour inclut des modifications des données intégrées. Vous pouvez réinitialiser pour obtenir les dernières données, ou conserver vos données actuelles.",
     "keep_data": "Conserver mes données",
+    "update_selected": "Mettre à jour la sélection",
+    "seed_removed_hint": "Les éléments supprimés sont conservés dans vos données locales. Supprimez-les manuellement ou réinitialisez toutes les données pour les retirer.",
     "seed_change_added": "Nouveau",
     "seed_change_modified": "Modifié",
     "seed_change_removed": "Supprimé",
