@@ -17,6 +17,7 @@ import {
   type SeedChange, type SeedDiffResult,
 } from '@/lib/seed-change-detector'
 import { reseedSelection } from '@/lib/targeted-reseed'
+import { refreshStoresAfterReseed } from '@/lib/seed-store-refresh'
 import { SeedUpdateDialog } from './SeedUpdateDialog'
 
 // ---------------------------------------------------------------------------
@@ -82,10 +83,14 @@ export function VersionCheckDialog() {
     }
 
     const handleReseed = async (changes: SeedChange[]) => {
-      await reseedSelection(changes)
+      const reseeded = await reseedSelection(changes)
       acknowledgeVersion()
-      // Reload so every store re-reads the freshly re-seeded IndexedDB cleanly.
-      window.location.reload()
+      setSeedDiff(null)
+      setStatus(null)
+      // Refresh just the affected stores from IndexedDB; fall back to a full reload only
+      // if a re-seeded type has no clean in-memory refresh path.
+      const refreshed = await refreshStoresAfterReseed(reseeded)
+      if (!refreshed) window.location.reload()
     }
 
     return (
