@@ -1,3 +1,5 @@
+import type { Seedable } from './index'
+
 // --- Catalog Status ---
 
 export type CatalogStatus = 'draft' | 'computing' | 'ready' | 'success' | 'error'
@@ -126,7 +128,7 @@ export interface CatalogPeriodRow {
 
 // --- Data Catalog ---
 
-export interface DataCatalog {
+export interface DataCatalog extends Seedable {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

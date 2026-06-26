@@ -12,6 +12,18 @@ export interface User {
   preferences: Record<string, unknown>
 }
 
+/** How an entity entered the local store. */
+export type EntityOrigin = 'seed' | 'user'
+
+/**
+ * Marks an entity that may have been created by the seed loader. Absent `origin` means
+ * the entity predates this field (treat as user-created): we never assume seed without
+ * the explicit marker, so re-seed/removal flows can't touch user content by accident.
+ */
+export interface Seedable {
+  origin?: EntityOrigin
+}
+
 export type ProjectStatus = 'active' | 'completed' | 'archived' | 'draft'
 
 export type PresetBadgeColor =
@@ -81,7 +93,7 @@ export interface ChangelogEntry {
 // --- Workspace ---
 
 /** A workspace is an organizational container for projects, like a GitHub Organization. */
-export interface Workspace {
+export interface Workspace extends Seedable {
   id: string
   name: LocalizedString
   description: LocalizedString
@@ -97,7 +109,7 @@ export interface Workspace {
 
 // --- Project ---
 
-export interface Project {
+export interface Project extends Seedable {
   uid: string
   /** Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at creation, never changes. Used as folder name in exports/git. */
   projectId?: string
@@ -233,7 +245,7 @@ export interface DatabaseStatsCache {
   tableCounts: TableRowCount[]
 }
 
-export interface DataSource {
+export interface DataSource extends Seedable {
   id: string
   workspaceId?: string
   /** Short, URL-safe identifier used as the DuckDB schema name. Auto-generated from `name`, editable. */
@@ -375,7 +387,7 @@ export interface DashboardFilter {
   datePresets?: DatePreset[]
 }
 
-export interface Dashboard {
+export interface Dashboard extends Seedable {
   id: string
   projectUid: string
   name: string
@@ -621,7 +633,7 @@ export interface DatasetParseOptions {
   sheet?: string
 }
 
-export interface DatasetFile {
+export interface DatasetFile extends Seedable {
   id: string
   projectUid: string
   name: string
@@ -677,7 +689,7 @@ export interface ColumnStats {
 
 export type EtlPipelineStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface EtlPipeline {
+export interface EtlPipeline extends Seedable {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -783,7 +795,7 @@ export interface SqlScriptFile {
 
 export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface DqRuleSet {
+export interface DqRuleSet extends Seedable {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

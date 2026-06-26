@@ -219,7 +219,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
       dashboard: Dashboard; tabs: DashboardTab[]; widgets: DashboardWidget[]
     }>(`${base}/dashboards/${path}`)
     if (!bundle?.dashboard) continue
-    await storage.dashboards.create({ ...bundle.dashboard, projectUid }).catch(() => {})
+    await storage.dashboards.create({ ...bundle.dashboard, projectUid, origin: 'seed' }).catch(() => {})
     for (const tab of bundle.tabs ?? []) {
       await storage.dashboardTabs.create(tab).catch(() => {})
     }
@@ -238,7 +238,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
         const columns = await fetchJson<DatasetColumn[]>(`${base}/datasets/${folderName}/_columns.json`)
         if (columns) df.columns = columns
       }
-      await storage.datasetFiles.create({ ...df, projectUid }).catch(() => {})
+      await storage.datasetFiles.create({ ...df, projectUid, origin: 'seed' }).catch(() => {})
     }
 
     // Load analyses
@@ -368,9 +368,9 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
 
   const existing = await storage.workspaces.getById(workspace.id)
   if (existing) {
-    await storage.workspaces.update(workspace.id, { ...workspace, updatedAt: now })
+    await storage.workspaces.update(workspace.id, { ...workspace, origin: 'seed', updatedAt: now })
   } else {
-    await storage.workspaces.create(workspace)
+    await storage.workspaces.create({ ...workspace, origin: 'seed' })
   }
 
   const wsId = workspace.id
@@ -422,6 +422,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
       ...ds,
       workspaceId: wsId,
       status: 'disconnected',
+      origin: 'seed',
       createdAt: now,
       updatedAt: now,
     } as DataSource)
@@ -442,9 +443,9 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
 
     const existingProject = await storage.projects.getById(project.uid)
     if (existingProject) {
-      await storage.projects.update(project.uid, { ...project, workspaceId: wsId, updatedAt: now })
+      await storage.projects.update(project.uid, { ...project, workspaceId: wsId, origin: 'seed', updatedAt: now })
     } else {
-      await storage.projects.create({ ...project, workspaceId: wsId, readme: project.readme ?? '', updatedAt: now })
+      await storage.projects.create({ ...project, workspaceId: wsId, origin: 'seed', readme: project.readme ?? '', updatedAt: now })
     }
 
     // Full project: load scripts, pipelines, cohorts, dashboards, datasets, etc.
@@ -485,7 +486,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
   for (const etlFolder of index.etlPipelines ?? []) {
     const pipeline = await fetchJson<EtlPipeline>(`${base}/etl/${etlFolder}/_pipeline.json`)
     if (!pipeline) continue
-    await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
     const treeMeta = await fetchJson<EtlFile[]>(`${base}/etl/${etlFolder}/_tree.json`) ?? []
     for (const f of treeMeta) {
       if (f.type === 'file') {
@@ -503,7 +504,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
   for (const path of index.dqRuleSets ?? []) {
     const bundle = await fetchJson<{ ruleSet: DqRuleSet; checks: Array<{ id: string; ruleSetId: string; [k: string]: unknown }> }>(`${base}/${path}`)
     if (!bundle?.ruleSet) continue
-    await storage.dqRuleSets.create({ ...bundle.ruleSet, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.dqRuleSets.create({ ...bundle.ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
     for (const check of bundle.checks ?? []) {
       await storage.dqCustomChecks.create({ ...check, ruleSetId: bundle.ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
     }
@@ -526,7 +527,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
       const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
       if (csvText) restoreFileSourceDataFromCsv(project, csvText)
     }
-    await storage.mappingProjects.create({ ...project, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.mappingProjects.create({ ...project, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
     const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
     if (mappings.length > 0) {
       await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
@@ -550,7 +551,7 @@ async function loadSeedWorkspace(entry: SeedWorkspaceEntry): Promise<void> {
   for (const path of index.catalogs ?? []) {
     const cat = await fetchJson<DataCatalog>(`${base}/${path}`)
     if (!cat) continue
-    await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
   }
 
   // --- service-mappings/ ---
@@ -674,6 +675,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
       connectionConfig,
       schemaMapping,
       status: 'connected',
+      origin: 'seed',
       workspaceId: wsId,
       createdAt: now,
       updatedAt: now,
@@ -728,6 +730,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
     schemaMapping,
     isVocabularyReference: db.isVocabularyReference,
     status: 'configuring',
+    origin: 'seed',
     workspaceId: wsId,
     createdAt: now,
     updatedAt: now,
@@ -907,6 +910,7 @@ async function seedDataset(config: SeedDataset): Promise<void> {
     parentId: null,
     columns: data.columns,
     rowCount: data.rows.length,
+    origin: 'seed',
     createdAt: now,
     updatedAt: now,
   }
@@ -940,7 +944,7 @@ async function seedDashboardFromFile(config: SeedDashboard): Promise<void> {
     return
   }
 
-  await storage.dashboards.create({ ...data.dashboard, projectUid: config.projectUid })
+  await storage.dashboards.create({ ...data.dashboard, projectUid: config.projectUid, origin: 'seed' })
   for (const tab of data.tabs) {
     await storage.dashboardTabs.create(tab)
   }

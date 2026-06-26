@@ -1,3 +1,5 @@
+import type { Seedable } from './index'
+
 // --- Concept Mapping Enums ---
 
 /** Mapping validation status (inspired by OHDSI Usagi). */
@@ -147,7 +149,7 @@ export interface FileSourceData {
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'
 
 /** A workspace-level mapping project linked to a database or file. */
-export interface MappingProject {
+export interface MappingProject extends Seedable {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
