@@ -58,7 +58,7 @@ export function ProjectsPage() {
   const [versioningTarget, setVersioningTarget] = useState<{ uid: string; tab: 'export' | 'git' } | null>(null)
 
   // Import conflict state
-  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip } | null>(null)
+  const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedProjectZip; otherWorkspaceName?: string } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -169,14 +169,22 @@ export function ProjectsPage() {
       const existing = await getStorage().projects.getById(parsed.project.uid)
       if (existing) {
         const existingName = typeof existing.name === 'string' ? existing.name : (existing.name.en || Object.values(existing.name)[0] || '')
-        setImportConflict({ name: existingName, pending: parsed })
+        // If the existing project lives in a different workspace, surface which one — the user
+        // can't see it from here, so a bare "already exists" is confusing.
+        const currentWs = wsUid ?? activeWorkspaceId
+        let otherWorkspaceName: string | undefined
+        if (existing.workspaceId && existing.workspaceId !== currentWs) {
+          const ws = await getStorage().workspaces.getById(existing.workspaceId)
+          if (ws) otherWorkspaceName = typeof ws.name === 'string' ? ws.name : (ws.name.en || Object.values(ws.name)[0] || '')
+        }
+        setImportConflict({ name: existingName, pending: parsed, otherWorkspaceName })
       } else {
         await doImport(parsed, false)
       }
     } catch (err) {
       setImportError(t('projects.import_error', { error: err instanceof Error ? err.message : String(err) }))
     }
-  }, [doImport, t])
+  }, [doImport, t, wsUid, activeWorkspaceId])
 
   return (
     <div className="h-full overflow-auto">
@@ -343,6 +351,7 @@ export function ProjectsPage() {
         open={!!importConflict}
         onOpenChange={(open) => { if (!open) setImportConflict(null) }}
         existingName={importConflict?.name ?? ''}
+        existingWorkspaceName={importConflict?.otherWorkspaceName}
         onDuplicate={() => { if (importConflict) doImport(importConflict.pending, true); setImportConflict(null) }}
         onOverwrite={() => { if (importConflict) doImport(importConflict.pending, false); setImportConflict(null) }}
       />

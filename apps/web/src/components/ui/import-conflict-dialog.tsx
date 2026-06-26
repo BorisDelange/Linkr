@@ -16,6 +16,12 @@ interface ImportConflictDialogProps {
   existingName: string
   onDuplicate: () => void
   onOverwrite: () => void
+  /**
+   * When the existing item lives in a different workspace than the current one, pass its
+   * workspace name to explain *where* the conflict is (the user can't see it locally) and
+   * warn that overwriting would move it out of that workspace.
+   */
+  existingWorkspaceName?: string
 }
 
 export function ImportConflictDialog({
@@ -24,6 +30,7 @@ export function ImportConflictDialog({
   existingName,
   onDuplicate,
   onOverwrite,
+  existingWorkspaceName,
 }: ImportConflictDialogProps) {
   const { t } = useTranslation()
 
@@ -33,7 +40,9 @@ export function ImportConflictDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{t('common.import_conflict_title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t('common.import_conflict_description', { name: existingName })}
+            {existingWorkspaceName
+              ? t('common.import_conflict_other_workspace_description', { name: existingName, workspace: existingWorkspaceName })
+              : t('common.import_conflict_description', { name: existingName })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
