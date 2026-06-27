@@ -19,7 +19,7 @@ import {
   fetchProjectChildEntities,
 } from '@/lib/seed-loader'
 import {
-  fetchSeedHashes, getStoredSeedHashes, storeSeedHashes, mergeSeedHashesFor,
+  fetchSeedHashes, getStoredSeedHashes, storeSeedHashes, mergeSeedHashesFor, dropFromSeedHashes,
   type SeedChange, type SeedEntityType,
 } from '@/lib/seed-change-detector'
 
@@ -123,25 +123,73 @@ async function deleteEntity(change: SeedChange): Promise<void> {
  * For aggregate types (conceptMapping, etlScript), origin is carried by the parent row
  * (the mapping project / pipeline), which is what entityId points at.
  */
-export async function isSeedOrigin(change: SeedChange): Promise<boolean> {
+/**
+ * Disposition of a removed entity's local copy:
+ *  - 'seed' : a seed-created row exists locally → safe to delete.
+ *  - 'gone' : no local row (already deleted, or never imported) → nothing to delete, just drop
+ *             it from the baseline so the notification stops.
+ *  - 'user' : a row exists but isn't seed-origin (user content / pre-origin data) → never touch.
+ * The checkbox is offered for 'seed' and 'gone'; only 'seed' triggers an actual delete.
+ */
+export type RemovedDisposition = 'seed' | 'gone' | 'user'
+
+export async function removedDisposition(change: SeedChange): Promise<RemovedDisposition> {
   const storage = getStorage()
   const { entityType, entityId } = change
-  const seeded = (row: { origin?: string } | undefined | null) => row?.origin === 'seed'
+  const disp = (row: { origin?: string } | undefined | null): RemovedDisposition =>
+    !row ? 'gone' : row.origin === 'seed' ? 'seed' : 'user'
 
   switch (entityType) {
-    case 'workspace': return seeded(await storage.workspaces.getById(entityId))
+    case 'workspace':
+      // A workspace change's entityId is the seed FOLDER, not the local workspace id, and a
+      // removed workspace has no folder→id mapping left. Workspace deletability is derived from
+      // its children (see deleteRemovedSelection / the dialog), not from here.
+      return 'gone'
     case 'project': {
       const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
-      return seeded(proj)
+      return disp(proj)
     }
-    case 'database': return seeded(await storage.dataSources.getById(entityId))
-    case 'dataset': return seeded(await storage.datasetFiles.getById(entityId))
-    case 'dashboard': return seeded(await storage.dashboards.getById(entityId))
+    case 'database': return disp(await storage.dataSources.getById(entityId))
+    case 'dataset': return disp(await storage.datasetFiles.getById(entityId))
+    case 'dashboard': return disp(await storage.dashboards.getById(entityId))
     case 'mappingProject':
-    case 'conceptMapping': return seeded(await storage.mappingProjects.getById(entityId))
-    case 'etlScript': return seeded(await storage.etlPipelines.getById(entityId))
-    case 'dqRuleSet': return seeded(await storage.dqRuleSets.getById(entityId))
-    case 'catalog': return seeded(await storage.dataCatalogs.getById(entityId))
+    case 'conceptMapping': return disp(await storage.mappingProjects.getById(entityId))
+    case 'etlScript': return disp(await storage.etlPipelines.getById(entityId))
+    case 'dqRuleSet': return disp(await storage.dqRuleSets.getById(entityId))
+    case 'catalog': return disp(await storage.dataCatalogs.getById(entityId))
+  }
+}
+
+/** Resolve the workspaceId of the local row behind a (non-workspace) change, if any. */
+async function resolveWorkspaceIdOf(change: SeedChange): Promise<string | undefined> {
+  const storage = getStorage()
+  const { entityType, entityId } = change
+  const wsOf = (row: { workspaceId?: string } | undefined | null) => row?.workspaceId
+
+  switch (entityType) {
+    case 'project': {
+      const proj = (await storage.projects.getAll()).find((p) => p.projectId === entityId)
+      return wsOf(proj)
+    }
+    case 'database': return wsOf(await storage.dataSources.getById(entityId))
+    case 'mappingProject':
+    case 'conceptMapping': return wsOf(await storage.mappingProjects.getById(entityId))
+    case 'etlScript': return wsOf(await storage.etlPipelines.getById(entityId))
+    case 'dqRuleSet': return wsOf(await storage.dqRuleSets.getById(entityId))
+    case 'catalog': return wsOf(await storage.dataCatalogs.getById(entityId))
+    case 'dataset': {
+      const df = await storage.datasetFiles.getById(entityId)
+      if (!df) return undefined
+      const proj = await storage.projects.getById(df.projectUid)
+      return proj?.workspaceId
+    }
+    case 'dashboard': {
+      const dash = await storage.dashboards.getById(entityId)
+      if (!dash) return undefined
+      const proj = await storage.projects.getById(dash.projectUid)
+      return proj?.workspaceId
+    }
+    default: return undefined
   }
 }
 
@@ -154,23 +202,46 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   const removed = changes.filter((c) => c.changeType === 'removed')
   if (removed.length === 0) return []
 
-  const deleted: SeedChange[] = []
+  const storage = getStorage()
+  const handled: SeedChange[] = []
+  // workspaceFolder → a local workspace id resolved from one of its children, captured before
+  // the child is deleted so we can delete the workspace shell afterwards.
+  const wsIdByFolder = new Map<string, string>()
+
+  // Non-workspace entities. 'seed' → delete the local row; 'gone' → already absent, just drop it
+  // from the baseline; 'user' → never touch. Record the parent workspace id along the way (the
+  // removed seed folder no longer carries the folder→id mapping a workspace row would need).
   for (const change of removed) {
-    if (!(await isSeedOrigin(change))) continue
-    await deleteEntity(change)
-    deleted.push(change)
-  }
-  if (deleted.length === 0) return []
-
-  // Drop the deleted entities from the baseline so they stop being reported as 'removed'.
-  // mergeSeedHashesFor drops any entity that is absent from `current` (which they are).
-  const current = await fetchSeedHashes()
-  if (current) {
-    const merged = mergeSeedHashesFor(getStoredSeedHashes(), current, deleted)
-    storeSeedHashes(merged)
+    if (change.entityType === 'workspace') continue
+    const disp = await removedDisposition(change)
+    if (disp === 'user') continue
+    if (!wsIdByFolder.has(change.workspaceFolder)) {
+      const wsId = await resolveWorkspaceIdOf(change)
+      if (wsId) wsIdByFolder.set(change.workspaceFolder, wsId)
+    }
+    if (disp === 'seed') await deleteEntity(change)
+    handled.push(change) // both 'seed' and 'gone' clear from the baseline below
   }
 
-  return deleted
+  // Whole-workspace row: its seed folder is gone, so resolve the local id from a child (if any).
+  // Delete the shell if it still exists and is seed-origin; either way drop it from the baseline.
+  for (const ws of removed) {
+    if (ws.entityType !== 'workspace') continue
+    const wsId = wsIdByFolder.get(ws.workspaceFolder)
+    if (wsId) {
+      const local = await storage.workspaces.getById(wsId)
+      if (local?.origin === 'seed') await storage.workspaces.delete(wsId).catch(() => {})
+    }
+    handled.push(ws)
+  }
+
+  if (handled.length === 0) return []
+
+  // Drop the handled entities from the baseline so they stop being reported as 'removed'.
+  // (They're gone from the current build, so there's nothing to advance to — just drop them.)
+  storeSeedHashes(dropFromSeedHashes(getStoredSeedHashes(), handled))
+
+  return handled
 }
 
 /**

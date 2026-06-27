@@ -87,7 +87,18 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     Promise.all(removed.map(async (c) => [changeKey(c), await canDeleteRemoved(c)] as const))
       .then((pairs) => {
         if (cancelled) return
-        setDeletable(new Set(pairs.filter(([, ok]) => ok).map(([k]) => k)))
+        const set = new Set(pairs.filter(([, ok]) => ok).map(([k]) => k))
+        // A removed-whole-workspace row has no resolvable local id of its own (its seed folder
+        // is gone). It's deletable iff it has at least one seed-origin removed child — deleting
+        // it cascades to those children. Mark the workspace row accordingly.
+        for (const c of removed) {
+          if (c.entityType !== 'workspace') continue
+          const hasDeletableChild = removed.some(
+            (ch) => ch.entityType !== 'workspace' && ch.workspaceFolder === c.workspaceFolder && set.has(changeKey(ch)),
+          )
+          if (hasDeletableChild) set.add(changeKey(c))
+        }
+        setDeletable(set)
       })
     return () => { cancelled = true }
   }, [removed, canDeleteRemoved])
@@ -101,7 +112,15 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     return map
   }, [diff.changes])
 
-  // Resolve each workspace folder to its human-readable name (folder is technical).
+  // Resolve each workspace folder to its human-readable name (folder is technical). Prefer the
+  // live workspace.json; fall back to the name the change already carries (the only source for a
+  // workspace removed from the seed, whose workspace.json no longer exists) before the folder.
+  const wsNameFromChanges = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const c of diff.changes) if (c.workspaceName) map[c.workspaceFolder] = c.workspaceName
+    return map
+  }, [diff.changes])
+
   const [wsNames, setWsNames] = useState<Record<string, string>>({})
   useEffect(() => {
     let cancelled = false
@@ -115,6 +134,8 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
       })
     return () => { cancelled = true }
   }, [diff.changes, i18n.language])
+
+  const wsLabel = (folder: string) => wsNames[folder] ?? wsNameFromChanges[folder] ?? folder
 
   // Folders whose whole workspace is added or removed. There the re-seed/delete granularity is
   // the workspace itself (seedWorkspaces loads it as a block), so its child rows are shown
@@ -206,12 +227,16 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
     // seed-origin (safe to delete); other non-seed removed rows stay read-only.
     const ridesAlong = isChildOfWholeWorkspace(change)
     const canCheck = ridesAlong ? false : isRemoved ? deletable.has(key) : true
+    // A rides-along child mirrors its workspace row's checkbox (locked): checking the workspace
+    // checks them all, unchecking clears them — so the UI matches what apply actually does.
+    const workspaceKey = `${change.workspaceFolder}:workspace:${change.workspaceFolder}`
+    const ridesAlongChecked = ridesAlong && selected.has(workspaceKey)
 
     const checkboxSlot = ridesAlong ? (
       <Tooltip>
         <TooltipTrigger asChild>
           <span className="shrink-0 cursor-help">
-            <Checkbox checked disabled className="pointer-events-none" />
+            <Checkbox checked={ridesAlongChecked} disabled className="pointer-events-none" />
           </span>
         </TooltipTrigger>
         <TooltipContent>{t('version_check.seed_child_included_tooltip')}</TooltipContent>
@@ -263,7 +288,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
             {[...byWorkspace.entries()].map(([wsFolder, changes]) => (
               <div key={wsFolder}>
                 <p className="text-sm font-semibold mb-3">
-                  {wsNames[wsFolder] ?? wsFolder}
+                  {wsLabel(wsFolder)}
                   {wholeWorkspaceFolders.has(wsFolder) && (
                     <span className="ml-2 text-[11px] font-normal text-muted-foreground">
                       {t('version_check.seed_whole_workspace_hint')}

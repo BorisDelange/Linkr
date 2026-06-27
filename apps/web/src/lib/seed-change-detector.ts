@@ -110,6 +110,40 @@ export function mergeSeedHashesFor(
   return merged
 }
 
+/**
+ * Remove the given entities from the stored baseline (independent of the current build), so a
+ * deleted 'removed' entity stops being reported. Unlike mergeSeedHashesFor (which advances
+ * toward the current build), this is for deletions: a removed entity is absent from the current
+ * build, so there's nothing to advance to — we just drop it. Deleting a 'workspace' entity drops
+ * the whole workspace from the baseline (its children go with it).
+ */
+export function dropFromSeedHashes(
+  stored: SeedHashesManifest | null,
+  entities: Array<{ workspaceFolder: string; entityType: SeedEntityType; entityId: string }>,
+): SeedHashesManifest {
+  const merged: SeedHashesManifest = stored
+    ? JSON.parse(JSON.stringify(stored)) as SeedHashesManifest
+    : { schemaVersion: SEED_HASHES_SCHEMA_VERSION, workspaces: {} }
+
+  const keyForType = new Map<SeedEntityType, keyof SeedEntityHashes>(
+    ENTITY_KEYS.map(({ key, type }) => [type, key]),
+  )
+
+  for (const { workspaceFolder, entityType, entityId } of entities) {
+    const mergedWs = merged.workspaces[workspaceFolder]
+    if (!mergedWs) continue
+    if (entityType === 'workspace') {
+      delete merged.workspaces[workspaceFolder]
+      continue
+    }
+    const mapKey = keyForType.get(entityType)
+    if (!mapKey) continue
+    delete (mergedWs[mapKey] as Record<string, string>)[entityId]
+  }
+
+  return merged
+}
+
 // ---------------------------------------------------------------------------
 // Fetch hashes from build artifact
 // ---------------------------------------------------------------------------

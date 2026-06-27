@@ -16,7 +16,7 @@ import {
   detectSeedChanges, storeSeedHashes, fetchSeedHashes, getStoredSeedHashes,
   type SeedChange, type SeedDiffResult,
 } from '@/lib/seed-change-detector'
-import { reseedSelection, deleteRemovedSelection, isSeedOrigin } from '@/lib/targeted-reseed'
+import { reseedSelection, deleteRemovedSelection, removedDisposition } from '@/lib/targeted-reseed'
 import { refreshStoresAfterReseed } from '@/lib/seed-store-refresh'
 import { SeedUpdateDialog } from './SeedUpdateDialog'
 
@@ -107,7 +107,7 @@ export function VersionCheckDialog() {
         onApply={handleApply}
         onKeep={handleKeepData}
         onDismiss={handleDismiss}
-        canDeleteRemoved={isSeedOrigin}
+        canDeleteRemoved={async (c) => (await removedDisposition(c)) !== 'user'}
       />
     )
   }

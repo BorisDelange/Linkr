@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mergeSeedHashesFor } from './seed-change-detector'
+import { mergeSeedHashesFor, dropFromSeedHashes } from './seed-change-detector'
 import type { SeedHashesManifest } from '../../vite-plugin-seed-hashes'
 
 // mergeSeedHashesFor advances the stored baseline to `current` for ONLY the selected
@@ -83,5 +83,40 @@ describe('mergeSeedHashesFor', () => {
       { workspaceFolder: 'ricdc', entityType: 'project', entityId: 'neoclip' },
     ])
     expect(merged.workspaces.ricdc.projects.neoclip).toBe('new1')
+  })
+})
+
+// dropFromSeedHashes removes entities from the baseline after they're deleted locally. Unlike
+// mergeSeedHashesFor it must NOT depend on the current build (a removed entity/workspace is
+// absent there). Getting this wrong re-notifies the deletion on every reload.
+describe('dropFromSeedHashes', () => {
+  it('drops a single entity from the baseline', () => {
+    const merged = dropFromSeedHashes(stored, [
+      { workspaceFolder: 'ricdc', entityType: 'project', entityId: 'neoclip' },
+    ])
+    expect('neoclip' in merged.workspaces.ricdc.projects).toBe(false)
+    expect(merged.workspaces.ricdc.projects.other).toBe('old2') // untouched
+  })
+
+  it('drops the whole workspace when a workspace entity is removed', () => {
+    const merged = dropFromSeedHashes(stored, [
+      { workspaceFolder: 'ricdc', entityType: 'workspace', entityId: 'ricdc' },
+    ])
+    expect('ricdc' in merged.workspaces).toBe(false)
+  })
+
+  it('does not mutate the stored input', () => {
+    const snapshot = JSON.parse(JSON.stringify(stored))
+    dropFromSeedHashes(stored, [
+      { workspaceFolder: 'ricdc', entityType: 'project', entityId: 'neoclip' },
+    ])
+    expect(stored).toEqual(snapshot)
+  })
+
+  it('is a no-op for an unknown workspace', () => {
+    const merged = dropFromSeedHashes(stored, [
+      { workspaceFolder: 'ghost', entityType: 'project', entityId: 'x' },
+    ])
+    expect(merged.workspaces.ricdc.projects.neoclip).toBe('old1')
   })
 })
