@@ -436,7 +436,7 @@ export function DatasetsPage() {
             maxSize={400}
             visible={explorerVisible}
           >
-            <div className="flex h-full flex-col border-r">
+            <div className="flex h-full flex-col">
               {/* Datasets header */}
               <div className="flex items-center justify-between border-b px-2 py-1.5">
                 <div className="flex items-center gap-0.5">
@@ -631,7 +631,9 @@ export function DatasetsPage() {
 
           {/* Right side: toolbar + tabs + content (data table | analyses | stats) */}
           <Allotment.Pane minSize={200}>
-            <div className="flex h-full flex-col">
+            {/* border-l owns the separator so the table's sticky left column can't overlap it;
+                dropped when the explorer is collapsed (right pane becomes the leftmost element) */}
+            <div className={cn('flex h-full flex-col', explorerVisible && 'border-l')}>
               {/* Toolbar */}
               <div className="flex items-center gap-1 border-b px-3 py-1.5">
                 {!explorerVisible && (
