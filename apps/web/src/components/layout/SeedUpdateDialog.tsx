@@ -276,7 +276,7 @@ export function SeedUpdateDialog({ diff, onApply, onKeep, onDismiss, canDeleteRe
         <DialogHeader>
           <DialogTitle>{t('version_check.seed_changed_title')}</DialogTitle>
           <DialogDescription asChild>
-            <div className="mt-3 space-y-3">
+            <div className="space-y-3">
               <p>{t('version_check.seed_changed_description')}</p>
             </div>
           </DialogDescription>

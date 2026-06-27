@@ -618,7 +618,7 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
               {t('app_versioning.export_confirm_title')}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
-              <div className="mt-2 space-y-3">
+              <div className="space-y-3">
                 {hasIncludedData && (
                   <p>
                     {hasIncludedCredentials && <span className="font-medium">1) </span>}

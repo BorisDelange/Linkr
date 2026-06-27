@@ -129,7 +129,7 @@ export function VersionCheckDialog() {
           <DialogHeader>
             <DialogTitle>{t('version_check.schema_title')}</DialogTitle>
             <DialogDescription asChild>
-              <div className="mt-3 space-y-3">
+              <div className="space-y-3">
                 <p>{t('version_check.schema_description')}</p>
                 <p className="text-xs text-muted-foreground">
                   {t('version_check.schema_hint')}

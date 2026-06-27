@@ -305,7 +305,7 @@ export function Header() {
           <DialogHeader>
             <DialogTitle>{t('reset.title')}</DialogTitle>
             <DialogDescription asChild>
-              <div className="mt-3 space-y-3">
+              <div className="space-y-3">
                 <p>{t('reset.description')}</p>
                 <ul className="list-disc pl-4 text-xs space-y-1">
                   <li>{t('reset.item_projects')}</li>
