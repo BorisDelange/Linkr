@@ -133,11 +133,20 @@ async function deleteEntity(change: SeedChange): Promise<void> {
  */
 export type RemovedDisposition = 'seed' | 'gone' | 'user'
 
+/**
+ * Classify a local row's disposition: no row → 'gone' (just drop from baseline); seed-origin →
+ * 'seed' (safe to delete); anything else (user content / pre-origin data) → 'user' (never touch).
+ * The safety-critical rule: only an explicit origin === 'seed' is ever deletable.
+ */
+export function classifyDisposition(row: { origin?: string } | undefined | null): RemovedDisposition {
+  if (!row) return 'gone'
+  return row.origin === 'seed' ? 'seed' : 'user'
+}
+
 export async function removedDisposition(change: SeedChange): Promise<RemovedDisposition> {
   const storage = getStorage()
   const { entityType, entityId } = change
-  const disp = (row: { origin?: string } | undefined | null): RemovedDisposition =>
-    !row ? 'gone' : row.origin === 'seed' ? 'seed' : 'user'
+  const disp = classifyDisposition
 
   switch (entityType) {
     case 'workspace':

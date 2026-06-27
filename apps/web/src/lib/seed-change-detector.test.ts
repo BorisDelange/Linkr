@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { mergeSeedHashesFor, dropFromSeedHashes } from './seed-change-detector'
-import type { SeedHashesManifest } from '../../vite-plugin-seed-hashes'
+import { mergeSeedHashesFor, dropFromSeedHashes, diffSeedHashes, isBaselineStale } from './seed-change-detector'
+import type { SeedHashesManifest, SeedEntityHashes } from '../../vite-plugin-seed-hashes'
 
 // mergeSeedHashesFor advances the stored baseline to `current` for ONLY the selected
 // entities. A wrong merge either re-notifies forever (didn't advance) or hides future
@@ -118,5 +118,89 @@ describe('dropFromSeedHashes', () => {
       { workspaceFolder: 'ghost', entityType: 'project', entityId: 'x' },
     ])
     expect(merged.workspaces.ricdc.projects.neoclip).toBe('old1')
+  })
+})
+
+// isBaselineStale gates the silent reset. A wrong answer either wipes a valid baseline (losing
+// real change detection) or diffs an incompatible old format (the spurious "everything changed").
+describe('isBaselineStale', () => {
+  it('is stale when no baseline is stored', () => {
+    expect(isBaselineStale(null)).toBe(true)
+  })
+
+  it('is stale when the schemaVersion is older/different', () => {
+    expect(isBaselineStale({ schemaVersion: 1, workspaces: {} } as unknown as SeedHashesManifest)).toBe(true)
+  })
+
+  it('is stale when schemaVersion is absent (pre-versioning baseline)', () => {
+    expect(isBaselineStale({ workspaces: {} } as unknown as SeedHashesManifest)).toBe(true)
+  })
+
+  it('is fresh when the schemaVersion matches the current one', () => {
+    expect(isBaselineStale(stored)).toBe(false)
+  })
+})
+
+// diffSeedHashes is the brain of change detection. It must catch added/modified/removed at the
+// entity level and, for a whole workspace added/removed, still list the children so the user sees
+// what they gain or lose.
+describe('diffSeedHashes', () => {
+  const ws = (over: Partial<SeedEntityHashes>): SeedEntityHashes => ({ ...emptyEntity('w'), ...over })
+  const types = (cs: ReturnType<typeof diffSeedHashes>) =>
+    cs.map((c) => `${c.entityType}:${c.entityId}:${c.changeType}`).sort()
+
+  it('reports no changes for identical baselines', () => {
+    const a: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'h' } }) } }
+    expect(diffSeedHashes(a, a)).toEqual([])
+  })
+
+  it('detects a modified entity (hash changed)', () => {
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'old' } }) } }
+    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ projects: { p1: 'new' } }) } }
+    expect(types(diffSeedHashes(s, c))).toEqual(['project:p1:modified'])
+  })
+
+  it('detects an added and a removed entity', () => {
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ datasets: { d1: 'h' } }) } }
+    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ datasets: { d2: 'h' } }) } }
+    expect(types(diffSeedHashes(s, c))).toEqual(['dataset:d1:removed', 'dataset:d2:added'])
+  })
+
+  it('flags workspace metadata changes (workspace hash)', () => {
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm1' }) } }
+    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: { w: ws({ workspace: 'm2' }) } }
+    expect(types(diffSeedHashes(s, c))).toEqual(['workspace:w:modified'])
+  })
+
+  it('lists children when a whole workspace is added', () => {
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    const c: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: ws({ projects: { p1: 'h' }, datasets: { d1: 'h' } }) },
+    }
+    expect(types(diffSeedHashes(s, c))).toEqual(['dataset:d1:added', 'project:p1:added', 'workspace:w:added'])
+  })
+
+  it('lists children when a whole workspace is removed', () => {
+    const s: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: ws({ projects: { p1: 'h' }, dashboards: { db1: 'h' } }) },
+    }
+    const c: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    expect(types(diffSeedHashes(s, c))).toEqual(['dashboard:db1:removed', 'project:p1:removed', 'workspace:w:removed'])
+  })
+
+  it('labels an entity with its readable name when available', () => {
+    const names = {
+      databases: {}, conceptMappings: {}, etlScripts: {}, datasets: {},
+      dashboards: {}, projects: { p1: 'My Project' }, mappingProjects: {}, dqRuleSets: {}, catalogs: {},
+    }
+    const s: SeedHashesManifest = { schemaVersion: 2, workspaces: {} }
+    const c: SeedHashesManifest = {
+      schemaVersion: 2,
+      workspaces: { w: { ...ws({ projects: { p1: 'h' } }), names } },
+    }
+    const proj = diffSeedHashes(s, c).find((x) => x.entityType === 'project')
+    expect(proj?.entityLabel).toBe('My Project')
   })
 })

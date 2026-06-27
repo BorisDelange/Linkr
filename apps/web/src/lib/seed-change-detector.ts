@@ -212,19 +212,20 @@ const ENTITY_KEYS: Array<{ key: keyof SeedEntityHashes; type: SeedEntityType }> 
  * Detect seed data changes between the stored hashes and the current build.
  * Returns a detailed diff. If hashes cannot be fetched, returns no changes.
  */
-export async function detectSeedChanges(): Promise<SeedDiffResult> {
-  const current = await fetchSeedHashes()
-  if (!current) return { hasChanges: false, changes: [] }
+/**
+ * Whether a stored baseline must be discarded rather than diffed: absent (first visit) or in an
+ * older schema (e.g. the pre-manifest format). Pure — the caller does the silent reset.
+ */
+export function isBaselineStale(stored: SeedHashesManifest | null): boolean {
+  return !stored || stored.schemaVersion !== SEED_HASHES_SCHEMA_VERSION
+}
 
-  const stored = getStoredSeedHashes()
-  if (!stored || stored.schemaVersion !== SEED_HASHES_SCHEMA_VERSION) {
-    // No stored hashes (first visit), OR a baseline in an older schema (e.g. the pre-manifest
-    // format). Treat both as a fresh baseline: silently store the current hashes and report no
-    // changes, so an obsolete baseline never triggers a spurious "everything changed" dialog.
-    storeSeedHashes(current)
-    return { hasChanges: false, changes: [] }
-  }
-
+/**
+ * Pure diff of two seed-hash baselines into a change list. No I/O — `detectSeedChanges` wraps it
+ * with fetch/localStorage. Either workspace side may be missing (a whole workspace added/removed),
+ * in which case its children are still listed (diffHashMap treats a missing side as empty).
+ */
+export function diffSeedHashes(stored: SeedHashesManifest, current: SeedHashesManifest): SeedChange[] {
   const changes: SeedChange[] = []
 
   const allFolders = new Set([
@@ -269,5 +270,21 @@ export async function detectSeedChanges(): Promise<SeedDiffResult> {
     }
   }
 
+  return changes
+}
+
+export async function detectSeedChanges(): Promise<SeedDiffResult> {
+  const current = await fetchSeedHashes()
+  if (!current) return { hasChanges: false, changes: [] }
+
+  const stored = getStoredSeedHashes()
+  if (isBaselineStale(stored)) {
+    // First visit or an obsolete-schema baseline: treat as a fresh baseline — silently store the
+    // current hashes and report no changes, so it never triggers a spurious "everything changed".
+    storeSeedHashes(current)
+    return { hasChanges: false, changes: [] }
+  }
+
+  const changes = diffSeedHashes(stored!, current)
   return { hasChanges: changes.length > 0, changes }
 }
