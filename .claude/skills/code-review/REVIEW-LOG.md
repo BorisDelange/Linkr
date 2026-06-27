@@ -29,6 +29,29 @@ Notes / follow-ups:
 
 ---
 
+## 2026-06-27 — Unified seed manifest + re-seed/delete flow + modal/UI polish
+
+- Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual verification pass)
+- Range: 35f9160a..d24ec2cc (focus: the seed series f218b428..HEAD — unified manifest, targeted re-seed, origin guard, removed-entity deletion, import-conflict UX, modal spacing, datasets separator, version bump 2.0.19)
+- Last reviewed commit: d24ec2cc989ac9257e21fd2bccd5504f6a1d3dd5
+- Verdict: **Ship it** (one 🟠 fixed during review)
+- Tests: 87 passed (10 in seed-change-detector: mergeSeedHashesFor + dropFromSeedHashes) · Lint: 0 errors (136 pre-existing warnings) · Typecheck: 0 errors introduced
+
+Findings (verified in code; false positives / pre-existing discarded):
+- 🟠 FIXED — targeted-reseed.ts:235 — a removed-from-seed workspace was dropped from the baseline unconditionally; if it still held user-origin children, their baseline hashes were forgotten. Now skips workspaces with any user-origin child (commit d24ec2cc). Note: baseline/notification state only — no IndexedDB data was ever deleted.
+- 🟡 (not changed — pre-existing, benign) seed-loader.ts seeders + loadStructuralEntity don't set the guard flag when a referenced file fetch returns null → a missing file is retried on each load. Predates this work (same pattern in the original seeders); for build-bundled files a missing file is a broken build, and retry-on-transient-404 is arguably desirable. Left as-is.
+- 🟡 (minor) seed-loader.ts:46/149/171-ish — storage.projects.getAll() called repeatedly to resolve a project by projectId. Performance only, not correctness.
+- ✅ Safety model verified: removedDisposition ('seed'|'gone'|'user') never deletes or drops user content; deleteEntity only runs for 'seed'; dropFromSeedHashes is build-independent, drops whole workspace on 'workspace', deep-clones inputs.
+- ✅ Two-phase load order intact (structure → database→conceptMapping→etlScript→dataset→dashboard); all awaits present; discriminated-union dispatch complete.
+- ✅ Silent baseline reset on stale schemaVersion confirmed (no spurious "everything changed").
+- ✅ crypto leak fixed earlier (shared seed-schema-version.ts; browser imports value from there, types-only from the Node plugin).
+- ✅ i18n keys present in both en.json and fr.json for all new strings.
+
+Notes / follow-ups:
+- The range start (35f9160a) predates this session; the diff also contains earlier unreviewed work (Sankey table view, dashboard filters, workspace export). This review focused on the seed series; the earlier commits were not adversarially re-reviewed here.
+- Tests still owed (offered to user): detectSeedChanges diff + silent-reset path; removedDisposition safety guard. UI dialogs intentionally not unit-tested (volatile).
+- Cross-repo follow-up pending: linkr-portal scripts/build.sh must emit the new manifest.json (+ verify linkr-portal-ricdc) — without it a portal deployment loads nothing.
+
 ## 2026-06-24 — Dashboard rewrite (nested tabs, grid fit-to-height, filters, export/move trees, fullscreen)
 
 - Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual verification pass)
