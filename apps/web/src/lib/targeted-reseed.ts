@@ -207,6 +207,9 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   // workspaceFolder → a local workspace id resolved from one of its children, captured before
   // the child is deleted so we can delete the workspace shell afterwards.
   const wsIdByFolder = new Map<string, string>()
+  // Folders with at least one user-origin child: their workspace shell must NOT be dropped from
+  // the baseline (it still holds that user content — we never touch it).
+  const foldersWithUserContent = new Set<string>()
 
   // Non-workspace entities. 'seed' → delete the local row; 'gone' → already absent, just drop it
   // from the baseline; 'user' → never touch. Record the parent workspace id along the way (the
@@ -214,7 +217,10 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   for (const change of removed) {
     if (change.entityType === 'workspace') continue
     const disp = await removedDisposition(change)
-    if (disp === 'user') continue
+    if (disp === 'user') {
+      foldersWithUserContent.add(change.workspaceFolder)
+      continue
+    }
     if (!wsIdByFolder.has(change.workspaceFolder)) {
       const wsId = await resolveWorkspaceIdOf(change)
       if (wsId) wsIdByFolder.set(change.workspaceFolder, wsId)
@@ -224,9 +230,11 @@ export async function deleteRemovedSelection(changes: SeedChange[]): Promise<See
   }
 
   // Whole-workspace row: its seed folder is gone, so resolve the local id from a child (if any).
-  // Delete the shell if it still exists and is seed-origin; either way drop it from the baseline.
+  // Delete the shell if it still exists and is seed-origin. Keep it in the baseline (don't push
+  // to handled) when it still holds user content, so that content is never silently forgotten.
   for (const ws of removed) {
     if (ws.entityType !== 'workspace') continue
+    if (foldersWithUserContent.has(ws.workspaceFolder)) continue
     const wsId = wsIdByFolder.get(ws.workspaceFolder)
     if (wsId) {
       const local = await storage.workspaces.getById(wsId)
