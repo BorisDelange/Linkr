@@ -39,10 +39,26 @@ export function ImportConflictDialog({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{t('common.import_conflict_title')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {existingWorkspaceName
-              ? t('common.import_conflict_other_workspace_description', { name: existingName, workspace: existingWorkspaceName })
-              : t('common.import_conflict_description', { name: existingName })}
+          <AlertDialogDescription asChild>
+            {existingWorkspaceName ? (
+              <div className="space-y-2">
+                <p>{t('common.import_conflict_other_workspace_intro', { name: existingName, workspace: existingWorkspaceName })}</p>
+                <ul className="space-y-1">
+                  <li>
+                    <span className="font-medium text-foreground">{t('common.import_duplicate')}</span>
+                    {' — '}
+                    {t('common.import_conflict_other_workspace_duplicate')}
+                  </li>
+                  <li>
+                    <span className="font-medium text-foreground">{t('common.import_overwrite')}</span>
+                    {' — '}
+                    {t('common.import_conflict_other_workspace_overwrite', { workspace: existingWorkspaceName })}
+                  </li>
+                </ul>
+              </div>
+            ) : (
+              <span>{t('common.import_conflict_description', { name: existingName })}</span>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
