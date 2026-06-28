@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { shortWorkspaceId, shortProjectId } from '@/lib/paths'
 import {
   Home,
   FolderOpen,
@@ -203,9 +204,10 @@ export function AppSidebar() {
     activeWorkspaceId ? 'workspace' :
     'app'
 
-  // Base paths for segment-based items
-  const wsBase = `/workspaces/${activeWorkspaceId}`
-  const projBase = `${wsBase}/projects/${activeProjectUid}`
+  // Base paths for segment-based items. Ids are shortened (git-style) for the URL; the route
+  // guards resolve the prefix back to the full id (see short-id.ts).
+  const wsBase = `/workspaces/${activeWorkspaceId ? shortWorkspaceId(activeWorkspaceId) : ''}`
+  const projBase = `${wsBase}/projects/${activeProjectUid ? shortProjectId(activeProjectUid) : ''}`
 
   // Track last visited sub-route per segment
   const lastRoutes = useRef<Map<string, string>>(new Map())

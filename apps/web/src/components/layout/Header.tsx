@@ -11,6 +11,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -204,7 +205,7 @@ export function Header() {
                 onClick={() => {
                   if (activeProjectUid) closeProject()
                   const wsId = useWorkspaceStore.getState().activeWorkspaceId
-                  if (wsId) navigate(`/workspaces/${wsId}/home`)
+                  if (wsId) navigate(paths.workspaceHome(wsId))
                 }}
               >
                 <Building2 size={10} />
@@ -220,7 +221,7 @@ export function Header() {
                 className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-blue-700 border-blue-200 bg-blue-50 transition-colors hover:bg-blue-100 dark:text-blue-400 dark:border-blue-800 dark:bg-blue-950 dark:hover:bg-blue-900"
                 onClick={() => {
                   const wsId = useWorkspaceStore.getState().activeWorkspaceId
-                  if (wsId && activeProjectUid) navigate(`/workspaces/${wsId}/projects/${activeProjectUid}/summary`)
+                  if (wsId && activeProjectUid) navigate(paths.projectSummary(wsId, activeProjectUid))
                 }}
               >
                 <FolderOpen size={10} />

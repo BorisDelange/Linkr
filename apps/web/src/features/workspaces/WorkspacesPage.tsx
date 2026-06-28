@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
+import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -99,7 +100,7 @@ export function WorkspacesPage() {
 
   const handleOpenWorkspace = (id: string, name: string) => {
     openWorkspace(id, name)
-    navigate(`/workspaces/${id}/home`)
+    navigate(paths.workspaceHome(id))
   }
 
   const handleDelete = async () => {
