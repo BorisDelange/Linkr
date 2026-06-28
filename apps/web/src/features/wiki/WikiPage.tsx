@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { BookOpen } from 'lucide-react'
 import { useWikiStore } from '@/stores/wiki-store'
 import { WikiTreeSidebar } from './WikiTreeSidebar'
@@ -12,7 +12,7 @@ import { WikiHistoryDialog } from './WikiHistoryDialog'
 
 export function WikiPage() {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const { wsUid } = useResolvedParams()
   const {
     pagesLoaded,
     loadPages,

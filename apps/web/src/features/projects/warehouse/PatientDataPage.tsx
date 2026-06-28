@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Plus, Pencil, Lock, Users, LayoutGrid, Settings2, PanelRight } from 'lucide-react'
@@ -20,11 +19,12 @@ import { PatientChartGrid } from './patient-data/PatientChartGrid'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 export function PatientDataPage() {
   const { t } = useTranslation()
-  const { uid } = useParams()
-  const projectUid = uid ?? ''
+  const { projectUid: resolvedUid } = useResolvedParams()
+  const projectUid = resolvedUid ?? ''
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)

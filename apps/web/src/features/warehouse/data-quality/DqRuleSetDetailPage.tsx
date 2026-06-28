@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate } from 'react-router'
 import { ArrowLeft, Code, BarChart3, History, Database } from 'lucide-react'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -33,7 +36,7 @@ interface Props {
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const {
     dqRuleSets,
     dqRuleSetsLoaded,
@@ -53,17 +56,19 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     if (!dqRuleSetsLoaded) loadDqRuleSets()
   }, [dqRuleSetsLoaded, loadDqRuleSets])
 
-  useEffect(() => {
-    loadRuleSetChecks(ruleSetId)
-  }, [ruleSetId, loadRuleSetChecks])
+  // ruleSetId may be a short prefix from the URL; resolve to the full id before any store call.
+  const ruleSet = resolveByIdPrefix(dqRuleSets, ruleSetId, (rs) => rs.id)
+  const fullRuleSetId = ruleSet?.id
 
-  const ruleSet = dqRuleSets.find((rs) => rs.id === ruleSetId)
+  useEffect(() => {
+    if (fullRuleSetId) loadRuleSetChecks(fullRuleSetId)
+  }, [fullRuleSetId, loadRuleSetChecks])
   const activeSource = dataSources.find((ds) => ds.id === ruleSet?.dataSourceId)
 
   const handleBack = useCallback(() => {
     // Navigate to the data-quality list page using absolute path
     if (wsUid) {
-      navigate(`/workspaces/${wsUid}/warehouse/data-quality`)
+      navigate(paths.warehouseDataQuality(wsUid))
     } else {
       navigate('..')
     }
@@ -161,7 +166,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
       {/* Tab content */}
       <div className="min-h-0 flex-1 overflow-hidden">
         {activeTab === 'checks' && (
-          <DqChecksTab ruleSetId={ruleSetId} dataSourceId={ruleSet.dataSourceId} />
+          <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} />
         )}
         {activeTab === 'results' && (
           <DqResultsView

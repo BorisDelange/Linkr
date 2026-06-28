@@ -1,5 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
@@ -28,7 +30,7 @@ const MAX_RECENT = 4
 export function WorkspaceHomePage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const { _workspacesRaw, updateWorkspaceReadme } = useWorkspaceStore()
   const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
@@ -41,7 +43,7 @@ export function WorkspaceHomePage() {
 
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
-    navigate(`/workspaces/${wsUid}/projects/${uid}/summary`)
+    navigate(paths.projectSummary(wsUid ?? '', uid))
   }
 
   const quickActions = [

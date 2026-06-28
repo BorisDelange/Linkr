@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource } from '@/types'
@@ -21,12 +20,13 @@ import { DatabaseCard } from './databases/DatabaseCard'
 import { DatabaseDetailSheet } from './databases/DatabaseDetailSheet'
 import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
 import { ExportDatabaseDialog } from './databases/ExportDatabaseDialog'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 const EMPTY_IDS: string[] = []
 
 export function DatabasesPage() {
   const { t } = useTranslation()
-  const { uid } = useParams()
+  const { projectUid: uid } = useResolvedParams()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const setActiveDataSource = useDataSourceStore((s) => s.setActiveDataSource)
   const testConnection = useDataSourceStore((s) => s.testConnection)

@@ -1,7 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as engine from '@/lib/duckdb/engine'
@@ -47,12 +48,13 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
 
 export function CohortBuilderPage() {
   const { t } = useTranslation()
-  const { uid, cohortId } = useParams()
+  const { projectUid: uid, raw } = useResolvedParams()
   const { cohorts, updateCohort, setCustomSql, executeCohort, executionResults, executionLoading } =
     useCohortStore()
   const { getActiveSource } = useDataSourceStore()
 
-  const cohort = cohorts.find((c) => c.id === cohortId)
+  const cohort = resolveByIdPrefix(cohorts, raw.cohortId, (c) => c.id)
+  const cohortId = cohort?.id
   const activeSource = uid ? getActiveSource(uid) : undefined
   const mapping = activeSource?.schemaMapping
 

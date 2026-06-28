@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { BookOpen, RefreshCw } from 'lucide-react'
@@ -12,13 +11,14 @@ import { useConcepts } from './concepts/use-concepts'
 import { hasValueColumnForDict } from './concepts/concept-queries'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptDetail } from './concepts/ConceptDetail'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 // Module-level cache for column visibility (survives unmount/remount)
 const columnVisibilityCache = new Map<string, VisibilityState>()
 
 export function ConceptsPage() {
   const { t } = useTranslation()
-  const { uid } = useParams()
+  const { projectUid: uid } = useResolvedParams()
   const { getActiveSource } = useDataSourceStore()
   const mappedSource = uid ? getActiveSource(uid) : undefined
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useSearchParams, useParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -9,6 +10,7 @@ import { useFileStore } from '@/stores/file-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { getStorage } from '@/lib/storage'
+import { paths } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
 import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, History, Trash2 } from 'lucide-react'
@@ -43,7 +45,7 @@ export function ProjectsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -83,9 +85,9 @@ export function ProjectsPage() {
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
     if (wsUid) {
-      navigate(`/workspaces/${wsUid}/projects/${uid}/summary`)
+      navigate(paths.projectSummary(wsUid, uid))
     } else {
-      navigate(`/workspaces/${activeWorkspaceId}/projects/${uid}/summary`)
+      navigate(paths.projectSummary(activeWorkspaceId ?? '', uid))
     }
   }
 

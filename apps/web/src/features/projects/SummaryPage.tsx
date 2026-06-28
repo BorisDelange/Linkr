@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
 import { Calendar, User } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -11,7 +11,7 @@ import { SummaryTasksTab } from './summary/SummaryTasksTab'
 
 export function SummaryPage() {
   const { t } = useTranslation()
-  const { uid } = useParams()
+  const { projectUid: uid } = useResolvedParams()
   const { _projectsRaw, user, language } = useAppStore()
 
   const project = _projectsRaw.find((p) => p.uid === uid)

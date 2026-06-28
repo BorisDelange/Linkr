@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
@@ -60,7 +60,7 @@ function CreateFromPresetDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const { wsUid } = useResolvedParams()
   const { createEmptyDatabase } = useDataSourceStore()
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
   const [selectedPresetId, setSelectedPresetId] = useState('')
@@ -186,7 +186,7 @@ function CreateFromPresetDialog({
 
 export function AppDatabasesPage() {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const { wsUid } = useResolvedParams()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource } = useDataSourceStore()
   const projects = useAppStore((s) => s._projectsRaw)

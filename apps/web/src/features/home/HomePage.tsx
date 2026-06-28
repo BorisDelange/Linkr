@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 
 const quickActions = [
@@ -48,7 +49,7 @@ export function HomePage() {
 
   const handleOpenWorkspace = (id: string, name: string) => {
     openWorkspace(id, name)
-    navigate(`/workspaces/${id}/home`)
+    navigate(paths.workspaceHome(id))
   }
 
   return (

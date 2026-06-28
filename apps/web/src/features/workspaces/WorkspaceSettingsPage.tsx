@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
@@ -38,7 +39,7 @@ const NONE = '__none__'
 export function WorkspaceSettingsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
   const defaultTab = searchParams.get('tab') ?? 'general'
   const language = useAppStore((s) => s.language)

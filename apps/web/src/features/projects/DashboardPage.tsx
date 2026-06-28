@@ -1,6 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, Layers, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -18,10 +21,9 @@ import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 export function DashboardPage() {
   const { t } = useTranslation()
-  const { wsUid, uid, dashboardId } = useParams()
+  const { wsUid, projectUid: resolvedProjectUid, raw } = useResolvedParams()
   const navigate = useNavigate()
-  const projectUid = uid ?? ''
-  const currentDashboardId = dashboardId ?? ''
+  const projectUid = resolvedProjectUid ?? ''
 
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
@@ -67,6 +69,10 @@ export function DashboardPage() {
   } = useDashboardStore()
 
   const activeFilterCount = Object.keys(activeFilters).length
+
+  // Resolve the short :dashboardId prefix to the full dashboard id from the loaded dashboards.
+  const currentDashboardId = resolveByIdPrefix(dashboards, raw.dashboardId, (d) => d.id)?.id
+    ?? raw.dashboardId ?? ''
 
   const { loadProjectDatasets } = useDatasetStore()
 
@@ -119,7 +125,7 @@ export function DashboardPage() {
             variant="link"
             size="sm"
             className="mt-2"
-            onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards`)}
+            onClick={() => navigate(paths.dashboards(wsUid ?? '', projectUid))}
           >
             {t('dashboard.back_to_list')}
           </Button>

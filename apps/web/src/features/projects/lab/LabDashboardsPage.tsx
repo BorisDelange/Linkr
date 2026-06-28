@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -36,8 +38,8 @@ import { useDatasetStore } from '@/stores/dataset-store'
 export function LabDashboardsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid, uid } = useParams()
-  const projectUid = uid ?? ''
+  const { wsUid, projectUid: resolvedProjectUid } = useResolvedParams()
+  const projectUid = resolvedProjectUid ?? ''
 
   const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard, updateDashboard } = useDashboardStore()
   const { loadProjectDatasets } = useDatasetStore()
@@ -68,7 +70,7 @@ export function LabDashboardsPage() {
     const id = await createDashboard(projectUid, name)
     setCreateOpen(false)
     setCreateName('')
-    navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${id}`)
+    navigate(paths.dashboard(wsUid ?? '', projectUid, id))
   }
 
   const handleDelete = () => {
@@ -129,7 +131,7 @@ export function LabDashboardsPage() {
                 <Card
                   key={dash.id}
                   className="cursor-pointer transition-colors hover:bg-accent/50"
-                  onClick={() => navigate(`/workspaces/${wsUid}/projects/${projectUid}/lab/dashboards/${dash.id}`)}
+                  onClick={() => navigate(paths.dashboard(wsUid ?? '', projectUid, dash.id))}
                 >
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-2">

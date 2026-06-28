@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
@@ -98,7 +98,7 @@ export function AddDatabaseDialog({
   editingSource,
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const { wsUid } = useResolvedParams()
   const { addDataSource, updateDataSource, removeDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)

@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate } from 'react-router'
 import { ArrowLeft, ArrowRight, Code, Workflow, BarChart3, Database, BookOpen } from 'lucide-react'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import {
   Select,
@@ -34,7 +37,7 @@ interface Props {
 export function EtlPipelinePage({ pipelineId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const { etlPipelines, etlPipelinesLoaded, loadEtlPipelines, loadPipelineFiles, updatePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
@@ -45,11 +48,13 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     if (!etlPipelinesLoaded) loadEtlPipelines()
   }, [etlPipelinesLoaded, loadEtlPipelines])
 
-  useEffect(() => {
-    loadPipelineFiles(pipelineId)
-  }, [pipelineId, loadPipelineFiles])
+  // pipelineId may be a short prefix from the URL; resolve to the full id before any store call.
+  const pipeline = resolveByIdPrefix(etlPipelines, pipelineId, (p) => p.id)
+  const fullPipelineId = pipeline?.id
 
-  const pipeline = etlPipelines.find((p) => p.id === pipelineId)
+  useEffect(() => {
+    if (fullPipelineId) loadPipelineFiles(fullPipelineId)
+  }, [fullPipelineId, loadPipelineFiles])
 
   // When clicking a script node in the pipeline DAG, switch to scripts tab and
   // select the file. Must stay above the early returns (Rules of Hooks).
@@ -65,7 +70,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
     return (
       <div className="flex h-full flex-col items-center justify-center">
         <p className="text-sm text-muted-foreground">{t('etl.pipeline_not_found')}</p>
-        <Button variant="ghost" size="sm" className="mt-2" onClick={() => navigate(`/workspaces/${wsUid}/warehouse/etl`)}>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => navigate(paths.warehouseEtl(wsUid ?? ''))}>
           <ArrowLeft size={14} />
           {t('etl.back_to_list')}
         </Button>
@@ -136,12 +141,12 @@ export function EtlPipelinePage({ pipelineId }: Props) {
 
       {/* Tab content — full remaining space */}
       <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'scripts' && <EtlScriptsTab pipelineId={pipelineId} />}
+        {activeTab === 'scripts' && <EtlScriptsTab pipelineId={pipeline.id} />}
         {activeTab === 'pipeline' && (
-          <EtlPipelineTab pipelineId={pipelineId} onSelectFile={handleSelectFile} />
+          <EtlPipelineTab pipelineId={pipeline.id} onSelectFile={handleSelectFile} />
         )}
-        {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipelineId} />}
-        {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipelineId} />}
+        {activeTab === 'profiling' && <EtlProfilingTab pipelineId={pipeline.id} />}
+        {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipeline.id} />}
       </div>
     </div>
   )

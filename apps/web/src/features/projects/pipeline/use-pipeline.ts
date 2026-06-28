@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import {
   useNodesState,
   useEdgesState,
@@ -98,7 +98,9 @@ const defaultLabels: Record<PipelineNodeType, string> = {
 }
 
 export function usePipeline() {
-  const { uid } = useParams()
+  // Full project uid resolved from the short URL prefix — must be the full id before any store
+  // lookup, or getOrCreatePipeline would miss the real pipeline and persist a corrupt short id.
+  const { projectUid: uid } = useResolvedParams()
   const {
     pipelinesLoaded,
     loadPipelines,

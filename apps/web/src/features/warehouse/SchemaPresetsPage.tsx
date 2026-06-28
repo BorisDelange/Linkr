@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { resolveByIdPrefix } from '@/lib/short-id'
+import { paths } from '@/lib/paths'
 import {
   Database,
   Copy,
@@ -1225,7 +1228,7 @@ function SchemaDetailView({
 
 export function SchemaPresetsPage() {
   const { t } = useTranslation()
-  const { schemaId, wsUid } = useParams()
+  const { wsUid, raw } = useResolvedParams()
   const navigate = useNavigate()
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
@@ -1403,10 +1406,11 @@ export function SchemaPresetsPage() {
   }
 
   const navigateToList = () => {
-    navigate(`/workspaces/${wsUid}/warehouse/schemas`)
+    navigate(paths.warehouseSchemas(wsUid ?? ''))
   }
 
   // ── If schemaId is in URL, show detail page ──
+  const schemaId = resolveByIdPrefix(customPresets, raw.schemaId, (p) => p.presetId)?.presetId ?? raw.schemaId
   if (schemaId) {
     return (
       <SchemaDetailView

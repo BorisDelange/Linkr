@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams, useNavigate } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
 import { UsersRound, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -10,7 +12,7 @@ import { CreateCohortDialog } from './CreateCohortDialog'
 
 export function CohortListPage() {
   const { t } = useTranslation()
-  const { uid, wsUid } = useParams()
+  const { projectUid: uid, wsUid } = useResolvedParams()
   const navigate = useNavigate()
   const { getProjectCohorts, addCohort, removeCohort, updateCohort } = useCohortStore()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -21,7 +23,7 @@ export function CohortListPage() {
   const handleCreate = async (data: { name: string; description: string }) => {
     if (!uid) return
     const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
-    navigate(`${basePath}/${id}`)
+    navigate(paths.cohort(wsUid ?? '', uid, id))
   }
 
   return (

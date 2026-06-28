@@ -1,13 +1,13 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { WsExportTab } from './WsExportTab'
 
 export function AppVersioningPage() {
   const { t } = useTranslation()
-  const { wsUid } = useParams<{ wsUid: string }>()
+  const { wsUid } = useResolvedParams()
   const { remoteConfig, loadRemoteConfig, setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
 
   useEffect(() => {

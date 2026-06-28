@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
 import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge, CatalogVisibility } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
@@ -86,7 +87,7 @@ const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'dra
 export function ProjectSettingsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid, uid } = useParams()
+  const { wsUid, projectUid: uid } = useResolvedParams()
   const {
     _projectsRaw,
     projects,

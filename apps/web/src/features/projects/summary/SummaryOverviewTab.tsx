@@ -1,6 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router'
+import { Link } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { paths } from '@/lib/paths'
 import {
   Database,
   Users,
@@ -23,7 +25,7 @@ interface SummaryOverviewTabProps {
 
 export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
   const { t } = useTranslation()
-  const { wsUid } = useParams()
+  const { wsUid } = useResolvedParams()
   const project = useAppStore((s) => s._projectsRaw.find((p) => p.uid === uid))
 
   const { getProjectSources } = useDataSourceStore()
@@ -150,7 +152,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.databases')} ({dataSources.length})
                 </span>
                 <Link
-                  to={`/workspaces/${wsUid}/projects/${uid}/warehouse/databases`}
+                  to={paths.databases(wsUid ?? '', uid)}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -182,7 +184,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.cohorts')} ({cohorts.length})
                 </span>
                 <Link
-                  to={`/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`}
+                  to={paths.cohorts(wsUid ?? '', uid)}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -227,7 +229,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.datasets')} ({stats.datasetNodes})
                 </span>
                 <Link
-                  to={`/workspaces/${wsUid}/projects/${uid}/lab/datasets`}
+                  to={paths.datasets(wsUid ?? '', uid)}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}
@@ -267,7 +269,7 @@ export function SummaryOverviewTab({ uid }: SummaryOverviewTabProps) {
                   {t('summary.dashboards')} ({dashboards.length})
                 </span>
                 <Link
-                  to={`/workspaces/${wsUid}/projects/${uid}/lab/dashboards`}
+                  to={paths.dashboards(wsUid ?? '', uid)}
                   className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
                 >
                   {t('summary.view_all')}

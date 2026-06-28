@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation, Trans } from 'react-i18next'
-import { useParams } from 'react-router'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 import {
   Download,
   FolderOpen,
@@ -139,8 +139,8 @@ const ALL_KEYS = allLeafKeys(exportSections)
 
 export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
   const { t } = useTranslation()
-  const params = useParams<{ wsUid: string }>()
-  const wsUid = workspaceId ?? params.wsUid
+  const { wsUid: resolvedWsUid } = useResolvedParams()
+  const wsUid = workspaceId ?? resolvedWsUid
   const { exportZip, loading } = useWorkspaceVersioningStore()
   const [exporting, setExporting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
