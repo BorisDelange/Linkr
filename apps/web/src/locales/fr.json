@@ -2067,6 +2067,12 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "entity_not_found_title": "{{entity}} introuvable",
+    "entity_not_found_description": "Il a peut-être été supprimé, ou le lien est incorrect.",
+    "entity_project": "Projet",
+    "entity_workspace": "Workspace",
+    "back_to_projects": "Retour aux projets",
+    "back_to_workspaces": "Retour aux workspaces",
     "save": "Enregistrer",
     "cancel": "Annuler",
     "delete": "Supprimer",

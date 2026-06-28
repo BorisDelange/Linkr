@@ -157,11 +157,11 @@ export function VersionCheckDialog() {
   if (seedChecking) return null
 
   // --- No seed changes: non-blocking info banner ---
-  // Anchored to the bottom-right corner, sitting directly on top of the footer (h-6 = 24px) and
-  // flush to the right edge; only the top-left corner is rounded so it reads as docked.
+  // Bottom-right corner: full rounded border, just slightly off the right edge and sitting a hair
+  // above the footer (h-6 = 24px).
   return (
-    <div className="fixed bottom-6 right-0 z-50 max-w-sm animate-in slide-in-from-bottom-4 fade-in duration-300">
-      <div className="flex items-start gap-3 rounded-tl-lg border border-r-0 border-b-0 bg-background p-4 shadow-lg">
+    <div className="fixed bottom-7 right-2 z-50 max-w-sm animate-in slide-in-from-bottom-4 fade-in duration-300">
+      <div className="flex items-start gap-3 rounded-lg border bg-background p-4 shadow-lg">
         <Info size={16} className="mt-0.5 shrink-0 text-muted-foreground" />
         <div className="flex-1 space-y-1">
           <p className="text-sm font-medium">{t('version_check.update_title')}</p>

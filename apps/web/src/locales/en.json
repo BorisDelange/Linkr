@@ -2067,6 +2067,12 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "entity_not_found_title": "{{entity}} not found",
+    "entity_not_found_description": "It may have been deleted, or the link is incorrect.",
+    "entity_project": "Project",
+    "entity_workspace": "Workspace",
+    "back_to_projects": "Back to projects",
+    "back_to_workspaces": "Back to workspaces",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
