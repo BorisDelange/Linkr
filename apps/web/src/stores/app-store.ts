@@ -220,6 +220,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
+    // Migration: repair projects whose workspaceId was saved as a SHORT id prefix (a regression
+    // from the short-URL change, where a page persisted the URL prefix instead of the full id).
+    // Map a prefix that uniquely matches one real workspace back to that workspace's full id.
+    const allWsIds = (await storage.workspaces.getAll()).map((w) => w.id)
+    for (const p of projects) {
+      if (!p.workspaceId || allWsIds.includes(p.workspaceId)) continue
+      const matches = allWsIds.filter((id) => id.startsWith(p.workspaceId!))
+      if (matches.length === 1) {
+        p.workspaceId = matches[0]
+        storage.projects.update(p.uid, { workspaceId: matches[0] }).catch(() => {})
+      }
+    }
+
     // Migration: assign projectId to projects that don't have one
     const usedIds = new Set(projects.filter(p => p.projectId).map(p => p.projectId!))
     for (const p of projects) {
