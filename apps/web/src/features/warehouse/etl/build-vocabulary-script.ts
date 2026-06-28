@@ -1,6 +1,6 @@
 /**
  * Build the full vocabulary SQL script from concept mappings.
- * Extracted so it can be used both by EtlVocabularyTab (UI) and demo-seed (startup).
+ * Extracted so it can be used both by EtlVocabularyTab (UI) and the seed loader (startup).
  */
 import type { ConceptMapping } from '@/types'
 import { escSql as esc } from '@/lib/format-helpers'

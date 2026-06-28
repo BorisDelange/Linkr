@@ -5,8 +5,8 @@
  * - __APP_BUILD_HASH__ (git short hash, injected by Vite) — detects any new deployment
  * - APP_SCHEMA_VERSION (manual integer) — detects breaking IndexedDB/store schema changes
  *
- * These are complementary to the DEMO_*_VERSION constants in demo-seed.ts,
- * which handle silent re-seeding of demo content without a full reset.
+ * Seed content updates are handled separately by the seed change detector
+ * (seed-change-detector.ts), which re-seeds bundled content without a full reset.
  */
 
 /** Increment this when IndexedDB schema or Zustand store shapes change in a breaking way. */
