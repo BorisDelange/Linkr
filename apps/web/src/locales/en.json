@@ -2072,7 +2072,10 @@
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
-    "error": "Invalid username or password"
+    "error": "Invalid username or password",
+    "subtitle": "Sign in to your account",
+    "signing_in": "Signing in…",
+    "setup_complete": "Account created successfully. Please sign in."
   },
   "reset": {
     "tooltip": "Reset local data",
@@ -3443,5 +3446,26 @@
     "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
     "run_local_proxy": "Run a local proxy",
     "run_local_proxy_hint": "Runs a dependency-free CORS proxy on http://localhost:9999 — paste that into the field above. This only works with a local Linkr instance (npm run dev). A Linkr deployed over HTTPS needs a proxy hosted over HTTPS."
+  },
+  "setup": {
+    "title": "Welcome to Linkr",
+    "subtitle": "Let's set up your instance",
+    "next": "Next",
+    "back": "Back",
+    "db_title": "Configure Database",
+    "db_description": "Choose where Linkr stores its application data. You can change this later in Settings.",
+    "test_success": "Connection successful",
+    "test_error": "Connection failed",
+    "test_unreachable": "Server unreachable",
+    "admin_title": "Create Admin Account",
+    "admin_description": "This will be the first administrator account.",
+    "admin_username": "Username",
+    "admin_email": "Email (optional)",
+    "admin_password": "Password",
+    "admin_password_confirm": "Confirm password",
+    "admin_password_mismatch": "Passwords do not match",
+    "create_account": "Create Account",
+    "creating": "Creating account…",
+    "error_generic": "Setup failed. Please try again."
   }
 }
