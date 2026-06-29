@@ -1,14 +1,20 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.models.base import Base
 
 engine = create_async_engine(settings.database_url, echo=settings.debug)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
+# SQLite ignores foreign keys (and ON DELETE CASCADE) unless enabled per-connection.
+if settings.database_url.startswith("sqlite"):
 
-class Base(DeclarativeBase):
-    pass
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_fk_pragma(dbapi_conn, _connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 async def get_db() -> AsyncSession:
@@ -17,7 +23,10 @@ async def get_db() -> AsyncSession:
         yield session
 
 
-async def init_db() -> None:
-    """Create all tables on startup."""
+async def create_all() -> None:
+    """Create all tables. Used by tests; production uses Alembic migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+
+__all__ = ["Base", "engine", "async_session", "get_db", "create_all"]

@@ -1,3 +1,7 @@
+from functools import cached_property
+from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -15,7 +19,13 @@ class Settings(BaseSettings):
 
     # Auth
     secret_key: str = "dev-secret-change-in-production"
+    algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24  # 24 hours
+    refresh_token_expire_days: int = 30
+    auth_provider: str = "local"  # local, ldap, oidc, saml (only local implemented)
+
+    # CORS
+    cors_origins: list[str] = ["http://localhost:3000"]
 
     # Code execution
     enable_code_execution: bool = True
@@ -35,6 +45,20 @@ class Settings(BaseSettings):
     data_dir: str = "~/.linkr"
 
     model_config = {"env_prefix": "LINKR_", "env_file": ".env"}
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_cors(cls, v):
+        if isinstance(v, str):
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @cached_property
+    def data_path(self) -> Path:
+        """Resolved data directory; created on first access (not at import)."""
+        path = Path(self.data_dir).expanduser().resolve()
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
 
 settings = Settings()
