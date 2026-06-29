@@ -1,3 +1,4 @@
+import { apiProjectStorage } from '@/lib/api/projects'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
 import type { Storage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
@@ -13,5 +14,6 @@ export function createAPIStorage(): Storage {
   return {
     ...idb,
     workspaces: apiWorkspaceStorage,
+    projects: apiProjectStorage,
   }
 }
