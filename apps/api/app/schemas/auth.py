@@ -1,0 +1,41 @@
+from pydantic import BaseModel
+
+# NOTE: these schemas stay snake_case (access_token, refresh_token, needs_setup)
+# because the frontend api-client / auth-store read these keys literally.
+# This is the one exception to the camelCase API convention (CamelModel).
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    username: str
+    email: str | None
+    role: str
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
+class SetupStatusResponse(BaseModel):
+    needs_setup: bool
+
+
+class SetupRequest(BaseModel):
+    username: str
+    email: str | None = None
+    password: str
