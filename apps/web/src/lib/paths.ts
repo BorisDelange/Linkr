@@ -44,6 +44,7 @@ export const paths = {
 
   // --- Project: lab ---
   datasets: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/lab/datasets`,
+  reports: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/lab/reports`,
   dashboards: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/lab/dashboards`,
   dashboard: (wsUid: string, projectUid: string, dashboardId: string, siblings?: readonly string[]) =>
     `${proj(wsUid, projectUid)}/lab/dashboards/${siblings ? shortenIdAmong(dashboardId, siblings) : shortenId(dashboardId)}`,

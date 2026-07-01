@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
@@ -13,6 +14,7 @@ export function SummaryPage() {
   const { t } = useTranslation()
   const { projectUid: uid } = useResolvedParams()
   const { _projectsRaw, user, language } = useAppStore()
+  const [activeTab, setActiveTab] = useState('overview')
 
   const project = _projectsRaw.find((p) => p.uid === uid)
 
@@ -65,15 +67,15 @@ export function SummaryPage() {
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col px-6 pb-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex min-h-0 flex-1 flex-col px-6 pb-6">
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
 
           <TabsTrigger value="tasks">{t('summary.tab_tasks')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="overview" className="min-h-0 flex-1 overflow-auto">
-          <SummaryOverviewTab uid={uid!} />
+        <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
+          <SummaryOverviewTab uid={uid!} onNavigateTab={setActiveTab} />
         </TabsContent>
         <TabsContent value="readme" className="min-h-0 flex-1 overflow-hidden">
           <SummaryReadmeTab uid={uid!} />
