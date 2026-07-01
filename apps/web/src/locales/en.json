@@ -1741,6 +1741,7 @@
     "reference_id_hint": "Internal organization identifier (ROR ID, institutional code, etc.)"
   },
   "plugins": {
+    "builtin_badge": "Built-in",
     "sankey": {
       "configure": "Choose the columns that describe each flow to build the diagram.",
       "no_flows": "No flows to display with the current settings.",

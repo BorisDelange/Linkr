@@ -209,7 +209,7 @@ export function PluginPicker({
                 <div className="flex items-center gap-1 flex-wrap">
                   {m.runtime?.includes('component') && (
                     <span className="shrink-0 rounded px-1 py-px text-[9px] font-medium leading-none text-emerald-500 bg-emerald-500/10">
-                      REACT
+                      {t('plugins.builtin_badge')}
                     </span>
                   )}
                   {m.languages?.map((l) => {

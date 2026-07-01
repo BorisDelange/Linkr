@@ -403,7 +403,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-2 flex-1 min-h-0 flex flex-col">
-          <TabsList className="shrink-0">
+          <TabsList className="shrink-0 self-center">
             <TabsTrigger value="plugin" className="text-xs">
               {t('dashboard.source_plugin')}
             </TabsTrigger>
