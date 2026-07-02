@@ -78,7 +78,7 @@ settings
 ## Data Flow
 
 - **Warehouse** = OMOP long-format, read-only. Concepts, cohorts, data quality.
-- **Pipeline** = Transforms (long → wide). Source never modified (Dataiku pattern). Each transform produces a new output dataset.
+- **Pipeline** = Transforms (long → wide). Source never modified. Each transform produces a new output dataset.
 - **Lab** = Wide-format analytics. IDE, dashboards, statistical analyses.
 - Two entry points to datasets: (1) warehouse → pipeline → dataset, (2) direct import (CSV, Excel, Parquet).
 

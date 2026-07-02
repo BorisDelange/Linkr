@@ -63,7 +63,7 @@ Deploying AI models and Clinical Decision Support Systems in clinical settings.
 
 ### Concept
 
-A workspace is an organizational container (similar to GitHub Organizations or GitLab Groups), not a Dataiku workspace (which is a read-only consultation portal).
+A workspace is an organizational container (similar to GitHub Organizations or GitLab Groups): it groups members, projects, and shared resources — it is not a read-only consultation portal.
 
 Each workspace:
 - Has members with roles (admin, editor, viewer)
@@ -197,7 +197,7 @@ interface DeployedModel {
 | **Weights & Biases** | Experiment tracking, hyperparameter sweeps, artifact versioning, collaborative dashboards | Strong experiment tracking. Overlaps with Linkr's Lab. Integration possible via API. |
 | **Seldon Core** | Kubernetes-based model serving, Alibi Explain (SHAP, LIME), canary deployments, A/B testing | Heavy infrastructure. Relevant only for large-scale hospital deployments. |
 | **BentoML** | Model packaging (Bento format), REST/gRPC serving, adaptive batching | Simplifies model serving. Good candidate if Linkr needs to serve models. |
-| **Dataiku** | Unified platform (data prep → training → deployment → monitoring), scenarios for automation, visual ML | Closest competitor in concept. Heavy, expensive, enterprise-focused. Linkr differentiates by being open-source and clinical-data-model-aware (OMOP, i2b2, custom schemas). |
+| **Unified enterprise data-science platforms** | Data prep → training → deployment → monitoring in one tool, scenarios for automation, visual ML | Closest in concept. Typically heavy, expensive, enterprise-focused. Linkr differentiates by being open-source and clinical-data-model-aware (OMOP, i2b2, custom schemas). |
 
 **Key takeaway**: MLflow for model registry + Evidently for drift detection is a common open-source stack. Linkr could integrate with these rather than rebuilding them.
 

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { localized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
@@ -34,6 +35,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
   const project = useAppStore((s) => s._projectsRaw.find((p) => p.uid === uid))
+  const language = useAppStore((s) => s.language)
 
   const { getProjectSources } = useDataSourceStore()
   const { getProjectCohorts } = useCohortStore()
@@ -77,7 +79,11 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
     const datasetNodes = nodes.filter((n) => n.data.type === 'dataset').length
     const tabCount = dashboards.reduce((sum, d) => sum + d.tabCount, 0)
     const widgetCount = dashboards.reduce((sum, d) => sum + d.widgetCount, 0)
-    const todos = project?.todos ?? []
+    const todos = (project?.todos ?? []).map((todo) => ({
+      id: todo.id,
+      text: localized(todo.text, language),
+      done: todo.done,
+    }))
     const todosDone = todos.filter((t) => t.done).length
 
     return {
@@ -93,9 +99,9 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
       todos,
       todosDone,
     }
-  }, [dataSources, cohorts, pipeline, dashboards, project?.todos])
+  }, [dataSources, cohorts, pipeline, dashboards, project?.todos, language])
 
-  const readme = project?.readme ?? ''
+  const readme = localized(project?.readme, language)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 pt-4">

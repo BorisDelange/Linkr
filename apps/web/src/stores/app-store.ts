@@ -2,8 +2,9 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
+import { setLocalized, toLocalized } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
-import type { Project, Workspace, Language, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
+import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -248,6 +249,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       storage.projects.update(p.uid, { projectId: id }).catch(() => {})
     }
 
+    // Migration: coerce legacy string readme / todo text into LocalizedString
+    for (const p of projects) {
+      const legacyReadme = typeof p.readme === 'string' && p.readme.length > 0
+      const legacyTodos = (p.todos ?? []).some((t) => typeof t.text === 'string')
+      if (!legacyReadme && !legacyTodos) continue
+      const changes: Partial<Project> = {}
+      if (legacyReadme) changes.readme = toLocalized(p.readme)
+      if (legacyTodos) {
+        changes.todos = (p.todos ?? []).map((t) => ({ ...t, text: toLocalized(t.text) }))
+      }
+      Object.assign(p, changes)
+      storage.projects.update(p.uid, changes).catch(() => {})
+    }
+
     const lang = get().language
     set({
       _projectsRaw: projects,
@@ -326,12 +341,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateProjectReadme: (uid, readme) => {
+    const lang = get().language
+    let next: LocalizedString | undefined
     set((s) => ({
-      _projectsRaw: s._projectsRaw.map((p) =>
-        p.uid === uid ? { ...p, readme } : p
-      ),
+      _projectsRaw: s._projectsRaw.map((p) => {
+        if (p.uid !== uid) return p
+        next = setLocalized(p.readme, lang, readme)
+        return { ...p, readme: next }
+      }),
     }))
-    getStorage().projects.update(uid, { readme })
+    if (next) getStorage().projects.update(uid, { readme: next })
   },
 
 

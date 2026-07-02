@@ -213,7 +213,7 @@ export function WorkspacesPage() {
               ? `${project.name} (copy)` as unknown as Project['name']
               : Object.fromEntries(Object.entries(project.name ?? {}).map(([k, v]) => [k, `${v} (copy)`])) as Project['name'])
             : project.name,
-          readme: entry.readme ?? '',
+          readme: entry.readme ?? {},
           updatedAt: now,
           ...(duplicate ? { createdAt: now } : {}),
         })

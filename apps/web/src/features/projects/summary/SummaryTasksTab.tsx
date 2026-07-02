@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import type { TodoItem } from '@/types'
 
 interface SummaryTasksTabProps {
@@ -43,6 +44,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
     _projectsRaw,
     updateProjectTodos,
     updateProjectNotes,
+    language,
   } = useAppStore()
 
   const project = _projectsRaw.find((p) => p.uid === uid)
@@ -64,7 +66,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
     const item: TodoItem = {
       // eslint-disable-next-line react-hooks/purity -- runs in an event handler, not during render
       id: `t-${Date.now()}`,
-      text: newTask.trim(),
+      text: setLocalized({}, language, newTask.trim()),
       done: false,
     }
     updateProjectTodos(uid, [...todos, item])
@@ -137,6 +139,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
                         <SortableTodoItem
                           key={todo.id}
                           todo={todo}
+                          language={language}
                           onToggle={handleToggleTodo}
                           onRemove={handleRemoveTodo}
                         />
@@ -189,10 +192,12 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
 
 function SortableTodoItem({
   todo,
+  language,
   onToggle,
   onRemove,
 }: {
   todo: TodoItem
+  language: string
   onToggle: (id: string) => void
   onRemove: (id: string) => void
 }) {
@@ -238,7 +243,7 @@ function SortableTodoItem({
       <span
         className={`flex-1 text-sm ${todo.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
       >
-        {todo.text}
+        {localized(todo.text, language)}
       </span>
       <button
         onClick={() => onRemove(todo.id)}

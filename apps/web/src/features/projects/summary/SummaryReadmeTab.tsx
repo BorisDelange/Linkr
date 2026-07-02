@@ -4,6 +4,7 @@ import { Paperclip, History } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 import { ReadmeAttachmentsDialog } from './ReadmeAttachmentsDialog'
 import { ReadmeEditor } from '@/components/editor/ReadmeEditor'
@@ -17,9 +18,9 @@ interface SummaryReadmeTabProps {
 
 export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
   const { t } = useTranslation()
-  const { _projectsRaw, updateProjectReadme } = useAppStore()
+  const { _projectsRaw, updateProjectReadme, language } = useAppStore()
   const project = _projectsRaw.find((p) => p.uid === uid)
-  const readme = project?.readme ?? ''
+  const readme = localized(project?.readme, language)
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
 
   const {

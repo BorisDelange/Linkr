@@ -17,8 +17,44 @@ import type {
   DataCatalog, ServiceMapping, UserPlugin,
   DataSource, CustomSchemaPreset,
   GitRemoteConfig,
+  LocalizedString, TodoItem,
 } from '@/types'
+import { toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+
+/**
+ * Write a project/workspace README as `README.md` (English or first language)
+ * plus `README.<lang>.md` siblings, so it round-trips per language while
+ * staying git/portal-readable. Accepts legacy plain strings.
+ */
+function writeReadmeFiles(
+  zip: JSZip,
+  dir: string,
+  readme: LocalizedString | string | null | undefined,
+): void {
+  if (!readme) return
+  const byLang = toLocalized(readme)
+  const langs = Object.keys(byLang).filter((l) => byLang[l])
+  if (langs.length === 0) return
+  const primary = langs.includes('en') ? 'en' : langs[0]
+  for (const lang of langs) {
+    const suffix = lang === primary ? '' : `.${lang}`
+    zip.file(`${dir}README${suffix}.md`, byLang[lang])
+  }
+}
+
+/** Coerce imported todos: legacy string `text` becomes a LocalizedString. */
+function normalizeImportedTodos(todos: unknown): TodoItem[] {
+  if (!Array.isArray(todos)) return []
+  return todos.map((raw) => {
+    const t = raw as { id?: string; text?: unknown; done?: boolean }
+    return {
+      id: String(t.id ?? ''),
+      text: toLocalized(t.text as string | LocalizedString | undefined),
+      done: Boolean(t.done),
+    }
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Source-concept-id compact format helpers
@@ -298,10 +334,8 @@ export async function buildProjectZip(
   const { readme: _r, todos: _t, notes: _n, readmeHistory: _rh, ...projectMeta } = project
   zip.file('project.json', json({ ...projectMeta, appVersion: APP_VERSION }))
 
-  // --- README.md ---
-  if (project.readme) {
-    zip.file('README.md', project.readme)
-  }
+  // --- README.md (+ README.<lang>.md per extra language) ---
+  writeReadmeFiles(zip, '', project.readme)
 
   // --- tasks.json ---
   if ((project.todos && project.todos.length > 0) || project.notes) {
@@ -555,15 +589,20 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   // Strip export-only fields
   const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
 
-  // Reconstruct readme, todos, notes from separate files
-  const readmeFile = zipData.files['README.md']
-  if (readmeFile) {
-    projectMeta.readme = await readmeFile.async('string')
+  // Reconstruct readme (README.md = en, README.<lang>.md = other langs), todos, notes
+  const readmeByLang: LocalizedString = {}
+  for (const [path, file] of Object.entries(zipData.files)) {
+    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
+    if (!m) continue
+    readmeByLang[m[1] ?? 'en'] = await file.async('string')
+  }
+  if (Object.keys(readmeByLang).length > 0) {
+    projectMeta.readme = readmeByLang
   }
   const tasksFile = zipData.files['tasks.json']
   if (tasksFile) {
     const tasks = JSON.parse(await tasksFile.async('string'))
-    projectMeta.todos = tasks.todos ?? []
+    projectMeta.todos = normalizeImportedTodos(tasks.todos)
     projectMeta.notes = tasks.notes ?? ''
   }
 
@@ -1116,13 +1155,13 @@ export async function buildWorkspaceZip(
       if (excluded[project.uid]) continue
       const folder = project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
-      const { todos: _t, notes: _n, readmeHistory: _rh, gitUrl: _gu, ...projectMeta } = project
+      const { todos: _t, notes: _n, readme: _rd, readmeHistory: _rh, gitUrl: _gu, ...projectMeta } = project
       const projectMetaOut = { ...projectMeta, ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
 
       if (git) {
         // Metadata + git pointer only — content comes from the linked repo at portal build time.
         zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
-        if (project.readme) zip.file(`projects/${folder}/README.md`, project.readme)
+        writeReadmeFiles(zip, `projects/${folder}/`, project.readme)
         gitLinks.push({ type: 'project', id: project.uid, folder, url: git.url, branch: git.branch })
       } else if (includeData[project.uid]) {
         // Full project content nested under projects/<folder>/ (reuses buildProjectZip layout).
@@ -1139,7 +1178,7 @@ export async function buildWorkspaceZip(
       } else {
         // Lightweight: catalog-relevant metadata + README only.
         zip.file(`projects/${folder}/project.json`, json(projectMetaOut))
-        if (project.readme) zip.file(`projects/${folder}/README.md`, project.readme)
+        writeReadmeFiles(zip, `projects/${folder}/`, project.readme)
       }
     }
   }
@@ -1339,7 +1378,7 @@ export async function buildWorkspaceZip(
 /** Lightweight project entry (catalog-only: metadata + README). */
 export interface ParsedProjectEntry {
   project: Project & { appVersion?: string }
-  readme?: string
+  readme?: LocalizedString
 }
 
 export interface ParsedWorkspaceZip {
@@ -1440,8 +1479,13 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       // Lightweight entry (catalog-only)
       const projectJson = await readJsonFile<Project & { appVersion?: string }>(zipData, `${prefix}project.json`)
       if (!projectJson) continue
-      const readmeEntry = zipData.files[`${prefix}README.md`]
-      const readme = readmeEntry ? await readmeEntry.async('string') : undefined
+      const readmeByLang: LocalizedString = {}
+      for (const [path, file] of Object.entries(zipData.files)) {
+        const m = new RegExp(`^${prefix}README(?:\\.([a-z]{2}))?\\.md$`).exec(path)
+        if (!m) continue
+        readmeByLang[m[1] ?? 'en'] = await file.async('string')
+      }
+      const readme = Object.keys(readmeByLang).length > 0 ? readmeByLang : undefined
       projectEntries.push({ project: projectJson, readme })
     }
   }

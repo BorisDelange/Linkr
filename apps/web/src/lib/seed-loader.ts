@@ -27,7 +27,25 @@ import type {
   WikiPage, ConceptSet,
   Dashboard, DashboardTab, DashboardWidget,
   DatasetFile, DatasetColumn,
+  LocalizedString, TodoItem,
 } from '@/types'
+import { toLocalized } from '@/lib/localized'
+
+/** Languages seeded from per-language README files (README.md = en, README.fr.md = fr). */
+const SEED_LANGUAGES = ['en', 'fr'] as const
+
+/** Normalize seed/imported todos: coerce legacy string `text` into a LocalizedString. */
+function normalizeTodos(todos: unknown): TodoItem[] {
+  if (!Array.isArray(todos)) return []
+  return todos.map((raw) => {
+    const t = raw as { id?: string; text?: unknown; done?: boolean }
+    return {
+      id: String(t.id ?? ''),
+      text: toLocalized(t.text as string | LocalizedString | undefined),
+      done: Boolean(t.done),
+    }
+  })
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -475,11 +493,16 @@ async function loadStructuralEntity(
       const folder = entity.folder
       const project = await fetchJson<Project>(`${base}/projects/${folder}/project.json`)
       if (!project?.uid) return
-      const projectReadme = await fetchText(`${base}/projects/${folder}/README.md`)
+      const readmeByLang: LocalizedString = {}
+      for (const lang of SEED_LANGUAGES) {
+        const suffix = lang === 'en' ? '' : `.${lang}`
+        const text = await fetchText(`${base}/projects/${folder}/README${suffix}.md`)
+        if (text) readmeByLang[lang] = text
+      }
       const tasksData = await fetchJson<{ todos?: unknown[]; notes?: string }>(`${base}/projects/${folder}/tasks.json`)
-      if (projectReadme) project.readme = projectReadme
+      if (Object.keys(readmeByLang).length > 0) project.readme = readmeByLang
       if (tasksData) {
-        project.todos = (tasksData.todos ?? []) as Project['todos']
+        project.todos = normalizeTodos(tasksData.todos)
         project.notes = tasksData.notes ?? ''
       }
 
@@ -487,7 +510,7 @@ async function loadStructuralEntity(
       if (existingProject) {
         await storage.projects.update(project.uid, { ...project, workspaceId: wsId, origin: 'seed', updatedAt: now })
       } else {
-        await storage.projects.create({ ...project, workspaceId: wsId, origin: 'seed', readme: project.readme ?? '', updatedAt: now })
+        await storage.projects.create({ ...project, workspaceId: wsId, origin: 'seed', readme: project.readme ?? {}, updatedAt: now })
       }
 
       // Full project: load scripts, pipelines, cohorts, dashboards, datasets, etc.

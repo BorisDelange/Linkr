@@ -128,7 +128,7 @@ export interface Project extends Seedable {
   badges?: ProjectBadge[]
   todos?: TodoItem[]
   notes?: string
-  readme?: string
+  readme?: LocalizedString
   readmeHistory?: ReadmeSnapshot[]
 
   /** IDs of app-level databases linked to this project. */
@@ -295,7 +295,7 @@ export interface StoredFileHandle {
 
 export interface TodoItem {
   id: string
-  text: string
+  text: LocalizedString
   done: boolean
 }
 
