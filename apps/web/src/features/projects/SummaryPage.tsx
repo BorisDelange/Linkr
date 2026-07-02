@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
@@ -14,7 +14,22 @@ export function SummaryPage() {
   const { t } = useTranslation()
   const { projectUid: uid } = useResolvedParams()
   const { _projectsRaw, user, language } = useAppStore()
-  const [activeTab, setActiveTab] = useState('overview')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'overview'
+
+  const setActiveTab = (value: string) => {
+    if (value === 'overview') {
+      setSearchParams((prev) => {
+        prev.delete('tab')
+        return prev
+      })
+    } else {
+      setSearchParams((prev) => {
+        prev.set('tab', value)
+        return prev
+      })
+    }
+  }
 
   const project = _projectsRaw.find((p) => p.uid === uid)
 

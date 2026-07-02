@@ -142,6 +142,7 @@ export function DashboardSettingsDialog({
             <TabsTrigger value="dataset" className="flex-1">{t('dashboard.settings_tab_dataset', 'Dataset')}</TabsTrigger>
           </TabsList>
 
+          <div className="min-h-[210px]">
           <TabsContent value="general" className="space-y-5 pt-3">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
@@ -210,7 +211,7 @@ export function DashboardSettingsDialog({
               <SelectTrigger className="mt-1 h-8 text-sm">
                 <SelectValue placeholder={t('dashboard.widget_dataset_placeholder')} />
               </SelectTrigger>
-              <SelectContent position="popper" sideOffset={4}>
+              <SelectContent position="popper" side="top" sideOffset={4}>
                 <SelectItem value="__none__">{t('dashboard.widget_dataset_none')}</SelectItem>
                 {projectDatasetFiles.map(f => (
                   <SelectItem key={f.id} value={f.id}>
@@ -248,6 +249,7 @@ export function DashboardSettingsDialog({
             </div>
           )}
           </TabsContent>
+          </div>
         </Tabs>
 
         <DialogFooter>
