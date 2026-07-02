@@ -42,6 +42,7 @@ import argparse
 import gc
 import math
 import os
+import re
 import sys
 import time
 import unicodedata
@@ -177,26 +178,13 @@ class NgramIdfIndex:
 # Incremental parquet I/O
 # ---------------------------------------------------------------------------
 
-def load_already_scored(output_path: Path) -> set[tuple[str, str]]:
-    """Returns set of (source_vocabulary_id, source_concept_code) already in output."""
-    if not output_path.exists():
-        return set()
-    try:
-        existing = pq.read_table(
-            str(output_path),
-            columns=["source_vocabulary_id", "source_concept_code"],
-        )
-        df = existing.to_pandas().drop_duplicates()
-        done = set(zip(df["source_vocabulary_id"], df["source_concept_code"]))
-        print(f"  -> resuming: {len(done):,} source concepts already scored, skipping them")
-        return done
-    except Exception as e:
-        print(f"  -> warning: could not read existing output ({e}), starting fresh")
-        return set()
+def _parts_dir(output_path: Path) -> Path:
+    """Sidecar directory holding append-only part files for `output_path`."""
+    return output_path.parent / (output_path.name + ".parts")
 
 
-def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
-    table = pa.table(
+def _buf_to_table(buf: list[dict]) -> pa.Table:
+    return pa.table(
         {
             "source_vocabulary_id": pa.array([r["source_vocabulary_id"] for r in buf], type=pa.string()),
             "source_concept_code":  pa.array([r["source_concept_code"]  for r in buf], type=pa.string()),
@@ -209,17 +197,67 @@ def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
         },
         schema=PARQUET_SCHEMA,
     )
+
+
+_flush_seq = 0
+
+
+def flush_to_parquet(output_path: Path, buf: list[dict]) -> None:
+    """Append-only flush: each call writes ONE new part file, never re-reading
+    the accumulated output. The previous implementation read+rewrote the whole
+    parquet on every flush, which is quadratic (a full 172k-concept run does
+    ~1700 flushes, each re-reading a growing multi-million-row file). Part files
+    are consolidated into a single `output_path` at the end of the run via
+    `consolidate_parts`. If the process is interrupted, `read_scores` still sees
+    every flushed part, so resume loses nothing."""
+    global _flush_seq
+    parts = _parts_dir(output_path)
+    parts.mkdir(parents=True, exist_ok=True)
+    _flush_seq += 1
+    # PID keeps concurrent/aborted runs from clobbering each other's parts.
+    part = parts / f"part-{os.getpid()}-{_flush_seq:06d}.parquet"
+    pq.write_table(_buf_to_table(buf), str(part), compression="snappy")
+
+
+def read_scores(output_path: Path, columns: list[str] | None = None) -> pa.Table:
+    """Read the logical scores dataset = consolidated file (if any) + all part
+    files. Callers treat this as the single source of truth during a run."""
+    def _read(path: Path) -> pa.Table:
+        t = pq.read_table(str(path), columns=columns)
+        # Only cast when reading the full row: earlier runs may have written
+        # `comment` as arrow type `null` (all-None), which won't concat with the
+        # `string` column of newer part files. Column subsets skip the cast since
+        # the selected columns are already type-compatible.
+        if columns is None and t.schema != PARQUET_SCHEMA:
+            t = t.cast(PARQUET_SCHEMA)
+        return t
+
+    tables = []
     if output_path.exists():
-        existing = pq.read_table(str(output_path))
-        # Coerce existing schema to PARQUET_SCHEMA — earlier runs may have
-        # written `comment` as type `null` (when all rows had None), which
-        # is incompatible with the new `string` column.
-        if existing.schema != PARQUET_SCHEMA:
-            existing = existing.cast(PARQUET_SCHEMA)
-        combined = pa.concat_tables([existing, table])
-        pq.write_table(combined, str(output_path), compression="snappy")
-    else:
-        pq.write_table(table, str(output_path), compression="snappy")
+        tables.append(_read(output_path))
+    parts = _parts_dir(output_path)
+    if parts.exists():
+        for p in sorted(parts.glob("part-*.parquet")):
+            tables.append(_read(p))
+    if not tables:
+        raise FileNotFoundError(str(output_path))
+    return pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+
+
+def consolidate_parts(output_path: Path) -> None:
+    """Merge the consolidated file + all part files into a single parquet, then
+    delete the parts directory. Called once at the end of a run so the on-disk
+    layout Linkr loads stays a single `similarity-scores.parquet` file."""
+    parts = _parts_dir(output_path)
+    if not parts.exists():
+        return
+    combined = read_scores(output_path)
+    tmp = output_path.parent / (output_path.name + ".tmp")
+    pq.write_table(combined, str(tmp), compression="snappy")
+    tmp.replace(output_path)
+    for p in parts.glob("part-*.parquet"):
+        p.unlink()
+    parts.rmdir()
 
 
 # ---------------------------------------------------------------------------
@@ -256,12 +294,22 @@ def load_concept_table(path: Path) -> pd.DataFrame:
     return df
 
 
-def load_embeddings(path: Path) -> tuple[np.ndarray, pd.Series, str]:
+def load_embeddings(
+    path: Path, keep_ids: set[int] | None = None
+) -> tuple[np.ndarray, pd.Series, str]:
     """Returns (N×D matrix, concept_id series, model_id).
 
     Streams the parquet row-group by row-group into a single contiguous
     float32 array. Avoids the previous `np.vstack(df["embedding"].tolist())`
     pattern which materialized millions of Python lists at once.
+
+    If `keep_ids` is given, only embeddings whose concept_id is in that set are
+    loaded. This is essential for RAM: the embeddings file holds ALL ~4M OMOP
+    concepts (~12.5 GB as float32), but a run with --only-standard/--only-valid/
+    --domain/--vocabulary scores against a much smaller target set. Loading the
+    full matrix and then handing it to FAISS (which keeps its own copy) peaks
+    around 2× the full matrix — ~25 GB+ — and OOM-kills modest machines. Filtering
+    at load time bounds the matrix to the retained targets only.
     """
     pf = pq.ParquetFile(str(path))
     n_total = pf.metadata.num_rows
@@ -269,36 +317,142 @@ def load_embeddings(path: Path) -> tuple[np.ndarray, pd.Series, str]:
     first = next(pf.iter_batches(batch_size=1, columns=["embedding"]))
     dim = len(first.column("embedding")[0])
 
-    matrix = np.empty((n_total, dim), dtype=np.float32)
-    ids = np.empty(n_total, dtype=np.int64)
+    n_alloc = len(keep_ids) if keep_ids is not None else n_total
+    matrix = np.empty((n_alloc, dim), dtype=np.float32)
+    ids = np.empty(n_alloc, dtype=np.int64)
     model_id: str | None = None
-    row = 0
+    row = 0        # rows written into matrix (after filtering)
+    scanned = 0    # rows read from parquet
     t_start = time.time()
     for batch in pf.iter_batches(
         batch_size=50_000,
         columns=["concept_id", "embedding", "model_id"],
     ):
-        n = batch.num_rows
+        batch_ids = batch.column("concept_id").to_numpy()
         # to_numpy(zero_copy_only=False) on a ListArray of float32 returns an
         # object array of numpy arrays — fast to stack into one contiguous block.
         arr = np.stack(batch.column("embedding").to_numpy(zero_copy_only=False)).astype(
             np.float32, copy=False
         )
-        matrix[row : row + n] = arr
-        ids[row : row + n] = batch.column("concept_id").to_numpy()
+        if keep_ids is not None:
+            mask = np.fromiter((int(c) in keep_ids for c in batch_ids), dtype=bool,
+                               count=len(batch_ids))
+            batch_ids = batch_ids[mask]
+            arr = arr[mask]
+        n = len(batch_ids)
+        if n:
+            matrix[row : row + n] = arr
+            ids[row : row + n] = batch_ids
+            row += n
         if model_id is None:
             model_id = batch.column("model_id")[0].as_py()
-        row += n
-        if row % 500_000 < 50_000 or row == n_total:
+        scanned += batch.num_rows
+        if scanned % 500_000 < 50_000 or scanned == n_total:
             elapsed = time.time() - t_start
-            speed = row / elapsed if elapsed > 0 else 0
+            speed = scanned / elapsed if elapsed > 0 else 0
             print(
-                f"[embed-load] {row:,}/{n_total:,} ({row / n_total * 100:.1f}%) — "
-                f"{speed:,.0f} rows/s",
+                f"[embed-load] scanned {scanned:,}/{n_total:,} ({scanned / n_total * 100:.1f}%), "
+                f"kept {row:,} — {speed:,.0f} rows/s",
                 flush=True,
             )
     assert model_id is not None
+    # Trim over-allocation when some keep_ids were absent from the file.
+    if row < n_alloc:
+        matrix = matrix[:row]
+        ids = ids[:row]
     return matrix, pd.Series(ids), model_id
+
+
+# ---------------------------------------------------------------------------
+# FAISS index — persisted to disk, shared across projects
+# ---------------------------------------------------------------------------
+
+def build_or_load_faiss_index(
+    emb_path: Path,
+    keep_ids: set[int] | None,
+    filter_key: str,
+) -> tuple["faiss.Index", np.ndarray, str]:
+    """Return (index, concept_ids, model_id) for the OMOP target embeddings.
+
+    The IndexFlatIP is expensive to build (load ~8-12 GB of embeddings, add them
+    all) and does not depend on the project — only on the target filter (standard/
+    valid/domain/vocabulary). So it is persisted next to the embeddings file and
+    reused across projects and reruns:
+
+        <emb_dir>/faiss/<model>__<filter_key>.index    (the FAISS index)
+        <emb_dir>/faiss/<model>__<filter_key>.ids.npy  (row -> concept_id map)
+
+    On reruns the index is read with faiss.read_index(..., IO_FLAG_MMAP), so the
+    OS pages it in on demand instead of loading the whole thing into RAM. This
+    is what keeps the semantic step from OOM-ing: building peaks once (bounded by
+    keep_ids), and every rerun after that has a minimal resident footprint.
+    """
+    if faiss is None:
+        print("Error: faiss is not installed. Run `pip install faiss-cpu`.", file=sys.stderr)
+        sys.exit(1)
+
+    # Discover model_id cheaply from the first row.
+    pf = pq.ParquetFile(str(emb_path))
+    model_id = next(pf.iter_batches(batch_size=1, columns=["model_id"])).column("model_id")[0].as_py()
+    model_slug = re.sub(r"[^A-Za-z0-9._-]", "-", model_id)
+
+    cache_dir = emb_path.parent / "faiss"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    index_path = cache_dir / f"{model_slug}__{filter_key}.index"
+    ids_path = cache_dir / f"{model_slug}__{filter_key}.ids.npy"
+
+    if index_path.exists() and ids_path.exists():
+        print(f"  [semantic] loading cached FAISS index (mmap) from {index_path}", flush=True)
+        index = faiss.read_index(str(index_path), faiss.IO_FLAG_MMAP)
+        concept_ids = np.load(str(ids_path))
+        print(f"  [semantic] index ready ({index.ntotal:,} vectors, mmap)", flush=True)
+        return index, concept_ids, model_id
+
+    print(f"  [semantic] no cached index for filter '{filter_key}', building it once ...", flush=True)
+    emb_matrix, emb_ids, model_id = load_embeddings(emb_path, keep_ids=keep_ids)
+    n_omop, dim = emb_matrix.shape
+    print(
+        f"  Building FAISS IndexFlatIP ({n_omop:,} × {dim}, "
+        f"{emb_matrix.nbytes / 1e9:.1f} GB) ...",
+        flush=True,
+    )
+    if not emb_matrix.flags["C_CONTIGUOUS"] or emb_matrix.dtype != np.float32:
+        emb_matrix = np.ascontiguousarray(emb_matrix, dtype=np.float32)
+    try:
+        faiss.omp_set_num_threads(min(4, max(1, faiss.omp_get_max_threads())))
+    except Exception:
+        pass
+
+    # Add by chunks to keep the working set small and avoid OpenMP segfaults.
+    ADD_CHUNK = 100_000
+    index = faiss.IndexFlatIP(dim)
+    t_add = time.time()
+    for start in range(0, n_omop, ADD_CHUNK):
+        end = min(start + ADD_CHUNK, n_omop)
+        chunk = np.ascontiguousarray(emb_matrix[start:end])
+        faiss.normalize_L2(chunk)
+        index.add(chunk)
+        if (start // ADD_CHUNK) % 5 == 0 or end == n_omop:
+            elapsed = time.time() - t_add
+            speed = end / elapsed if elapsed > 0 else 0
+            print(
+                f"[index-add] {end:,}/{n_omop:,} ({end / n_omop * 100:.1f}%) — "
+                f"{speed:,.0f} vec/s",
+                flush=True,
+            )
+    concept_ids = emb_ids.to_numpy()
+    del emb_matrix
+    gc.collect()
+
+    # Persist atomically: write to a temp path then rename, so an interrupted
+    # write never leaves a half-index that a later run would trust.
+    print(f"  [semantic] writing index to {index_path} ...", flush=True)
+    tmp_index = index_path.with_suffix(".index.tmp")
+    faiss.write_index(index, str(tmp_index))
+    tmp_index.replace(index_path)
+    np.save(str(ids_path), concept_ids)
+    print(f"  [semantic] index cached ({index.ntotal:,} vectors)", flush=True)
+    return index, concept_ids, model_id
 
 
 # ---------------------------------------------------------------------------
@@ -307,9 +461,9 @@ def load_embeddings(path: Path) -> tuple[np.ndarray, pd.Series, str]:
 
 def compute_semantic_scores(
     source_df: pd.DataFrame,
-    emb_matrix: np.ndarray,
-    emb_concept_ids: pd.Series,
-    model_id: str,
+    emb_path: Path,
+    keep_ids: set[int] | None,
+    filter_key: str,
     k: int,
     output_path: Path,
     flush_every: int,
@@ -368,6 +522,10 @@ def compute_semantic_scores(
             query_vecs = None
 
     if query_vecs is None:
+        # Discover the embedding model from the OMOP embeddings file so the
+        # source concepts are encoded with the exact same model (comparability).
+        pf = pq.ParquetFile(str(emb_path))
+        model_id = next(pf.iter_batches(batch_size=1, columns=["model_id"])).column("model_id")[0].as_py()
         print(f"  Loading model {model_id} ...")
         model = SentenceTransformer(model_id)
 
@@ -394,58 +552,14 @@ def compute_semantic_scores(
             pq.write_table(src_table, str(source_embeddings_path), compression="snappy")
             print(f"  [semantic] source embeddings saved to {source_embeddings_path}", flush=True)
 
-    # FAISS IndexFlatIP fuses GEMM + top-K → no n_source × n_omop materialization.
-    # Both query and reference vectors must be contiguous float32 and L2-normalized
-    # (cosine = dot product). `normalize_embeddings=True` was used above and
-    # embed_concepts.py normalizes too — we still re-normalize defensively.
-    # FAISS is imported at module top to lock in its libomp before torch loads.
-    if faiss is None:
-        print("Error: faiss is not installed. Run `pip install faiss-cpu`.",
-              file=sys.stderr)
-        sys.exit(1)
-
-    n_omop, dim = emb_matrix.shape
-    print(
-        f"  Building FAISS IndexFlatIP ({n_omop:,} × {dim}, "
-        f"{emb_matrix.nbytes / 1e9:.1f} GB) ...",
-        flush=True,
-    )
-    if not emb_matrix.flags["C_CONTIGUOUS"] or emb_matrix.dtype != np.float32:
-        emb_matrix = np.ascontiguousarray(emb_matrix, dtype=np.float32)
-    try:
-        faiss.omp_set_num_threads(min(4, max(1, faiss.omp_get_max_threads())))
-    except Exception:
-        pass
-
-    # Normalize and add by chunks to avoid OpenMP-related segfaults and to keep
-    # the working set small on machines with limited RAM.
-    ADD_CHUNK = 100_000
-    index = faiss.IndexFlatIP(dim)
-    t_add = time.time()
-    for start in range(0, n_omop, ADD_CHUNK):
-        end = min(start + ADD_CHUNK, n_omop)
-        chunk = np.ascontiguousarray(emb_matrix[start:end])
-        faiss.normalize_L2(chunk)
-        index.add(chunk)
-        if (start // ADD_CHUNK) % 5 == 0 or end == n_omop:
-            elapsed = time.time() - t_add
-            speed = end / elapsed if elapsed > 0 else 0
-            print(
-                f"[index-add] {end:,}/{n_omop:,} ({end / n_omop * 100:.1f}%) — "
-                f"{speed:,.0f} vec/s",
-                flush=True,
-            )
-    # Free the source matrix — FAISS holds its own copy inside the index.
-    # Drops peak RAM from ~2× emb_matrix to ~1× during the search phase.
-    del emb_matrix
-    gc.collect()
-    print(f"  [semantic] FAISS index ready ({index.ntotal:,} vectors)", flush=True)
+    # Build once, cache on disk, reuse via mmap on every rerun. The index holds
+    # the OMOP target vectors (normalized inside build_or_load_faiss_index);
+    # cosine == dot product because both sides are L2-normalized.
+    index, concept_ids_arr, _ = build_or_load_faiss_index(emb_path, keep_ids, filter_key)
 
     if not query_vecs.flags["C_CONTIGUOUS"] or query_vecs.dtype != np.float32:
         query_vecs = np.ascontiguousarray(query_vecs, dtype=np.float32)
     faiss.normalize_L2(query_vecs)
-
-    concept_ids_arr = emb_concept_ids.to_numpy()
     total = len(remaining)
     t_start = time.time()
     buf: list[dict] = []
@@ -740,52 +854,79 @@ def main() -> None:
         concept_df = concept_df[concept_df["vocabulary_id"].isin(args.vocabulary)]
         print(f"  -> vocab filter:    {len(concept_df):,}")
 
+    # A stable key describing the target filter. Two runs with the same filter
+    # share the cached FAISS index; a different scope (e.g. adding Drug) gets a
+    # distinct key so a stale index is never silently reused.
+    filter_parts = [
+        f"std={int(bool(args.only_standard))}",
+        f"valid={int(bool(args.only_valid))}",
+        "dom=" + (",".join(sorted(args.domain)) if args.domain else "all"),
+        "voc=" + (",".join(sorted(args.vocabulary)) if args.vocabulary else "all"),
+    ]
+    filter_key = re.sub(r"[^A-Za-z0-9._=,-]", "-", "__".join(filter_parts))
+
     if concept_df.empty:
         print("No target concepts remaining after filtering.", file=sys.stderr)
         sys.exit(1)
 
-    # Resume: find already-scored (vocab_id, concept_code) pairs across all methods.
-    # A pair is considered done only if ALL requested methods are present for it.
-    already_done: set[tuple[str, str]] = set()
-    if output_path.exists():
+    # Resume is per-method: a (vocab, code) pair is "done" for a method only if
+    # that specific method is already present in the output. Computing this
+    # globally (issubset of ALL requested methods) meant that adding a second
+    # method — e.g. semantic on top of an existing syntactic run — re-ran the
+    # first method from scratch, since no pair had *both* methods yet.
+    done_by_method: dict[str, set[tuple[str, str]]] = {}
+    if output_path.exists() or _parts_dir(output_path).exists():
         try:
-            existing = pq.read_table(
-                str(output_path),
+            existing = read_scores(
+                output_path,
                 columns=["source_vocabulary_id", "source_concept_code", "method"],
             ).to_pandas()
-            requested_methods = set(syntactic_methods + (["semantic/biolord"] if has_semantic else []))
-            grouped = existing.groupby(["source_vocabulary_id", "source_concept_code"])["method"].apply(set)
-            already_done = {
-                (vid, code)
-                for (vid, code), methods_present in grouped.items()
-                if requested_methods.issubset(methods_present)
-            }
-            if already_done:
-                print(f"  -> resuming: {len(already_done):,} source concepts fully scored, skipping them")
+            for method, grp in existing.groupby("method"):
+                done_by_method[method] = set(
+                    zip(grp["source_vocabulary_id"], grp["source_concept_code"])
+                )
+                print(f"  -> resuming: {len(done_by_method[method]):,} source concepts already scored for {method}")
         except Exception as e:
             print(f"  -> warning: could not read existing output ({e}), starting fresh")
 
-    n_flushed = len(already_done)
+    def done_for(methods: list[str]) -> set[tuple[str, str]]:
+        """Pairs done for EVERY method in `methods` (intersection)."""
+        sets = [done_by_method.get(m, set()) for m in methods]
+        if not sets:
+            return set()
+        return set.intersection(*sets) if all(sets) else set()
+
+    n_flushed = 0
 
     if syntactic_methods:
         print(f"\nComputing syntactic scores ({', '.join(syntactic_methods)}) ...")
+        syn_done = done_for(syntactic_methods)
         n_flushed = compute_syntactic_scores(
             source_df, concept_df, args.top_k, syntactic_methods,
-            output_path, args.flush_every, already_done, n_flushed,
+            output_path, args.flush_every, syn_done, len(syn_done),
         )
 
     if has_semantic and emb_path is not None:
         print(f"\nComputing semantic scores from {emb_path} ...")
-        emb_matrix, emb_ids, model_id = load_embeddings(emb_path)
+        sem_done = done_for(["semantic/biolord"])
+        # Only the retained targets go into the (cached) FAISS index — bounds the
+        # one-time build RAM to the filtered concept_df, not all ~4M concepts.
+        # A cached index only stores rows, not concept_ids-to-keep, so keep_ids is
+        # what a fresh build filters on; if the cache hits, keep_ids is unused.
+        keep_ids = set(concept_df["concept_id"].astype(int).tolist())
         n_flushed = compute_semantic_scores(
-            source_df, emb_matrix, emb_ids, model_id, args.top_k,
-            output_path, args.flush_every, already_done, n_flushed,
+            source_df, emb_path, keep_ids, filter_key, args.top_k,
+            output_path, args.flush_every, sem_done, len(sem_done),
             source_embeddings_path=source_embeddings_path,
         )
 
-    if not output_path.exists():
+    if not output_path.exists() and not _parts_dir(output_path).exists():
         print("No scores computed.", file=sys.stderr)
         sys.exit(1)
+
+    # Merge append-only part files into the single output file Linkr expects.
+    print("Consolidating part files ...", flush=True)
+    consolidate_parts(output_path)
 
     size_kb = output_path.stat().st_size / 1024
     final = pq.read_table(str(output_path))

@@ -204,13 +204,19 @@ TRANSFORMERS_CACHE=<models_dir> python \
 
 Default methods: `syntactic/jaro-winkler` + `semantic/biolord`. **Do not add `syntactic/ngram-idf` unless the user explicitly asks** — it requires building a full bigram IDF index over all OMOP concepts (~4M), which takes ~1 hour on CPU.
 
+**⚠️ Memory — always pass target filters.** The semantic step builds a FAISS index over the *target* OMOP concepts. Unfiltered, that is ~4M vectors (~12.5 GB matrix, ~25 GB+ peak during the build — enough to OOM-kill a laptop). **Always restrict the target set** with `--only-standard --only-valid` plus a `--domain` (and/or `--vocabulary`) matched to what you are mapping. The single biggest driver is the **Drug domain (RxNorm ≈ 2M standard concepts on its own)** — exclude it unless you are specifically mapping medications, in which case run Drug as its own pass. Non-Drug standard+valid targets total ≈ 500k (~3 GB peak) and are safe. The `--only-standard/--only-valid/--domain/--vocabulary` filters bound both the embeddings *load* (only matching `concept_id`s are read into RAM) and the FAISS index.
+
+**FAISS index is cached on disk** at `<vocab_dir>/faiss/<model>__<filter-key>.index` (+ a `.ids.npy` sidecar), keyed by the target filter. The first run with a given filter scans the embeddings file once (~30s for 4M rows) and writes the index; every rerun with the *same* filter reloads it via `mmap` — no rescan, minimal resident RAM. A different scope (e.g. adding Drug) produces a distinct key, so a stale index is never silently reused. The cache is shared across projects (the OMOP target index does not depend on the project).
+
 Output written to `<project_dir>/`:
 - `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score | equivalence | comment | created_at`
   - For `syntactic/*` and `semantic/*` methods: `equivalence` is always `"skos:exactMatch"` and `comment` is `null`.
   - These columns exist so AI-generated rows (method `ai/<model-id>`, written by `/concept-mapping-ai` when the user picks the "suggestions" mode) can carry nuanced SKOS equivalence and a justification.
   - A `statistical/*` method prefix is reserved for distributional similarity (comparing value distributions, e.g. KS or Wasserstein on `info_json.numerical_data`) — not yet implemented. See `reference.md`.
+  - While a run is in progress, flushes land in a sidecar `similarity-scores.parquet.parts/` directory (one small file per flush, append-only — never rewrites the growing output); they are merged into the single `similarity-scores.parquet` at the end. If a run is interrupted, the part files remain and are picked up on the next run.
 - `source_embeddings.parquet` — BioLORD embeddings of the source concepts (reused if scores are extended)
-**Supports resume**: if the output file already exists, already-scored `(source_vocabulary_id, source_concept_code)` pairs are skipped. Safe to interrupt and restart.
+
+**Supports resume, per method**: resume is computed independently for each method. Adding a second method to an existing run (e.g. `semantic/biolord` on top of a completed `syntactic/jaro-winkler`) only computes the missing method — it does **not** recompute the one already done. An interrupt loses at most one flush window (`--flush-every`, default 100 source concepts). Safe to interrupt (`Ctrl-C`) and restart with the same command.
 
 The user loads this file in Linkr (Suggestions tab → "Load scores file") to populate pre-computed suggestions.
 
@@ -218,13 +224,15 @@ Inform the user of estimated runtime based on source concept count × OMOP conce
 
 Progress tags emitted by the script:
 - `[syntactic]` — every 10 source concepts (jaro-winkler, token-sort)
+- `[embed-load]` — every 500k rows while scanning the embeddings file on a first (uncached) index build
+- `[index-add]` — while building a fresh FAISS index
 - `[index]` — every 500k concepts during ngram-idf index build
 - `[semantic]` — every 50 source concepts (biolord)
 - `[flush]` — every `--flush-every` source concepts (default 100)
 
-**Same trade-off as `embed_concepts.py`**: recommend running it in the user's terminal. If they want `Monitor`, use `persistent: true` with a flush-only filter to limit token cost:
+**Same trade-off as `embed_concepts.py`**: recommend running it in the user's terminal. **Never launch it as a background task** — a first, uncached semantic build peaks at several GB and a background run cannot be RAM-throttled; hand the command to the user so they can watch memory and `Ctrl-C` if needed. If they want `Monitor`, use `persistent: true` with a flush-only filter to limit token cost:
 ```
-\[flush\]|\[index\]|Done|Error|Traceback
+\[flush\]|\[index-add\]|\[index\]|Done|Error|Traceback
 ```
 
 ## Step 5: AI mapping (route to sub-skill)

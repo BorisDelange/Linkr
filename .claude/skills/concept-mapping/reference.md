@@ -15,7 +15,7 @@ Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) b
 | `comment` | string \| null | Free-text justification (AI rows only; null for syntactic/semantic) |
 | `created_at` | string | ISO 8601 UTC timestamp |
 
-Uniqueness key (resume + idempotency): `(source_vocabulary_id, source_concept_code, concept_id, method)`. Re-running a method overwrites its rows for the same pair.
+Uniqueness key (resume + idempotency): `(source_vocabulary_id, source_concept_code, concept_id, method)`. Resume in `compute_scores.py` is **per method**: a `(source_vocabulary_id, source_concept_code)` pair is skipped for a given method only if that exact method is already present for it, so adding a method never recomputes an existing one. Writes are append-only (each flush is a new part file under `similarity-scores.parquet.parts/`, consolidated into the single output at the end), so already-scored pairs are skipped rather than overwritten — to recompute a method from scratch, delete its rows (or the whole output) first.
 
 ### Reserved: `statistical/*` (not yet implemented)
 
