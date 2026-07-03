@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { toLocalized } from '@/lib/localized'
 import type { Pipeline, PipelineNode, PipelineNodeData, PipelineEdge } from '@/types'
 
 interface PipelineState {
@@ -27,6 +28,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   loadPipelines: async () => {
     const all = await getStorage().pipelines.getAll()
+    // Backfill legacy plain-string names into LocalizedString and persist once.
+    for (const p of all) {
+      if (typeof p.name === 'string') {
+        p.name = toLocalized(p.name)
+        getStorage().pipelines.update(p.id, { name: p.name }).catch((e) => console.warn('[pipeline-store] name backfill:', e))
+      }
+    }
     set({ pipelines: all, pipelinesLoaded: true })
   },
 
@@ -42,7 +50,7 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     const pipeline: Pipeline = {
       id,
       projectUid,
-      name: 'Main pipeline',
+      name: toLocalized('Main pipeline'),
       nodes: [],
       edges: [],
       createdAt: now,

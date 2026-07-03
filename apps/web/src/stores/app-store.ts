@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
-import { setLocalized, toLocalized } from '@/lib/localized'
+import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
 import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
 
@@ -249,13 +249,26 @@ export const useAppStore = create<AppState>((set, get) => ({
       storage.projects.update(p.uid, { projectId: id }).catch(() => {})
     }
 
-    // Migration: coerce legacy string readme / todo text into LocalizedString
+    // Migration: coerce legacy string readme / notes / todo text into
+    // LocalizedString, and repair readmes that were polluted with the SPA shell
+    // HTML by an earlier buggy per-language seed loader (see fetchMarkdown).
     for (const p of projects) {
       const legacyReadme = typeof p.readme === 'string' && p.readme.length > 0
+      const legacyNotes = typeof p.notes === 'string' && p.notes.length > 0
       const legacyTodos = (p.todos ?? []).some((t) => typeof t.text === 'string')
-      if (!legacyReadme && !legacyTodos) continue
+      const readmeObj = legacyReadme ? undefined : (p.readme as LocalizedString | undefined)
+      const pollutedReadme = readmeObj != null && Object.values(readmeObj).some(isShellHtml)
+      if (!legacyReadme && !legacyNotes && !legacyTodos && !pollutedReadme) continue
       const changes: Partial<Project> = {}
-      if (legacyReadme) changes.readme = toLocalized(p.readme)
+      if (legacyReadme) {
+        // A legacy string that is itself the SPA shell must be dropped, not wrapped.
+        changes.readme = isShellHtml(p.readme as unknown as string) ? {} : toLocalized(p.readme)
+      } else if (pollutedReadme) {
+        changes.readme = Object.fromEntries(
+          Object.entries(readmeObj!).filter(([, v]) => !isShellHtml(v)),
+        )
+      }
+      if (legacyNotes) changes.notes = toLocalized(p.notes)
       if (legacyTodos) {
         changes.todos = (p.todos ?? []).map((t) => ({ ...t, text: toLocalized(t.text) }))
       }
@@ -332,12 +345,16 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   updateProjectNotes: (uid, notes) => {
+    const lang = get().language
+    let next: LocalizedString | undefined
     set((s) => ({
-      _projectsRaw: s._projectsRaw.map((p) =>
-        p.uid === uid ? { ...p, notes } : p
-      ),
+      _projectsRaw: s._projectsRaw.map((p) => {
+        if (p.uid !== uid) return p
+        next = setLocalized(p.notes, lang, notes)
+        return { ...p, notes: next }
+      }),
     }))
-    getStorage().projects.update(uid, { notes })
+    if (next) getStorage().projects.update(uid, { notes: next })
   },
 
   updateProjectReadme: (uid, readme) => {

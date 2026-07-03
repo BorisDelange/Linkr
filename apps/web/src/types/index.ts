@@ -127,7 +127,7 @@ export interface Project extends Seedable {
   status?: ProjectStatus
   badges?: ProjectBadge[]
   todos?: TodoItem[]
-  notes?: string
+  notes?: LocalizedString
   readme?: LocalizedString
   readmeHistory?: ReadmeSnapshot[]
 
@@ -330,10 +330,10 @@ export interface WikiPage {
   entityId?: string
   workspaceId: string
   parentId: string | null
-  title: string
+  title: LocalizedString
   slug: string
   icon?: string
-  content: string
+  content: LocalizedString
   template?: string
   owner?: string
   verified?: boolean
@@ -390,7 +390,7 @@ export interface DashboardFilter {
 export interface Dashboard extends Seedable {
   id: string
   projectUid: string
-  name: string
+  name: LocalizedString
   filterConfig: DashboardFilter[]
   showWidgetTitles?: boolean
   defaultDatasetFileId?: string | null
@@ -608,7 +608,7 @@ export interface PipelineEdge {
 export interface Pipeline {
   id: string
   projectUid: string
-  name: string
+  name: LocalizedString
   nodes: PipelineNode[]
   edges: PipelineEdge[]
   createdAt: string
@@ -694,8 +694,8 @@ export interface EtlPipeline extends Seedable {
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   sourceDataSourceId: string
   targetDataSourceId?: string
   mappingProjectId?: string
@@ -770,8 +770,8 @@ export interface SqlScriptCollection {
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   defaultDataSourceId?: string
   /** Git repository this collection is linked to. When set, workspace export emits metadata + this pointer only. */
   gitRemoteConfig?: GitRemoteConfig
@@ -800,8 +800,8 @@ export interface DqRuleSet extends Seedable {
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   /** Database to run checks against */
   dataSourceId: string
   status: DqRuleSetStatus

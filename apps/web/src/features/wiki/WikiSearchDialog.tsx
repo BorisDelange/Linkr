@@ -9,6 +9,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 
 interface WikiSearchDialogProps {
   open: boolean
@@ -18,6 +20,7 @@ interface WikiSearchDialogProps {
 export function WikiSearchDialog({ open, onOpenChange }: WikiSearchDialogProps) {
   const { t } = useTranslation()
   const { searchPages, setActivePage, getBreadcrumbs } = useWikiStore()
+  const language = useAppStore((s) => s.language)
   const [query, setQuery] = useState('')
 
   const results = useMemo(() => {
@@ -58,11 +61,12 @@ export function WikiSearchDialog({ open, onOpenChange }: WikiSearchDialogProps) 
 
           {results.map((page) => {
             const crumbs = getBreadcrumbs(page.id)
-            const path = crumbs.map((c) => c.title).join(' / ')
+            const path = crumbs.map((c) => localized(c.title, language)).join(' / ')
             // Extract matching context
-            const idx = page.content.toLowerCase().indexOf(query.toLowerCase())
+            const content = localized(page.content, language)
+            const idx = content.toLowerCase().indexOf(query.toLowerCase())
             const context = idx >= 0
-              ? '...' + page.content.slice(Math.max(0, idx - 30), idx + query.length + 50).trim() + '...'
+              ? '...' + content.slice(Math.max(0, idx - 30), idx + query.length + 50).trim() + '...'
               : ''
 
             return (
@@ -76,7 +80,7 @@ export function WikiSearchDialog({ open, onOpenChange }: WikiSearchDialogProps) 
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-foreground">
                     {page.icon && <span className="mr-1">{page.icon}</span>}
-                    {highlightMatch(page.title, query)}
+                    {highlightMatch(localized(page.title, language), query)}
                   </p>
                   <p className="text-[11px] text-muted-foreground">{path}</p>
                   {context && (

@@ -22,6 +22,8 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import type { EtlPipeline } from '@/types'
 
 interface Props {
@@ -37,6 +39,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
   const { createPipeline, updatePipeline } = useEtlStore()
+  const language = useAppStore((s) => s.language)
 
   const [name, setName] = useState('')
   const [entityId, setEntityId] = useState('')
@@ -51,7 +54,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
   // Populate fields when opening in edit mode
   useEffect(() => {
     if (open && editingPipeline) {
-      setName(editingPipeline.name)
+      setName(localized(editingPipeline.name, language))
       setEntityId(editingPipeline.entityId ?? '')
       setSourceId(editingPipeline.sourceDataSourceId)
       setTargetId(editingPipeline.targetDataSourceId ?? '')
@@ -61,7 +64,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
       setSourceId('')
       setTargetId('')
     }
-  }, [open, editingPipeline])
+  }, [open, editingPipeline, language])
 
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
@@ -71,7 +74,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
     try {
       if (isEditing && editingPipeline) {
         await updatePipeline(editingPipeline.id, {
-          name: name.trim(),
+          name: setLocalized(editingPipeline.name, language, name.trim()),
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
         })
@@ -82,8 +85,8 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           id: crypto.randomUUID(),
           entityId: entityId || undefined,
           workspaceId: activeWorkspaceId,
-          name: name.trim(),
-          description: '',
+          name: setLocalized({}, language, name.trim()),
+          description: {},
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
           status: 'draft',
@@ -118,7 +121,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               onChange={(e) => setName(e.target.value)}
               placeholder={t('etl.pipeline_name_placeholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && sourceId) handleSubmit()
+                if (e.key === 'Enter' && name.trim() && sourceId) { e.preventDefault(); handleSubmit() }
               }}
             />
           </div>

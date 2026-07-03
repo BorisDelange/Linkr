@@ -4,12 +4,15 @@ import { useNavigate } from 'react-router'
 import { ShieldCheck, Database } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { localized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import type { DqRuleSet, DqRuleSetStatus } from '@/types'
@@ -31,6 +34,7 @@ function scoreColor(score?: number) {
 
 export function DqRuleSetListPage() {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { dqRuleSetsLoaded, loadDqRuleSets, getWorkspaceRuleSets, deleteRuleSet } = useDqStore()
@@ -55,7 +59,7 @@ export function DqRuleSetListPage() {
         { filename: 'ruleset.json', data: rs },
         { filename: 'checks.json', data: checks },
       ],
-      `${slugify(rs.name)}.zip`,
+      `${slugify(localized(rs.name, 'en'))}.zip`,
     )
   }, [])
 
@@ -66,7 +70,7 @@ export function DqRuleSetListPage() {
       ...rs,
       id,
       workspaceId: activeWorkspaceId ?? rs.workspaceId,
-      name: duplicate ? `${rs.name} (copy)` : rs.name,
+      name: duplicate ? setLocalized(rs.name, language, `${localized(rs.name, language)} (copy)`) : rs.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
@@ -92,7 +96,7 @@ export function DqRuleSetListPage() {
     const checks = (parsed['checks.json'] ?? []) as import('@/types').DqCustomCheck[]
     const existing = await getStorage().dqRuleSets.getById(rs.id)
     if (existing) {
-      setConflict({ name: existing.name, pending: rs, pendingChecks: checks })
+      setConflict({ name: localized(existing.name, language), pending: rs, pendingChecks: checks })
     } else {
       await doImport(rs, checks, false)
     }
@@ -130,7 +134,7 @@ export function DqRuleSetListPage() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{rs.name}</span>
+                <span className="truncate text-sm font-medium">{localized(rs.name, language)}</span>
                 <Badge variant={statusInfo.variant} className="text-[10px]">
                   {t(statusInfo.label)}
                 </Badge>
@@ -144,6 +148,12 @@ export function DqRuleSetListPage() {
                 <Database size={12} />
                 <span>{getSourceName(rs.dataSourceId)}</span>
               </div>
+              {localized(rs.description, language) && (
+                <TruncatedText
+                  text={localized(rs.description, language)}
+                  className="mt-0.5 text-xs text-muted-foreground"
+                />
+              )}
               {rs.lastRunAt && (
                 <p className="mt-0.5 text-[10px] text-muted-foreground">
                   {t('data_quality.last_run')}: {new Date(rs.lastRunAt).toLocaleString()}

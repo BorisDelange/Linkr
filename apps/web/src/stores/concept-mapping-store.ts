@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
+import { localized, toLocalized } from '@/lib/localized'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import type { ConceptSet, MappingProject, ConceptMapping, MappingStatus, MappingProjectStats } from '@/types'
 
@@ -148,8 +149,16 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
   loadMappingProjects: async () => {
     const storage = getStorage()
     const all = await storage.mappingProjects.getAll()
-    for (const p of migrateEntityIds(all, e => e.name)) {
+    for (const p of migrateEntityIds(all, e => localized(e.name, 'en'))) {
       storage.mappingProjects.update(p.id, { entityId: p.entityId }).catch(() => {})
+    }
+    // Backfill legacy plain-string name/description into LocalizedString.
+    for (const p of all) {
+      if (typeof p.name === 'string' || typeof p.description === 'string') {
+        p.name = toLocalized(p.name)
+        p.description = toLocalized(p.description)
+        storage.mappingProjects.update(p.id, { name: p.name, description: p.description }).catch(() => {})
+      }
     }
     // One-shot cleanup: prune orphan concept_mapping rows whose projectId is no longer
     // a known mapping project. Heals databases that accumulated orphans from earlier
@@ -515,7 +524,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         const key = `${m.sourceVocabularyId}:${m.sourceConceptCode}`
         keys.add(key)
         const list = detailMap.get(key) ?? []
-        list.push({ mapping: m, sourceProjectId: p.id, sourceProjectName: p.name })
+        list.push({ mapping: m, sourceProjectId: p.id, sourceProjectName: localized(p.name, 'en') })
         detailMap.set(key, list)
       }
     }

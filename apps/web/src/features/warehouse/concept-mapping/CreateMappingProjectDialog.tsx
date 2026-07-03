@@ -15,7 +15,6 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -24,12 +23,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Checkbox } from '@/components/ui/checkbox'
 // Note: Popover is still used for the extra-columns multi-select below
 import { Badge } from '@/components/ui/badge'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
@@ -66,6 +68,7 @@ export function CreateMappingProjectDialog({
   editingProject,
 }: CreateMappingProjectDialogProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createMappingProject, updateMappingProject, reconcileMappingsToFile } = useConceptMappingStore()
@@ -108,6 +111,7 @@ export function CreateMappingProjectDialog({
 
   // Two-page modal: 'main' | 'import-settings'
   const [page, setPage] = useState<'main' | 'import-settings'>('main')
+  const [mainTab, setMainTab] = useState<'info' | 'source'>('info')
 
   const isEdit = !!editingProject
   const { mappingProjects } = useConceptMappingStore()
@@ -164,9 +168,9 @@ export function CreateMappingProjectDialog({
 
   useEffect(() => {
     if (editingProject) {
-      setName(editingProject.name)
+      setName(localized(editingProject.name, language))
       setEntityId(editingProject.entityId ?? '')
-      setDescription(editingProject.description)
+      setDescription(localized(editingProject.description, language))
       setStatus(editingProject.status ?? 'in_progress')
       setBadges(editingProject.badges ?? [])
       setSourceType(editingProject.sourceType ?? 'database')
@@ -174,6 +178,7 @@ export function CreateMappingProjectDialog({
       if (editingProject.fileSourceData?.columnMapping) {
         setColumnMapping(editingProject.fileSourceData.columnMapping)
       }
+      setMainTab('info')
     } else if (open) {
       setName('')
       setEntityId('')
@@ -199,8 +204,9 @@ export function CreateMappingProjectDialog({
       setSelectedSheet('')
       setColumnMapping({})
       setPage('main')
+      setMainTab('info')
     }
-  }, [editingProject, open])
+  }, [editingProject, open, language])
 
   const connectedDatabases = dataSources.filter(
     (ds) => ds.sourceType === 'database' && ds.status === 'connected' && !ds.isVocabularyReference,
@@ -458,14 +464,29 @@ export function CreateMappingProjectDialog({
   const isDatabaseValid = sourceType === 'database' && !!dataSourceId
   const canSubmit = !!name.trim() && (isDatabaseValid || isFileValid) && (isEdit || isEntityIdValid(entityId, existingIds))
 
+  // Per-tab list of what's still missing — drives the red dot on each tab and
+  // the tooltip on the disabled Create button.
+  const infoMissing: string[] = []
+  if (!name.trim()) infoMissing.push(t('concept_mapping.missing_name'))
+  if (!isEdit && !isEntityIdValid(entityId, existingIds)) infoMissing.push(t('concept_mapping.missing_identifier'))
+  const sourceMissing: string[] = []
+  if (!isDatabaseValid && !isFileValid) {
+    sourceMissing.push(
+      sourceType === 'database'
+        ? t('concept_mapping.missing_database')
+        : t('concept_mapping.missing_file'),
+    )
+  }
+  const allMissing = [...infoMissing, ...sourceMissing]
+
   // --- Submit ---
   const handleSubmit = async () => {
     if (!name.trim() || !activeWorkspaceId) return
 
     if (isEdit && editingProject) {
       const changes: Partial<MappingProject> = {
-        name: name.trim(),
-        description: description.trim(),
+        name: setLocalized(editingProject.name, language, name.trim()),
+        description: setLocalized(editingProject.description, language, description.trim()),
         status,
         badges,
         sourceType,
@@ -500,8 +521,8 @@ export function CreateMappingProjectDialog({
         id,
         entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
-        name: name.trim(),
-        description: description.trim(),
+        name: setLocalized(undefined, language, name.trim()),
+        description: setLocalized(undefined, language, description.trim()),
         status,
         badges,
         sourceType,
@@ -827,6 +848,19 @@ export function CreateMappingProjectDialog({
         {/* ===== MAIN PAGE ===== */}
         {!isImportSettingsPage && (
           <div className="flex flex-col gap-4 py-2">
+            <Tabs value={mainTab} onValueChange={(v) => setMainTab(v as 'info' | 'source')}>
+              <TabsList className="w-full">
+                <TabsTrigger value="info" className="flex-1 gap-1.5">
+                  {t('concept_mapping.tab_info')}
+                  {infoMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
+                </TabsTrigger>
+                <TabsTrigger value="source" className="flex-1 gap-1.5">
+                  {t('concept_mapping.tab_source')}
+                  {sourceMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="info" className="flex flex-col gap-4 pt-3">
             {/* Name & description */}
             <div className="grid gap-4">
               <div className="grid gap-2">
@@ -850,12 +884,11 @@ export function CreateMappingProjectDialog({
               )}
               <div className="grid gap-2">
                 <Label htmlFor="mp-desc">{t('common.description')}</Label>
-                <Textarea
+                <Input
                   id="mp-desc"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('concept_mapping.project_desc_placeholder')}
-                  rows={2}
                 />
               </div>
             </div>
@@ -1008,6 +1041,9 @@ export function CreateMappingProjectDialog({
               </div>
             </div>
 
+              </TabsContent>
+
+              <TabsContent value="source" className="flex flex-col gap-4 pt-3">
             {/* Source type toggle */}
             <div className="grid gap-2">
               <Label>{t('concept_mapping.source_type')}</Label>
@@ -1138,6 +1174,8 @@ export function CreateMappingProjectDialog({
                 )}
               </>
             )}
+              </TabsContent>
+            </Tabs>
           </div>
         )}
 
@@ -1159,9 +1197,30 @@ export function CreateMappingProjectDialog({
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 {t('common.cancel')}
               </Button>
-              <Button onClick={handleSubmit} disabled={!canSubmit}>
-                {isEdit ? t('common.save') : t('common.create')}
-              </Button>
+              {canSubmit ? (
+                <Button onClick={handleSubmit}>
+                  {isEdit ? t('common.save') : t('common.create')}
+                </Button>
+              ) : (
+                <Tooltip delayDuration={150}>
+                  <TooltipTrigger asChild>
+                    {/* span wrapper: a disabled button doesn't emit the hover events the tooltip needs */}
+                    <span tabIndex={0}>
+                      <Button disabled className="pointer-events-none">
+                        {isEdit ? t('common.save') : t('common.create')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="mb-1 font-medium">{t('concept_mapping.missing_fields_title')}</p>
+                    <ul className="list-disc space-y-0.5 pl-4">
+                      {allMissing.map((m) => (
+                        <li key={m}>{m}</li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              )}
             </>
           )}
         </DialogFooter>

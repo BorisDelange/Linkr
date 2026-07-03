@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { localized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -33,6 +35,7 @@ interface Props {
 
 export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCreated }: Props) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createCatalog, updateCatalog } = useCatalogStore()
@@ -49,9 +52,9 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
 
   useEffect(() => {
     if (editingCatalog) {
-      setName(editingCatalog.name)
+      setName(localized(editingCatalog.name, language))
       setEntityId(editingCatalog.entityId ?? '')
-      setDescription(editingCatalog.description)
+      setDescription(localized(editingCatalog.description, language))
       setDataSourceId(editingCatalog.dataSourceId)
     } else {
       setName('')
@@ -65,7 +68,11 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
     if (!name.trim() || !dataSourceId || !activeWorkspaceId) return
 
     if (isEdit && editingCatalog) {
-      await updateCatalog(editingCatalog.id, { name: name.trim(), description: description.trim(), dataSourceId })
+      await updateCatalog(editingCatalog.id, {
+        name: setLocalized(editingCatalog.name, language, name.trim()),
+        description: setLocalized(editingCatalog.description, language, description.trim()),
+        dataSourceId,
+      })
       onOpenChange(false)
     } else {
       const id = crypto.randomUUID()
@@ -74,8 +81,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         id,
         entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
-        name: name.trim(),
-        description: description.trim(),
+        name: setLocalized(undefined, language, name.trim()),
+        description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
         dimensions: getDefaultDimensions(),
         periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },

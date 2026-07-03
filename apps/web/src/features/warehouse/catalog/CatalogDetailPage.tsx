@@ -7,6 +7,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -31,6 +33,7 @@ interface Props {
 
 export function CatalogDetailPage({ catalogId }: Props) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -80,7 +83,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h1 className="truncate text-xl font-bold">{catalog.name}</h1>
+              <h1 className="truncate text-xl font-bold">{localized(catalog.name, language)}</h1>
               {catalog.status === 'error' && catalog.lastError ? (
                 <TooltipProvider>
                   <Tooltip>
@@ -109,7 +112,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
         {/* Tabs */}
         <Tabs defaultValue="config" className="mt-6">
-          <TabsList>
+          <TabsList className="mx-auto w-fit">
             <TabsTrigger value="config">{t('data_catalog.tab_config')}</TabsTrigger>
             <TabsTrigger value="data">{t('data_catalog.tab_data')}</TabsTrigger>
             <TabsTrigger value="anonymization">{t('data_catalog.tab_anonymization')}</TabsTrigger>

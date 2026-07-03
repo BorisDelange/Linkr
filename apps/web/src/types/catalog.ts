@@ -1,4 +1,4 @@
-import type { Seedable } from './index'
+import type { Seedable, LocalizedString } from './index'
 
 // --- Catalog Status ---
 
@@ -133,8 +133,8 @@ export interface DataCatalog extends Seedable {
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   dataSourceId: string
   dimensions: DimensionConfig[]
   anonymization: AnonymizationConfig

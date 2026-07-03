@@ -22,6 +22,8 @@ import { MarkdownToolbar, applyMarkdownFormat } from '@/components/editor/Markdo
 import type { MarkdownFormat } from '@/components/editor/MarkdownToolbar'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import { useWikiAttachments } from '@/hooks/use-wiki-attachments'
 import { WikiAttachmentsDialog } from './WikiAttachmentsDialog'
 import { WikiHistoryPanel } from './WikiHistoryPanel'
@@ -41,7 +43,8 @@ interface WikiPageEditorProps {
 export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   const { t } = useTranslation()
   const { viewMode, setViewMode, savePage, updatePage, getBreadcrumbs, pages } = useWikiStore()
-  const [localContent, setLocalContent] = useState(page.content)
+  const language = useAppStore((s) => s.language)
+  const [localContent, setLocalContent] = useState(() => localized(page.content, language))
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const breadcrumbs = getBreadcrumbs(page.id)
@@ -55,8 +58,8 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
 
   // Sync local content when page changes
   useEffect(() => {
-    if (viewMode !== 'edit') setLocalContent(page.content)
-  }, [page.content, page.id, viewMode])
+    if (viewMode !== 'edit') setLocalContent(localized(page.content, language))
+  }, [page.content, page.id, viewMode, language])
 
   // Reset to view mode when page changes
   useEffect(() => {
@@ -65,12 +68,12 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   }, [page.id])
 
   const handleSave = useCallback(() => {
-    savePage(page.id, localContent)
+    savePage(page.id, setLocalized(page.content, language, localContent))
     setViewMode('view')
-  }, [page.id, localContent, savePage, setViewMode])
+  }, [page.id, page.content, language, localContent, savePage, setViewMode])
 
   const handleCancel = () => {
-    setLocalContent(page.content)
+    setLocalContent(localized(page.content, language))
     setViewMode('view')
   }
 
@@ -108,17 +111,17 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   const handleRestoreVersion = useCallback((snapshotId: string) => {
     const snapshot = page.history.find((s) => s.id === snapshotId)
     if (snapshot) {
-      savePage(page.id, snapshot.content)
+      savePage(page.id, setLocalized(page.content, language, snapshot.content))
       setViewMode('view')
     }
-  }, [page.id, page.history, savePage, setViewMode])
+  }, [page.id, page.content, language, page.history, savePage, setViewMode])
 
   // Resolve wikilinks to page IDs
   const resolveWikilink = useCallback((name: string): string | null => {
-    const target = pages.find((p) => p.title.toLowerCase() === name.toLowerCase())
+    const target = pages.find((p) => localized(p.title, language).toLowerCase() === name.toLowerCase())
     if (target) return `#wiki-page-${target.id}`
     return null
-  }, [pages])
+  }, [pages, language])
 
   // History mode
   if (viewMode === 'history') {
@@ -148,7 +151,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
                 {i > 0 && <ChevronRight size={10} className="shrink-0" />}
                 <span className={`flex items-center gap-0.5 truncate ${crumb.id === page.id ? 'font-medium text-foreground' : 'hover:text-foreground cursor-pointer'}`}>
                   {CrumbIcon && <CrumbIcon size={11} className="shrink-0" />}
-                  {crumb.title}
+                  {localized(crumb.title, language)}
                 </span>
               </span>
             )
@@ -257,7 +260,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-3xl px-6 py-6">
             {/* Page title */}
-            <h1 className="text-2xl font-bold text-foreground">{page.title}</h1>
+            <h1 className="text-2xl font-bold text-foreground">{localized(page.title, language)}</h1>
             <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
               <span>{t('wiki.last_updated', { time: updatedAgo })}</span>
               {page.owner && <span>· {page.owner}</span>}
@@ -270,9 +273,9 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
 
             {/* Content */}
             <div className="mt-6">
-              {page.content ? (
+              {localized(page.content, language) ? (
                 <MarkdownRenderer
-                  content={resolveAttachmentUrls(page.content)}
+                  content={resolveAttachmentUrls(localized(page.content, language))}
                   resolveWikilink={resolveWikilink}
                 />
               ) : (

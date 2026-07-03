@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
-import type { WikiPage, WikiSnapshot } from '@/types'
+import { localized, toLocalized } from '@/lib/localized'
+import type { WikiPage, WikiSnapshot, LocalizedString } from '@/types'
 
 export type WikiViewMode = 'view' | 'edit' | 'history'
 
@@ -25,14 +26,14 @@ interface WikiState {
   addPage: (params: {
     workspaceId: string
     parentId: string | null
-    title: string
+    title: LocalizedString
     entityId?: string
-    content?: string
+    content?: LocalizedString
     icon?: string
     template?: string
   }) => Promise<string>
   updatePage: (id: string, changes: Partial<WikiPage>) => Promise<void>
-  savePage: (id: string, content: string) => Promise<void>
+  savePage: (id: string, content: LocalizedString) => Promise<void>
   deletePage: (id: string) => Promise<void>
   movePage: (id: string, newParentId: string | null, newSortOrder: number) => Promise<void>
   reorderPages: (parentId: string | null, orderedIds: string[]) => Promise<void>
@@ -80,8 +81,19 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const storage = getStorage()
     const pages = await storage.wikiPages.getByWorkspace(workspaceId)
     // Migration: assign entityId to pages that don't have one
-    for (const p of migrateEntityIds(pages, e => e.title)) {
+    for (const p of migrateEntityIds(pages, e => localized(e.title, 'en'))) {
       storage.wikiPages.update(p.id, { entityId: p.entityId }).catch(() => {})
+    }
+    // Backfill: coerce legacy plain-string title/content into LocalizedString
+    for (const p of pages) {
+      const needsTitle = typeof p.title === 'string'
+      const needsContent = typeof p.content === 'string'
+      if (!needsTitle && !needsContent) continue
+      if (needsTitle) p.title = toLocalized(p.title)
+      if (needsContent) p.content = toLocalized(p.content)
+      storage.wikiPages
+        .update(p.id, { title: p.title, content: p.content })
+        .catch(() => {})
     }
     set({ pages, pagesLoaded: true, currentWorkspaceId: workspaceId })
   },
@@ -98,9 +110,9 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       workspaceId,
       parentId,
       title,
-      slug: slugify(title),
+      slug: slugify(localized(title, 'en')),
       icon,
-      content: content ?? '',
+      content: content ?? {},
       template,
       sortOrder: maxOrder + 1,
       history: [],
@@ -117,7 +129,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const now = new Date().toISOString()
     const updates = { ...changes, updatedAt: now }
     if (changes.title) {
-      updates.slug = slugify(changes.title)
+      updates.slug = slugify(localized(changes.title, 'en'))
     }
     await getStorage().wikiPages.update(id, updates)
     set((s) => ({
@@ -136,7 +148,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     if (page.history.length > 0) {
       const snapshot: WikiSnapshot = {
         id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        content: page.content,
+        content: localized(page.content, 'en'),
         savedAt: now,
       }
       history = [...page.history, snapshot].slice(-50)
@@ -231,10 +243,10 @@ export const useWikiStore = create<WikiState>((set, get) => ({
 
   searchPages: (query) => {
     const q = query.toLowerCase()
+    const values = (v: WikiPage['title'] | WikiPage['content']) =>
+      Object.values(toLocalized(v)).join(' ').toLowerCase()
     return get().pages.filter(
-      (p) =>
-        p.title.toLowerCase().includes(q) ||
-        p.content.toLowerCase().includes(q),
+      (p) => values(p.title).includes(q) || values(p.content).includes(q),
     )
   },
 }))

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
+import { localized, toLocalized } from '@/lib/localized'
 import type { DqRuleSet, DqCustomCheck } from '@/types'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 
@@ -79,8 +80,16 @@ export const useDqStore = create<DqState>((set, get) => ({
   loadDqRuleSets: async () => {
     const storage = getStorage()
     const all = await storage.dqRuleSets.getAll()
-    for (const r of migrateEntityIds(all, e => e.name)) {
+    for (const r of migrateEntityIds(all, e => localized(e.name, 'en'))) {
       storage.dqRuleSets.update(r.id, { entityId: r.entityId }).catch(() => {})
+    }
+    // Backfill legacy plain-string name/description into LocalizedString.
+    for (const r of all) {
+      if (typeof r.name === 'string' || typeof r.description === 'string') {
+        r.name = toLocalized(r.name)
+        r.description = toLocalized(r.description)
+        storage.dqRuleSets.update(r.id, { name: r.name, description: r.description }).catch(() => {})
+      }
     }
     set({ dqRuleSets: all, dqRuleSetsLoaded: true })
   },

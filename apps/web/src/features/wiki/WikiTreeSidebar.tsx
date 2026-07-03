@@ -33,6 +33,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import type { WikiPage } from '@/types'
 
 interface WikiTreeNode {
@@ -159,18 +161,19 @@ interface TreeItemProps {
 function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChangeIcon }: TreeItemProps) {
   const { t } = useTranslation()
   const { updatePage, deletePage } = useWikiStore()
+  const language = useAppStore((s) => s.language)
   const [isRenaming, setIsRenaming] = useState(false)
-  const [renameValue, setRenameValue] = useState(node.page.title)
+  const [renameValue, setRenameValue] = useState(() => localized(node.page.title, language))
   const renameRef = useRef<HTMLInputElement>(null)
   const hasChildren = node.children.length > 0
   const isActive = node.page.id === activePageId
 
   const handleRename = useCallback(async () => {
-    if (renameValue.trim() && renameValue !== node.page.title) {
-      await updatePage(node.page.id, { title: renameValue.trim() })
+    if (renameValue.trim() && renameValue !== localized(node.page.title, language)) {
+      await updatePage(node.page.id, { title: setLocalized(node.page.title, language, renameValue.trim()) })
     }
     setIsRenaming(false)
-  }, [renameValue, node.page.id, node.page.title, updatePage])
+  }, [renameValue, node.page.id, node.page.title, language, updatePage])
 
   const handleDelete = useCallback(async () => {
     await deletePage(node.page.id)
@@ -236,7 +239,7 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChange
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="min-w-0 flex-1 truncate text-xs">{node.page.title}</span>
+        <span className="min-w-0 flex-1 truncate text-xs">{localized(node.page.title, language)}</span>
       )}
     </div>
   )
@@ -251,7 +254,7 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChange
           <FilePlus size={14} /> {t('wiki.new_child_page')}
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onClick={() => { setRenameValue(node.page.title); setIsRenaming(true) }}>
+        <ContextMenuItem onClick={() => { setRenameValue(localized(node.page.title, language)); setIsRenaming(true) }}>
           <Pencil size={14} /> {t('wiki.rename')}
         </ContextMenuItem>
         <ContextMenuItem onClick={() => onChangeIcon(node.page.id)}>

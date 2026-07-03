@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
+import { localized, toLocalized } from '@/lib/localized'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 
@@ -53,8 +54,16 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
         }
       }
       // Migration: assign entityId to catalogs that don't have one
-      for (const c of migrateEntityIds(all, e => e.name)) {
+      for (const c of migrateEntityIds(all, e => localized(e.name, 'en'))) {
         storage.dataCatalogs.update(c.id, { entityId: c.entityId }).catch(() => {})
+      }
+      // Backfill legacy plain-string name/description into LocalizedString.
+      for (const c of all) {
+        if (typeof c.name === 'string' || typeof c.description === 'string') {
+          c.name = toLocalized(c.name)
+          c.description = toLocalized(c.description)
+          storage.dataCatalogs.update(c.id, { name: c.name, description: c.description }).catch(() => {})
+        }
       }
       set({ catalogs: all, catalogsLoaded: true })
     } catch {

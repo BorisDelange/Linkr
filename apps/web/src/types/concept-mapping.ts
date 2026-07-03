@@ -1,4 +1,4 @@
-import type { Seedable } from './index'
+import type { Seedable, LocalizedString } from './index'
 
 // --- Concept Mapping Enums ---
 
@@ -162,8 +162,8 @@ export interface MappingProject extends Seedable {
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
   workspaceId: string
-  name: string
-  description: string
+  name: LocalizedString
+  description: LocalizedString
   /** Project status: tracks whether the mapping work is ongoing or done. */
   status?: MappingProjectStatus
   /** Badges for grouping/tagging (e.g. hospital center name). */

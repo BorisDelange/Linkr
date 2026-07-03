@@ -10,6 +10,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { localized } from '@/lib/localized'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
@@ -79,8 +80,8 @@ export function Header() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const navigate = useNavigate()
-  const activeProjectName = useAppStore((s) => s.activeProjectName)
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const activeProjectNameRaw = useAppStore((s) => s._projectsRaw.find((p) => p.uid === s.activeProjectUid)?.name)
   const closeProject = useAppStore((s) => s.closeProject)
   const darkMode = useAppStore((s) => s.darkMode)
   const toggleDarkMode = useAppStore((s) => s.toggleDarkMode)
@@ -88,7 +89,10 @@ export function Header() {
   const setLanguage = useAppStore((s) => s.setLanguage)
   const user = useAppStore((s) => s.user)
   const logout = useAppStore((s) => s.logout)
-  const activeWorkspaceName = useWorkspaceStore((s) => s.activeWorkspaceName)
+  const activeWorkspaceNameRaw = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.name)
+  // Resolve names live from the raw entities so they follow the active language and renames.
+  const activeProjectName = activeProjectNameRaw ? localized(activeProjectNameRaw, language) : (useAppStore.getState().activeProjectName ?? undefined)
+  const activeWorkspaceName = activeWorkspaceNameRaw ? localized(activeWorkspaceNameRaw, language) : (useWorkspaceStore.getState().activeWorkspaceName ?? undefined)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   // --- Entity name resolution (only read the store that matches the current route) ---
@@ -116,7 +120,8 @@ export function Header() {
   })()
 
   // Only subscribe to the store whose entity is currently displayed
-  const dashboardName = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId)?.name : undefined)
+  const dashboardNameRaw = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId)?.name : undefined)
+  const dashboardName = dashboardNameRaw != null ? localized(dashboardNameRaw, language) : undefined
   const cohortName = useCohortStore((s) => cohortId ? s.cohorts.find((c) => c.id === cohortId)?.name : undefined)
   const etlName = useEtlStore((s) => etlId ? s.etlPipelines.find((p) => p.id === etlId)?.name : undefined)
   const sqlName = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId)?.name : undefined)
@@ -157,11 +162,11 @@ export function Header() {
     if (wsMatch) {
       const segment = wsMatch[1]
 
-      if (etlId) return etlName ?? t('app_warehouse.nav_etl')
-      if (sqlId) return sqlName ?? t('app_warehouse.nav_sql_scripts')
-      if (catalogId) return catalogName ?? t('app_warehouse.nav_catalog')
-      if (cmId) return cmName ?? t('app_warehouse.nav_concept_mapping')
-      if (dqId) return dqName ?? t('app_warehouse.nav_data_quality')
+      if (etlId) return etlName ? localized(etlName, language) : t('app_warehouse.nav_etl')
+      if (sqlId) return sqlName ? localized(sqlName, language) : t('app_warehouse.nav_sql_scripts')
+      if (catalogId) return catalogName ? localized(catalogName, language) : t('app_warehouse.nav_catalog')
+      if (cmId) return cmName ? localized(cmName, language) : t('app_warehouse.nav_concept_mapping')
+      if (dqId) return dqName ? localized(dqName, language) : t('app_warehouse.nav_data_quality')
 
       // Schema detail: show preset label
       const schemaMatch = segment.match(/^warehouse\/schemas\/(.+)$/)
@@ -187,7 +192,7 @@ export function Header() {
           {backToListPath && (
             <button
               onClick={() => navigate(backToListPath)}
-              className="flex items-center text-muted-foreground transition-colors hover:text-foreground"
+              className="flex size-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               title={t('common.back')}
             >
               <ArrowLeft size={15} />

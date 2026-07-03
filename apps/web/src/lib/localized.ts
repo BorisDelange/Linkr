@@ -41,3 +41,12 @@ export function setLocalized(
 ): LocalizedString {
   return { ...toLocalized(value), [lang]: text }
 }
+
+/**
+ * True when a string is (the start of) the SPA index.html shell. An earlier
+ * seed-loader bug fetched a missing README.<lang>.md and got index.html back;
+ * this detects that pollution so it can be scrubbed from stored readmes.
+ */
+export function isShellHtml(value: string): boolean {
+  return /^\s*<(?:!doctype|html|script|meta)\b/i.test(value)
+}

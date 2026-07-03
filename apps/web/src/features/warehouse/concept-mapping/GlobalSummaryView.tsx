@@ -50,6 +50,7 @@ import {
 } from '@/lib/concept-mapping/export'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
+import { localized } from '@/lib/localized'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -154,7 +155,7 @@ function computeGroupStats(
     const p = projectMap.get(m.projectId)
     let keys: string[]
     if (groupMode === 'project') {
-      keys = p ? [p.name] : []
+      keys = p ? [localized(p.name, 'en')] : []
     } else {
       const labels = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
       keys = labels.length > 0 ? labels : ['Other']
@@ -429,7 +430,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             for (const row of rows) {
               const code = String(row.concept_code ?? '')
               const name = String(row.concept_name ?? '')
-              const vocab = String(row.vocabulary_id ?? p.name)
+              const vocab = String(row.vocabulary_id ?? localized(p.name, 'en'))
               const id = Number(row.concept_id ?? 0)
               const key = `${vocab}__${code}`
               if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
@@ -668,7 +669,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             const labels = (p?.badges ?? []).map((b) => b.label)
             return labels.some((l) => exportGroupFilter.has(l))
           }
-          const name = p?.name ?? m.projectId
+          const name = p ? localized(p.name, 'en') : m.projectId
           return exportGroupFilter.has(name)
         })
       : allMappings
@@ -699,7 +700,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           if (!labels.some((l) => exportGroupFilter.has(l))) return false
         } else {
           // project mode
-          const name = p?.name ?? m.projectId
+          const name = p ? localized(p.name, 'en') : m.projectId
           if (!exportGroupFilter.has(name)) return false
         }
       }
@@ -746,7 +747,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
       return Array.from(labels).sort()
     }
-    return projects.map((p) => p.name).sort()
+    return projects.map((p) => localized(p.name, 'en')).sort()
   }, [projects, groupMode])
 
   const handleExportDownload = async (format: 'sssom' | 'stcm' | 'usagi') => {
@@ -768,7 +769,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             const labels = (p.badges ?? []).map((b) => b.label)
             return groupMode === 'badge'
               ? labels.some((l) => exportGroupFilter.has(l))
-              : exportGroupFilter.has(p.name)
+              : exportGroupFilter.has(localized(p.name, 'en'))
           }).map((p) => p.id))
         : null
 
@@ -1147,7 +1148,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           : null
       }
       // project mode: use project names from projects list
-      const opts = projects.map((p) => ({ value: p.name, label: p.name }))
+      const opts = projects.map((p) => ({ value: localized(p.name, 'en'), label: localized(p.name, 'en') }))
       return opts.length > 0
         ? <MultiSelectFilter selected={selected} options={opts} onChange={(v) => updateFilter('groupLabels', v)} />
         : null

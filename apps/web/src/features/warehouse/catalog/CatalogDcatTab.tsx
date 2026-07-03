@@ -20,6 +20,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { localized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -57,6 +59,7 @@ const OBLIGATION_COLORS: Record<string, string> = {
 
 export function CatalogDcatTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { updateCatalog } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -98,10 +101,10 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
 
       // --- Catalog-level fields ---
       if (!next['catalog.title']) {
-        next['catalog.title'] = catalog.name
+        next['catalog.title'] = localized(catalog.name, language)
       }
-      if (!next['catalog.description'] && catalog.description) {
-        next['catalog.description'] = catalog.description
+      if (!next['catalog.description'] && localized(catalog.description, language)) {
+        next['catalog.description'] = localized(catalog.description, language)
       }
       if (!next['catalog.publisher'] && orgName) {
         next['catalog.publisher'] = orgName
@@ -109,7 +112,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
 
       // --- Dataset-level fields ---
       if (!next['dataset.title']) {
-        next['dataset.title'] = `${catalog.name} — Concepts Dictionary`
+        next['dataset.title'] = `${localized(catalog.name, language)} — Concepts Dictionary`
       }
       if (!next['dataset.description']) {
         next['dataset.description'] = 'Aggregated clinical concepts catalog with demographic breakdowns (age, sex, admission date, care site). Generated from the clinical data warehouse.'

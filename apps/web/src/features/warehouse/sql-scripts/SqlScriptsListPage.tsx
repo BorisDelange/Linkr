@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router'
 import { SquareTerminal } from 'lucide-react'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { buildSqlCollectionFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
 import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
 import type { SqlScriptCollection } from '@/types'
@@ -14,6 +17,7 @@ import type { SqlScriptCollection } from '@/types'
 export function SqlScriptsListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const language = useAppStore((s) => s.language)
   const { collectionsLoaded, loadCollections, getWorkspaceCollections, deleteCollection } = useSqlScriptsStore()
 
   useEffect(() => {
@@ -29,7 +33,7 @@ export function SqlScriptsListPage() {
     const zip = new JSZip()
     await buildSqlCollectionFolder(zip, '', collection, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(collection.name)}.zip`)
+    downloadBlob(blob, `${slugify(localized(collection.name, 'en'))}.zip`)
   }, [])
 
   const doImport = useCallback(async (collection: SqlScriptCollection, files: import('@/types').SqlScriptFile[], duplicate: boolean) => {
@@ -39,7 +43,7 @@ export function SqlScriptsListPage() {
       ...collection,
       id,
       workspaceId: activeWorkspaceId ?? collection.workspaceId,
-      name: duplicate ? `${collection.name} (copy)` : collection.name,
+      name: duplicate ? setLocalized(collection.name, language, `${localized(collection.name, language)} (copy)`) : collection.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
@@ -56,7 +60,7 @@ export function SqlScriptsListPage() {
       })
     }
     await loadCollections()
-  }, [activeWorkspaceId, loadCollections])
+  }, [activeWorkspaceId, language, loadCollections])
 
   const handleImport = useCallback(async (file: File) => {
     const parsed = await parseImportZip(file)
@@ -70,11 +74,11 @@ export function SqlScriptsListPage() {
       : ((parsed['files.json'] ?? []) as import('@/types').SqlScriptFile[])
     const existing = await getStorage().sqlScriptCollections.getById(collection.id)
     if (existing) {
-      setConflict({ name: existing.name, pending: collection, pendingFiles: files })
+      setConflict({ name: localized(existing.name, language), pending: collection, pendingFiles: files })
     } else {
       await doImport(collection, files, false)
     }
-  }, [doImport])
+  }, [doImport, language])
 
   return (
     <>
@@ -111,11 +115,12 @@ export function SqlScriptsListPage() {
             <SquareTerminal size={20} className="text-teal-500" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="truncate text-sm font-medium">{collection.name}</span>
-            {collection.description && (
-              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2">
-                {collection.description}
-              </p>
+            <span className="truncate text-sm font-medium">{localized(collection.name, language)}</span>
+            {localized(collection.description, language) && (
+              <TruncatedText
+                text={localized(collection.description, language)}
+                className="mt-0.5 text-xs text-muted-foreground"
+              />
             )}
           </div>
         </>

@@ -15,6 +15,7 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { schemaName } from '@/lib/duckdb/engine'
+import { localized } from '@/lib/localized'
 import { buildVocabularyScript } from './build-vocabulary-script'
 import type { ConceptMapping, EtlFile, MappingStatus } from '@/types'
 
@@ -131,7 +132,7 @@ function filterMappings(
 }
 
 export function EtlVocabularyTab({ pipelineId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { etlPipelines, updatePipeline } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -304,7 +305,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             <SelectContent>
               {availableProjects.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.name}
+                  {localized(p.name, i18n.language)}
                 </SelectItem>
               ))}
             </SelectContent>

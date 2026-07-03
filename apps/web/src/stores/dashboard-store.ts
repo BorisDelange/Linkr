@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue } from '@/types'
+import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { toLocalized } from '@/lib/localized'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
 import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
@@ -26,7 +27,7 @@ interface DashboardState {
 
   // Dashboard CRUD
   loadProjectDashboards: (projectUid: string) => Promise<void>
-  createDashboard: (projectUid: string, name: string) => Promise<string>
+  createDashboard: (projectUid: string, name: LocalizedString) => Promise<string>
   updateDashboard: (id: string, changes: Partial<Dashboard>) => void
   deleteDashboard: (id: string) => void
   setActiveDashboard: (id: string | null) => void
@@ -130,6 +131,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     try {
       const storage = getStorage()
       const dashboards = await storage.dashboards.getByProject(projectUid)
+
+      // Backfill legacy plain-string names into LocalizedString and persist once.
+      for (const dash of dashboards) {
+        if (typeof dash.name === 'string') {
+          dash.name = toLocalized(dash.name)
+          storage.dashboards.update(dash.id, { name: dash.name }).catch((e) => console.warn('[dashboard-store] name backfill:', e))
+        }
+      }
 
       // Load all tabs and widgets for all dashboards in this project
       const allTabs: DashboardTab[] = []

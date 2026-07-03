@@ -84,6 +84,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
+import { localized } from '@/lib/localized'
 import type { EtlFile, DatabaseStatsCache } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -748,7 +749,7 @@ interface ConceptMappingRow {
 }
 
 function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMappingProjectChange }: ComparisonViewProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [activeTab, setActiveTab] = useState<ComparisonTab>('statistics')
   const [sourceStats, setSourceStats] = useState<DatabaseStatsCache | null>(null)
   const [targetStats, setTargetStats] = useState<DatabaseStatsCache | null>(null)
@@ -834,7 +835,7 @@ function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMapp
               <SelectContent>
                 {availableProjects.map((p) => (
                   <SelectItem key={p.id} value={p.id}>
-                    {p.name}
+                    {localized(p.name, i18n.language)}
                   </SelectItem>
                 ))}
               </SelectContent>

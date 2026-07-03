@@ -25,6 +25,8 @@ import {
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
 import { downloadBlob, parseImportZip, slugify } from '@/lib/entity-io'
@@ -41,6 +43,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { AlertTriangle } from 'lucide-react'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
@@ -93,6 +96,7 @@ type MappingProjectListPageProps = HomeProps | ProjectsProps
 
 export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
@@ -125,7 +129,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     return projects.filter((p) => {
-      if (q && !(`${p.name} ${p.description ?? ''}`.toLowerCase().includes(q))) return false
+      if (q && !(`${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))) return false
       if (statusFilter.size > 0 && (!p.status || !statusFilter.has(p.status))) return false
       if (badgeFilter.size > 0) {
         const labels = new Set((p.badges ?? []).map((b) => b.label))
@@ -134,7 +138,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       }
       return true
     })
-  }, [projects, searchQuery, statusFilter, badgeFilter])
+  }, [projects, searchQuery, statusFilter, badgeFilter, language])
 
   type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
@@ -149,7 +153,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       dataSources,
     })
     const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(project.name)}.zip`)
+    downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
   }, [dataSources, ensureMounted])
 
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
@@ -167,7 +171,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       const globalExisting = await getStorage().mappingProjects.getById(project.id)
       if (globalExisting) {
         projectId = crypto.randomUUID()
-        if (!duplicate) setNewIdWarning(project.name)
+        if (!duplicate) setNewIdWarning(localized(project.name, language))
       } else {
         projectId = project.id
       }
@@ -178,7 +182,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       workspaceId: activeWorkspaceId ?? project.workspaceId,
       conceptSetIds: project.conceptSetIds ?? [],
       updatedAt: now,
-      ...(duplicate ? { name: `${project.name} (copy)`, createdAt: now } : {}),
+      ...(duplicate ? { name: setLocalized(project.name, language, `${localized(project.name, language)} (copy)`), createdAt: now } : {}),
     }
     await getStorage().mappingProjects.create(entity)
     for (const m of children.mappings) {
@@ -218,10 +222,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       // Check for conflict by entityId or name within the current workspace
       const wsProjects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
       const existing = wsProjects.find(p =>
-        (project.entityId && p.entityId === project.entityId) || p.name === project.name
+        (project.entityId && p.entityId === project.entityId) || localized(p.name, 'en') === localized(project.name, 'en')
       )
       if (existing) {
-        setConflict({ name: existing.name, existingId: existing.id, pending: project, children: { mappings } })
+        setConflict({ name: localized(existing.name, language), existingId: existing.id, pending: project, children: { mappings } })
       } else {
         await doImport(project, { mappings }, false)
       }
@@ -467,7 +471,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
               <div className="min-w-0 flex-1">
                 {/* Title row: name + status pill (right) */}
                 <div className="flex items-start justify-between gap-3">
-                  <span className="truncate text-sm font-medium">{project.name}</span>
+                  <span className="truncate text-sm font-medium">{localized(project.name, language)}</span>
                   {project.status && (
                     <span className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${MAPPING_STATUS_COLORS[project.status].bg} ${MAPPING_STATUS_COLORS[project.status].text}`}>
                       <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[project.status].dot}`} />
@@ -489,6 +493,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                     </>
                   )}
                 </div>
+                {localized(project.description, language) && (
+                  <TruncatedText
+                    text={localized(project.description, language)}
+                    className="mt-0.5 text-xs text-muted-foreground"
+                  />
+                )}
                 {/* Badges + approved count (right) */}
                 {((project.badges && project.badges.length > 0) || total > 0) && (
                   <div className="mt-2 flex items-center gap-1.5 flex-wrap">

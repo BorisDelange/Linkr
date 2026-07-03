@@ -26,6 +26,7 @@ import {
   CheckCircle2,
   Circle,
   GripVertical,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -49,7 +50,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
 
   const project = _projectsRaw.find((p) => p.uid === uid)
   const todos = project?.todos ?? []
-  const notes = project?.notes ?? ''
+  const notes = localized(project?.notes, language)
 
   // Todo
   const [newTask, setNewTask] = useState('')
@@ -77,6 +78,17 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
     updateProjectTodos(
       uid,
       todos.filter((t) => t.id !== id),
+    )
+  }
+
+  const handleRenameTodo = (id: string, text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return
+    updateProjectTodos(
+      uid,
+      todos.map((t) =>
+        t.id === id ? { ...t, text: setLocalized(t.text, language, trimmed) } : t,
+      ),
     )
   }
 
@@ -142,6 +154,7 @@ export function SummaryTasksTab({ uid }: SummaryTasksTabProps) {
                           language={language}
                           onToggle={handleToggleTodo}
                           onRemove={handleRemoveTodo}
+                          onRename={handleRenameTodo}
                         />
                       ))}
                     </div>
@@ -195,11 +208,13 @@ function SortableTodoItem({
   language,
   onToggle,
   onRemove,
+  onRename,
 }: {
   todo: TodoItem
   language: string
   onToggle: (id: string) => void
   onRemove: (id: string) => void
+  onRename: (id: string, text: string) => void
 }) {
   const {
     attributes,
@@ -209,6 +224,20 @@ function SortableTodoItem({
     transition,
     isDragging,
   } = useSortable({ id: todo.id })
+
+  const text = localized(todo.text, language)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(text)
+
+  const startEdit = () => {
+    setDraft(text)
+    setEditing(true)
+  }
+
+  const commitEdit = () => {
+    if (draft.trim()) onRename(todo.id, draft)
+    setEditing(false)
+  }
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -240,11 +269,34 @@ function SortableTodoItem({
           <Circle size={16} />
         )}
       </button>
-      <span
-        className={`flex-1 text-sm ${todo.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
-      >
-        {localized(todo.text, language)}
-      </span>
+      {editing ? (
+        <Input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitEdit()
+            if (e.key === 'Escape') setEditing(false)
+          }}
+          className="h-6 flex-1 px-1 text-sm"
+        />
+      ) : (
+        <span
+          onDoubleClick={startEdit}
+          className={`flex-1 text-sm ${todo.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
+        >
+          {text}
+        </span>
+      )}
+      {!editing && (
+        <button
+          onClick={startEdit}
+          className="shrink-0 text-muted-foreground opacity-0 hover:text-foreground group-hover:opacity-100"
+        >
+          <Pencil size={13} />
+        </button>
+      )}
       <button
         onClick={() => onRemove(todo.id)}
         className="shrink-0 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"

@@ -23,6 +23,8 @@ import { Label } from '@/components/ui/label'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useAppStore } from '@/stores/app-store'
+import { setLocalized } from '@/lib/localized'
 
 interface CreateWikiPageDialogProps {
   open: boolean
@@ -299,6 +301,7 @@ export function CreateWikiPageDialog({
 }: CreateWikiPageDialogProps) {
   const { t } = useTranslation()
   const { addPage, setActivePage, pages } = useWikiStore()
+  const language = useAppStore((s) => s.language)
   const [title, setTitle] = useState('')
   const [entityId, setEntityId] = useState('')
   const [icon, setIcon] = useState('FileText')
@@ -312,9 +315,9 @@ export function CreateWikiPageDialog({
     const id = await addPage({
       workspaceId,
       parentId,
-      title: title.trim(),
+      title: setLocalized({}, language, title.trim()),
       entityId: entityId || undefined,
-      content: template?.content ?? '',
+      content: setLocalized({}, language, template?.content ?? ''),
       icon: icon || undefined,
       template: selectedTemplate,
     })
@@ -344,7 +347,7 @@ export function CreateWikiPageDialog({
                 placeholder={t('wiki.page_title_placeholder')}
                 className="h-9 flex-1"
                 autoFocus
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
               />
             </div>
           </div>

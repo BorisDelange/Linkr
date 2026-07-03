@@ -3,12 +3,15 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { BookOpen, Database } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { localized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import type { DataCatalog, CatalogStatus } from '@/types'
@@ -23,6 +26,7 @@ const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | '
 
 export function CatalogListPage() {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { catalogsLoaded, loadCatalogs, getWorkspaceCatalogs, deleteCatalog } = useCatalogStore()
@@ -43,7 +47,7 @@ export function CatalogListPage() {
   const handleExport = useCallback(async (catalog: DataCatalog) => {
     await exportEntityZip(
       [{ filename: 'catalog.json', data: catalog }],
-      `${slugify(catalog.name)}.zip`,
+      `${slugify(localized(catalog.name, 'en'))}.zip`,
     )
   }, [])
 
@@ -54,7 +58,7 @@ export function CatalogListPage() {
       ...catalog,
       id,
       workspaceId: activeWorkspaceId ?? catalog.workspaceId,
-      name: duplicate ? `${catalog.name} (copy)` : catalog.name,
+      name: duplicate ? setLocalized(catalog.name, language, `${localized(catalog.name, language)} (copy)`) : catalog.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
@@ -71,7 +75,7 @@ export function CatalogListPage() {
     if (!catalog?.id) return
     const existing = await getStorage().dataCatalogs.getById(catalog.id)
     if (existing) {
-      setConflict({ name: existing.name, pending: catalog })
+      setConflict({ name: localized(existing.name, language), pending: catalog })
     } else {
       await doImport(catalog, false)
     }
@@ -109,7 +113,7 @@ export function CatalogListPage() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{catalog.name}</span>
+                <span className="truncate text-sm font-medium">{localized(catalog.name, language)}</span>
                 <Badge variant={statusInfo.variant} className="text-[10px]">
                   {t(statusInfo.label)}
                 </Badge>
@@ -118,6 +122,12 @@ export function CatalogListPage() {
                 <Database size={12} />
                 <span>{getSourceName(catalog.dataSourceId)}</span>
               </div>
+              {localized(catalog.description, language) && (
+                <TruncatedText
+                  text={localized(catalog.description, language)}
+                  className="mt-0.5 text-xs text-muted-foreground"
+                />
+              )}
               {catalog.lastComputedAt && (
                 <p className="mt-0.5 text-[10px] text-muted-foreground">
                   {t('data_catalog.last_computed')}: {new Date(catalog.lastComputedAt).toLocaleString()}

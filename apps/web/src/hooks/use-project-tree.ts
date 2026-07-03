@@ -7,6 +7,7 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useSharedFsStore } from '@/stores/shared-fs-store'
+import { localized } from '@/lib/localized'
 import type { DatabaseConnectionConfig } from '@/types'
 
 // --- Types ---
@@ -191,7 +192,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       const dashFolderId = 'virtual:dashboards'
       virtual.push(vFolder(dashFolderId, 'dashboards', null))
       for (const dash of projectDashboards) {
-        const slug = slugify(dash.name)
+        const slug = slugify(localized(dash.name, 'en'))
         const tabs = dashboardTabs.filter((t) => t.dashboardId === dash.id)
         const tabsWithWidgets = tabs.map((tab) => ({
           ...tab,

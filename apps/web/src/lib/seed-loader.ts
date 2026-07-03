@@ -206,6 +206,26 @@ async function fetchText(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Fetch a markdown file, returning null when the file is absent. On SPA hosting
+ * (and Vite dev), a missing path yields a 200 serving index.html — guard against
+ * that so a non-existent README.<lang>.md doesn't leak the app shell as content.
+ */
+async function fetchMarkdown(path: string): Promise<string | null> {
+  try {
+    const res = await fetch(path)
+    if (!res.ok) return null
+    const contentType = res.headers.get('content-type') ?? ''
+    if (contentType.includes('text/html')) return null
+    const text = await res.text()
+    // Extra guard for servers that mislabel the fallback shell.
+    if (/^\s*<(?:!doctype|html|script|meta)\b/i.test(text)) return null
+    return text
+  } catch {
+    return null
+  }
+}
+
 async function fetchBinary(path: string): Promise<ArrayBuffer | null> {
   try {
     const res = await fetch(path)
@@ -496,14 +516,14 @@ async function loadStructuralEntity(
       const readmeByLang: LocalizedString = {}
       for (const lang of SEED_LANGUAGES) {
         const suffix = lang === 'en' ? '' : `.${lang}`
-        const text = await fetchText(`${base}/projects/${folder}/README${suffix}.md`)
+        const text = await fetchMarkdown(`${base}/projects/${folder}/README${suffix}.md`)
         if (text) readmeByLang[lang] = text
       }
-      const tasksData = await fetchJson<{ todos?: unknown[]; notes?: string }>(`${base}/projects/${folder}/tasks.json`)
+      const tasksData = await fetchJson<{ todos?: unknown[]; notes?: string | LocalizedString }>(`${base}/projects/${folder}/tasks.json`)
       if (Object.keys(readmeByLang).length > 0) project.readme = readmeByLang
       if (tasksData) {
         project.todos = normalizeTodos(tasksData.todos)
-        project.notes = tasksData.notes ?? ''
+        project.notes = toLocalized(tasksData.notes)
       }
 
       const existingProject = await storage.projects.getById(project.uid)
@@ -591,10 +611,22 @@ async function loadWorkspaceInternals(
   const wikiTree = await fetchJson<Omit<WikiPage, 'content' | 'history'>[]>(`${base}/wiki/_tree.json`)
   if (wikiTree) {
     for (const meta of wikiTree) {
-      // Find matching markdown file
-      const mdPath = index.wikiPages?.find(p => p.endsWith(`--${meta.id}.md`))
-      const content = mdPath ? await fetchText(`${base}/${mdPath}`) ?? '' : ''
-      await storage.wikiPages.create({ ...meta, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(() => {})
+      // Content lives in <folder>.md (en/first) + <folder>.<lang>.md per language.
+      const folder = meta.entityId
+      const content: LocalizedString = {}
+      for (const p of index.wikiPages ?? []) {
+        if (!p.startsWith('wiki/') || !p.endsWith('.md')) continue
+        const rel = p.slice('wiki/'.length, -'.md'.length)
+        const langMatch = /\.([a-z]{2})$/.exec(rel)
+        const lang = langMatch ? langMatch[1] : 'en'
+        const pageBase = langMatch ? rel.slice(0, -3) : rel
+        const matches = folder ? pageBase === folder : pageBase.endsWith(`--${meta.id}`)
+        if (!matches) continue
+        const text = await fetchMarkdown(`${base}/${p}`)
+        if (text != null) content[lang] = text
+      }
+      const title = toLocalized((meta as { title?: string | LocalizedString }).title)
+      await storage.wikiPages.create({ ...meta, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(() => {})
     }
   }
 

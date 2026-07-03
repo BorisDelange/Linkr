@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
+import { isShellHtml } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge } from '@/types'
 import { useAppStore, registerWorkspaceStore } from './app-store'
 import { useOrganizationStore } from './organization-store'
@@ -73,6 +74,16 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
   loadWorkspaces: async () => {
     const storage = getStorage()
     const workspaces = await storage.workspaces.getAll()
+
+    // Repair readmes polluted with the SPA shell HTML by an earlier buggy seed
+    // loader (a missing README.<lang>.md used to resolve to index.html).
+    for (const ws of workspaces) {
+      if (typeof ws.readme === 'string' && isShellHtml(ws.readme)) {
+        ws.readme = ''
+        storage.workspaces.update(ws.id, { readme: '' }).catch(() => {})
+      }
+    }
+
     const lang = useAppStore.getState().language
     set({
       _workspacesRaw: workspaces,

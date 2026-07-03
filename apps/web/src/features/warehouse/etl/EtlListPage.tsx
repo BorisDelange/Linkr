@@ -6,6 +6,8 @@ import { Badge } from '@/components/ui/badge'
 import { useEtlStore } from '@/stores/etl-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { buildEtlPipelineFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
 import JSZip from 'jszip'
@@ -26,6 +28,7 @@ export function EtlListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const language = useAppStore((s) => s.language)
   const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines, deletePipeline } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -45,7 +48,7 @@ export function EtlListPage() {
     const zip = new JSZip()
     await buildEtlPipelineFolder(zip, '', pipeline, getStorage())
     const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(pipeline.name)}.zip`)
+    downloadBlob(blob, `${slugify(localized(pipeline.name, 'en'))}.zip`)
   }, [])
 
   const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
@@ -55,7 +58,7 @@ export function EtlListPage() {
       ...pipeline,
       id,
       workspaceId: activeWorkspaceId ?? pipeline.workspaceId,
-      name: duplicate ? `${pipeline.name} (copy)` : pipeline.name,
+      name: duplicate ? setLocalized(pipeline.name, language, `${localized(pipeline.name, language)} (copy)`) : pipeline.name,
       updatedAt: now,
       ...(duplicate ? { createdAt: now } : {}),
     }
@@ -73,7 +76,7 @@ export function EtlListPage() {
       })
     }
     await loadEtlPipelines()
-  }, [activeWorkspaceId, loadEtlPipelines])
+  }, [activeWorkspaceId, language, loadEtlPipelines])
 
   const handleImport = useCallback(async (file: File) => {
     const parsed = await parseImportZip(file)
@@ -87,11 +90,11 @@ export function EtlListPage() {
       : ((parsed['files.json'] ?? []) as import('@/types').EtlFile[])
     const existing = await getStorage().etlPipelines.getById(pipeline.id)
     if (existing) {
-      setConflict({ name: existing.name, pending: pipeline, pendingFiles: files })
+      setConflict({ name: localized(existing.name, language), pending: pipeline, pendingFiles: files })
     } else {
       await doImport(pipeline, files, false)
     }
-  }, [activeWorkspaceId, doImport])
+  }, [activeWorkspaceId, language, doImport])
 
   return (
     <>
@@ -131,7 +134,7 @@ export function EtlListPage() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="truncate text-sm font-medium">{pipeline.name}</span>
+                <span className="truncate text-sm font-medium">{localized(pipeline.name, language)}</span>
                 <Badge variant={statusInfo.variant} className="text-[10px]">
                   {t(statusInfo.label)}
                 </Badge>

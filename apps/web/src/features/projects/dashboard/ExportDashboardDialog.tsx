@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import type { Dashboard, DashboardTab, DashboardWidget } from '@/types'
 import {
   type ExportFormat,
@@ -58,7 +59,8 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
   const [capturing, setCapturing] = useState(false)
   const [captureReady, setCaptureReady] = useState(false)
 
-  const currentTabName = tabs.find(tb => tb.id === currentTabId)?.name ?? dashboard.name
+  const dashboardName = localized(dashboard.name, 'en')
+  const currentTabName = tabs.find(tb => tb.id === currentTabId)?.name ?? dashboardName
 
   // Hierarchical rows (tabs → sub-tabs → widgets) for the picker. In "current tab" scope we keep
   // only the active tab's widgets; tab/sub-tab header rows with no widgets in scope are dropped.
@@ -127,7 +129,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
       if (targets.length === 1) {
         await exportWidget(targets[0].node, targets[0].name, format, dpi)
       } else {
-        const zipName = scope === 'all' ? dashboard.name : currentTabName
+        const zipName = scope === 'all' ? dashboardName : currentTabName
         const { exported, failed } = await exportWidgetsAsZip(targets, format, zipName || 'dashboard', dpi)
         if (exported === 0) {
           setError(t('dashboard.export_failed', 'Export failed.'))
@@ -146,7 +148,7 @@ export function ExportDashboardDialog({ open, onOpenChange, dashboard, tabs, all
       setCapturing(false)
       setCaptureReady(false)
     }
-  }, [chosen, format, dpi, scope, dashboard.name, currentTabName, onOpenChange, t])
+  }, [chosen, format, dpi, scope, dashboardName, currentTabName, onOpenChange, t])
 
   // Once off-screen widgets report ready, run the actual capture.
   useEffect(() => {

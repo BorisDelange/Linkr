@@ -814,7 +814,7 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                 onChange={(e) => setNewFileName(e.target.value)}
                 placeholder={`01_person${ETL_FILE_TYPES.find((ft) => ft.id === newFileType)?.ext ?? '.sql'}`}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCreateFile()
+                  if (e.key === 'Enter') { e.preventDefault(); handleCreateFile() }
                 }}
                 autoFocus
               />

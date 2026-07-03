@@ -34,9 +34,12 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 
 export function LabDashboardsPage() {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { wsUid, projectUid: resolvedProjectUid } = useResolvedParams()
   const projectUid = resolvedProjectUid ?? ''
@@ -67,7 +70,7 @@ export function LabDashboardsPage() {
   const handleCreate = async () => {
     const name = createName.trim()
     if (!name) return
-    const id = await createDashboard(projectUid, name)
+    const id = await createDashboard(projectUid, setLocalized({}, language, name))
     setCreateOpen(false)
     setCreateName('')
     navigate(paths.dashboard(wsUid ?? '', projectUid, id))
@@ -82,7 +85,8 @@ export function LabDashboardsPage() {
 
   const handleRename = () => {
     if (renameTarget && renameTarget.name.trim()) {
-      updateDashboard(renameTarget.id, { name: renameTarget.name.trim() })
+      const existing = dashboards.find((d) => d.id === renameTarget.id)?.name
+      updateDashboard(renameTarget.id, { name: setLocalized(existing, language, renameTarget.name.trim()) })
       setRenameTarget(null)
     }
   }
@@ -140,7 +144,7 @@ export function LabDashboardsPage() {
                           <LayoutGrid size={16} className="text-primary" />
                         </div>
                         <span className="truncate text-sm font-medium text-card-foreground">
-                          {dash.name}
+                          {localized(dash.name, language)}
                         </span>
                       </div>
                       <DropdownMenu>
@@ -155,7 +159,7 @@ export function LabDashboardsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => setRenameTarget({ id: dash.id, name: dash.name })}>
+                          <DropdownMenuItem onClick={() => setRenameTarget({ id: dash.id, name: localized(dash.name, language) })}>
                             <Pencil size={14} />
                             {t('dashboard.rename_title')}
                           </DropdownMenuItem>
@@ -192,7 +196,7 @@ export function LabDashboardsPage() {
                 onChange={(e) => setCreateName(e.target.value)}
                 placeholder={t('dashboard.field_name_placeholder')}
                 className="h-8 text-sm"
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreate() }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreate() } }}
                 autoFocus
               />
             </div>
@@ -235,7 +239,7 @@ export function LabDashboardsPage() {
               value={renameTarget?.name ?? ''}
               onChange={(e) => setRenameTarget((prev) => prev ? { ...prev, name: e.target.value } : null)}
               className="h-8 text-sm"
-              onKeyDown={(e) => { if (e.key === 'Enter') handleRename() }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRename() } }}
               autoFocus
             />
           </div>

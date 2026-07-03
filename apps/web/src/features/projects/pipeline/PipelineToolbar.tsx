@@ -4,6 +4,8 @@ import { ZoomIn, ZoomOut, Maximize2, Trash2, PanelLeftClose, PanelLeft } from 'l
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import { useAppStore } from '@/stores/app-store'
+import { localized } from '@/lib/localized'
 import type { Pipeline } from '@/types'
 
 interface PipelineToolbarProps {
@@ -16,6 +18,7 @@ interface PipelineToolbarProps {
 
 export function PipelineToolbar({ pipeline, selectedNodeId, onDeleteSelected, paletteOpen, onTogglePalette }: PipelineToolbarProps) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { zoomIn, zoomOut, fitView } = useReactFlow()
 
   return (
@@ -39,7 +42,7 @@ export function PipelineToolbar({ pipeline, selectedNodeId, onDeleteSelected, pa
           </Tooltip>
         </TooltipProvider>
         <span className="text-sm font-medium text-foreground">
-          {pipeline?.name ?? t('pipeline.title')}
+          {pipeline ? localized(pipeline.name, language) : t('pipeline.title')}
         </span>
       </div>
       <div className="flex items-center gap-1">

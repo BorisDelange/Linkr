@@ -21,6 +21,8 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 interface Props {
@@ -35,6 +37,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { activeWorkspaceId } = useWorkspaceStore()
   const { createCollection, updateCollection, createFile } = useSqlScriptsStore()
+  const language = useAppStore((s) => s.language)
 
   const [name, setName] = useState('')
   const [entityId, setEntityId] = useState('')
@@ -48,9 +51,9 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
 
   useEffect(() => {
     if (open && editingCollection) {
-      setName(editingCollection.name)
+      setName(localized(editingCollection.name, language))
       setEntityId(editingCollection.entityId ?? '')
-      setDescription(editingCollection.description)
+      setDescription(localized(editingCollection.description, language))
       setDefaultDbId(editingCollection.defaultDataSourceId ?? '')
     } else if (open && !editingCollection) {
       setName('')
@@ -58,7 +61,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
       setDescription('')
       setDefaultDbId('')
     }
-  }, [open, editingCollection])
+  }, [open, editingCollection, language])
 
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
@@ -68,8 +71,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
     try {
       if (isEditing && editingCollection) {
         await updateCollection(editingCollection.id, {
-          name: name.trim(),
-          description: description.trim(),
+          name: setLocalized(editingCollection.name, language, name.trim()),
+          description: setLocalized(editingCollection.description, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
         })
         onOpenChange(false)
@@ -79,8 +82,8 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
           id: crypto.randomUUID(),
           entityId: entityId || undefined,
           workspaceId: activeWorkspaceId,
-          name: name.trim(),
-          description: description.trim(),
+          name: setLocalized({}, language, name.trim()),
+          description: setLocalized({}, language, description.trim()),
           defaultDataSourceId: defaultDbId || undefined,
           createdAt: now,
           updatedAt: now,
@@ -124,7 +127,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
               onChange={(e) => setName(e.target.value)}
               placeholder={t('sql_scripts.collection_name_placeholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim()) handleSubmit()
+                if (e.key === 'Enter' && name.trim()) { e.preventDefault(); handleSubmit() }
               }}
               autoFocus
             />

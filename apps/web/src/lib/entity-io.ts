@@ -19,7 +19,7 @@ import type {
   GitRemoteConfig,
   LocalizedString, TodoItem,
 } from '@/types'
-import { toLocalized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 
 /**
@@ -338,8 +338,10 @@ export async function buildProjectZip(
   writeReadmeFiles(zip, '', project.readme)
 
   // --- tasks.json ---
-  if ((project.todos && project.todos.length > 0) || project.notes) {
-    zip.file('tasks.json', json({ todos: project.todos ?? [], notes: project.notes ?? '' }))
+  const notes = toLocalized(project.notes)
+  const hasNotes = Object.values(notes).some(Boolean)
+  if ((project.todos && project.todos.length > 0) || hasNotes) {
+    zip.file('tasks.json', json({ todos: project.todos ?? [], notes }))
   }
 
   // --- IDE files (under scripts/ in ZIP) ---
@@ -380,7 +382,7 @@ export async function buildProjectZip(
     for (const tab of tabs) {
       widgets.push(...(await storage.dashboardWidgets.getByTab(tab.id)))
     }
-    zip.file(`dashboards/${slugify(d.name || d.id)}.json`, json({ dashboard: d, tabs, widgets }))
+    zip.file(`dashboards/${slugify(localized(d.name, 'en') || d.id)}.json`, json({ dashboard: d, tabs, widgets }))
   }
 
   // --- datasets/ (tree + analyses + optional data CSV) ---
@@ -603,7 +605,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   if (tasksFile) {
     const tasks = JSON.parse(await tasksFile.async('string'))
     projectMeta.todos = normalizeImportedTodos(tasks.todos)
-    projectMeta.notes = tasks.notes ?? ''
+    projectMeta.notes = toLocalized(tasks.notes)
   }
 
   if (hasNewLayout || !hasLegacyLayout) {
@@ -1183,9 +1185,10 @@ export async function buildWorkspaceZip(
     }
   }
 
-  // Helper: prefer entityId, fallback to slugified name or id
-  const eid = (entity: { entityId?: string; name?: string; id: string }) =>
-    entity.entityId || slugify(String(entity.name || entity.id || 'unknown'))
+  // Helper: prefer entityId, fallback to slugified name or id. Name may be a
+  // LocalizedString; the slug is language-independent (resolve to en/first).
+  const eid = (entity: { entityId?: string; name?: LocalizedString | string; id: string }) =>
+    entity.entityId || slugify(localized(entity.name, 'en') || entity.id || 'unknown')
 
   // --- wiki/ ---
   if (on('wiki')) {
@@ -1195,8 +1198,19 @@ export async function buildWorkspaceZip(
       zip.file('wiki/_tree.json', json(treeMeta))
 
       for (const page of wikiPages) {
-        const pageFolder = page.entityId || `${slugify(page.title || page.id)}--${page.id}`
-        zip.file(`wiki/${pageFolder}.md`, page.content || '')
+        const pageFolder = page.entityId || `${slugify(localized(page.title, 'en') || page.id)}--${page.id}`
+        // Content is multilingual: <folder>.md holds en/first, <folder>.<lang>.md the rest.
+        const content = toLocalized(page.content)
+        const langs = Object.keys(content).filter((l) => content[l])
+        const primary = langs.includes('en') ? 'en' : langs[0]
+        if (langs.length === 0) {
+          zip.file(`wiki/${pageFolder}.md`, '')
+        } else {
+          for (const lang of langs) {
+            const suffix = lang === primary ? '' : `.${lang}`
+            zip.file(`wiki/${pageFolder}${suffix}.md`, content[lang])
+          }
+        }
       }
 
       const wikiAttachments = await storage.wikiAttachments.getByWorkspace(workspaceId)
@@ -1427,9 +1441,9 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
   for (const e of parsed.projectEntries) {
     push('project', e.project.uid, resolveProjectName(e.project), resolveGitRemote(e.project) ?? undefined)
   }
-  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.id, collection.name, resolveGitRemote(collection) ?? undefined)
-  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.id, pipeline.name, resolveGitRemote(pipeline) ?? undefined)
-  for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, project.name, resolveGitRemote(project) ?? undefined)
+  for (const { collection } of parsed.sqlCollections) push('sql-collection', collection.id, localized(collection.name, 'en'), resolveGitRemote(collection) ?? undefined)
+  for (const { pipeline } of parsed.etlPipelines) push('etl-pipeline', pipeline.id, localized(pipeline.name, 'en'), resolveGitRemote(pipeline) ?? undefined)
+  for (const { project } of parsed.mappingProjects) push('mapping-project', project.id, localized(project.name, 'en'), resolveGitRemote(project) ?? undefined)
   return out
 }
 
@@ -1509,12 +1523,18 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const wikiTreeMeta = await readJsonFile<Omit<WikiPage, 'content' | 'history'>[]>(zipData, 'wiki/_tree.json')
   if (wikiTreeMeta) {
     for (const meta of wikiTreeMeta) {
-      let content = ''
+      // Content lives in wiki/<folder>.md (en/first) + wiki/<folder>.<lang>.md.
+      // <folder> is either the page.entityId or "<slug>--<id>".
+      const folder = meta.entityId
+      const content: LocalizedString = {}
       for (const [path, entry] of Object.entries(zipData.files)) {
-        if (path.startsWith('wiki/') && path.endsWith(`--${meta.id}.md`) && !entry.dir) {
-          content = await entry.async('string')
-          break
-        }
+        if (entry.dir || !path.startsWith('wiki/') || !path.endsWith('.md')) continue
+        const rel = path.slice('wiki/'.length, -'.md'.length)
+        const langMatch = /\.([a-z]{2})$/.exec(rel)
+        const lang = langMatch ? langMatch[1] : 'en'
+        const base = langMatch ? rel.slice(0, -3) : rel
+        const matches = folder ? base === folder : base.endsWith(`--${meta.id}`)
+        if (matches) content[lang] = await entry.async('string')
       }
       wikiPages.push({ ...meta, content, history: [] } as WikiPage)
     }

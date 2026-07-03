@@ -14,6 +14,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { generateCatalogHtml, buildConceptsCsv, buildDimensionsCsv } from '@/lib/dcat-ap/export-html'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
+import { localized } from '@/lib/localized'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 
 interface Props {
@@ -66,7 +67,7 @@ export function CatalogExportTab({ catalog, cache }: Props) {
     URL.revokeObjectURL(url)
   }
 
-  const baseName = catalog.name.replace(/\s+/g, '-').toLowerCase()
+  const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
   const handleDownload = useCallback(async () => {
     const fullSchema = await getFullSchema()

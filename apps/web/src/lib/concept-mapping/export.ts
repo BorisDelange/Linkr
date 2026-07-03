@@ -1,4 +1,5 @@
 import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
+import { localized } from '@/lib/localized'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -309,7 +310,7 @@ export function exportToSssomTsv(
     `#  sssom: "https://w3id.org/sssom/"`,
     `#  OHDSI: "http://ohdsi.org/concept/"`,
     `#mapping_set_id: "${project.id}"`,
-    `#mapping_set_title: "${project.name}"`,
+    `#mapping_set_title: "${localized(project.name, 'en')}"`,
     `#mapping_date: "${new Date().toISOString().split('T')[0]}"`,
     `#license: "https://creativecommons.org/publicdomain/zero/1.0/"`,
   ]
@@ -393,8 +394,8 @@ export function exportToJson(
       exportedAt: new Date().toISOString(),
       project: {
         id: project.id,
-        name: project.name,
-        description: project.description,
+        name: localized(project.name, 'en'),
+        description: localized(project.description, 'en'),
         dataSourceId: project.dataSourceId,
         vocabularyDataSourceId: project.vocabularyDataSourceId,
       },

@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { localized, setLocalized } from '@/lib/localized'
+import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
@@ -32,6 +34,7 @@ interface Props {
 
 export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCreated }: Props) {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const { createRuleSet, updateRuleSet } = useDqStore()
@@ -47,7 +50,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
 
   useEffect(() => {
     if (editingRuleSet) {
-      setName(editingRuleSet.name)
+      setName(localized(editingRuleSet.name, language))
       setEntityId(editingRuleSet.entityId ?? '')
       setDataSourceId(editingRuleSet.dataSourceId)
     } else {
@@ -61,7 +64,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
     if (!name.trim() || !dataSourceId || !activeWorkspaceId) return
 
     if (isEdit && editingRuleSet) {
-      await updateRuleSet(editingRuleSet.id, { name: name.trim(), dataSourceId })
+      await updateRuleSet(editingRuleSet.id, { name: setLocalized(editingRuleSet.name, language, name.trim()), dataSourceId })
       onOpenChange(false)
     } else {
       const id = crypto.randomUUID()
@@ -70,8 +73,8 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         id,
         entityId: entityId || undefined,
         workspaceId: activeWorkspaceId,
-        name: name.trim(),
-        description: '',
+        name: setLocalized(undefined, language, name.trim()),
+        description: {},
         dataSourceId,
         status: 'draft',
         createdAt: now,

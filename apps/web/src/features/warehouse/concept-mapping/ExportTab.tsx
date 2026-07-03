@@ -19,6 +19,7 @@ import {
   buildMappingProjectFolder,
 } from '@/lib/concept-mapping/export'
 import { downloadBlob, slugify } from '@/lib/entity-io'
+import { localized } from '@/lib/localized'
 import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
@@ -127,7 +128,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     return result
   }, [mappingsWithEffective, includedStatuses, approvalRule])
 
-  const slug = project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+  const slug = localized(project.name, 'en').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
   /** Load every source concept for this project.
    *  - File source: query DuckDB (rows[] is deprecated when rawFileBuffer is used).
@@ -149,7 +150,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         const dsId = fileSourceDataSourceId(project.id)
         const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
         const out = rows.map((r: Record<string, unknown>) => ({
-          vocabularyId: String(r.vocabulary_id ?? project.name),
+          vocabularyId: String(r.vocabulary_id ?? localized(project.name, 'en')),
           conceptCode: String(r.concept_code ?? ''),
           conceptName: String(r.concept_name ?? ''),
         })).filter((c) => c.conceptCode)
@@ -165,7 +166,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       const out: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
       for (const row of rows) {
         const code = codeCol ? String(row[codeCol] ?? '') : ''
-        const vocab = vocabCol ? String(row[vocabCol] ?? '') : project.name
+        const vocab = vocabCol ? String(row[vocabCol] ?? '') : localized(project.name, 'en')
         const name = nameCol ? String(row[nameCol] ?? '') : code
         if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
       }
@@ -287,7 +288,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         dataSources,
       })
       const blob = await zip.generateAsync({ type: 'blob' })
-      downloadBlob(blob, `${slugify(project.name)}.zip`)
+      downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
     } catch {
       // ZIP generation failed (likely memory overflow on very large source CSV)
       // Fall back: download ZIP without source CSV + source CSV separately
@@ -300,7 +301,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           skipSourceConcepts: true,
         })
         const blob = await zip.generateAsync({ type: 'blob' })
-        downloadBlob(blob, `${slugify(project.name)}.zip`)
+        downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
 
         if (project.sourceType === 'file' && project.fileSourceData?.rawFileBuffer?.byteLength) {
           try {
@@ -309,7 +310,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               : new Uint8Array(project.fileSourceData.rawFileBuffer)
             // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
             const csvBlob = new Blob([buf as BlobPart], { type: 'text/csv' })
-            downloadBlob(csvBlob, `${slugify(project.name)}-source-concepts.csv`)
+            downloadBlob(csvBlob, `${slugify(localized(project.name, 'en'))}-source-concepts.csv`)
           } catch {
             setSourceCsvTooLarge(true)
           }
