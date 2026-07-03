@@ -151,7 +151,7 @@ export function CreateAnalysisDialog({ open, onOpenChange, datasetFileId }: Crea
             onChange={(e) => setName(e.target.value)}
             placeholder={selectedPlugin?.manifest.name[lang] ?? ''}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') handleCreate()
+              if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
             }}
           />
           {nameExists && (

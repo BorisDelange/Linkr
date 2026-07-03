@@ -48,7 +48,7 @@ export function CreateFolderDialog({ open, onOpenChange, parentId }: CreateFolde
               onChange={(e) => setName(e.target.value)}
               placeholder="my_folder"
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
               }}
               autoFocus
             />

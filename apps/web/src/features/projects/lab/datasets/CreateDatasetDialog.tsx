@@ -49,7 +49,7 @@ export function CreateDatasetDialog({ open, onOpenChange, parentId }: CreateData
               onChange={(e) => setName(e.target.value)}
               placeholder="my_dataset.csv"
               onKeyDown={(e) => {
-                if (e.key === 'Enter') handleCreate()
+                if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
               }}
               autoFocus
             />

@@ -254,7 +254,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
             }}
             placeholder={t('environments.package_placeholder')}
             className="h-8 text-xs"
-            onKeyDown={(e) => e.key === 'Enter' && !installing && handleInstall()}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !installing) { e.preventDefault(); handleInstall() } }}
             disabled={installing}
           />
           <Button
