@@ -4,12 +4,14 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -42,6 +44,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
+import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
@@ -65,6 +68,9 @@ function CreateFromPresetDialog({
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
   const [selectedPresetId, setSelectedPresetId] = useState('')
   const [name, setName] = useState('')
+  const [alias, setAlias] = useState('')
+  const [description, setDescription] = useState('')
+  const [aliasManuallyEdited, setAliasManuallyEdited] = useState(false)
   const [creating, setCreating] = useState(false)
 
   const loadPresets = useCallback(async () => {
@@ -98,10 +104,11 @@ function CreateFromPresetDialog({
 
   const selectedPreset = presetsWithDDL.find((p) => p.id === selectedPresetId)
 
-  // Auto-fill name when preset changes
+  // Auto-fill name (and alias) when preset changes
   useEffect(() => {
     if (selectedPreset && !name) {
       setName(selectedPreset.label)
+      if (!aliasManuallyEdited) setAlias(generateAlias(selectedPreset.label))
     }
   }, [selectedPresetId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -111,13 +118,17 @@ function CreateFromPresetDialog({
     try {
       await createEmptyDatabase({
         name: name.trim(),
-        description: t('databases.created_from_preset', { preset: selectedPreset.label }),
+        description: description.trim() || t('databases.created_from_preset', { preset: selectedPreset.label }),
         schemaMapping: selectedPreset.mapping,
         ddl: selectedPreset.ddl,
+        alias: alias.trim() || undefined,
       })
       onOpenChange(false)
       setSelectedPresetId('')
       setName('')
+      setAlias('')
+      setDescription('')
+      setAliasManuallyEdited(false)
     } finally {
       setCreating(false)
     }
@@ -155,11 +166,52 @@ function CreateFromPresetDialog({
             <Label>{t('databases.database_name')}</Label>
             <Input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value)
+                if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+              }}
               placeholder={t('databases.database_name_placeholder')}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && name.trim() && selectedPreset) handleCreate()
+                if (e.key === 'Enter' && name.trim() && selectedPreset) { e.preventDefault(); handleCreate() }
               }}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Label>{t('databases.field_identifier')}</Label>
+              <TooltipProvider>
+                <Tooltip delayDuration={200}>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground">
+                      <Info size={12} />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs text-xs">
+                    {t('databases.identifier_info')}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Input
+              value={alias}
+              onChange={(e) => {
+                setAlias(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+                setAliasManuallyEdited(true)
+              }}
+              placeholder="mimic_iv_raw"
+              className="font-mono text-xs"
+            />
+            <p className="text-[11px] text-muted-foreground">{t('databases.field_alias_hint')}</p>
+          </div>
+
+          <div className="space-y-2">
+            <Label>{t('databases.field_description')}</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t('databases.field_description_placeholder')}
+              rows={2}
             />
           </div>
         </div>

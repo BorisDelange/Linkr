@@ -1,12 +1,23 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
+import type { Cohort } from '@/types'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
 import { UsersRound, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { CohortCard } from './CohortCard'
 import { CreateCohortDialog } from './CreateCohortDialog'
 
@@ -16,6 +27,8 @@ export function CohortListPage() {
   const navigate = useNavigate()
   const { getProjectCohorts, addCohort, removeCohort, updateCohort } = useCohortStore()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
 
   const cohorts = uid ? getProjectCohorts(uid) : []
   const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
@@ -24,6 +37,11 @@ export function CohortListPage() {
     if (!uid) return
     const id = await addCohort({ projectUid: uid, level: 'visit_detail', ...data })
     navigate(paths.cohort(wsUid ?? '', uid, id))
+  }
+
+  const handleEditSubmit = (data: { name: string; description: string }) => {
+    if (editingCohort) updateCohort(editingCohort.id, data)
+    setEditingCohort(null)
   }
 
   return (
@@ -58,8 +76,8 @@ export function CohortListPage() {
                 key={cohort.id}
                 cohort={cohort}
                 basePath={basePath}
-                onRemove={() => removeCohort(cohort.id)}
-                onRename={(name) => updateCohort(cohort.id, { name })}
+                onRemove={() => setDeleteTarget(cohort)}
+                onEdit={() => setEditingCohort(cohort)}
               />
             ))}
           </div>
@@ -71,6 +89,33 @@ export function CohortListPage() {
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
       />
+
+      <CreateCohortDialog
+        open={!!editingCohort}
+        onOpenChange={(open) => { if (!open) setEditingCohort(null) }}
+        onSubmit={handleEditSubmit}
+        editing={editingCohort ? { name: editingCohort.name, description: editingCohort.description } : undefined}
+      />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.delete_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.delete_confirm_description', { name: deleteTarget?.name ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => { if (deleteTarget) removeCohort(deleteTarget.id); setDeleteTarget(null) }}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

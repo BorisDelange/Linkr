@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,18 +16,26 @@ interface CreateCohortDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSubmit: (data: { name: string; description: string }) => void
+  /** When set, the dialog edits this cohort's name/description instead of creating one. */
+  editing?: { name: string; description?: string }
 }
 
-export function CreateCohortDialog({ open, onOpenChange, onSubmit }: CreateCohortDialogProps) {
+export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: CreateCohortDialogProps) {
   const { t } = useTranslation()
+  const isEditing = !!editing
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+
+  useEffect(() => {
+    if (open) {
+      setName(editing?.name ?? '')
+      setDescription(editing?.description ?? '')
+    }
+  }, [open, editing])
 
   const handleSubmit = () => {
     if (!name.trim()) return
     onSubmit({ name: name.trim(), description: description.trim() })
-    setName('')
-    setDescription('')
     onOpenChange(false)
   }
 
@@ -35,8 +43,8 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit }: CreateCohor
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t('cohorts.create_title')}</DialogTitle>
-          <DialogDescription>{t('cohorts.create_description')}</DialogDescription>
+          <DialogTitle>{isEditing ? t('cohorts.edit_title') : t('cohorts.create_title')}</DialogTitle>
+          <DialogDescription>{isEditing ? t('cohorts.edit_description') : t('cohorts.create_description')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
@@ -45,7 +53,7 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit }: CreateCohor
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
               placeholder={t('cohorts.field_name_placeholder')}
               autoFocus
             />
@@ -56,7 +64,7 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit }: CreateCohor
             <Input
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit() } }}
               placeholder={t('cohorts.field_description_placeholder')}
             />
           </div>
@@ -67,7 +75,7 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit }: CreateCohor
             {t('common.cancel')}
           </Button>
           <Button onClick={handleSubmit} disabled={!name.trim()}>
-            {t('common.create')}
+            {isEditing ? t('common.save') : t('common.create')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -26,6 +26,7 @@ import {
   X,
   Loader2,
   AlertTriangle,
+  Info,
 } from 'lucide-react'
 import {
   Dialog,
@@ -39,6 +40,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Select,
   SelectContent,
@@ -101,6 +104,7 @@ export function AddDatabaseDialog({
   const { wsUid } = useResolvedParams()
   const { addDataSource, updateDataSource, removeDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
+  const [dbTab, setDbTab] = useState<'general' | 'connection'>('general')
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
   const [uploading, setUploading] = useState(false)
   const [customPresets, setCustomPresets] = useState<CustomSchemaPreset[]>([])
@@ -124,6 +128,7 @@ export function AddDatabaseDialog({
       setDescription(editingSource.description)
       setSelectedType(editingSource.sourceType)
       setStep(2)
+      setDbTab('general')
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
@@ -174,6 +179,7 @@ export function AddDatabaseDialog({
 
   const reset = () => {
     setStep(1)
+    setDbTab('general')
     setSelectedType(null)
     setUploading(false)
     setName('')
@@ -202,6 +208,7 @@ export function AddDatabaseDialog({
   const handleSelectType = (type: DataSourceType) => {
     setSelectedType(type)
     setStep(2)
+    setDbTab('general')
   }
 
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -352,11 +359,21 @@ export function AddDatabaseDialog({
 
   const nameIsDuplicate = name.trim() && dataSources.some(ds => ds.name.toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
-  const canSubmit = name.trim() &&
-    !nameIsDuplicate &&
+  const isNameValid = !!name.trim() && !nameIsDuplicate
+  const isConnectionValid =
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles) &&
-    (selectedType !== 'fhir' || fhirBaseUrl.trim()) &&
+    (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
     !isSizeBlocked
+
+  const canSubmit = isNameValid && isConnectionValid
+
+  // Per-tab list of what's still missing — drives the red dot on each tab and
+  // the tooltip on the disabled Create button.
+  const generalMissing: string[] = []
+  if (!isNameValid) generalMissing.push(t('databases.missing_name'))
+  const connectionMissing: string[] = []
+  if (!isConnectionValid) connectionMissing.push(t('databases.missing_connection'))
+  const allMissing = [...generalMissing, ...connectionMissing]
 
   // Resolve schema mapping: built-in, custom, or none
   const resolveMapping = () => {
@@ -420,7 +437,20 @@ export function AddDatabaseDialog({
         )}
 
         {step === 2 && selectedType && (
-          <div className="mt-2 space-y-4">
+          <div className="mt-2">
+            <Tabs value={dbTab} onValueChange={(v) => setDbTab(v as 'general' | 'connection')}>
+              <TabsList className="w-full">
+                <TabsTrigger value="general" className="flex-1 gap-1.5">
+                  {t('databases.tab_general')}
+                  {generalMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
+                </TabsTrigger>
+                <TabsTrigger value="connection" className="flex-1 gap-1.5">
+                  {t('databases.tab_connection')}
+                  {connectionMissing.length > 0 && <span className="size-1.5 rounded-full bg-destructive" />}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="general" className="space-y-4 pt-3">
             {/* Common fields */}
             <div className="space-y-2">
               <Label>{t('databases.field_name')}</Label>
@@ -438,7 +468,21 @@ export function AddDatabaseDialog({
               )}
             </div>
             <div className="space-y-2">
-              <Label>{t('databases.field_alias')}</Label>
+              <div className="flex items-center gap-1.5">
+                <Label>{t('databases.field_identifier')}</Label>
+                <TooltipProvider>
+                  <Tooltip delayDuration={200}>
+                    <TooltipTrigger asChild>
+                      <span className="text-muted-foreground">
+                        <Info size={12} />
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-xs text-xs">
+                      {t('databases.identifier_info')}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <Input
                 value={alias}
                 onChange={(e) => {
@@ -459,7 +503,9 @@ export function AddDatabaseDialog({
                 rows={2}
               />
             </div>
+              </TabsContent>
 
+              <TabsContent value="connection" className="space-y-4 pt-3">
             {/* Database-specific fields */}
             {selectedType === 'database' && (
               <>
@@ -637,6 +683,8 @@ export function AddDatabaseDialog({
                 />
               </div>
             )}
+              </TabsContent>
+            </Tabs>
           </div>
         )}
 
@@ -648,14 +696,37 @@ export function AddDatabaseDialog({
                 {t('common.back')}
               </Button>
             )}
-            <Button onClick={handleSubmit} disabled={!canSubmit || uploading} className="gap-1.5">
-              {uploading && <Loader2 size={14} className="animate-spin" />}
-              {uploading
-                ? t('databases.uploading')
-                : isEditMode
-                  ? t('common.save')
-                  : t('common.create')}
-            </Button>
+            {canSubmit || uploading ? (
+              <Button onClick={handleSubmit} disabled={!canSubmit || uploading} className="gap-1.5">
+                {uploading && <Loader2 size={14} className="animate-spin" />}
+                {uploading
+                  ? t('databases.uploading')
+                  : isEditMode
+                    ? t('common.save')
+                    : t('common.create')}
+              </Button>
+            ) : (
+              <TooltipProvider>
+                <Tooltip delayDuration={150}>
+                  <TooltipTrigger asChild>
+                    {/* span wrapper: a disabled button doesn't emit the hover events the tooltip needs */}
+                    <span tabIndex={0}>
+                      <Button disabled className="pointer-events-none gap-1.5">
+                        {isEditMode ? t('common.save') : t('common.create')}
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs">
+                    <p className="mb-1 font-medium">{t('databases.missing_fields_title')}</p>
+                    <ul className="list-disc space-y-0.5 pl-4">
+                      {allMissing.map((m) => (
+                        <li key={m}>{m}</li>
+                      ))}
+                    </ul>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
           </DialogFooter>
         )}
       </DialogContent>

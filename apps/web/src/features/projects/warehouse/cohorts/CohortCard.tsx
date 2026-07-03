@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import type { Cohort } from '@/types'
@@ -9,7 +8,6 @@ import {
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   DropdownMenu,
@@ -23,7 +21,7 @@ interface CohortCardProps {
   cohort: Cohort
   basePath: string
   onRemove: () => void
-  onRename: (name: string) => void
+  onEdit: () => void
 }
 
 const levelColors: Record<string, string> = {
@@ -36,32 +34,16 @@ export function CohortCard({
   cohort,
   basePath,
   onRemove,
-  onRename,
+  onEdit,
 }: CohortCardProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [renaming, setRenaming] = useState(false)
-  const [nameValue, setNameValue] = useState('')
 
   const levelLabel = t(`cohorts.level_${cohort.level}`)
   const criteriaCount = countCriteria(cohort.criteriaTree)
 
   const handleClick = () => {
-    if (renaming) return
     navigate(`${basePath}/${cohort.id}`)
-  }
-
-  const handleStartRename = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setNameValue(cohort.name)
-    setRenaming(true)
-  }
-
-  const handleSaveRename = () => {
-    if (nameValue.trim()) {
-      onRename(nameValue.trim())
-    }
-    setRenaming(false)
   }
 
   return (
@@ -83,23 +65,7 @@ export function CohortCard({
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                {renaming ? (
-                  <Input
-                    value={nameValue}
-                    onChange={(e) => setNameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      e.stopPropagation()
-                      if (e.key === 'Enter') handleSaveRename()
-                      if (e.key === 'Escape') setRenaming(false)
-                    }}
-                    onBlur={handleSaveRename}
-                    onClick={(e) => e.stopPropagation()}
-                    className="h-7 text-sm w-48"
-                    autoFocus
-                  />
-                ) : (
-                  <h3 className="text-sm font-semibold truncate">{cohort.name}</h3>
-                )}
+                <h3 className="text-sm font-semibold truncate">{cohort.name}</h3>
                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${levelColors[cohort.level] ?? ''}`}>
                   {levelLabel}
                 </span>
@@ -121,9 +87,9 @@ export function CohortCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleStartRename}>
+              <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit() }}>
                 <Pencil size={14} />
-                {t('cohorts.rename')}
+                {t('common.edit')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem

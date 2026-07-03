@@ -55,6 +55,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { EntityIdField } from '@/components/ui/entity-id-field'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { getStorage } from '@/lib/storage'
 import { SchemaERD } from './SchemaERD'
@@ -1352,9 +1353,11 @@ export function SchemaPresetsPage() {
   }, [customPresets, doPresetImport])
 
   const [createTemplate, setCreateTemplate] = useState<string>('blank')
+  const [newPresetId, setNewPresetId] = useState('')
 
   const openCreateDialog = () => {
     setNewPresetName(t('settings.schema_preset_new_name'))
+    setNewPresetId('')
     setCreateTemplate('blank')
     setShowCreateDialog(true)
   }
@@ -1368,7 +1371,11 @@ export function SchemaPresetsPage() {
       ? { ...SCHEMA_PRESETS[createTemplate], presetLabel: name }
       : undefined
 
-    const presetId = createTemplate !== 'blank' ? createTemplate : `custom-${crypto.randomUUID().slice(0, 8)}`
+    // Built-in template keeps its own id (so a deleted default can be restored);
+    // a blank schema uses the user-provided identifier, or a random fallback.
+    const presetId = createTemplate !== 'blank'
+      ? createTemplate
+      : (newPresetId.trim() || `custom-${crypto.randomUUID().slice(0, 8)}`)
     const now = new Date().toISOString()
     const newMapping: SchemaMapping = templateMapping ?? {
       presetId,
@@ -1497,6 +1504,7 @@ export function SchemaPresetsPage() {
                 {/* Template picker */}
                 <div className="space-y-1.5">
                   <Label className="text-xs">{t('schemas.template')}</Label>
+                  <p className="text-[11px] text-muted-foreground">{t('schemas.template_hint')}</p>
                   <div className="grid grid-cols-2 gap-1.5">
                     {[
                       { id: 'blank', label: t('schemas.template_blank') },
@@ -1531,6 +1539,7 @@ export function SchemaPresetsPage() {
                     onChange={(e) => setNewPresetName(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && newPresetName.trim() && !customPresets.some(p => p.mapping.presetLabel?.toLowerCase() === newPresetName.trim().toLowerCase())) {
+                        e.preventDefault()
                         confirmCreatePreset()
                       }
                     }}
@@ -1540,6 +1549,17 @@ export function SchemaPresetsPage() {
                     <p className="text-xs text-destructive">{t('common.name_already_exists')}</p>
                   )}
                 </div>
+                {/* Identifier — only for blank schemas; a template reuses its own preset id. */}
+                {createTemplate === 'blank' && (
+                  <EntityIdField
+                    name={newPresetName}
+                    value={newPresetId}
+                    onChange={setNewPresetId}
+                    existingIds={[...BUILTIN_PRESET_IDS, ...customPresets.map(p => p.presetId)]}
+                    htmlId="schema-preset-id"
+                    placeholder="my-schema"
+                  />
+                )}
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setShowCreateDialog(false)}>{t('common.cancel')}</Button>
@@ -1558,7 +1578,7 @@ export function SchemaPresetsPage() {
               <Input
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') confirmRenameSchema() }}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmRenameSchema() } }}
                 autoFocus
               />
               <DialogFooter>
