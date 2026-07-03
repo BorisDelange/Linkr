@@ -188,7 +188,7 @@ export function CreateMappingProjectDialog({
       setBadges([])
       setNewBadgeLabel('')
       setNewBadgeColor('blue')
-      setSourceType('database')
+      setSourceType('file')
       setDataSourceId('')
       setFile(null)
       setParsedColumns([])
