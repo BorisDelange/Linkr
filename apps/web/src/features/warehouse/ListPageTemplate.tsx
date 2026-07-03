@@ -182,11 +182,11 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
             </div>
           </Card>
         ) : (
-          <div className="mt-6 grid gap-3">
+          <div className="mt-6 grid grid-cols-1 gap-3">
             {items.map((item) => (
               <Card
                 key={item.id}
-                className="cursor-pointer transition-colors hover:bg-accent/50"
+                className="min-w-0 cursor-pointer transition-colors hover:bg-accent/50"
                 onClick={() => onNavigate(item.id)}
               >
                 <div className="flex items-start gap-4 p-4">

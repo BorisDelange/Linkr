@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, Loader2, ArrowLeft, ZoomIn, ZoomOut, Maximize2, Minimize2, Expand } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -6,9 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from '@/components/ui/table'
+import { RelationsTable, type RelationRow } from './RelationsTable'
 import { Network, DataSet, type Edge } from 'vis-network/standalone'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import {
@@ -419,7 +417,6 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
   }, [])
   const onPointerUp = useCallback(() => { dragging.current = false }, [])
 
-  type RelationRow = { relationship_id: string; concept_id: number; concept_name: string; vocabulary_id: string; domain_id?: string; concept_class_id?: string; concept_code?: string; standard_concept?: string }
   type SynonymRow = { concept_synonym_name: string; language_name?: string }
   type SelfRow = { concept_id: number; concept_name: string; vocabulary_id: string; domain_id?: string; concept_class_id?: string; concept_code?: string; standard_concept: string | null }
 
@@ -435,7 +432,6 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
   const [relationsUnavailable, setRelationsUnavailable] = useState(false)
   const [hierarchyUnavailable, setHierarchyUnavailable] = useState(false)
   const [synonymsUnavailable, setSynonymsUnavailable] = useState(false)
-  const [relFilter, setRelFilter] = useState('')
   const [activeTab, setActiveTab] = useState('details')
 
   const [hierarchyFullscreen, setHierarchyFullscreen] = useState(false)
@@ -461,7 +457,6 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     setRelationsUnavailable(false)
     setHierarchyUnavailable(false)
     setSynonymsUnavailable(false)
-    setRelFilter('')
     setActiveTab('details')
     setHierarchyStack([])
     setHierarchyWarn(null)
@@ -575,17 +570,6 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     // hierarchy handled by useEffect above
   }, [relations.length, relationsUnavailable, synonyms.length, synonymsUnavailable, loadRelations, loadSynonyms])
 
-  const filteredRelations = useMemo(() => {
-    if (!relFilter.trim()) return relations
-    const q = relFilter.toLowerCase()
-    return relations.filter((r) =>
-      r.relationship_id.toLowerCase().includes(q) ||
-      r.concept_name.toLowerCase().includes(q) ||
-      r.vocabulary_id.toLowerCase().includes(q) ||
-      String(r.concept_id).includes(q)
-    )
-  }, [relations, relFilter])
-
   if (!target) return null
 
   const isStandard = target.standard_concept === 'S'
@@ -683,44 +667,13 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
 
           {/* Relations */}
           <TabsContent value="relations" className="flex-1 overflow-hidden m-0 flex flex-col min-h-0">
-            <div className="shrink-0 px-3 py-1.5 border-b">
-              <input
-                className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-                placeholder={`${t('common.search')}…`}
-                value={relFilter}
-                onChange={(e) => setRelFilter(e.target.value)}
-              />
-            </div>
-            <div className="flex-1 overflow-auto min-h-0">
-              {loadingRelations ? (
-                <div className="flex h-20 items-center justify-center"><Loader2 size={16} className="animate-spin text-muted-foreground" /></div>
-              ) : relationsUnavailable ? (
-                <p className="px-4 py-6 text-center text-xs text-muted-foreground">{t('concept_mapping.concept_info_table_unavailable')}</p>
-              ) : (
-                <Table style={{ tableLayout: 'fixed' }}>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="text-xs w-[130px]">{t('concept_mapping.concept_info_col_relationship')}</TableHead>
-                      <TableHead className="text-xs w-[70px]">{t('concept_mapping.concept_info_col_vocabulary')}</TableHead>
-                      <TableHead className="text-xs">{t('concept_mapping.concept_info_col_name')}</TableHead>
-                      <TableHead className="text-xs w-[60px]">{t('concept_mapping.concept_info_col_id')}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredRelations.length === 0 ? (
-                      <TableRow><TableCell colSpan={4} className="h-16 text-center text-xs text-muted-foreground">{t('concept_mapping.concept_info_no_relations')}</TableCell></TableRow>
-                    ) : filteredRelations.map((r, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="px-2 py-1 text-xs text-muted-foreground">{r.relationship_id}</TableCell>
-                        <TableCell className="px-2 py-1 text-xs">{r.vocabulary_id}</TableCell>
-                        <TableCell className="px-2 py-1 text-xs truncate max-w-0">{r.concept_name}</TableCell>
-                        <TableCell className="px-2 py-1 font-mono text-xs">{r.concept_id}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </div>
+            {loadingRelations ? (
+              <div className="flex h-20 items-center justify-center"><Loader2 size={16} className="animate-spin text-muted-foreground" /></div>
+            ) : relationsUnavailable ? (
+              <p className="px-4 py-6 text-center text-xs text-muted-foreground">{t('concept_mapping.concept_info_table_unavailable')}</p>
+            ) : (
+              <RelationsTable relations={relations} />
+            )}
           </TabsContent>
 
           {/* Hierarchy */}

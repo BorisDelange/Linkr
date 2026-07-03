@@ -56,6 +56,32 @@ function DebouncedInput({ value: ext, onChange, className, placeholder }: {
   return <input className={className} placeholder={placeholder} value={local} onChange={handle} />
 }
 
+/**
+ * Cell text that shows an instant black tooltip only when the content is visually
+ * truncated. The tooltip is mounted lazily on pointer-enter (checking scrollWidth vs
+ * clientWidth) so non-truncated cells never trigger it.
+ */
+function TruncatedText({ children, className }: { children: string; className?: string }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const [truncated, setTruncated] = useState(false)
+  const check = () => {
+    const el = ref.current
+    setTruncated(!!el && el.scrollWidth > el.clientWidth)
+  }
+  const span = (
+    <span ref={ref} className={`block truncate ${className ?? ''}`} onPointerEnter={check}>
+      {children}
+    </span>
+  )
+  if (!truncated) return span
+  return (
+    <Tooltip disableHoverableContent>
+      <TooltipTrigger asChild>{span}</TooltipTrigger>
+      <TooltipContent side="top" className="pointer-events-none max-w-xs">{children}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 type Sorting = { columnId: string; desc: boolean } | null
 
 interface Filters {
@@ -248,7 +274,10 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       id: 'vocabulary_id',
       header: () => t('concept_mapping.col_vocabulary'),
       accessorFn: (r) => r.vocabulary_id,
-      cell: ({ row }) => <span className="text-xs">{row.original.vocabulary_id}</span>,
+      cell: ({ row }) =>
+        row.original.vocabulary_id
+          ? <TruncatedText className="text-xs">{row.original.vocabulary_id}</TruncatedText>
+          : <span className="text-xs italic text-muted-foreground/60">—</span>,
       size: 80,
       minSize: 50,
       enableResizing: true,
@@ -266,7 +295,21 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       id: 'concept_name',
       header: () => t('concept_mapping.col_name'),
       accessorFn: (r) => r.concept_name,
-      cell: ({ row }) => <span className="text-xs">{row.original.concept_name}</span>,
+      cell: ({ row }) =>
+        row.original.concept_name
+          ? <TruncatedText className="text-xs">{row.original.concept_name}</TruncatedText>
+          : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="block truncate text-xs italic text-muted-foreground/60">
+                  {t('concept_mapping.suggestions_concept_not_found')}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                {t('concept_mapping.suggestions_concept_not_found_hint')}
+              </TooltipContent>
+            </Tooltip>
+          ),
       size: 180,
       minSize: 100,
       enableResizing: true,
@@ -439,23 +482,15 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                     className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped ? 'opacity-40' : ''}`}
                     onClick={() => { if (!alreadyMapped) onSelect(isSelected ? null : row.original) }}
                   >
-                    {row.getVisibleCells().map((cell) => {
-                      const colId = cell.column.id
-                      const raw = cell.getValue()
-                      const title = (colId === 'concept_name' || colId === 'vocabulary_id') && raw != null
-                        ? String(raw)
-                        : undefined
-                      return (
-                        <TableCell
-                          key={cell.id}
-                          className="overflow-hidden truncate px-2 py-1 text-xs"
-                          style={{ maxWidth: cell.column.getSize() }}
-                          title={title}
-                        >
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </TableCell>
-                      )
-                    })}
+                    {row.getVisibleCells().map((cell) => (
+                      <TableCell
+                        key={cell.id}
+                        className="overflow-hidden truncate px-2 py-1 text-xs"
+                        style={{ maxWidth: cell.column.getSize() }}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </TableCell>
+                    ))}
                   </TableRow>
                 )
               })}

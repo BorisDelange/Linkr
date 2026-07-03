@@ -55,25 +55,28 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
 import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, SchemaMapping, SchemaPresetId } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
+import { localized } from '@/lib/localized'
 import { buildStandardConceptSearchQuery, buildStandardConceptSearchCountQuery } from '@/lib/concept-mapping/mapping-queries'
 
 // ---------------------------------------------------------------------------
 // ATHENA vocabulary schema mapping
 // ---------------------------------------------------------------------------
 
-// Only `concept` is required (target search uses it). `concept_ancestor` and
-// `concept_relationship` are optional but enable concept-set descendant/mapped expansion
-// (see lib/concept-mapping/mapping-queries.ts buildResolveDescendantsQuery /
-// buildResolveMappedQuery). The other Athena tables (concept_class, concept_synonym,
-// domain, drug_strength, relationship, vocabulary) are not read by the mapping UI and
-// were dropped from the accepted list to reduce IDB footprint.
+// Only `concept` is required (target search uses it). The others are optional and
+// imported only if present in the selected folder: `concept_ancestor` /
+// `concept_relationship` enable concept-set descendant/mapped expansion (see
+// lib/concept-mapping/mapping-queries.ts buildResolveDescendantsQuery /
+// buildResolveMappedQuery), and `concept_synonym` powers the Synonyms tab in the
+// concept detail sheet. The remaining Athena tables (concept_class, domain,
+// drug_strength, relationship, vocabulary) are not read by the mapping UI and stay
+// out of the accepted list to keep the IDB footprint down.
 const ATHENA_KNOWN_TABLES = [
-  'concept', 'concept_ancestor', 'concept_relationship',
+  'concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym',
 ]
 
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
@@ -632,7 +635,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     setVocabError(null)
     try {
       const dsId = await addDataSource({
-        name: `ATHENA Vocabulary — ${project.name}`,
+        name: `ATHENA Vocabulary — ${localized(project.name, i18n.language)}`,
         description: 'OHDSI ATHENA vocabulary reference for concept mapping.',
         sourceType: 'database',
         connectionConfig: { engine: 'duckdb' as const },
@@ -666,6 +669,25 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const vocabDs = project.vocabularyDataSourceId
     ? dataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
     : null
+
+  // Table names actually imported into the vocabulary reference — shown in the
+  // status badge tooltip. Loaded lazily from the mounted data source.
+  const [vocabTableNames, setVocabTableNames] = useState<string[]>([])
+  useEffect(() => {
+    const dsId = project.vocabularyDataSourceId
+    if (!dsId || !vocabDs) { setVocabTableNames([]); return }
+    let cancelled = false
+    ;(async () => {
+      try {
+        await ensureMounted(dsId)
+        const tables = await discoverTables(dsId)
+        if (!cancelled) setVocabTableNames(tables)
+      } catch {
+        if (!cancelled) setVocabTableNames([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [project.vocabularyDataSourceId, vocabDs, ensureMounted])
 
   // --- Browse vocabulary queries ---
 
@@ -1275,11 +1297,29 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium">{t('concept_mapping.vocab_import_success')}</span>
                         <span className="text-xs text-muted-foreground">{vocabDs.name}</span>
-                        {vocabDs.stats?.tableCount != null && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            {t('concept_mapping.vocab_import_tables_found', { count: vocabDs.stats.tableCount })}
-                          </Badge>
-                        )}
+                        {(() => {
+                          const count = vocabTableNames.length || vocabDs.stats?.tableCount
+                          if (count == null) return null
+                          const badge = (
+                            <Badge variant="secondary" className="text-[10px]">
+                              {t('concept_mapping.vocab_import_tables_count', { count })}
+                            </Badge>
+                          )
+                          if (vocabTableNames.length === 0) return badge
+                          return (
+                            <Tooltip>
+                              <TooltipTrigger asChild><span className="cursor-default">{badge}</span></TooltipTrigger>
+                              <TooltipContent side="bottom" className="max-w-xs">
+                                <p className="mb-1 font-medium">{t('concept_mapping.vocab_import_tables_list')}</p>
+                                <ul className="space-y-0.5">
+                                  {vocabTableNames.map((name) => (
+                                    <li key={name} className="font-mono text-[11px]">{name}</li>
+                                  ))}
+                                </ul>
+                              </TooltipContent>
+                            </Tooltip>
+                          )
+                        })()}
                       </div>
                     </div>
                     <div className="flex gap-1">
