@@ -249,7 +249,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       header: () => t('concept_mapping.suggestions_col_provider'),
       cell: ({ row }) => (
         <div className="flex items-center gap-1.5">
-          {row.original.scores.map(({ provider, method, score }) => {
+          {row.original.scores.map(({ provider, method, score, comment }) => {
             const pct = Math.round(score * 100)
             const dot = METHOD_DOT_COLORS[provider] ?? 'bg-gray-400'
             const label = getMethodLabel(method)
@@ -261,10 +261,11 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                     <span className="text-[10px] tabular-nums text-muted-foreground">{pct}%</span>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="space-y-0.5 text-xs">
+                <TooltipContent side="top" className="max-w-xs space-y-0.5 text-xs">
                   <p className="font-medium">{provider}</p>
                   <p className="text-muted-foreground">{label}</p>
                   <p>{pct}%</p>
+                  {comment && <p className="mt-1.5 border-t pt-1.5 italic text-muted-foreground">{comment}</p>}
                 </TooltipContent>
               </Tooltip>
             )
