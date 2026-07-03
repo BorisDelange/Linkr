@@ -11,6 +11,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
 import { localized } from '@/lib/localized'
+import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
@@ -127,22 +128,24 @@ export function Header() {
     return idx > 0 ? pathname.slice(0, idx) : null
   })()
 
-  // Only subscribe to the store whose entity is currently displayed
-  const dashboardNameRaw = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId)?.name : undefined)
-  const dashboardName = dashboardNameRaw != null ? localized(dashboardNameRaw, language) : undefined
-  const cohortName = useCohortStore((s) => cohortId ? s.cohorts.find((c) => c.id === cohortId)?.name : undefined)
-  const etlName = useEtlStore((s) => etlId ? s.etlPipelines.find((p) => p.id === etlId)?.name : undefined)
-  const sqlName = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId)?.name : undefined)
-  const catalogName = useCatalogStore((s) => catalogId ? s.catalogs.find((c) => c.id === catalogId)?.name : undefined)
-  const cmName = useConceptMappingStore((s) => cmId ? s.mappingProjects.find((p) => p.id === cmId)?.name : undefined)
-  const cmProject = useConceptMappingStore((s) => cmId ? s.mappingProjects.find((p) => p.id === cmId) : undefined)
-  const dqName = useDqStore((s) => dqId ? s.dqRuleSets.find((r) => r.id === dqId)?.name : undefined)
-  const dashboardEntity = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId) : undefined)
-  const cohortEntity = useCohortStore((s) => cohortId ? s.cohorts.find((c) => c.id === cohortId) : undefined)
-  const etlEntity = useEtlStore((s) => etlId ? s.etlPipelines.find((p) => p.id === etlId) : undefined)
-  const sqlEntity = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId) : undefined)
-  const catalogEntity = useCatalogStore((s) => catalogId ? s.catalogs.find((c) => c.id === catalogId) : undefined)
-  const dqEntity = useDqStore((s) => dqId ? s.dqRuleSets.find((r) => r.id === dqId) : undefined)
+  // Only subscribe to the store whose entity is currently displayed. URLs carry a short id
+  // prefix (see short-id.ts), so resolve by prefix — an exact `id === param` match misses the
+  // shortened id and the badge would silently fall back to the generic page title.
+  const dashboardEntity = useDashboardStore((s) => dashboardId ? resolveByIdPrefix(s.dashboards, dashboardId, (d) => d.id) : undefined)
+  const cohortEntity = useCohortStore((s) => cohortId ? resolveByIdPrefix(s.cohorts, cohortId, (c) => c.id) : undefined)
+  const etlEntity = useEtlStore((s) => etlId ? resolveByIdPrefix(s.etlPipelines, etlId, (p) => p.id) : undefined)
+  const sqlEntity = useSqlScriptsStore((s) => sqlId ? resolveByIdPrefix(s.collections, sqlId, (c) => c.id) : undefined)
+  const catalogEntity = useCatalogStore((s) => catalogId ? resolveByIdPrefix(s.catalogs, catalogId, (c) => c.id) : undefined)
+  const cmProject = useConceptMappingStore((s) => cmId ? resolveByIdPrefix(s.mappingProjects, cmId, (p) => p.id) : undefined)
+  const dqEntity = useDqStore((s) => dqId ? resolveByIdPrefix(s.dqRuleSets, dqId, (r) => r.id) : undefined)
+
+  const dashboardName = dashboardEntity?.name != null ? localized(dashboardEntity.name, language) : undefined
+  const cohortName = cohortEntity?.name
+  const etlName = etlEntity?.name
+  const sqlName = sqlEntity?.name
+  const catalogName = catalogEntity?.name
+  const cmName = cmProject?.name
+  const dqName = dqEntity?.name
 
   const mappingActions = useMappingProjectActions()
   const dashboardActions = useDashboardActions()

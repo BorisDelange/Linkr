@@ -1108,7 +1108,7 @@ function SchemaDetailView({
 
       {/* Tabs */}
       <Tabs defaultValue="erd-ddl" className="flex-1 flex flex-col min-h-0">
-        <div className="px-6 pt-2 shrink-0">
+        <div className="flex justify-center px-6 pt-2 shrink-0">
           <TabsList>
             <TabsTrigger value="erd-ddl">{t('schemas.tab_schema_ddl')}</TabsTrigger>
             <TabsTrigger value="ddl" className="gap-1.5">
