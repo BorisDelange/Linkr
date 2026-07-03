@@ -101,7 +101,7 @@ export interface Workspace extends Seedable {
   /** @deprecated Kept for backward compat after v17 migration. Use organizationId instead. */
   organization?: OrganizationInfo
   badges?: ProjectBadge[]
-  readme?: string
+  readme?: LocalizedString
   gitRemoteConfig?: GitRemoteConfig
   createdAt: string
   updatedAt: string

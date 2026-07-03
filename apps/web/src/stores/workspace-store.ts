@@ -1,8 +1,8 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
-import { isShellHtml } from '@/lib/localized'
-import type { Workspace, GitRemoteConfig, Language, ProjectBadge } from '@/types'
+import { isShellHtml, toLocalized, setLocalized } from '@/lib/localized'
+import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
 import { useAppStore, registerWorkspaceStore } from './app-store'
 import { useOrganizationStore } from './organization-store'
 
@@ -75,13 +75,22 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     const storage = getStorage()
     const workspaces = await storage.workspaces.getAll()
 
-    // Repair readmes polluted with the SPA shell HTML by an earlier buggy seed
-    // loader (a missing README.<lang>.md used to resolve to index.html).
+    // Migration: coerce a legacy string readme into a LocalizedString, and drop
+    // values polluted with the SPA shell HTML by an earlier buggy seed loader
+    // (a missing README.<lang>.md used to resolve to index.html).
     for (const ws of workspaces) {
-      if (typeof ws.readme === 'string' && isShellHtml(ws.readme)) {
-        ws.readme = ''
-        storage.workspaces.update(ws.id, { readme: '' }).catch(() => {})
+      const legacyReadme = typeof ws.readme === 'string' && ws.readme.length > 0
+      const readmeObj = legacyReadme ? undefined : (ws.readme as LocalizedString | undefined)
+      const polluted = readmeObj != null && Object.values(readmeObj).some(isShellHtml)
+      if (!legacyReadme && !polluted) continue
+      let next: LocalizedString
+      if (legacyReadme) {
+        next = isShellHtml(ws.readme as unknown as string) ? {} : toLocalized(ws.readme)
+      } else {
+        next = Object.fromEntries(Object.entries(readmeObj!).filter(([, v]) => !isShellHtml(v)))
       }
+      ws.readme = next
+      storage.workspaces.update(ws.id, { readme: next }).catch(() => {})
     }
 
     const lang = useAppStore.getState().language
@@ -148,12 +157,17 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
   },
 
   updateWorkspaceReadme: async (id, readme) => {
-    await getStorage().workspaces.update(id, { readme, updatedAt: new Date().toISOString() })
+    const lang = useAppStore.getState().language
+    const now = new Date().toISOString()
+    let next: LocalizedString | undefined
     set((s) => ({
-      _workspacesRaw: s._workspacesRaw.map((ws) =>
-        ws.id === id ? { ...ws, readme, updatedAt: new Date().toISOString() } : ws,
-      ),
+      _workspacesRaw: s._workspacesRaw.map((ws) => {
+        if (ws.id !== id) return ws
+        next = setLocalized(ws.readme, lang, readme)
+        return { ...ws, readme: next, updatedAt: now }
+      }),
     }))
+    if (next) await getStorage().workspaces.update(id, { readme: next, updatedAt: now })
   },
 
   deleteWorkspace: async (id, onProgress) => {

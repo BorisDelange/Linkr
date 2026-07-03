@@ -1142,10 +1142,8 @@ export async function buildWorkspaceZip(
   const { readme: wsReadme, ...wsMeta } = workspace
   zip.file('workspace.json', json({ ...wsMeta, appVersion: APP_VERSION }))
 
-  // --- README.md ---
-  if (wsReadme) {
-    zip.file('README.md', wsReadme)
-  }
+  // --- README.md (+ README.<lang>.md per extra language) ---
+  writeReadmeFiles(zip, '', wsReadme)
 
   // --- projects/ ---
   // Git-linked projects: metadata + README + git pointer only (full content lives in the project's own repo).
@@ -1456,10 +1454,15 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace?.id) return null
 
-  // --- README.md ---
-  const readmeFile = zipData.files['README.md']
-  if (readmeFile) {
-    workspace.readme = await readmeFile.async('string')
+  // --- README.md (README.md = en, README.<lang>.md = other langs) ---
+  const wsReadmeByLang: LocalizedString = {}
+  for (const [path, file] of Object.entries(zipData.files)) {
+    const m = /^README(?:\.([a-z]{2}))?\.md$/.exec(path)
+    if (!m) continue
+    wsReadmeByLang[m[1] ?? 'en'] = await file.async('string')
+  }
+  if (Object.keys(wsReadmeByLang).length > 0) {
+    workspace.readme = wsReadmeByLang
   }
 
   // --- projects/ ---

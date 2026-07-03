@@ -443,9 +443,14 @@ async function loadSeedWorkspace(folder: string, manifest: WorkspaceManifest): P
     return
   }
 
-  // README.md
-  const readme = await fetchText(`${base}/README.md`)
-  if (readme) workspace.readme = readme
+  // README.md (+ README.<lang>.md per language)
+  const wsReadmeByLang: LocalizedString = {}
+  for (const lang of SEED_LANGUAGES) {
+    const suffix = lang === 'en' ? '' : `.${lang}`
+    const text = await fetchMarkdown(`${base}/README${suffix}.md`)
+    if (text) wsReadmeByLang[lang] = text
+  }
+  if (Object.keys(wsReadmeByLang).length > 0) workspace.readme = wsReadmeByLang
 
   const existing = await storage.workspaces.getById(workspace.id)
   if (existing) {
