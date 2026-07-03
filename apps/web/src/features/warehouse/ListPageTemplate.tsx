@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { shortenIdAmong } from '@/lib/short-id'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -44,6 +45,8 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
 
   /** Export a single item as ZIP. When provided, the Export menu item is enabled. */
   onExport?: (item: T) => void
+  /** When set, the Export menu item calls this instead (e.g. navigate to the item's own export view). */
+  onExportOverride?: (item: T) => void
   /** Read the item's git link (null when unlinked). When provided alongside onSaveGitRemote, the Versioning menu item is enabled. */
   getGitRemote?: (item: T) => GitRemoteConfig | null
   /** Persist (or clear) the item's git link. Required to enable the Versioning menu item. */
@@ -85,6 +88,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   onNavigate,
   onDelete,
   onExport,
+  onExportOverride,
   getGitRemote,
   onSaveGitRemote,
   exportSupportsIncludeData = true,
@@ -158,7 +162,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
               <Card
                 key={item.id}
                 className="min-w-0 cursor-pointer transition-colors hover:bg-accent/50"
-                onClick={() => onNavigate(item.id)}
+                onClick={() => onNavigate(shortenIdAmong(item.id, items.map((i) => i.id)))}
               >
                 <div className="flex items-start gap-4 p-4">
                   {renderCardBody(item)}
@@ -166,6 +170,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     item={item}
                     onDelete={onDelete}
                     onExport={onExport}
+                    onExportOverride={onExportOverride}
                     getGitRemote={getGitRemote}
                     onSaveGitRemote={onSaveGitRemote}
                     exportSupportsIncludeData={exportSupportsIncludeData}
@@ -184,7 +189,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
       {renderCreateDialog({
         open: dialogOpen,
         onOpenChange: setDialogOpen,
-        onCreated: (id) => { setDialogOpen(false); onNavigate(id) },
+        onCreated: (id) => { setDialogOpen(false); onNavigate(shortenIdAmong(id, [...items.map((i) => i.id), id])) },
       })}
 
       {/* Import dialog (ZIP upload or git clone) */}

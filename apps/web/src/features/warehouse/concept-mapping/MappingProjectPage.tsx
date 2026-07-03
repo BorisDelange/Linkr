@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
+import { useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { FileSpreadsheet, Database, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,15 @@ interface MappingProjectPageProps {
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { t } = useTranslation()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState('progress')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'progress'
+  const setActiveTab = (value: string) => {
+    setSearchParams((prev) => {
+      if (value === 'progress') prev.delete('tab')
+      else prev.set('tab', value)
+      return prev
+    })
+  }
   // Once the editor has been opened at least once, keep its component mounted so
   // its (expensive) source-concepts query and DuckDB cache survive tab switches.
   // The other tabs stay lazy — their store subscriptions are too heavy to leave

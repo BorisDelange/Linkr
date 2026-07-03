@@ -48,6 +48,10 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
   /** Called after a successful delete. Used by the header badge to navigate away
    *  from the now-deleted entity's detail page (the list page doesn't need this). */
   onDeleted?: (id: string) => void
+  /** When set, the Export menu item calls this instead of downloading a ZIP or
+   *  opening the versioning dialog — e.g. to navigate to the entity's own export
+   *  view. Versioning (git) stays available. */
+  onExportOverride?: (item: T) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +73,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   onOpenChange,
   align = 'end',
   onDeleted,
+  onExportOverride,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -111,11 +116,12 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
-          {onExport ? (
+          {(onExport || onExportOverride) ? (
             <DropdownMenuItem onClick={(e) => {
               e.stopPropagation()
-              if (versioningEnabled) setVersioning({ item, tab: 'export' })
-              else onExport(item)
+              if (onExportOverride) onExportOverride(item)
+              else if (versioningEnabled) setVersioning({ item, tab: 'export' })
+              else onExport?.(item)
             }}>
               <Download size={14} />
               {t('common.export')}

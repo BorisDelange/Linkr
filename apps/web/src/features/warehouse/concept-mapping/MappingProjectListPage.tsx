@@ -344,7 +344,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         items={filteredProjects}
         onNavigate={(id) => navigate(id)}
         onDelete={mappingActions.onDelete}
-        onExport={mappingActions.onExport}
+        onExportOverride={mappingActions.onExportOverride}
         getGitRemote={mappingActions.getGitRemote}
         onSaveGitRemote={mappingActions.onSaveGitRemote}
         exportSupportsIncludeData={mappingActions.exportSupportsIncludeData}
