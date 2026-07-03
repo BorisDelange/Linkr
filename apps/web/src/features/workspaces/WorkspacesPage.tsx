@@ -405,7 +405,7 @@ export function WorkspacesPage() {
       await yieldToBrowser()
       let mappingIdx = 0
       const reportEvery = Math.max(1, Math.floor(totalMappings / 100)) // ~100 UI updates max
-      for (const { project: mp, mappings } of parsed.mappingProjects) {
+      for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
         const id = duplicate ? crypto.randomUUID() : mp.id
         if (!duplicate) {
           await storage.conceptMappings.deleteByProject(mp.id).catch(() => {})
@@ -415,6 +415,10 @@ export function WorkspacesPage() {
           ...mp, id, workspaceId: targetWsId, updatedAt: now,
           ...(duplicate ? { name: copyLocalizedName(mp.name), createdAt: now } : {}),
         })
+        if (scoresFile) {
+          const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
+          await persistScoresFile(id, scoresFile).catch(() => {})
+        }
         for (const m of mappings) {
           await storage.conceptMappings.create({
             ...m, id: duplicate ? crypto.randomUUID() : m.id, projectId: id,

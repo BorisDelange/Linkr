@@ -561,6 +561,13 @@ async function loadStructuralEntity(
       if (mappings.length > 0) {
         await storage.conceptMappings.createBatch(mappings.map(m => ({ ...m, projectId: project.id }))).catch(() => {})
       }
+      // Optional precomputed similarity scores (present only when the export bundled them)
+      const scoresBuf = await fetchBinary(`${base}/mapping-projects/${mpFolder}/similarity-scores.parquet`)
+      if (scoresBuf && scoresBuf.byteLength > 0) {
+        const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
+        const scoresFile = new File([scoresBuf], `${project.id}.parquet`, { type: 'application/octet-stream' })
+        await persistScoresFile(project.id, scoresFile).catch(() => {})
+      }
       break
     }
     case 'dqRuleSet': {

@@ -5,6 +5,8 @@ import JSZip from 'jszip'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
@@ -41,6 +43,11 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const [zipExporting, setZipExporting] = useState(false)
   const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
+
+  // Linkr ZIP export modal: lets the user opt into bundling the (large) scores parquet.
+  const [zipDialogOpen, setZipDialogOpen] = useState(false)
+  const [includeScores, setIncludeScores] = useState(false)
+  const [scoresSize, setScoresSize] = useState<number | null>(null)
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<EffectiveMappingStatus>>(
@@ -277,7 +284,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     downloadFile(content, filename, format.mime)
   }
 
-  const handleExportZip = useCallback(async () => {
+  const handleExportZip = useCallback(async (withScores: boolean) => {
     setZipExporting(true)
     setSourceCsvTooLarge(false)
     try {
@@ -286,6 +293,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         queryDataSource,
         ensureMounted,
         dataSources,
+        includeScores: withScores,
       })
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
@@ -298,6 +306,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           queryDataSource,
           ensureMounted,
           dataSources,
+          includeScores: withScores,
           skipSourceConcepts: true,
         })
         const blob = await zip.generateAsync({ type: 'blob' })
@@ -325,6 +334,25 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }
   }, [project, dataSources, ensureMounted])
 
+  // Probe the stored scores file size, then open the export options modal.
+  const openZipDialog = useCallback(async () => {
+    setSourceCsvTooLarge(false)
+    setIncludeScores(false)
+    setScoresSize(null)
+    setZipDialogOpen(true)
+    try {
+      const f = await getScoresFile(project.id)
+      setScoresSize(f ? f.size : 0)
+    } catch {
+      setScoresSize(0)
+    }
+  }, [project.id])
+
+  const confirmZipExport = useCallback(async () => {
+    setZipDialogOpen(false)
+    await handleExportZip(includeScores)
+  }, [handleExportZip, includeScores])
+
   // Dedup by (vocabularyId, conceptCode) — same key as Progress / Mapping Editor.
   const filteredMappedKeys = useMemo(() => new Set(filteredMappings.map(sourceKey)), [filteredMappings])
   // "Include all source concepts": adds the source concepts that are NOT covered by `filteredMappings`
@@ -339,77 +367,80 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   return (
     <div className="h-full overflow-auto p-4">
       <div className="mx-auto max-w-3xl space-y-6">
-        {/* Status filter section */}
+        {/* Status filter section — two columns: statuses (left) / source-concept option + total (right) */}
         <Card className="p-4">
-          <p className="mb-1.5 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+          <p className="mb-0.5 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+          <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
+            {/* Left: status checkboxes */}
+            <div>
+              <div className="space-y-1">
+                {STATUSES.map((status) => {
+                  const count = statusCounts[status] ?? 0
+                  const checked = includedStatuses.has(status)
+                  return (
+                    <div key={status}>
+                      <label className="flex cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleStatus(status)}
+                          className="size-3.5 rounded border-gray-300 accent-primary"
+                        />
+                        <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
+                        <Badge variant="secondary" className="text-[10px]">{count}</Badge>
+                      </label>
 
-          {/* Status checkboxes */}
-          <div className="space-y-1">
-            {STATUSES.map((status) => {
-              const count = statusCounts[status] ?? 0
-              const checked = includedStatuses.has(status)
-              return (
-                <div key={status}>
-                  <label className="flex cursor-pointer items-center gap-2.5">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleStatus(status)}
-                      className="size-3.5 rounded border-gray-300 accent-primary"
-                    />
-                    <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                    <Badge variant="secondary" className="text-[10px]">{count}</Badge>
-                  </label>
-
-                  {/* Approval sub-rules (only shown when approved is checked) */}
-                  {status === 'approved' && checked && (
-                    <div className="ml-6 mt-1.5 space-y-1">
-                      {(['at_least_one', 'majority', 'no_rejections'] as ApprovalRule[]).map((rule) => (
-                        <label key={rule} className="flex cursor-pointer items-center gap-2">
-                          <input
-                            type="radio"
-                            name="approval-rule"
-                            checked={approvalRule === rule}
-                            onChange={() => setApprovalRule(rule)}
-                            className="size-3 accent-primary"
-                          />
-                          <span className="text-[11px] text-muted-foreground">
-                            {t(`concept_mapping.export_rule_${rule}`)}
-                          </span>
-                        </label>
-                      ))}
+                      {/* Approval sub-rules (only shown when approved is checked) */}
+                      {status === 'approved' && checked && (
+                        <div className="ml-6 mt-1.5 space-y-1">
+                          {(['at_least_one', 'majority', 'no_rejections'] as ApprovalRule[]).map((rule) => (
+                            <label key={rule} className="flex cursor-pointer items-center gap-2">
+                              <input
+                                type="radio"
+                                name="approval-rule"
+                                checked={approvalRule === rule}
+                                onChange={() => setApprovalRule(rule)}
+                                className="size-3 accent-primary"
+                              />
+                              <span className="text-[11px] text-muted-foreground">
+                                {t(`concept_mapping.export_rule_${rule}`)}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Include all source concepts (independent toggle) */}
-          <div className="mt-3 border-t pt-2">
-            <label className="flex cursor-pointer items-start gap-2.5">
-              <input
-                type="checkbox"
-                checked={includeAllSourceConcepts}
-                onChange={() => setIncludeAllSourceConcepts((v) => !v)}
-                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
-                  {allSourceExtraCount !== null && allSourceExtraCount > 0 && (
-                    <Badge variant="secondary" className="text-[10px]">{allSourceExtraCount}</Badge>
-                  )}
-                </div>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_include_all_source_concepts_desc')}</p>
+                  )
+                })}
               </div>
-            </label>
-          </div>
+            </div>
 
-          <div className="mt-1.5 border-t pt-1.5">
-            <p className="text-xs text-muted-foreground">
-              {t('concept_mapping.export_total')}: <strong>{totalExportCount}</strong> {t('concept_mapping.export_mappings_count')}
-            </p>
+            {/* Right: include-all-source-concepts toggle + total */}
+            <div className="flex flex-col sm:pl-4">
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={includeAllSourceConcepts}
+                  onChange={() => setIncludeAllSourceConcepts((v) => !v)}
+                  className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
+                />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs">{t('concept_mapping.export_include_all_source_concepts')}</span>
+                    {allSourceExtraCount !== null && allSourceExtraCount > 0 && (
+                      <Badge variant="secondary" className="text-[10px]">{allSourceExtraCount}</Badge>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_include_all_source_concepts_desc')}</p>
+                </div>
+              </label>
+
+              <div className="mt-auto border-t pt-2">
+                <p className="text-xs text-muted-foreground">
+                  {t('concept_mapping.export_total')}: <strong>{totalExportCount}</strong> {t('concept_mapping.export_mappings_count')}
+                </p>
+              </div>
+            </div>
           </div>
         </Card>
 
@@ -430,7 +461,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 className="w-full"
                 variant="outline"
                 size="sm"
-                onClick={() => { setSourceCsvTooLarge(false); handleExportZip() }}
+                onClick={openZipDialog}
                 disabled={zipExporting}
               >
                 {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
@@ -473,6 +504,63 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           ))}
         </div>
       </div>
+
+      {/* Linkr ZIP export options modal */}
+      <Dialog open={zipDialogOpen} onOpenChange={setZipDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('concept_mapping.export_linkr_zip')}</DialogTitle>
+            <DialogDescription>{t('concept_mapping.export_zip_modal_desc')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {/* Core files — always included */}
+            <div className="flex items-start gap-2.5 rounded-md border bg-muted/30 p-2.5">
+              <Archive size={15} className="mt-0.5 shrink-0 text-amber-500" />
+              <div className="min-w-0">
+                <p className="text-xs font-medium">{t('concept_mapping.export_zip_core_files')}</p>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_zip_core_files_desc')}</p>
+              </div>
+            </div>
+
+            {/* Scores — opt-in */}
+            <label className={`flex items-start gap-2.5 rounded-md border p-2.5 ${scoresSize ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
+              <input
+                type="checkbox"
+                checked={includeScores}
+                disabled={!scoresSize}
+                onChange={() => setIncludeScores((v) => !v)}
+                className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
+              />
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium">{t('concept_mapping.export_include_scores')}</span>
+                  {scoresSize ? (
+                    <Badge variant="secondary" className="text-[10px]">{(scoresSize / 1024 / 1024).toFixed(1)} MB</Badge>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  {scoresSize === null
+                    ? t('concept_mapping.export_scores_probing')
+                    : scoresSize
+                      ? t('concept_mapping.export_include_scores_desc')
+                      : t('concept_mapping.export_scores_none_hint')}
+                </p>
+              </div>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setZipDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" onClick={confirmZipExport} disabled={zipExporting}>
+              {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {t('concept_mapping.export_download')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

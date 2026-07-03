@@ -1,6 +1,7 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
 import { getDuckDB, registerResetHook } from '@/lib/duckdb/engine'
-import { getScoresFile } from './scores-storage'
+import { getScoresFile, saveScoresFile } from './scores-storage'
+import { getStorage } from '@/lib/storage'
 import type { ParsedScoreRow } from './scores-parser'
 import type { ScoresIndex } from '@/types'
 
@@ -182,4 +183,17 @@ export async function buildIndex(projectId: string): Promise<ScoresIndex | null>
   } finally {
     await conn.close()
   }
+}
+
+/**
+ * Persist a scores parquet file for a project and (re)build its query index.
+ * Shared by the Suggestions "Load scores file" flow, workspace import, and the seed loader.
+ * The caller is responsible for validating the file beforehand when the source is untrusted.
+ */
+export async function persistScoresFile(projectId: string, file: File): Promise<ScoresIndex | null> {
+  await saveScoresFile(projectId, file)
+  await unregisterProject(projectId)
+  const index = await buildIndex(projectId)
+  if (index) await getStorage().scoresMeta.put(index)
+  return index
 }

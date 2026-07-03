@@ -2,8 +2,8 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import type { ScoresIndex } from '@/types'
 import { validateScoresFile, type ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
-import { saveScoresFile, deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
-import { buildIndex, queryScoresForSource, unregisterProject } from '@/lib/concept-mapping/scores-engine'
+import { deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
+import { persistScoresFile, queryScoresForSource, unregisterProject } from '@/lib/concept-mapping/scores-engine'
 
 interface SuggestionScoresState {
   activeProjectId: string | null
@@ -33,13 +33,9 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
     const validation = await validateScoresFile(file)
     if (!validation.ok) throw new Error(validation.error)
 
-    await saveScoresFile(projectId, file)
-    await unregisterProject(projectId)
-
-    const index = await buildIndex(projectId)
+    const index = await persistScoresFile(projectId, file)
     if (!index) throw new Error('Failed to build scores index after save.')
 
-    await getStorage().scoresMeta.put(index)
     set({ activeProjectId: projectId, index, loaded: true })
     return index
   },

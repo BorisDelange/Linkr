@@ -1408,7 +1408,7 @@ export interface ParsedWorkspaceZip {
   etlPipelines: { pipeline: EtlPipeline; files: EtlFile[] }[]
   dqRuleSets: { ruleSet: DqRuleSet; checks: DqCustomCheck[] }[]
   conceptSets: ConceptSet[]
-  mappingProjects: { project: MappingProject; mappings: ConceptMapping[] }[]
+  mappingProjects: { project: MappingProject; mappings: ConceptMapping[]; scoresFile?: File }[]
   sourceConceptIdRanges: SourceConceptIdRange[]
   sourceConceptIdEntries: SourceConceptIdEntry[]
   catalogs: DataCatalog[]
@@ -1643,7 +1643,16 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       }
     }
 
-    mappingProjects.push({ project, mappings })
+    // Optional precomputed similarity scores (opt-in on export — may be absent)
+    let scoresFile: File | undefined
+    const scoresEntry = zipData.files[`${prefix}similarity-scores.parquet`]
+    if (scoresEntry && !scoresEntry.dir) {
+      const buf = await scoresEntry.async('uint8array')
+      // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
+      if (buf.byteLength > 0) scoresFile = new File([buf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
+    }
+
+    mappingProjects.push({ project, mappings, scoresFile })
   }
 
   // --- source-concept-ids/ (cross-project ID assignment registry) ---

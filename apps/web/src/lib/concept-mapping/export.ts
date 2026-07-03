@@ -531,6 +531,11 @@ interface BuildMappingProjectFolderOptions {
    * Use when the caller will download it separately (e.g. large file-based sources).
    */
   skipSourceConcepts?: boolean
+  /**
+   * Include the precomputed similarity scores (similarity-scores.parquet) in the ZIP.
+   * Opt-in — the file can be ~100 MB, so it is excluded by default (and from workspace export).
+   */
+  includeScores?: boolean
 }
 
 /**
@@ -603,6 +608,19 @@ export async function buildMappingProjectFolder(
       } catch {
         // Source concepts export failed — continue without it
       }
+    }
+  }
+
+  // Precomputed similarity scores (opt-in — large parquet, stored in OPFS/IDB, not JSON)
+  if (options.includeScores) {
+    try {
+      const { getScoresFile } = await import('@/lib/concept-mapping/scores-storage')
+      const scoresFile = await getScoresFile(project.id)
+      if (scoresFile) {
+        zip.file(`${prefix}similarity-scores.parquet`, await scoresFile.arrayBuffer(), { compression: 'STORE' })
+      }
+    } catch {
+      // Scores export failed — continue without them
     }
   }
 }
