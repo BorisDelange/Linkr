@@ -232,6 +232,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
                     verticalAlign="middle"
                     iconSize={10}
                     wrapperStyle={{ fontSize: 11 }}
+                    formatter={(value) => <span style={{ color: 'var(--color-foreground)' }}>{value}</span>}
                   />
                 </PieChart>
               </ResponsiveContainer>

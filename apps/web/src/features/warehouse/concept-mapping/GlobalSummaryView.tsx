@@ -1360,7 +1360,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                         labelStyle={{ color: 'var(--color-popover-foreground)' }}
                         cursor={{ fill: 'var(--color-accent)' }}
                       />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Legend
+                        wrapperStyle={{ fontSize: 11 }}
+                        formatter={(value) => <span style={{ color: 'var(--color-foreground)' }}>{value}</span>}
+                      />
                       {(['approved', 'flagged', 'rejected', 'ignored', 'unchecked', 'unmapped'] as const).map((s) => (
                         <Bar
                           key={s}
@@ -1413,10 +1416,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                           <TableCell className="text-right text-red-500">{g.rejected.toLocaleString()}</TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                              <div className="h-1.5 w-16 shrink-0 overflow-hidden rounded-full bg-muted">
                                 <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
                               </div>
-                              <span className="text-muted-foreground">{pct}%</span>
+                              <span className="w-9 text-right tabular-nums text-muted-foreground">{pct}%</span>
                             </div>
                           </TableCell>
                         </TableRow>

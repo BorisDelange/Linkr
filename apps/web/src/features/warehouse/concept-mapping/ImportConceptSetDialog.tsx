@@ -86,12 +86,19 @@ export function extractMetadata(obj: Record<string, unknown>, lang: string): { c
   const translations = meta.translations as Record<string, Record<string, string>> | undefined
   const tr = translations?.[lang] ?? translations?.en ?? {}
 
-  const org = meta.organization as Record<string, string> | undefined
+  // organization is { created: { name, url }, current: { name, url } } — prefer
+  // the current owner, fall back to the creator, then to a flat `name` for
+  // older/other formats.
+  const org = meta.organization as Record<string, unknown> | undefined
+  const orgName =
+    (org?.current as Record<string, unknown> | undefined)?.name ??
+    (org?.created as Record<string, unknown> | undefined)?.name ??
+    org?.name
 
   return {
     category: tr.category || undefined,
     subcategory: tr.subcategory || undefined,
-    provenance: org?.name || undefined,
+    provenance: orgName ? String(orgName) : undefined,
     version: meta.version ? String(meta.version) : (obj.version ? String(obj.version) : undefined),
     uniqueId: meta.uniqueId ? String(meta.uniqueId) : undefined,
     sourceRepo: meta.sourceRepo ? String(meta.sourceRepo) : undefined,

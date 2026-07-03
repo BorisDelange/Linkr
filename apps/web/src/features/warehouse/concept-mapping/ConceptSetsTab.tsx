@@ -141,6 +141,12 @@ interface CsRow {
   items: number
   version: string
   provenance: string
+  /** Distinct source concepts mapped onto this concept set. */
+  mappedCount: number
+  /** Names of those source concepts (for the hover tooltip). */
+  mappedSources: string[]
+  /** 'none' = no source concept mapped, 'mapped' = at least one. */
+  mappedStatus: 'none' | 'mapped'
   raw: ConceptSet
 }
 
@@ -152,7 +158,7 @@ interface ConceptSetsTabProps {
 export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { conceptSets, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
+  const { conceptSets, mappings, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
   const [_updatingId, setUpdatingId] = useState<string | null>(null)
@@ -228,6 +234,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [filterName, setFilterName] = useState('')
   const [filterVersion, setFilterVersion] = useState('')
   const [filterProvenance, setFilterProvenance] = useState('')
+  // '' = all, 'none' = no source concept mapped, 'mapped' = at least one
+  const [filterStatus, setFilterStatus] = useState('')
 
   // TanStack table state
   const [csSorting, setCsSorting] = useState<CsSorting | null>(null)
@@ -257,10 +265,38 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const subcategoryOptions = useMemo(() => [...new Set(linkedSets.map((cs) => getConceptSetI18n(cs, lang).subcategory).filter(Boolean) as string[])].sort(), [linkedSets, lang])
   const provenanceOptions = useMemo(() => [...new Set(linkedSets.map((cs) => cs.provenance).filter(Boolean) as string[])].sort(), [linkedSets])
 
+  // Distinct source concepts mapped onto each concept set. A source counts when
+  // one of its mappings targets a concept in the set (resolved ids if available,
+  // else the expression items) with a real status — exclude rejected/invalid/
+  // ignored/suggested, which are not actual alignments.
+  const mappedByCsId = useMemo(() => {
+    const REAL: ReadonlySet<string> = new Set(['unchecked', 'approved', 'flagged'])
+    const realMappings = mappings.filter((m) => m.projectId === project.id && REAL.has(m.status) && m.targetConceptId > 0)
+    const byCs = new Map<string, { count: number; sources: string[] }>()
+    for (const cs of linkedSets) {
+      const targetIds = new Set<number>(
+        cs.resolvedConceptIds && cs.resolvedConceptIds.length > 0
+          ? cs.resolvedConceptIds
+          : cs.expression.items.map((it) => it.concept.conceptId),
+      )
+      const seen = new Set<number>()
+      const sources: string[] = []
+      for (const m of realMappings) {
+        if (targetIds.has(m.targetConceptId) && !seen.has(m.sourceConceptId)) {
+          seen.add(m.sourceConceptId)
+          sources.push(`${m.sourceVocabularyId} - ${m.sourceConceptCode} - ${m.sourceConceptName}`)
+        }
+      }
+      byCs.set(cs.id, { count: sources.length, sources })
+    }
+    return byCs
+  }, [mappings, linkedSets, project.id])
+
   // Build translated rows for the table
   const csRows = useMemo<CsRow[]>(() => {
     return linkedSets.map((cs) => {
       const tr = getConceptSetI18n(cs, lang)
+      const mapped = mappedByCsId.get(cs.id) ?? { count: 0, sources: [] }
       return {
         id: cs.id,
         category: tr.category ?? '',
@@ -270,11 +306,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         items: cs.expression.items.length,
         version: cs.version ?? '',
         provenance: cs.provenance ?? '',
+        mappedCount: mapped.count,
+        mappedSources: mapped.sources,
+        mappedStatus: mapped.count > 0 ? 'mapped' : 'none',
         raw: cs,
       }
     })
 
-  }, [linkedSets, lang])
+  }, [linkedSets, lang, mappedByCsId])
 
   // Apply inline column filters
   const filteredRows = useMemo(() => {
@@ -284,10 +323,11 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       if (filterName && !textMatch(r.name.toLowerCase(), filterName.toLowerCase())) return false
       if (filterVersion && !r.version.toLowerCase().includes(filterVersion.toLowerCase())) return false
       if (filterProvenance && r.provenance !== filterProvenance) return false
+      if (filterStatus && r.mappedStatus !== filterStatus) return false
       return true
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [csRows, filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance])
+  }, [csRows, filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance, filterStatus])
 
   // Also keep filteredSets for backward compat with selection mode
   const filteredSets = useMemo(() => {
@@ -308,15 +348,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   }, [filteredRows, csSorting])
 
   // Reset page when filters change
-  const prevFiltersRef = useRef({ filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance })
+  const prevFiltersRef = useRef({ filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance, filterStatus })
   if (
     prevFiltersRef.current.filterCategory !== filterCategory ||
     prevFiltersRef.current.filterSubcategory !== filterSubcategory ||
     prevFiltersRef.current.filterName !== filterName ||
     prevFiltersRef.current.filterVersion !== filterVersion ||
-    prevFiltersRef.current.filterProvenance !== filterProvenance
+    prevFiltersRef.current.filterProvenance !== filterProvenance ||
+    prevFiltersRef.current.filterStatus !== filterStatus
   ) {
-    prevFiltersRef.current = { filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance }
+    prevFiltersRef.current = { filterCategory, filterSubcategory, filterName, filterVersion, filterProvenance, filterStatus }
     setCsPage(0)
   }
 
@@ -360,6 +401,16 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         <SelectContent>
           <SelectItem value="__all__">...</SelectItem>
           {provenanceOptions.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    )
+    if (columnId === 'mappedStatus') return (
+      <Select value={filterStatus || '__all__'} onValueChange={(v) => setFilterStatus(v === '__all__' ? '' : v)}>
+        <SelectTrigger className="h-5 border-dashed text-[10px] px-1 [&>svg]:size-3"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="__all__">{t('concept_mapping.cs_status_all')}</SelectItem>
+          <SelectItem value="mapped">{t('concept_mapping.cs_status_mapped')}</SelectItem>
+          <SelectItem value="none">{t('concept_mapping.cs_status_none')}</SelectItem>
         </SelectContent>
       </Select>
     )
@@ -430,12 +481,22 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         header: () => t('concept_mapping.col_name'),
         accessorFn: (row) => row.name,
         cell: ({ row }) => (
-          <div>
-            <div className="truncate font-medium">{row.original.name}</div>
-            {row.original.description && (
-              <div className="truncate text-[10px] text-muted-foreground mt-0.5">{row.original.description}</div>
-            )}
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="cursor-default">
+                <div className="truncate font-medium">{row.original.name}</div>
+                {row.original.description && (
+                  <div className="truncate text-[10px] text-muted-foreground mt-0.5">{row.original.description}</div>
+                )}
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-sm">
+              <p className="text-xs font-medium">{row.original.name}</p>
+              {row.original.description && (
+                <p className="mt-1 text-[11px] text-muted-foreground">{row.original.description}</p>
+              )}
+            </TooltipContent>
+          </Tooltip>
         ),
         size: 250,
         minSize: 100,
@@ -467,6 +528,51 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         cell: ({ row }) => <span className="text-muted-foreground">{row.original.provenance}</span>,
         size: 120,
         minSize: 60,
+      },
+      {
+        id: 'mappedStatus',
+        header: () => t('concept_mapping.cs_col_status'),
+        accessorFn: (row) => row.mappedStatus,
+        cell: ({ row }) => (
+          <span className="flex justify-center">
+            {row.original.mappedStatus === 'mapped' ? (
+              <Badge variant="secondary" className="text-[10px] bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400">
+                {t('concept_mapping.cs_status_mapped')}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                {t('concept_mapping.cs_status_none')}
+              </Badge>
+            )}
+          </span>
+        ),
+        size: 110,
+        minSize: 70,
+      },
+      {
+        id: 'mappedCount',
+        header: () => t('concept_mapping.cs_col_mapped_count'),
+        accessorFn: (row) => row.mappedCount,
+        cell: ({ row }) => {
+          const { mappedCount, mappedSources } = row.original
+          const badge = <Badge variant="secondary" className="text-[10px]">{mappedCount}</Badge>
+          if (mappedCount === 0) return <span className="flex justify-center">{badge}</span>
+          return (
+            <span className="flex justify-center">
+              <Tooltip>
+                <TooltipTrigger asChild><span className="cursor-default">{badge}</span></TooltipTrigger>
+                <TooltipContent side="left" className="max-w-sm">
+                  <ul className="space-y-0.5 text-[11px]">
+                    {mappedSources.slice(0, 10).map((s, i) => <li key={i} className="truncate">- {s}</li>)}
+                    {mappedSources.length > 10 && <li className="text-muted-foreground">…</li>}
+                  </ul>
+                </TooltipContent>
+              </Tooltip>
+            </span>
+          )
+        },
+        size: 90,
+        minSize: 50,
       },
     )
 
