@@ -416,8 +416,13 @@ export function WorkspacesPage() {
           ...(duplicate ? { name: copyLocalizedName(mp.name), createdAt: now } : {}),
         })
         if (scoresFile) {
-          const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
-          await persistScoresFile(id, scoresFile).catch(() => {})
+          // Untrusted ZIP input — validate columns before persisting, same as the interactive load flow.
+          const [{ persistScoresFile }, { validateScoresFile }] = await Promise.all([
+            import('@/lib/concept-mapping/scores-engine'),
+            import('@/lib/concept-mapping/scores-parser'),
+          ])
+          const validation = await validateScoresFile(scoresFile)
+          if (validation.ok) await persistScoresFile(id, scoresFile).catch(() => {})
         }
         for (const m of mappings) {
           await storage.conceptMappings.create({

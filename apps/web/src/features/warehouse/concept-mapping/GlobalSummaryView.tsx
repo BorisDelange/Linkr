@@ -752,7 +752,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
   const handleExportDownload = async (format: 'sssom' | 'stcm' | 'usagi') => {
     if (format === 'sssom') {
-      const virtualProject = { name: 'global', id: 'global' } as MappingProject
+      // Synthetic project for the cross-project export; exportToSssomTsv only reads name + id.
+      const virtualProject = { name: { en: 'global' }, id: 'global' } as unknown as MappingProject
       downloadFile(exportToSssomTsv(exportFilteredMappings, virtualProject), `global-sssom.tsv`, 'text/tab-separated-values')
     } else if (format === 'stcm') {
       const entries = registryEntries.length > 0 ? registryEntries : undefined

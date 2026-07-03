@@ -6,6 +6,7 @@
  * via SQL LIMIT/OFFSET instead of keeping everything in JS memory.
  */
 import { getDuckDB } from '@/lib/duckdb/engine'
+import { localized } from '@/lib/localized'
 import type { ConceptMapping, MappingProject } from '@/types'
 
 /* ------------------------------------------------------------------ */
@@ -125,7 +126,7 @@ export async function populateFlatTable(
     const va = reviews.filter((r) => r.status === 'approved').length
     const vf = reviews.filter((r) => r.status === 'flagged').length
     const vr = reviews.filter((r) => r.status === 'rejected').length
-    values.push(`('${esc(m.id)}','${esc(m.projectId)}','${esc(proj?.name ?? m.projectId)}',false,'${esc(m.sourceVocabularyId ?? '')}',${m.sourceConceptId ?? 0},${resolvedId ?? 'NULL'},'${esc(m.sourceConceptCode ?? '')}','${esc(m.sourceConceptName ?? '')}','${esc(m.equivalence ?? '')}','${esc(m.targetVocabularyId ?? '')}',${m.targetConceptId ?? 0},'${esc(m.targetConceptName ?? '')}','${esc(m.status ?? '')}','${esc(m.mappedBy ?? '')}','${esc(m.createdAt ?? '')}','${esc(m.updatedAt ?? '')}',${va},${vf},${vr},'${esc(JSON.stringify(reviews))}')`)
+    values.push(`('${esc(m.id)}','${esc(m.projectId)}','${esc(proj ? localized(proj.name, 'en') : m.projectId)}',false,'${esc(m.sourceVocabularyId ?? '')}',${m.sourceConceptId ?? 0},${resolvedId ?? 'NULL'},'${esc(m.sourceConceptCode ?? '')}','${esc(m.sourceConceptName ?? '')}','${esc(m.equivalence ?? '')}','${esc(m.targetVocabularyId ?? '')}',${m.targetConceptId ?? 0},'${esc(m.targetConceptName ?? '')}','${esc(m.status ?? '')}','${esc(m.mappedBy ?? '')}','${esc(m.createdAt ?? '')}','${esc(m.updatedAt ?? '')}',${va},${vf},${vr},'${esc(JSON.stringify(reviews))}')`)
     if (values.length >= BATCH) await flush()
   }
 
@@ -142,7 +143,7 @@ export async function populateFlatTable(
       const resolvedId = isArtificialId
         ? (registryMap.get(key) ?? null)
         : (sc.concept_id || null)
-      values.push(`('unmapped__${esc(projectId)}__${esc(key)}','${esc(projectId)}','${esc(proj.name)}',true,'${esc(sc.vocabulary_id)}',${sc.concept_id ?? 0},${resolvedId ?? 'NULL'},'${esc(sc.concept_code)}','${esc(sc.concept_name)}','','',0,'','unchecked','','','',0,0,0,'[]')`)
+      values.push(`('unmapped__${esc(projectId)}__${esc(key)}','${esc(projectId)}','${esc(localized(proj.name, 'en'))}',true,'${esc(sc.vocabulary_id)}',${sc.concept_id ?? 0},${resolvedId ?? 'NULL'},'${esc(sc.concept_code)}','${esc(sc.concept_name)}','','',0,'','unchecked','','','',0,0,0,'[]')`)
       if (values.length >= BATCH) await flush()
     }
   }

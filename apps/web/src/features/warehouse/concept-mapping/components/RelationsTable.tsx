@@ -334,7 +334,7 @@ export function RelationsTable({ relations }: RelationsTableProps) {
               </TableRow>
             ) : (
               table.getRowModel().rows.map((row) => (
-                <TableRow key={row.original.concept_id}>
+                <TableRow key={`${row.original.relationship_id}__${row.original.concept_id}`}>
                   {row.getVisibleCells().map((cell) => (
                     <TableCell
                       key={cell.id}

@@ -123,7 +123,7 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
     // --- README.md ---
     if (project) {
       virtual.push(
-        vFile('virtual:README.md', 'README.md', null, project.readme ?? '', 'markdown'),
+        vFile('virtual:README.md', 'README.md', null, localized(project.readme, 'en') || '', 'markdown'),
       )
     }
 

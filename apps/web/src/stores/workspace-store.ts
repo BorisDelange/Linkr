@@ -79,7 +79,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     // values polluted with the SPA shell HTML by an earlier buggy seed loader
     // (a missing README.<lang>.md used to resolve to index.html).
     for (const ws of workspaces) {
-      const legacyReadme = typeof ws.readme === 'string' && ws.readme.length > 0
+      const legacyReadme = typeof ws.readme === 'string' && (ws.readme as string).length > 0
       const readmeObj = legacyReadme ? undefined : (ws.readme as LocalizedString | undefined)
       const polluted = readmeObj != null && Object.values(readmeObj).some(isShellHtml)
       if (!legacyReadme && !polluted) continue

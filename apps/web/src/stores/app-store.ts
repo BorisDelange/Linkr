@@ -253,8 +253,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     // LocalizedString, and repair readmes that were polluted with the SPA shell
     // HTML by an earlier buggy per-language seed loader (see fetchMarkdown).
     for (const p of projects) {
-      const legacyReadme = typeof p.readme === 'string' && p.readme.length > 0
-      const legacyNotes = typeof p.notes === 'string' && p.notes.length > 0
+      const legacyReadme = typeof p.readme === 'string' && (p.readme as string).length > 0
+      const legacyNotes = typeof p.notes === 'string' && (p.notes as string).length > 0
       const legacyTodos = (p.todos ?? []).some((t) => typeof t.text === 'string')
       const readmeObj = legacyReadme ? undefined : (p.readme as LocalizedString | undefined)
       const pollutedReadme = readmeObj != null && Object.values(readmeObj).some(isShellHtml)

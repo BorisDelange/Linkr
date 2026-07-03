@@ -537,7 +537,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (!dataSourceId || !target) return
     setLoadingRelations(true)
     try {
-      const rows = await queryDataSource(dataSourceId, buildConceptRelationsQuery(target.concept_id, conceptTable)) as RelationRow[]
+      const rows = await queryDataSource(dataSourceId, buildConceptRelationsQuery(target.concept_id, conceptTable)) as unknown as RelationRow[]
       setRelations(rows)
     } catch {
       setRelationsUnavailable(true)

@@ -11,7 +11,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWikiStore } from '@/stores/wiki-store'
-import type { LocalizedString } from '@/types'
+import type { LocalizedString, ProjectStatus } from '@/types'
 import {
   FolderOpen,
   ArrowRight,
@@ -227,7 +227,7 @@ function OverviewTab({
   onViewReadme: () => void
   recentProjects: RecentProject[]
   totalProjects: number
-  projectsRaw: { uid: string; status?: string }[]
+  projectsRaw: { uid: string; status?: ProjectStatus }[]
   onOpenProject: (uid: string, name: string) => void
   recentMappingProjects: RecentMappingProject[]
   totalMappingProjects: number
@@ -352,7 +352,7 @@ function RecentEntitiesCard({
 }: {
   recentProjects: RecentProject[]
   totalProjects: number
-  projectsRaw: { uid: string; status?: string }[]
+  projectsRaw: { uid: string; status?: ProjectStatus }[]
   onOpenProject: (uid: string, name: string) => void
   projectsPath: string
   recentMappingProjects: RecentMappingProject[]
