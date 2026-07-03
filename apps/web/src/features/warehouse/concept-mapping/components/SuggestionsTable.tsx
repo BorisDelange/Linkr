@@ -131,6 +131,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
     domain_id: false,
     concept_class_id: false,
     comment: false,
+    concept_set: false,
   })
 
   const handleSort = (columnId: string) => {
