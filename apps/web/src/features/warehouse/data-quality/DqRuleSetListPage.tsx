@@ -10,11 +10,12 @@ import { useDqStore } from '@/stores/dq-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
+import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import type { DqRuleSet, DqRuleSetStatus } from '@/types'
 
 const STATUS_BADGE: Record<DqRuleSetStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -37,8 +38,9 @@ export function DqRuleSetListPage() {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { dqRuleSetsLoaded, loadDqRuleSets, getWorkspaceRuleSets, deleteRuleSet } = useDqStore()
+  const { dqRuleSetsLoaded, loadDqRuleSets, getWorkspaceRuleSets } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const dqActions = useDqRuleSetActions()
 
   useEffect(() => {
     if (!dqRuleSetsLoaded) loadDqRuleSets()
@@ -49,19 +51,8 @@ export function DqRuleSetListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
 
-  // --- Export / Import ---
+  // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: DqRuleSet; pendingChecks: import('@/types').DqCustomCheck[] } | null>(null)
-
-  const handleExport = useCallback(async (rs: DqRuleSet) => {
-    const checks = await getStorage().dqCustomChecks.getByRuleSet(rs.id)
-    await exportEntityZip(
-      [
-        { filename: 'ruleset.json', data: rs },
-        { filename: 'checks.json', data: checks },
-      ],
-      `${slugify(localized(rs.name, 'en'))}.zip`,
-    )
-  }, [])
 
   const doImport = useCallback(async (rs: DqRuleSet, checks: import('@/types').DqCustomCheck[], duplicate: boolean) => {
     const now = new Date().toISOString()
@@ -117,13 +108,13 @@ export function DqRuleSetListPage() {
       newButtonKey="data_quality.new_rule_set"
       emptyTitleKey="data_quality.no_rule_sets"
       emptyDescriptionKey="data_quality.no_rule_sets_description"
-      deleteConfirmTitleKey="data_quality.delete_rs_title"
-      deleteConfirmDescriptionKey="data_quality.delete_rs_description"
+      deleteConfirmTitleKey={dqActions.deleteConfirmTitleKey}
+      deleteConfirmDescriptionKey={dqActions.deleteConfirmDescriptionKey}
       emptyIcon={ShieldCheck}
       items={ruleSets}
       onNavigate={(id) => navigate(id)}
-      onDelete={(id) => deleteRuleSet(id)}
-      onExport={handleExport}
+      onDelete={dqActions.onDelete}
+      onExport={dqActions.onExport}
       onImport={handleImport}
       renderCardBody={(rs) => {
         const statusInfo = STATUS_BADGE[rs.status]
@@ -167,9 +158,7 @@ export function DqRuleSetListPage() {
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (
         <CreateDqRuleSetDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />
       )}
-      renderEditDialog={({ item, onOpenChange }) => (
-        <CreateDqRuleSetDialog open onOpenChange={onOpenChange} editingRuleSet={item} />
-      )}
+      renderEditDialog={dqActions.renderEditDialog}
     />
     </>
   )

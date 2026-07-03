@@ -1,39 +1,22 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Trash2, Pencil, Download, GitBranch, History, MoreHorizontal, Upload, type LucideIcon } from 'lucide-react'
-import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import { Plus, Upload, type LucideIcon } from 'lucide-react'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
-import type { GitRemoteConfig } from '@/types'
+import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface ListPageTemplateProps<T extends { id: string; name: string }> {
+interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | string }> {
   /** Page title i18n key */
   titleKey: string
   /** Page description i18n key */
@@ -89,7 +72,7 @@ interface ListPageTemplateProps<T extends { id: string; name: string }> {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ListPageTemplate<T extends { id: string; name: string }>({
+export function ListPageTemplate<T extends { id: string; name: LocalizedString | string }>({
   titleKey,
   descriptionKey,
   newButtonKey,
@@ -116,19 +99,7 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
   const { t } = useTranslation()
 
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [toDelete, setToDelete] = useState<T | null>(null)
-  const [toEdit, setToEdit] = useState<T | null>(null)
-  const [versioning, setVersioning] = useState<{ item: T; tab: 'export' | 'git' } | null>(null)
   const [importOpen, setImportOpen] = useState(false)
-
-  const versioningEnabled = !!getGitRemote && !!onSaveGitRemote
-
-  const handleDelete = async () => {
-    if (toDelete) {
-      await onDelete(toDelete.id)
-      setToDelete(null)
-    }
-  }
 
   return (
     <div className="h-full overflow-auto">
@@ -191,58 +162,17 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
               >
                 <div className="flex items-start gap-4 p-4">
                   {renderCardBody(item)}
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreHorizontal size={14} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setToEdit(item) }}>
-                        <Pencil size={14} />
-                        {t('common.edit')}
-                      </DropdownMenuItem>
-                      {onExport ? (
-                        <DropdownMenuItem onClick={(e) => {
-                          e.stopPropagation()
-                          if (versioningEnabled) setVersioning({ item, tab: 'export' })
-                          else onExport(item)
-                        }}>
-                          <Download size={14} />
-                          {t('common.export')}
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem disabled>
-                          <Download size={14} />
-                          {t('common.export')}
-                          <span className="ml-auto text-[10px] text-muted-foreground">{t('common.coming_soon')}</span>
-                        </DropdownMenuItem>
-                      )}
-                      {versioningEnabled && (
-                        <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioning({ item, tab: 'git' }) }}>
-                          <GitBranch size={14} />
-                          {t('common.versioning')}
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem disabled>
-                        <History size={14} />
-                        {t('common.history')}
-                        <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem
-                        onClick={(e) => { e.stopPropagation(); setToDelete(item) }}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 size={14} className="text-destructive" />
-                        {t('common.delete')}
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <EntityActionsMenu
+                    item={item}
+                    onDelete={onDelete}
+                    onExport={onExport}
+                    getGitRemote={getGitRemote}
+                    onSaveGitRemote={onSaveGitRemote}
+                    exportSupportsIncludeData={exportSupportsIncludeData}
+                    renderEditDialog={renderEditDialog}
+                    deleteConfirmTitleKey={deleteConfirmTitleKey}
+                    deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
+                  />
                 </div>
               </Card>
             ))}
@@ -257,12 +187,6 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
         onCreated: (id) => { setDialogOpen(false); onNavigate(id) },
       })}
 
-      {/* Edit dialog */}
-      {toEdit && renderEditDialog({
-        item: toEdit,
-        onOpenChange: (open) => { if (!open) setToEdit(null) },
-      })}
-
       {/* Import dialog (ZIP upload or git clone) */}
       {onImport && (
         <ImportSourceDialog
@@ -272,37 +196,6 @@ export function ListPageTemplate<T extends { id: string; name: string }>({
           onImport={onImport}
         />
       )}
-
-      {/* Versioning dialog (export + git link) */}
-      {versioning && getGitRemote && onSaveGitRemote && onExport && (
-        <EntityVersioningDialog
-          open
-          onOpenChange={(open) => { if (!open) setVersioning(null) }}
-          initialTab={versioning.tab}
-          supportsIncludeData={exportSupportsIncludeData}
-          gitRemote={getGitRemote(versioning.item)}
-          onExport={() => onExport(versioning.item)}
-          onSaveGitRemote={async (config) => {
-            await onSaveGitRemote(versioning.item, config)
-          }}
-        />
-      )}
-
-      {/* Delete confirmation */}
-      <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t(deleteConfirmTitleKey)}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(deleteConfirmDescriptionKey, { name: toDelete?.name ?? '' })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

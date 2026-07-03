@@ -27,11 +27,9 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import JSZip from 'jszip'
 import { getStorage } from '@/lib/storage'
-import { downloadBlob, parseImportZip, slugify } from '@/lib/entity-io'
-import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { parseImportZip } from '@/lib/entity-io'
+import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import {
   AlertDialog,
@@ -48,6 +46,7 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
+import { useMappingProjectActions } from './use-mapping-project-actions'
 import type { MappingProject, MappingProjectStatus } from '@/types'
 import { useState } from 'react'
 
@@ -99,9 +98,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects, deleteMappingProject } = useConceptMappingStore()
+  const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const mappingActions = useMappingProjectActions()
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -144,17 +143,6 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
-
-  const handleExport = useCallback(async (project: MappingProject) => {
-    const zip = new JSZip()
-    await buildMappingProjectFolder(zip, '', project, getStorage(), {
-      queryDataSource,
-      ensureMounted,
-      dataSources,
-    })
-    const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
-  }, [dataSources, ensureMounted])
 
   const doImport = useCallback(async (project: MappingProject, children: ImportChildren, duplicate: boolean, existingId?: string) => {
     const now = new Date().toISOString()
@@ -352,19 +340,16 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         newButtonKey="concept_mapping.new_project"
         emptyTitleKey="concept_mapping.no_projects"
         emptyDescriptionKey="concept_mapping.no_projects_description"
-        deleteConfirmTitleKey="concept_mapping.delete_confirm_title"
-        deleteConfirmDescriptionKey="concept_mapping.delete_confirm_description"
         emptyIcon={ArrowRightLeft}
         items={filteredProjects}
         onNavigate={(id) => navigate(id)}
-        onDelete={(id) => deleteMappingProject(id)}
-        onExport={handleExport}
-        getGitRemote={(p) => p.gitRemoteConfig ?? null}
-        onSaveGitRemote={async (p, config) => {
-          await getStorage().mappingProjects.update(p.id, { gitRemoteConfig: config ?? undefined })
-          await loadMappingProjects()
-        }}
-        exportSupportsIncludeData={false}
+        onDelete={mappingActions.onDelete}
+        onExport={mappingActions.onExport}
+        getGitRemote={mappingActions.getGitRemote}
+        onSaveGitRemote={mappingActions.onSaveGitRemote}
+        exportSupportsIncludeData={mappingActions.exportSupportsIncludeData}
+        deleteConfirmTitleKey={mappingActions.deleteConfirmTitleKey}
+        deleteConfirmDescriptionKey={mappingActions.deleteConfirmDescriptionKey}
         onImport={handleImport}
         backAction={backButton}
         headerActions={
@@ -540,9 +525,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         renderCreateDialog={({ open, onOpenChange, onCreated }) => (
           <CreateMappingProjectDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />
         )}
-        renderEditDialog={({ item, onOpenChange }) => (
-          <CreateMappingProjectDialog open onOpenChange={onOpenChange} editingProject={item} />
-        )}
+        renderEditDialog={mappingActions.renderEditDialog}
       />
 
       {/* Import error dialog */}

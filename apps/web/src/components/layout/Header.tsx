@@ -14,9 +14,17 @@ import { localized } from '@/lib/localized'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
 import { clearAllData } from '@/lib/version-check'
-import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen } from 'lucide-react'
+import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
+import { useMappingProjectActions } from '@/features/warehouse/concept-mapping/use-mapping-project-actions'
+import { useDashboardActions } from '@/features/projects/lab/use-dashboard-actions'
+import { useCohortActions } from '@/features/projects/warehouse/cohorts/use-cohort-actions'
+import { useEtlActions } from '@/features/warehouse/etl/use-etl-actions'
+import { useSqlCollectionActions } from '@/features/warehouse/sql-scripts/use-sql-collection-actions'
+import { useCatalogActions } from '@/features/warehouse/catalog/use-catalog-actions'
+import { useDqRuleSetActions } from '@/features/warehouse/data-quality/use-dq-rule-set-actions'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import {
@@ -127,7 +135,36 @@ export function Header() {
   const sqlName = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId)?.name : undefined)
   const catalogName = useCatalogStore((s) => catalogId ? s.catalogs.find((c) => c.id === catalogId)?.name : undefined)
   const cmName = useConceptMappingStore((s) => cmId ? s.mappingProjects.find((p) => p.id === cmId)?.name : undefined)
+  const cmProject = useConceptMappingStore((s) => cmId ? s.mappingProjects.find((p) => p.id === cmId) : undefined)
   const dqName = useDqStore((s) => dqId ? s.dqRuleSets.find((r) => r.id === dqId)?.name : undefined)
+  const dashboardEntity = useDashboardStore((s) => dashboardId ? s.dashboards.find((d) => d.id === dashboardId) : undefined)
+  const cohortEntity = useCohortStore((s) => cohortId ? s.cohorts.find((c) => c.id === cohortId) : undefined)
+  const etlEntity = useEtlStore((s) => etlId ? s.etlPipelines.find((p) => p.id === etlId) : undefined)
+  const sqlEntity = useSqlScriptsStore((s) => sqlId ? s.collections.find((c) => c.id === sqlId) : undefined)
+  const catalogEntity = useCatalogStore((s) => catalogId ? s.catalogs.find((c) => c.id === catalogId) : undefined)
+  const dqEntity = useDqStore((s) => dqId ? s.dqRuleSets.find((r) => r.id === dqId) : undefined)
+
+  const mappingActions = useMappingProjectActions()
+  const dashboardActions = useDashboardActions()
+  const cohortActions = useCohortActions()
+  const etlActions = useEtlActions()
+  const sqlActions = useSqlCollectionActions()
+  const catalogActions = useCatalogActions()
+  const dqActions = useDqRuleSetActions()
+  const [cmMenuOpen, setCmMenuOpen] = useState(false)
+  const [dashMenuOpen, setDashMenuOpen] = useState(false)
+  const [cohortMenuOpen, setCohortMenuOpen] = useState(false)
+  const [etlMenuOpen, setEtlMenuOpen] = useState(false)
+  const [sqlMenuOpen, setSqlMenuOpen] = useState(false)
+  const [catalogMenuOpen, setCatalogMenuOpen] = useState(false)
+  const [dqMenuOpen, setDqMenuOpen] = useState(false)
+
+  // After deleting the entity from the header, leave its (now-orphaned) detail
+  // page for the list — otherwise the stale id lingers in the URL and the next
+  // relative navigation resolves wrong (nests under the deleted id).
+  const handleEntityDeleted = () => {
+    if (backToListPath) navigate(backToListPath)
+  }
 
   const handleLanguageToggle = () => {
     const newLang = language === 'en' ? 'fr' : 'en'
@@ -198,9 +235,151 @@ export function Header() {
               <ArrowLeft size={15} />
             </button>
           )}
-          <h1 className="text-[13px] font-medium text-foreground">
-            {getPageLabel()}
-          </h1>
+          {cmProject ? (
+            <EntityActionsMenu
+              item={cmProject}
+              {...mappingActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={cmMenuOpen}
+              onOpenChange={setCmMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <ArrowRightLeft size={10} className="text-muted-foreground" />
+                  {localized(cmProject.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : dashboardEntity ? (
+            <EntityActionsMenu
+              item={dashboardEntity}
+              {...dashboardActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={dashMenuOpen}
+              onOpenChange={setDashMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <LayoutDashboard size={10} className="text-muted-foreground" />
+                  {localized(dashboardEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : cohortEntity ? (
+            <EntityActionsMenu
+              item={cohortEntity}
+              {...cohortActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={cohortMenuOpen}
+              onOpenChange={setCohortMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <UsersRound size={10} className="text-muted-foreground" />
+                  {cohortEntity.name}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : etlEntity ? (
+            <EntityActionsMenu
+              item={etlEntity}
+              {...etlActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={etlMenuOpen}
+              onOpenChange={setEtlMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <Workflow size={10} className="text-muted-foreground" />
+                  {localized(etlEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : sqlEntity ? (
+            <EntityActionsMenu
+              item={sqlEntity}
+              {...sqlActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={sqlMenuOpen}
+              onOpenChange={setSqlMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <SquareTerminal size={10} className="text-muted-foreground" />
+                  {localized(sqlEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : catalogEntity ? (
+            <EntityActionsMenu
+              item={catalogEntity}
+              {...catalogActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={catalogMenuOpen}
+              onOpenChange={setCatalogMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <BookOpen size={10} className="text-muted-foreground" />
+                  {localized(catalogEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : dqEntity ? (
+            <EntityActionsMenu
+              item={dqEntity}
+              {...dqActions}
+              align="start"
+              onDeleted={handleEntityDeleted}
+              open={dqMenuOpen}
+              onOpenChange={setDqMenuOpen}
+              trigger={
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer translate-y-px gap-1 py-0 text-[11px] text-foreground/80 border-border bg-muted transition-colors hover:bg-accent"
+                  aria-label={t('common.actions')}
+                >
+                  <ShieldCheck size={10} className="text-muted-foreground" />
+                  {localized(dqEntity.name, language)}
+                  <MoreHorizontal size={12} className="text-muted-foreground" />
+                </Badge>
+              }
+            />
+          ) : (
+            <h1 className="text-[13px] font-medium text-foreground">
+              {getPageLabel()}
+            </h1>
+          )}
           {activeWorkspaceName && (
             <>
               <Separator orientation="vertical" className="!h-4" />

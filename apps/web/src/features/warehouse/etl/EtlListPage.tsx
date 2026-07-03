@@ -9,11 +9,11 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { buildEtlPipelineFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
-import JSZip from 'jszip'
+import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateEtlDialog } from './CreateEtlDialog'
+import { useEtlActions } from './use-etl-actions'
 import type { EtlPipeline, EtlPipelineStatus } from '@/types'
 
 const STATUS_BADGE: Record<EtlPipelineStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -29,8 +29,9 @@ export function EtlListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const language = useAppStore((s) => s.language)
-  const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines, deletePipeline } = useEtlStore()
+  const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const etlActions = useEtlActions()
 
   useEffect(() => {
     if (!etlPipelinesLoaded) loadEtlPipelines()
@@ -41,15 +42,8 @@ export function EtlListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? t('etl.unknown_source')
 
-  // --- Export / Import ---
+  // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: EtlPipeline; pendingFiles: import('@/types').EtlFile[] } | null>(null)
-
-  const handleExport = useCallback(async (pipeline: EtlPipeline) => {
-    const zip = new JSZip()
-    await buildEtlPipelineFolder(zip, '', pipeline, getStorage())
-    const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(localized(pipeline.name, 'en'))}.zip`)
-  }, [])
 
   const doImport = useCallback(async (pipeline: EtlPipeline, files: import('@/types').EtlFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
@@ -111,19 +105,16 @@ export function EtlListPage() {
       newButtonKey="etl.new_pipeline"
       emptyTitleKey="etl.no_pipelines"
       emptyDescriptionKey="etl.no_pipelines_description"
-      deleteConfirmTitleKey="etl.delete_confirm_title"
-      deleteConfirmDescriptionKey="etl.delete_confirm_description"
+      deleteConfirmTitleKey={etlActions.deleteConfirmTitleKey}
+      deleteConfirmDescriptionKey={etlActions.deleteConfirmDescriptionKey}
       emptyIcon={Workflow}
       items={pipelines}
       onNavigate={(id) => navigate(id)}
-      onDelete={(id) => deletePipeline(id)}
-      onExport={handleExport}
-      getGitRemote={(p) => p.gitRemoteConfig ?? null}
-      onSaveGitRemote={async (p, config) => {
-        await getStorage().etlPipelines.update(p.id, { gitRemoteConfig: config ?? undefined })
-        await loadEtlPipelines()
-      }}
-      exportSupportsIncludeData={false}
+      onDelete={etlActions.onDelete}
+      onExport={etlActions.onExport}
+      getGitRemote={etlActions.getGitRemote}
+      onSaveGitRemote={etlActions.onSaveGitRemote}
+      exportSupportsIncludeData={etlActions.exportSupportsIncludeData}
       onImport={handleImport}
       renderCardBody={(pipeline) => {
         const statusInfo = STATUS_BADGE[pipeline.status]
@@ -162,9 +153,7 @@ export function EtlListPage() {
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (
         <CreateEtlDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />
       )}
-      renderEditDialog={({ item, onOpenChange }) => (
-        <CreateEtlDialog open onOpenChange={onOpenChange} editingPipeline={item} />
-      )}
+      renderEditDialog={etlActions.renderEditDialog}
     />
     </>
   )

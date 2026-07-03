@@ -6,19 +6,20 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
-import { buildSqlCollectionFolder, downloadBlob, parseImportZip, reconstructTreeFiles, slugify } from '@/lib/entity-io'
-import JSZip from 'jszip'
+import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
+import { useSqlCollectionActions } from './use-sql-collection-actions'
 import type { SqlScriptCollection } from '@/types'
 
 export function SqlScriptsListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
   const language = useAppStore((s) => s.language)
-  const { collectionsLoaded, loadCollections, getWorkspaceCollections, deleteCollection } = useSqlScriptsStore()
+  const { collectionsLoaded, loadCollections, getWorkspaceCollections } = useSqlScriptsStore()
+  const sqlActions = useSqlCollectionActions()
 
   useEffect(() => {
     if (!collectionsLoaded) loadCollections()
@@ -26,15 +27,8 @@ export function SqlScriptsListPage() {
 
   const collections = activeWorkspaceId ? getWorkspaceCollections(activeWorkspaceId) : []
 
-  // --- Export / Import ---
+  // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: SqlScriptCollection; pendingFiles: import('@/types').SqlScriptFile[] } | null>(null)
-
-  const handleExport = useCallback(async (collection: SqlScriptCollection) => {
-    const zip = new JSZip()
-    await buildSqlCollectionFolder(zip, '', collection, getStorage())
-    const blob = await zip.generateAsync({ type: 'blob' })
-    downloadBlob(blob, `${slugify(localized(collection.name, 'en'))}.zip`)
-  }, [])
 
   const doImport = useCallback(async (collection: SqlScriptCollection, files: import('@/types').SqlScriptFile[], duplicate: boolean) => {
     const now = new Date().toISOString()
@@ -95,19 +89,16 @@ export function SqlScriptsListPage() {
       newButtonKey="sql_scripts.new_collection"
       emptyTitleKey="sql_scripts.no_collections"
       emptyDescriptionKey="sql_scripts.no_collections_description"
-      deleteConfirmTitleKey="sql_scripts.delete_confirm_title"
-      deleteConfirmDescriptionKey="sql_scripts.delete_confirm_description"
+      deleteConfirmTitleKey={sqlActions.deleteConfirmTitleKey}
+      deleteConfirmDescriptionKey={sqlActions.deleteConfirmDescriptionKey}
       emptyIcon={SquareTerminal}
       items={collections}
       onNavigate={(id) => navigate(id)}
-      onDelete={(id) => deleteCollection(id)}
-      onExport={handleExport}
-      getGitRemote={(c) => c.gitRemoteConfig ?? null}
-      onSaveGitRemote={async (c, config) => {
-        await getStorage().sqlScriptCollections.update(c.id, { gitRemoteConfig: config ?? undefined })
-        await loadCollections()
-      }}
-      exportSupportsIncludeData={false}
+      onDelete={sqlActions.onDelete}
+      onExport={sqlActions.onExport}
+      getGitRemote={sqlActions.getGitRemote}
+      onSaveGitRemote={sqlActions.onSaveGitRemote}
+      exportSupportsIncludeData={sqlActions.exportSupportsIncludeData}
       onImport={handleImport}
       renderCardBody={(collection) => (
         <>
@@ -128,9 +119,7 @@ export function SqlScriptsListPage() {
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (
         <CreateSqlScriptsDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />
       )}
-      renderEditDialog={({ item, onOpenChange }) => (
-        <CreateSqlScriptsDialog open onOpenChange={onOpenChange} editingCollection={item} />
-      )}
+      renderEditDialog={sqlActions.renderEditDialog}
     />
     </>
   )

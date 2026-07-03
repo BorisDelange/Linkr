@@ -9,11 +9,12 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { exportEntityZip, parseImportZip, slugify } from '@/lib/entity-io'
+import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
+import { useCatalogActions } from './use-catalog-actions'
 import type { DataCatalog, CatalogStatus } from '@/types'
 
 const STATUS_BADGE: Record<CatalogStatus, { variant: 'default' | 'secondary' | 'destructive' | 'outline'; label: string }> = {
@@ -29,8 +30,9 @@ export function CatalogListPage() {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { catalogsLoaded, loadCatalogs, getWorkspaceCatalogs, deleteCatalog } = useCatalogStore()
+  const { catalogsLoaded, loadCatalogs, getWorkspaceCatalogs } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
+  const catalogActions = useCatalogActions()
 
   useEffect(() => {
     if (!catalogsLoaded) loadCatalogs()
@@ -41,15 +43,8 @@ export function CatalogListPage() {
   const getSourceName = (sourceId: string) =>
     dataSources.find((ds) => ds.id === sourceId)?.name ?? '—'
 
-  // --- Export / Import ---
+  // --- Import ---
   const [conflict, setConflict] = useState<{ name: string; pending: DataCatalog } | null>(null)
-
-  const handleExport = useCallback(async (catalog: DataCatalog) => {
-    await exportEntityZip(
-      [{ filename: 'catalog.json', data: catalog }],
-      `${slugify(localized(catalog.name, 'en'))}.zip`,
-    )
-  }, [])
 
   const doImport = useCallback(async (catalog: DataCatalog, duplicate: boolean) => {
     const now = new Date().toISOString()
@@ -96,13 +91,13 @@ export function CatalogListPage() {
       newButtonKey="data_catalog.new_catalog"
       emptyTitleKey="data_catalog.no_catalogs"
       emptyDescriptionKey="data_catalog.no_catalogs_description"
-      deleteConfirmTitleKey="data_catalog.delete_title"
-      deleteConfirmDescriptionKey="data_catalog.delete_description"
+      deleteConfirmTitleKey={catalogActions.deleteConfirmTitleKey}
+      deleteConfirmDescriptionKey={catalogActions.deleteConfirmDescriptionKey}
       emptyIcon={BookOpen}
       items={catalogs}
       onNavigate={(id) => navigate(id)}
-      onDelete={(id) => deleteCatalog(id)}
-      onExport={handleExport}
+      onDelete={catalogActions.onDelete}
+      onExport={catalogActions.onExport}
       onImport={handleImport}
       renderCardBody={(catalog) => {
         const statusInfo = STATUS_BADGE[catalog.status]
@@ -141,9 +136,7 @@ export function CatalogListPage() {
       renderCreateDialog={({ open, onOpenChange, onCreated }) => (
         <CreateCatalogDialog open={open} onOpenChange={onOpenChange} onCreated={onCreated} />
       )}
-      renderEditDialog={({ item, onOpenChange }) => (
-        <CreateCatalogDialog open onOpenChange={onOpenChange} editingCatalog={item} />
-      )}
+      renderEditDialog={catalogActions.renderEditDialog}
     />
     </>
   )

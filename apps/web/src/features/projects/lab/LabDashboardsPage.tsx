@@ -2,12 +2,14 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import type { Dashboard } from '@/types'
 import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import {
   Dialog,
   DialogContent,
@@ -36,6 +38,7 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { DashboardRenameDialog } from './DashboardRenameDialog'
 
 export function LabDashboardsPage() {
   const { t } = useTranslation()
@@ -44,13 +47,13 @@ export function LabDashboardsPage() {
   const { wsUid, projectUid: resolvedProjectUid } = useResolvedParams()
   const projectUid = resolvedProjectUid ?? ''
 
-  const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard, updateDashboard } = useDashboardStore()
+  const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard } = useDashboardStore()
   const { loadProjectDatasets } = useDatasetStore()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [createName, setCreateName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
-  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<Dashboard | null>(null)
 
   useEffect(() => {
     loadProjectDashboards(projectUid)
@@ -80,14 +83,6 @@ export function LabDashboardsPage() {
     if (deleteTarget) {
       deleteDashboard(deleteTarget)
       setDeleteTarget(null)
-    }
-  }
-
-  const handleRename = () => {
-    if (renameTarget && renameTarget.name.trim()) {
-      const existing = dashboards.find((d) => d.id === renameTarget.id)?.name
-      updateDashboard(renameTarget.id, { name: setLocalized(existing, language, renameTarget.name.trim()) })
-      setRenameTarget(null)
     }
   }
 
@@ -159,7 +154,7 @@ export function LabDashboardsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => setRenameTarget({ id: dash.id, name: localized(dash.name, language) })}>
+                          <DropdownMenuItem onClick={() => setRenameTarget(dash)}>
                             <Pencil size={14} />
                             {t('dashboard.rename_title')}
                           </DropdownMenuItem>
@@ -190,7 +185,7 @@ export function LabDashboardsPage() {
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div className="space-y-1">
-              <Label className="text-xs">{t('dashboard.field_name')}</Label>
+              <Label className="text-xs">{t('dashboard.field_name')}<RequiredMark /></Label>
               <Input
                 value={createName}
                 onChange={(e) => setCreateName(e.target.value)}
@@ -229,30 +224,12 @@ export function LabDashboardsPage() {
       </AlertDialog>
 
       {/* Rename dialog */}
-      <Dialog open={!!renameTarget} onOpenChange={(open) => { if (!open) setRenameTarget(null) }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('dashboard.rename_title')}</DialogTitle>
-          </DialogHeader>
-          <div className="py-2">
-            <Input
-              value={renameTarget?.name ?? ''}
-              onChange={(e) => setRenameTarget((prev) => prev ? { ...prev, name: e.target.value } : null)}
-              className="h-8 text-sm"
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleRename() } }}
-              autoFocus
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setRenameTarget(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" onClick={handleRename} disabled={!renameTarget?.name.trim()}>
-              {t('common.save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {renameTarget && (
+        <DashboardRenameDialog
+          item={renameTarget}
+          onOpenChange={(open) => { if (!open) setRenameTarget(null) }}
+        />
+      )}
     </div>
   )
 }
