@@ -14,7 +14,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, History } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, History, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
@@ -41,12 +41,18 @@ import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import { WsExportTab } from '@/features/versioning/WsExportTab'
 import { CreateWorkspaceDialog } from './CreateWorkspaceDialog'
+import { EditWorkspaceDialog } from './EditWorkspaceDialog'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { parseWorkspaceZip, deleteProjectData, collectGitLinkedEntities, applyClonedEntity, importProjectContent } from '@/lib/entity-io'
 import type { ParsedWorkspaceZip, GitLinkedEntity } from '@/lib/entity-io'
 import { getGitCorsProxy, setGitCorsProxy, canCloneFromGit, cloneRepoToZip } from '@/lib/git-clone'
 import { getStorage } from '@/lib/storage'
-import type { Project, WikiAttachment } from '@/types'
+import type { Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
+
+/** Append " (copy)" to every language of a multilingual name when duplicating. */
+function copyLocalizedName(name: LocalizedString): LocalizedString {
+  return Object.fromEntries(Object.entries(name ?? {}).map(([k, v]) => [k, `${v} (copy)`]))
+}
 
 export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
@@ -55,6 +61,7 @@ export function WorkspacesPage() {
   const { getWorkspaceProjects, loadProjects } = useAppStore()
   const { setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
 
   // Delete confirmation state
@@ -310,7 +317,7 @@ export function WorkspacesPage() {
       }
       await storage.sqlScriptCollections.create({
         ...collection, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: `${collection.name} (copy)`, createdAt: now } : {}),
+        ...(duplicate ? { name: copyLocalizedName(collection.name), createdAt: now } : {}),
       })
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
@@ -339,7 +346,7 @@ export function WorkspacesPage() {
       }
       await storage.etlPipelines.create({
         ...pipeline, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: `${pipeline.name} (copy)`, createdAt: now } : {}),
+        ...(duplicate ? { name: copyLocalizedName(pipeline.name), createdAt: now } : {}),
       })
       const fileIdMap = new Map<string, string>()
       const mapFileId = (oldId: string): string => {
@@ -368,7 +375,7 @@ export function WorkspacesPage() {
       }
       await storage.dqRuleSets.create({
         ...ruleSet, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: `${ruleSet.name} (copy)`, createdAt: now } : {}),
+        ...(duplicate ? { name: copyLocalizedName(ruleSet.name), createdAt: now } : {}),
       })
       for (const check of checks) {
         await storage.dqCustomChecks.create({
@@ -406,7 +413,7 @@ export function WorkspacesPage() {
         }
         await storage.mappingProjects.create({
           ...mp, id, workspaceId: targetWsId, updatedAt: now,
-          ...(duplicate ? { name: `${mp.name} (copy)`, createdAt: now } : {}),
+          ...(duplicate ? { name: copyLocalizedName(mp.name), createdAt: now } : {}),
         })
         for (const m of mappings) {
           await storage.conceptMappings.create({
@@ -460,7 +467,7 @@ export function WorkspacesPage() {
       if (!duplicate) await storage.dataCatalogs.delete(cat.id).catch(() => {})
       await storage.dataCatalogs.create({
         ...cat, id, workspaceId: targetWsId, updatedAt: now,
-        ...(duplicate ? { name: `${cat.name} (copy)`, createdAt: now } : {}),
+        ...(duplicate ? { name: copyLocalizedName(cat.name), createdAt: now } : {}),
       })
     }
 
@@ -651,6 +658,10 @@ export function WorkspacesPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); if (raw) setEditingWorkspace(raw) }}>
+                            <Pencil size={14} />
+                            {t('common.edit')}
+                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'export' }) }}>
                             <Download size={14} />
                             {t('common.export')}
@@ -708,6 +719,12 @@ export function WorkspacesPage() {
       </div>
 
       <CreateWorkspaceDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      <EditWorkspaceDialog
+        open={!!editingWorkspace}
+        workspace={editingWorkspace ?? undefined}
+        onOpenChange={(open) => { if (!open) setEditingWorkspace(null) }}
+      />
 
       {/* Versioning dialog (export + git link) */}
       {versioningTarget && (

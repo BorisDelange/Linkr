@@ -21,7 +21,7 @@ export function SettingsPage() {
         </p>
 
         <Tabs defaultValue={defaultTab} className="mt-6">
-          <TabsList>
+          <TabsList className="mx-auto w-fit">
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>

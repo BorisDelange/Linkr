@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { localized } from '@/lib/localized'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useAppStore } from '@/stores/app-store'
 import type { BadgeColor, ProjectBadge } from '@/types'
@@ -48,8 +49,15 @@ export function WorkspaceSettingsPage() {
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
 
-  const [name, setName] = useState(workspace?.name[language] ?? workspace?.name['en'] ?? '')
-  const [description, setDescription] = useState(workspace?.description[language] ?? workspace?.description['en'] ?? '')
+  const [name, setName] = useState(localized(workspace?.name, language))
+  const [description, setDescription] = useState(localized(workspace?.description, language))
+
+  // Re-seed the fields when the active language (or workspace) changes so the
+  // inputs always show the value for the current language, not a stale one.
+  useEffect(() => {
+    setName(localized(workspace?.name, language))
+    setDescription(localized(workspace?.description, language))
+  }, [workspace?.name, workspace?.description, language])
   const [selectedOrgId, setSelectedOrgId] = useState<string>(workspace?.organizationId ?? NONE)
   const [deleteConfirm, setDeleteConfirm] = useState('')
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
@@ -105,25 +113,27 @@ export function WorkspaceSettingsPage() {
   const wsDisplayName = workspace.name[language] ?? workspace.name['en'] ?? Object.values(workspace.name)[0] ?? ''
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 px-6 pt-6 pb-2">
         <h1 className="text-2xl font-bold text-foreground">
           {t('workspaces.settings_title')}
         </h1>
+      </div>
 
-        <Tabs defaultValue={defaultTab} className="mt-6">
-          <TabsList>
-            <TabsTrigger value="general">{t('workspaces.tab_general')}</TabsTrigger>
-            <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
-            <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
-            <TabsTrigger value="danger">{t('workspaces.tab_danger')}</TabsTrigger>
-          </TabsList>
+      <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
+        <TabsList className="shrink-0 w-fit mx-auto">
+          <TabsTrigger value="general">{t('workspaces.tab_general')}</TabsTrigger>
+          <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
+          <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
+          <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>
+        </TabsList>
 
-          {/* General */}
-          <TabsContent value="general" className="mt-4 space-y-4">
+        {/* General */}
+        <TabsContent value="general" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl space-y-6 pt-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{t('workspaces.tab_general')}</CardTitle>
+                <CardTitle className="text-sm">{t('workspaces.tab_general')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -143,18 +153,20 @@ export function WorkspaceSettingsPage() {
                     rows={3}
                   />
                 </div>
-                <Button onClick={handleSaveGeneral} disabled={!name.trim()}>
+                <Button size="sm" onClick={handleSaveGeneral} disabled={!name.trim()}>
                   {t('common.save')}
                 </Button>
               </CardContent>
             </Card>
-          </TabsContent>
+          </div>
+        </TabsContent>
 
-          {/* Badges */}
-          <TabsContent value="badges" className="mt-4">
+        {/* Badges */}
+        <TabsContent value="badges" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-2xl space-y-6 pt-2">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{t('project_settings.badges')}</CardTitle>
+                <CardTitle className="text-sm">{t('project_settings.badges')}</CardTitle>
                 <CardDescription>{t('workspaces.badges_description')}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -232,10 +244,12 @@ export function WorkspaceSettingsPage() {
                 </div>
               </CardContent>
             </Card>
-          </TabsContent>
+          </div>
+        </TabsContent>
 
-          {/* Organization */}
-          <TabsContent value="organization" className="mt-4 space-y-4">
+        {/* Organization */}
+        <TabsContent value="organization" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-3xl space-y-6 pt-2">
             {/* Current linked org display */}
             {displayOrg && (
               <Card>
@@ -279,7 +293,7 @@ export function WorkspaceSettingsPage() {
             {/* Change organization */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">{t('workspaces.change_organization')}</CardTitle>
+                <CardTitle className="text-sm">{t('workspaces.change_organization')}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400">
@@ -300,15 +314,17 @@ export function WorkspaceSettingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button onClick={handleSaveOrganization}>
+                <Button size="sm" onClick={handleSaveOrganization}>
                   {t('common.save')}
                 </Button>
               </CardContent>
             </Card>
-          </TabsContent>
+          </div>
+        </TabsContent>
 
-          {/* Danger zone */}
-          <TabsContent value="danger" className="mt-4">
+        {/* Danger zone */}
+        <TabsContent value="danger" className="min-h-0 flex-1 overflow-auto pb-6">
+          <div className="mx-auto max-w-2xl pt-2">
             <Card className="border-destructive/50">
               <CardHeader>
                 <CardTitle className="text-sm text-destructive">
@@ -361,9 +377,9 @@ export function WorkspaceSettingsPage() {
                 </AlertDialog>
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
-      </div>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       {/* Delete progress modal — non-dismissable while deleteWorkspace runs. */}
       <Dialog open={!!deleteProgress} onOpenChange={() => { /* not dismissable */ }}>

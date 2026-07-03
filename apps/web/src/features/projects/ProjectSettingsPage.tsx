@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useAppStore } from '@/stores/app-store'
-import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge, CatalogVisibility } from '@/types'
+import { localized } from '@/lib/localized'
+import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -91,9 +92,10 @@ export function ProjectSettingsPage() {
   const {
     _projectsRaw,
     projects,
+    language,
+    updateProject,
     updateProjectStatus,
     updateProjectBadges,
-    updateProjectCatalogVisibility,
     deleteProject,
     closeProject,
   } = useAppStore()
@@ -102,7 +104,6 @@ export function ProjectSettingsPage() {
   const project = projects.find((p) => p.uid === uid)
   const badges = projectRaw?.badges ?? []
   const status = projectRaw?.status ?? 'active'
-  const catalogVisibility = projectRaw?.catalogVisibility ?? 'unlisted'
 
   // Badge creation
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
@@ -110,6 +111,20 @@ export function ProjectSettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('')
 
   const projectDisplayName = project?.name ?? ''
+
+  // Name/description edit the active language only; re-seed when the language
+  // (or project) changes so the fields reflect the value for the current lang.
+  const [nameInput, setNameInput] = useState('')
+  const [descInput, setDescInput] = useState('')
+  useEffect(() => {
+    setNameInput(localized(projectRaw?.name, language))
+    setDescInput(localized(projectRaw?.description, language))
+  }, [projectRaw?.name, projectRaw?.description, language])
+
+  const handleSaveGeneral = () => {
+    if (!uid) return
+    updateProject(uid, nameInput.trim(), descInput.trim())
+  }
 
   const handleAddBadge = () => {
     if (!uid || !newBadgeLabel.trim()) return
@@ -147,7 +162,6 @@ export function ProjectSettingsPage() {
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="general">{t('project_settings.general')}</TabsTrigger>
           <TabsTrigger value="status-badges">{t('project_settings.status_and_badges')}</TabsTrigger>
-          <TabsTrigger value="publishing">{t('project_settings.publishing')}</TabsTrigger>
           <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>
         </TabsList>
 
@@ -162,7 +176,11 @@ export function ProjectSettingsPage() {
               <CardContent className="space-y-4">
                 <div className="space-y-2">
                   <Label>{t('projects.field_name')}</Label>
-                  <Input defaultValue={project?.name ?? ''} />
+                  <Input
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveGeneral() }}
+                  />
                 </div>
                 {projectRaw?.projectId && (
                   <div className="space-y-2">
@@ -175,9 +193,13 @@ export function ProjectSettingsPage() {
                 )}
                 <div className="space-y-2">
                   <Label>{t('projects.field_description')}</Label>
-                  <Textarea defaultValue={project?.description ?? ''} rows={3} />
+                  <Textarea
+                    value={descInput}
+                    onChange={(e) => setDescInput(e.target.value)}
+                    rows={3}
+                  />
                 </div>
-                <Button size="sm">{t('common.save')}</Button>
+                <Button size="sm" onClick={handleSaveGeneral}>{t('common.save')}</Button>
               </CardContent>
             </Card>
           </div>
@@ -298,35 +320,6 @@ export function ProjectSettingsPage() {
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* Publishing */}
-        <TabsContent value="publishing" className="min-h-0 flex-1 overflow-auto pb-6">
-          <div className="mx-auto max-w-2xl space-y-6 pt-2">
-            {/* Catalog visibility */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t('catalog.visibility')}</CardTitle>
-                <CardDescription>{t('catalog.visibility_description')}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Select
-                  value={catalogVisibility}
-                  onValueChange={(value) => {
-                    if (uid) updateProjectCatalogVisibility(uid, value as CatalogVisibility)
-                  }}
-                >
-                  <SelectTrigger className="w-48">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unlisted">{t('catalog.unlisted')}</SelectItem>
-                    <SelectItem value="listed">{t('catalog.listed')}</SelectItem>
-                  </SelectContent>
-                </Select>
               </CardContent>
             </Card>
           </div>

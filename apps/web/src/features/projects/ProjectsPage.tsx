@@ -13,7 +13,7 @@ import { getStorage } from '@/lib/storage'
 import { paths } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
-import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, History, Trash2 } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, History, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -37,6 +37,7 @@ import {
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog } from '@/components/ui/import-source-dialog'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { getBadgeClasses, getBadgeStyle, getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import type { Project } from '@/types'
@@ -49,6 +50,7 @@ export function ProjectsPage() {
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [importOpen, setImportOpen] = useState(false)
 
@@ -273,6 +275,10 @@ export function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const raw = _projectsRaw.find((p) => p.uid === project.uid); if (raw) setEditingProject(raw) }}>
+                              <Pencil size={14} />
+                              {t('common.edit')}
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ uid: project.uid, tab: 'export' }) }}>
                               <Download size={14} />
                               {t('common.export')}
@@ -303,9 +309,10 @@ export function ProjectsPage() {
                       </div>
                     </div>
                     {project.description && (
-                      <p className="mt-2 truncate text-xs text-muted-foreground" title={project.description}>
-                        {project.description}
-                      </p>
+                      <TruncatedText
+                        text={project.description}
+                        className="mt-2 text-xs text-muted-foreground"
+                      />
                     )}
                     {badges.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
@@ -329,6 +336,13 @@ export function ProjectsPage() {
       </div>
 
       <CreateProjectDialog open={dialogOpen} onOpenChange={setDialogOpen} workspaceId={wsUid} />
+
+      <CreateProjectDialog
+        open={!!editingProject}
+        editingProject={editingProject ?? undefined}
+        onOpenChange={(open) => { if (!open) setEditingProject(null) }}
+        workspaceId={wsUid}
+      />
 
       {/* Versioning dialog (export + git link) */}
       {versioningTarget && (
