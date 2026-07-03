@@ -10,6 +10,7 @@
 import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, SchemaMapping, AnonymizationMode } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { buildJsonLd } from './jsonld'
+import { localized } from '@/lib/localized'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, type DcatClass } from './schema'
 
 export interface ExportHtmlOptions {
@@ -71,8 +72,8 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
   const jsonLdObj = buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog })
   const jsonLd = JSON.stringify(jsonLdObj, null, 2)
 
-  const catalogTitle = (metadata['catalog.title'] as string) || catalog.name
-  const catalogDesc = (metadata['catalog.description'] as string) || catalog.description || ''
+  const catalogTitle = (metadata['catalog.title'] as string) || localized(catalog.name, 'en')
+  const catalogDesc = (metadata['catalog.description'] as string) || localized(catalog.description, 'en') || ''
   const publisher = (metadata['agent.name'] as string) || (metadata['catalog.publisher'] as string) || ''
 
   // Build concept filter columns info for JS

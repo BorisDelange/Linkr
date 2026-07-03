@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2 } from 'lucide-react'
+import { Download, Loader2, BookText } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -33,15 +33,13 @@ interface ReferencedCatalog {
   rawBase: string
 }
 
-const REFERENCED_CATALOGS: (ReferencedCatalog & { color: string; textColor: string })[] = [
+const REFERENCED_CATALOGS: ReferencedCatalog[] = [
   {
     id: 'indicate',
     name: 'INDICATE Data Dictionary',
     description: 'concept_mapping.cs_ref_indicate_desc',
     apiUrl: 'https://api.github.com/repos/indicate-eu/data-dictionary-content/contents/concept_sets',
     rawBase: 'https://raw.githubusercontent.com/indicate-eu/data-dictionary-content/main/concept_sets',
-    color: 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800',
-    textColor: 'text-blue-700 dark:text-blue-400',
   },
 ]
 
@@ -319,7 +317,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
         </DialogHeader>
 
         <Tabs defaultValue="referenced">
-          <TabsList className="w-fit">
+          <TabsList className="mx-auto w-fit">
             <TabsTrigger value="referenced">{t('concept_mapping.cs_import_referenced')}</TabsTrigger>
             <TabsTrigger value="url">{t('concept_mapping.cs_import_url')}</TabsTrigger>
             <TabsTrigger value="file">{t('concept_mapping.cs_import_file')}</TabsTrigger>
@@ -369,9 +367,12 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
               {REFERENCED_CATALOGS.map((catalog) => {
                 const isImporting = importingCatalogId === catalog.id
                 return (
-                  <Card key={catalog.id} className={`flex items-center gap-4 p-4 ${catalog.color}`}>
+                  <Card key={catalog.id} className="flex items-center gap-4 p-4">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
+                      <BookText size={20} className="text-teal-500" />
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-medium ${catalog.textColor}`}>{catalog.name}</p>
+                      <p className="text-sm font-medium">{catalog.name}</p>
                       <p className="mt-0.5 text-xs text-muted-foreground">{t(catalog.description)}</p>
                       {isImporting && catalogProgress && (
                         <div className="mt-2 space-y-1">

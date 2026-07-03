@@ -208,18 +208,18 @@ export function WsExportTab({ workspaceId }: { workspaceId?: string } = {}) {
       }
       setEntities({
         projects: projects.map(p => ({ id: p.uid, name: resolveName(p.name), gitHost: gitHost(p) })),
-        conceptMapping: mappingProjects.map(m => ({ id: m.id, name: m.name, gitHost: gitHost(m) })),
-        sqlScripts: sqlCollections.map(c => ({ id: c.id, name: c.name, gitHost: gitHost(c) })),
-        etl: etlPipelines.map(p => ({ id: p.id, name: p.name, gitHost: gitHost(p) })),
+        conceptMapping: mappingProjects.map(m => ({ id: m.id, name: resolveName(m.name), gitHost: gitHost(m) })),
+        sqlScripts: sqlCollections.map(c => ({ id: c.id, name: resolveName(c.name), gitHost: gitHost(c) })),
+        etl: etlPipelines.map(p => ({ id: p.id, name: resolveName(p.name), gitHost: gitHost(p) })),
       })
       // Sections exported whole: list items so each can be individually excluded.
       // Exclusion id must match what buildWorkspaceZip keys on (presetId for schemas, id otherwise).
       setSimpleItems({
         schemas: schemas.map(s => ({ id: s.presetId, name: s.mapping?.presetLabel || s.presetId })),
         databases: dataSources.map(d => ({ id: d.id, name: d.name || d.alias })),
-        dataQuality: dqRuleSets.map(r => ({ id: r.id, name: r.name })),
+        dataQuality: dqRuleSets.map(r => ({ id: r.id, name: resolveName(r.name) })),
         catalogs: [
-          ...catalogs.map(c => ({ id: c.id, name: c.name })),
+          ...catalogs.map(c => ({ id: c.id, name: resolveName(c.name) })),
           ...serviceMappings.map(s => ({ id: s.id, name: s.name })),
         ],
       })
