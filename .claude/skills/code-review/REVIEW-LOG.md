@@ -29,6 +29,27 @@ Notes / follow-ups:
 
 ---
 
+## 2026-07-03 — LocalizedString migration + short-id URLs + entity actions menu + concept-mapping provenance
+
+- Reviewed by: Claude Opus 4.8 (5 parallel adversarial cluster sub-reviews + manual verification + fixes applied)
+- Range: d24ec2cc..7d357873 (32 commits, 146 files, ~6k insertions — string→LocalizedString migration across all entity names/descriptions, git-style short-id URLs + resolution, shared entity-actions menu + use-*-actions hooks, workspace-home/summary rework, concept-mapping concept-set provenance + RelationsTable + scores-parquet export/import, create-project skill, version bump 2.0.20→2.0.21). Note: the user pushed 2 extra commits mid-review (7fe6360e Header short-id, 7d357873 scores-parquet export) — both reviewed.
+- Last reviewed commit: 7d357873396511570fee2400d2828245e9b6e724
+- Verdict: **Fix-then-ship → fixed during review, now Ship it**
+- Tests: 129 passed · Lint: 0 errors (154 warnings, all pre-existing React Compiler category) · Typecheck: **was 10 errors (blocking-gate regression) → now 0 after fixes**
+
+Findings (all verified in code; false positives discarded):
+- 🔴 FIXED — **typecheck gate broken (10 errors)** from the incomplete string→LocalizedString migration. Blocking per docs/conventions.md. Sites fixed: global-summary-queries.ts:128/145 (`esc(proj.name)` on a LocalizedString → wrapped with `localized(..,'en')`); GlobalSummaryView.tsx:755 (`{name:'global'} as MappingProject` → `{name:{en:'global'}} as unknown as MappingProject` + WHY comment); WorkspaceHomePage.tsx:230 (`status?: string` → `ProjectStatus`); use-project-tree.ts:126 (readme LocalizedString passed as string — **also a real runtime `[object Object]` bug** in the README tree preview → `localized(project.readme,'en')`); app-store.ts:256-257 & workspace-store.ts:82 (`typeof x==='string' && x.length` narrowed to `never` → `(x as string).length`); ConceptDetailSheet.tsx:540 (`as RelationRow[]` → `as unknown as RelationRow[]`).
+- 🟠 FIXED — WorkspacesPage.tsx:418 — workspace-ZIP import (untrusted) persisted the bundled similarity-scores.parquet via `persistScoresFile` **without** `validateScoresFile`, unlike the interactive load flow. No injection (constant DuckDB filename), but junk got stored before buildIndex failed silently. Now validates columns before persisting.
+- 🟠 FIXED — fr.json:2119 `entity_workspace` shipped the English string "Workspace" → "Espace de travail" (matches seed_entity_workspace). New key added by this diff.
+- 🟡 FIXED — RelationsTable.tsx:337 — row `key={concept_id}` is non-unique (same target concept via multiple relationship_id) → composite `${relationship_id}__${concept_id}`.
+- ✅ DISCARDED (false positives): ProjectGuard.tsx:52 `paths.projects(wsUid)` "re-shortens a prefix" — non-UUID prefix passes through shortenIdAmong unchanged and already resolves; Header.tsx:103 `.getState()` fallback "breaks reactivity" — primary path is a reactive selector, fallback only bridges a transient load gap; entity-actions-menu delete "onDeleted runs on reject" — await throws first so it doesn't; DashboardTab.name still `string` — pre-existing design, not touched by this diff and compiles clean; Cohort.name not localized — Cohort.name is `string` by design.
+- ✅ Verified sound: short-id round-trip (shortenIdAmong grows prefix for seed's sequential 00000000- uuids; resolveByIdPrefix disambiguates; covered by short-id.test.ts). LocalizedString export/import round-trip + legacy plain-string backward-compat (entity-io.ts). DCAT-AP HTML export esc()-wraps localized names (no XSS). i18n key parity: en/fr both 3307 keys (the 2 orphan data_sources.detail_visit* mismatches are pre-existing and code references a different key). No new SQL raw-interpolation, no new dangerouslySetInnerHTML, no secrets, no console.log, no new `any`.
+
+Notes / follow-ups:
+- 🟡 Left as-is (pre-existing/minor): app-store migration persists use `.catch(() => {})` (convention prefers console.warn, but fire-and-forget migration is acceptable); isShellHtml regex duplicated inline in seed-loader.ts:222 vs exported from localized.ts (DRY candidate); WorkspaceHomePage/SummaryOverviewTab are large (~490 lines each, under the 800 threshold).
+- No new tests owed: the changed pure logic (localized/short-id) already has localized.test.ts (12) + short-id.test.ts (14). UI reworks intentionally not unit-tested.
+- Cross-repo: the new similarity-scores.parquet ZIP entry + git-linked seed reload should be mirrored in linkr-portal's build.sh if portal deployments are meant to carry scores.
+
 ## 2026-06-27 — Unified seed manifest + re-seed/delete flow + modal/UI polish
 
 - Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews + manual verification pass)
