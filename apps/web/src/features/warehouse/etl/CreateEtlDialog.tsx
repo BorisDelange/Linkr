@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
@@ -115,7 +116,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>{t('etl.pipeline_name')}</Label>
+            <Label>{t('etl.pipeline_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -134,11 +135,12 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
               existingIds={existingIds}
               htmlId="etl-pipeline-id"
               placeholder="my-etl-pipeline"
+              required
             />
           )}
 
           <div className="space-y-2">
-            <Label>{t('etl.source_database')}</Label>
+            <Label>{t('etl.source_database')}<RequiredMark /></Label>
             <Select value={sourceId} onValueChange={setSourceId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('etl.select_source')} />

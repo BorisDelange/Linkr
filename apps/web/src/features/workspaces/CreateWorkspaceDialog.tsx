@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
@@ -75,7 +76,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
           <div className="mt-4 space-y-4">
             {/* Workspace fields */}
             <div className="space-y-2">
-              <Label htmlFor="ws-name">{t('workspaces.field_name')}</Label>
+              <Label htmlFor="ws-name">{t('workspaces.field_name')}<RequiredMark /></Label>
               <Input
                 id="ws-name"
                 value={name}

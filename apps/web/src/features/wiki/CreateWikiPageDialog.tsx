@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { useWikiStore } from '@/stores/wiki-store'
 import { useAppStore } from '@/stores/app-store'
 import { setLocalized } from '@/lib/localized'
@@ -338,7 +339,7 @@ export function CreateWikiPageDialog({
 
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label className="text-xs">{t('wiki.page_title')}</Label>
+            <Label className="text-xs">{t('wiki.page_title')}<RequiredMark /></Label>
             <div className="flex items-center gap-2">
               <IconPicker value={icon} onChange={setIcon} modal={false} />
               <Input
@@ -359,6 +360,7 @@ export function CreateWikiPageDialog({
             existingIds={existingIds}
             htmlId="wiki-page-id"
             placeholder="my-wiki-page"
+            required
           />
 
           <div>

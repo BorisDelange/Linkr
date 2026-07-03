@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
@@ -121,7 +122,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>{t('sql_scripts.collection_name')}</Label>
+            <Label>{t('sql_scripts.collection_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -141,6 +142,7 @@ export function CreateSqlScriptsDialog({ open, onOpenChange, onCreated, editingC
               existingIds={existingIds}
               htmlId="sql-collection-id"
               placeholder="my-collection"
+              required
             />
           )}
 

@@ -39,6 +39,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -453,7 +454,7 @@ export function AddDatabaseDialog({
               <TabsContent value="general" className="space-y-4 pt-3">
             {/* Common fields */}
             <div className="space-y-2">
-              <Label>{t('databases.field_name')}</Label>
+              <Label>{t('databases.field_name')}<RequiredMark /></Label>
               <Input
                 value={name}
                 onChange={(e) => {
@@ -675,7 +676,7 @@ export function AddDatabaseDialog({
             {/* FHIR-specific fields */}
             {selectedType === 'fhir' && (
               <div className="space-y-2">
-                <Label>{t('databases.field_base_url')}</Label>
+                <Label>{t('databases.field_base_url')}<RequiredMark /></Label>
                 <Input
                   value={fhirBaseUrl}
                   onChange={(e) => setFhirBaseUrl(e.target.value)}
@@ -809,7 +810,7 @@ function FileUploadArea({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{multiple ? t('databases.upload_files') : t('databases.upload_file')}</Label>
+      <Label>{multiple ? t('databases.upload_files') : t('databases.upload_file')}<RequiredMark /></Label>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
@@ -925,7 +926,7 @@ function FolderUploadArea({
 
   return (
     <div className="space-y-2">
-      <Label>{t('databases.select_folder')}</Label>
+      <Label>{t('databases.select_folder')}<RequiredMark /></Label>
       {files.length === 0 ? (
         <button
           type="button"

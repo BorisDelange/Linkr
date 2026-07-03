@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
@@ -1533,7 +1534,7 @@ export function SchemaPresetsPage() {
                 </div>
                 {/* Name */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs">{t('common.name')}</Label>
+                  <Label className="text-xs">{t('common.name')}<RequiredMark /></Label>
                   <Input
                     value={newPresetName}
                     onChange={(e) => setNewPresetName(e.target.value)}

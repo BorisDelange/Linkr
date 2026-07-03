@@ -47,24 +47,26 @@ function EntityExportContent({
   const [includeData, setIncludeData] = useState(false)
 
   return (
-    <div className="space-y-3">
-      {isLinked ? (
-        <p className="text-xs text-muted-foreground leading-relaxed">
-          {t('app_versioning.entity_export_git_linked_hint')}
-        </p>
-      ) : supportsIncludeData ? (
-        <>
-          <div className="flex items-center gap-2">
-            <Checkbox id="entity-export-include-data" checked={includeData} onCheckedChange={(v) => setIncludeData(v === true)} />
-            <Label htmlFor="entity-export-include-data" className="text-sm font-normal cursor-pointer">
-              {t('versioning.export_include_data')}
-            </Label>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('versioning.export_include_data_hint')}</p>
-        </>
-      ) : (
-        <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
-      )}
+    <div className="flex min-h-[8rem] flex-1 flex-col gap-3">
+      <div className="flex-1 space-y-3">
+        {isLinked ? (
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {t('app_versioning.entity_export_git_linked_hint')}
+          </p>
+        ) : supportsIncludeData ? (
+          <>
+            <div className="flex items-center gap-2">
+              <Checkbox id="entity-export-include-data" checked={includeData} onCheckedChange={(v) => setIncludeData(v === true)} />
+              <Label htmlFor="entity-export-include-data" className="text-sm font-normal cursor-pointer">
+                {t('versioning.export_include_data')}
+              </Label>
+            </div>
+            <p className="text-xs text-muted-foreground">{t('versioning.export_include_data_hint')}</p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">{t('versioning.export_description')}</p>
+        )}
+      </div>
       <div className="flex justify-end">
         <Button onClick={async () => { await onExport({ includeDataFiles: includeData }); onDone() }} className="gap-1.5">
           <Download size={14} />

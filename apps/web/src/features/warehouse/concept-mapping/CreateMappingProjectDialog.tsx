@@ -34,6 +34,7 @@ import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 
 interface CreateMappingProjectDialogProps {
@@ -81,7 +82,7 @@ export function CreateMappingProjectDialog({
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
-  const [sourceType, setSourceType] = useState<MappingProjectSourceType>('database')
+  const [sourceType, setSourceType] = useState<MappingProjectSourceType>('file')
 
   // --- Database source ---
   const [dataSourceId, setDataSourceId] = useState('')
@@ -207,6 +208,15 @@ export function CreateMappingProjectDialog({
       setMainTab('info')
     }
   }, [editingProject, open, language])
+
+  // Focus the name input on open. autoFocus is unreliable inside a Radix
+  // Dialog + Tabs (the tab/focus-trap steals it), so focus imperatively.
+  const nameInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const id = setTimeout(() => nameInputRef.current?.focus(), 50)
+    return () => clearTimeout(id)
+  }, [open])
 
   const connectedDatabases = dataSources.filter(
     (ds) => ds.sourceType === 'database' && ds.status === 'connected' && !ds.isVocabularyReference,
@@ -864,8 +874,9 @@ export function CreateMappingProjectDialog({
             {/* Name & description */}
             <div className="grid gap-4">
               <div className="grid gap-2">
-                <Label htmlFor="mp-name">{t('common.name')}</Label>
+                <Label htmlFor="mp-name">{t('common.name')}<RequiredMark /></Label>
                 <Input
+                  ref={nameInputRef}
                   id="mp-name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -880,6 +891,7 @@ export function CreateMappingProjectDialog({
                   existingIds={existingIds}
                   htmlId="mp-entity-id"
                   placeholder="my-mapping-project"
+                  required
                 />
               )}
               <div className="grid gap-2">
@@ -1049,15 +1061,6 @@ export function CreateMappingProjectDialog({
               <Label>{t('concept_mapping.source_type')}</Label>
               <div className="flex gap-2">
                 <Button
-                  variant={sourceType === 'database' ? 'default' : 'outline'}
-                  size="sm"
-                  className="flex-1 gap-2"
-                  onClick={() => setSourceType('database')}
-                >
-                  <Database size={14} />
-                  {t('concept_mapping.source_database')}
-                </Button>
-                <Button
                   variant={sourceType === 'file' ? 'default' : 'outline'}
                   size="sm"
                   className="flex-1 gap-2"
@@ -1066,13 +1069,22 @@ export function CreateMappingProjectDialog({
                   <FileUp size={14} />
                   {t('concept_mapping.source_file')}
                 </Button>
+                <Button
+                  variant={sourceType === 'database' ? 'default' : 'outline'}
+                  size="sm"
+                  className="flex-1 gap-2"
+                  onClick={() => setSourceType('database')}
+                >
+                  <Database size={14} />
+                  {t('concept_mapping.source_database')}
+                </Button>
               </div>
             </div>
 
             {/* Database source */}
             {sourceType === 'database' && (
               <div className="grid gap-2">
-                <Label>{t('concept_mapping.select_database')}</Label>
+                <Label>{t('concept_mapping.select_database')}<RequiredMark /></Label>
                 <Select value={dataSourceId} onValueChange={setDataSourceId}>
                   <SelectTrigger>
                     <SelectValue placeholder={t('concept_mapping.select_database')} />

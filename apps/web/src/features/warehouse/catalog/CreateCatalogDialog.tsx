@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -106,7 +107,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs">{t('data_catalog.name')}</Label>
+            <Label className="text-xs">{t('data_catalog.name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -123,10 +124,11 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
               existingIds={existingIds}
               htmlId="catalog-id"
               placeholder="my-catalog"
+              required
             />
           )}
           <div>
-            <Label className="text-xs">{t('data_catalog.database')}</Label>
+            <Label className="text-xs">{t('data_catalog.database')}<RequiredMark /></Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder={t('data_catalog.select_database')} />

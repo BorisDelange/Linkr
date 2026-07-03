@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { getBadgeClasses, getBadgeStyle, getStatusDotClass, PRESET_COLORS, isCustomColor } from './ProjectSettingsPage'
 
 const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'draft']
@@ -105,7 +106,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
           </DialogHeader>
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="project-name">{t('projects.field_name')}</Label>
+              <Label htmlFor="project-name">{t('projects.field_name')}<RequiredMark /></Label>
               <Input
                 id="project-name"
                 value={name}
@@ -122,6 +123,7 @@ export function CreateProjectDialog({ open, onOpenChange, workspaceId, editingPr
                 existingIds={existingIds}
                 htmlId="project-id"
                 placeholder="my-project"
+                required
               />
             )}
             <div className="space-y-2">

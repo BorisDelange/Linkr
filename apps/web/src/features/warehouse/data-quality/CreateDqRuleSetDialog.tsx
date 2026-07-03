@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -95,7 +96,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <Label className="text-xs">{t('data_quality.rs_name')}</Label>
+            <Label className="text-xs">{t('data_quality.rs_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -112,10 +113,11 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               existingIds={existingIds}
               htmlId="dq-ruleset-id"
               placeholder="my-rule-set"
+              required
             />
           )}
           <div>
-            <Label className="text-xs">{t('data_quality.rs_database')}</Label>
+            <Label className="text-xs">{t('data_quality.rs_database')}<RequiredMark /></Label>
             <Select value={dataSourceId} onValueChange={setDataSourceId}>
               <SelectTrigger className="mt-1">
                 <SelectValue placeholder={t('data_quality.select_database')} />

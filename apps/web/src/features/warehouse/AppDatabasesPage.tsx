@@ -4,14 +4,14 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
-import { Database, Plus, FileCode, Search, Plug, ChevronDown, Info } from 'lucide-react'
+import { Database, Plus, FileCode, Search, Plug, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   Dialog,
   DialogContent,
@@ -144,7 +144,7 @@ function CreateFromPresetDialog({
 
         <div className="space-y-4 py-2">
           <div className="space-y-2">
-            <Label>{t('databases.schema_preset')}</Label>
+            <Label>{t('databases.schema_preset')}<RequiredMark /></Label>
             <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
               <SelectTrigger>
                 <SelectValue placeholder={t('databases.select_preset')} />
@@ -163,7 +163,7 @@ function CreateFromPresetDialog({
           </div>
 
           <div className="space-y-2">
-            <Label>{t('databases.database_name')}</Label>
+            <Label>{t('databases.database_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => {
@@ -178,21 +178,7 @@ function CreateFromPresetDialog({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Label>{t('databases.field_identifier')}</Label>
-              <TooltipProvider>
-                <Tooltip delayDuration={200}>
-                  <TooltipTrigger asChild>
-                    <span className="text-muted-foreground">
-                      <Info size={12} />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-xs text-xs">
-                    {t('databases.identifier_info')}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
+            <Label>{t('databases.field_identifier')}</Label>
             <Input
               value={alias}
               onChange={(e) => {

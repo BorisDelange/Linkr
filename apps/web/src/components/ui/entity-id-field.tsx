@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Lock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { slugifyId } from '@/lib/slugify-id'
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
@@ -20,6 +21,8 @@ interface EntityIdFieldProps {
   htmlId?: string
   /** Placeholder text */
   placeholder?: string
+  /** Show a required marker next to the label (when the id gates submit) */
+  required?: boolean
 }
 
 /**
@@ -34,6 +37,7 @@ export function EntityIdField({
   existingIds,
   htmlId = 'entity-id',
   placeholder = 'my-entity',
+  required = false,
 }: EntityIdFieldProps) {
   const { t } = useTranslation()
   const [touched, setTouched] = useState(false)
@@ -53,6 +57,7 @@ export function EntityIdField({
       <Label htmlFor={htmlId} className="flex items-center gap-1.5">
         <Lock size={12} className="text-muted-foreground" />
         {t('entity_id.label')}
+        {required && <RequiredMark />}
       </Label>
       <IdInput
         htmlId={htmlId}

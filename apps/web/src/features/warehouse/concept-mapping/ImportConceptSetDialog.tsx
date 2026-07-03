@@ -367,7 +367,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
               {REFERENCED_CATALOGS.map((catalog) => {
                 const isImporting = importingCatalogId === catalog.id
                 return (
-                  <Card key={catalog.id} className="flex items-center gap-4 p-4">
+                  <Card key={catalog.id} className="flex flex-row items-center gap-4 p-4">
                     <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
                       <BookText size={20} className="text-teal-500" />
                     </div>

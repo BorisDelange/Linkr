@@ -41,7 +41,7 @@ export function VersioningTabs({
 
   // Export content may own its own scroll (e.g. WsExportTab's bounded card), so its tab is a
   // non-scrolling flex container. Git/History are short → plain (scroll only if needed).
-  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3' : 'min-h-[280px] pt-3'
+  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3' : 'flex min-h-[280px] flex-col pt-3'
   const sideContentClass = fillHeight ? 'min-h-0 flex-1 overflow-auto pt-3' : 'min-h-[280px] pt-3'
 
   return (

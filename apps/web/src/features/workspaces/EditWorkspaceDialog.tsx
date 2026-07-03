@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
 
 interface EditWorkspaceDialogProps {
@@ -59,7 +60,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
           </DialogHeader>
           <div className="mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="edit-ws-name">{t('workspaces.field_name')}</Label>
+              <Label htmlFor="edit-ws-name">{t('workspaces.field_name')}<RequiredMark /></Label>
               <Input
                 id="edit-ws-name"
                 value={name}

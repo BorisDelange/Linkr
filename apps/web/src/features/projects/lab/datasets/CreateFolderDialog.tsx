@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import { useDatasetStore } from '@/stores/dataset-store'
 
 interface CreateFolderDialogProps {
@@ -41,7 +42,7 @@ export function CreateFolderDialog({ open, onOpenChange, parentId }: CreateFolde
         </DialogHeader>
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="folder-name">{t('datasets.name')}</Label>
+            <Label htmlFor="folder-name">{t('datasets.name')}<RequiredMark /></Label>
             <Input
               id="folder-name"
               value={name}

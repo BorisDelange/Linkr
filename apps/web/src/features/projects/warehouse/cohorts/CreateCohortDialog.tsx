@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
 import {
   Dialog,
   DialogContent,
@@ -49,7 +50,7 @@ export function CreateCohortDialog({ open, onOpenChange, onSubmit, editing }: Cr
 
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label>{t('cohorts.field_name')}</Label>
+            <Label>{t('cohorts.field_name')}<RequiredMark /></Label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
