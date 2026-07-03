@@ -36,6 +36,15 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   const { wsUid } = useResolvedParams()
   const project = useAppStore((s) => s._projectsRaw.find((p) => p.uid === uid))
   const language = useAppStore((s) => s.language)
+  const updateProjectTodos = useAppStore((s) => s.updateProjectTodos)
+
+  const handleToggleTodo = (id: string) => {
+    const current = project?.todos ?? []
+    updateProjectTodos(
+      uid,
+      current.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo)),
+    )
+  }
 
   const { getProjectSources } = useDataSourceStore()
   const { getProjectCohorts } = useCohortStore()
@@ -105,17 +114,18 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 pt-4">
-      {/* Readme + To-do previews */}
-      <div className="grid min-h-0 shrink-0 grid-cols-1 gap-4 lg:h-[38%] lg:grid-cols-2">
+      {/* Readme + To-do previews — top half */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
         <ReadmePreview readme={readme} onViewFull={() => onNavigateTab('readme')} />
         <TodoPreview
           todos={stats.todos}
           done={stats.todosDone}
+          onToggle={handleToggleTodo}
           onViewFull={() => onNavigateTab('tasks')}
         />
       </div>
 
-      {/* Stat cards + section details fill the remaining height */}
+      {/* Stat cards + section details — bottom half */}
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto">
         {/* Stat Cards */}
         <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
@@ -124,6 +134,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
             value={dataSources.length}
             label={t('summary.databases')}
+            to={paths.databases(wsUid ?? '', uid)}
             sub={
               dataSources.length > 0
                 ? `${stats.connectedCount} ${t('summary.connected')}${stats.errorCount > 0 ? `, ${stats.errorCount} ${t('summary.in_error')}` : ''}`
@@ -135,6 +146,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             iconBg="bg-teal-100 text-teal-700 dark:bg-teal-950 dark:text-teal-300"
             value={cohorts.length}
             label={t('summary.cohorts')}
+            to={paths.cohorts(wsUid ?? '', uid)}
             sub={
               cohorts.length > 0
                 ? `${stats.cohortsWithResults} ${t('summary.with_results')}`
@@ -146,6 +158,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
             value={stats.datasetNodes}
             label={t('summary.datasets')}
+            to={paths.datasets(wsUid ?? '', uid)}
             sub={
               stats.datasetNodes > 0
                 ? `${stats.successNodes} ${t('summary.success')}${stats.errorNodes > 0 ? `, ${stats.errorNodes} ${t('summary.in_error')}` : ''}`
@@ -157,6 +170,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
             iconBg="bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
             value={dashboards.length}
             label={t('summary.dashboards')}
+            to={paths.dashboards(wsUid ?? '', uid)}
             sub={
               dashboards.length > 0
                 ? `${stats.tabCount} ${t('summary.tabs')}, ${stats.widgetCount} ${t('summary.widgets')}`
@@ -253,7 +267,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
               >
                 {dashboards.map((dash) => (
                   <ListItem key={dash.id} to={paths.dashboard(wsUid ?? '', uid, dash.id, dashboardIds)}>
-                    <span className="flex-1 truncate text-xs">{dash.name}</span>
+                    <span className="flex-1 truncate text-xs">{localized(dash.name, language)}</span>
                     <span className="text-[10px] tabular-nums text-muted-foreground">
                       {dash.tabCount} {t('summary.tabs')}, {dash.widgetCount} {t('summary.widgets')}
                     </span>
@@ -311,10 +325,12 @@ function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () 
 function TodoPreview({
   todos,
   done,
+  onToggle,
   onViewFull,
 }: {
   todos: { id: string; text: string; done: boolean }[]
   done: number
+  onToggle: (id: string) => void
   onViewFull: () => void
 }) {
   const { t } = useTranslation()
@@ -345,11 +361,16 @@ function TodoPreview({
         {todos.length > 0 ? (
           todos.map((todo) => (
             <div key={todo.id} className="flex items-center gap-2">
-              {todo.done ? (
-                <CheckCircle2 size={14} className="shrink-0 text-primary" />
-              ) : (
-                <Circle size={14} className="shrink-0 text-muted-foreground" />
-              )}
+              <button
+                onClick={() => onToggle(todo.id)}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                {todo.done ? (
+                  <CheckCircle2 size={14} className="text-primary" />
+                ) : (
+                  <Circle size={14} />
+                )}
+              </button>
               <span
                 className={`truncate text-xs ${todo.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}
               >
@@ -419,15 +440,17 @@ function StatCard({
   value,
   label,
   sub,
+  to,
 }: {
   icon: React.ReactNode
   iconBg: string
   value: number
   label: string
   sub: string
+  to?: string
 }) {
-  return (
-    <div className="rounded-xl border bg-card p-4 shadow-sm">
+  const content = (
+    <>
       <div className="flex items-center gap-3">
         <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
           {icon}
@@ -438,8 +461,17 @@ function StatCard({
         </div>
       </div>
       <p className="mt-2 text-[11px] text-muted-foreground">{sub}</p>
-    </div>
+    </>
   )
+  const className = 'rounded-xl border bg-card p-4 shadow-sm'
+  if (to) {
+    return (
+      <Link to={to} className={`${className} block transition-colors hover:bg-accent/50`}>
+        {content}
+      </Link>
+    )
+  }
+  return <div className={className}>{content}</div>
 }
 
 function StatusDot({ status }: { status: string }) {
