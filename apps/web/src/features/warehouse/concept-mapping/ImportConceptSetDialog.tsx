@@ -53,6 +53,10 @@ interface ParsedConceptSet {
   subcategory?: string
   provenance?: string
   version?: string
+  /** Stable cross-install id from `metadata.uniqueId`. */
+  uniqueId?: string
+  /** Origin dictionary repo from `metadata.sourceRepo`. */
+  sourceRepo?: string
   /** All translations from the source JSON, keyed by lang code. */
   translations?: Record<string, { name?: string; description?: string; category?: string; subcategory?: string }>
 }
@@ -76,8 +80,8 @@ export function extractTranslations(obj: Record<string, unknown>): Record<string
   return result
 }
 
-/** Extract metadata (category, subcategory, provenance, version) from INDICATE-style JSON. */
-export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string; version?: string } {
+/** Extract metadata (category, subcategory, provenance, version, uniqueId, sourceRepo) from INDICATE-style JSON. */
+export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string; version?: string; uniqueId?: string; sourceRepo?: string } {
   const meta = obj.metadata as Record<string, unknown> | undefined
   if (!meta) return {}
 
@@ -91,6 +95,8 @@ export function extractMetadata(obj: Record<string, unknown>, lang: string): { c
     subcategory: tr.subcategory || undefined,
     provenance: org?.name || undefined,
     version: meta.version ? String(meta.version) : (obj.version ? String(obj.version) : undefined),
+    uniqueId: meta.uniqueId ? String(meta.uniqueId) : undefined,
+    sourceRepo: meta.sourceRepo ? String(meta.sourceRepo) : undefined,
   }
 }
 
@@ -193,6 +199,8 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
         expression: { items: parsed.items },
         resolvedConceptIds: null,
         sourceUrl: source === 'url' ? url : undefined,
+        uniqueId: parsed.uniqueId,
+        sourceRepo: parsed.sourceRepo,
         category: parsed.category,
         subcategory: parsed.subcategory,
         provenance: parsed.provenance,
@@ -262,6 +270,8 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
             expression: { items: parsed.items },
             resolvedConceptIds: null,
             sourceUrl: r.value.url,
+            uniqueId: parsed.uniqueId,
+            sourceRepo: parsed.sourceRepo,
             category: parsed.category,
             subcategory: parsed.subcategory,
             provenance: parsed.provenance,

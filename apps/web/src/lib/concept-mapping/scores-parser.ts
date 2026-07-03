@@ -9,6 +9,11 @@ export interface ParsedScoreRow {
   equivalence: string
   comment: string | null
   created_at: string | null
+  /** metadata.uniqueId of the data-dictionary concept set an AI row aligned
+   *  against; null for syntactic/semantic rows and plain-OMOP AI targets. */
+  concept_set_uid: string | null
+  /** metadata.sourceRepo of that dictionary; null whenever uid is null. */
+  concept_set_source_repo: string | null
 }
 
 const TEMP_FILE = '__scores_validate_tmp__'

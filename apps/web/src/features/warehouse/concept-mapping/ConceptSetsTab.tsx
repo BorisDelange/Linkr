@@ -582,6 +582,8 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         subcategory: md.subcategory ?? cs.subcategory,
         provenance: md.provenance ?? cs.provenance,
         version: md.version ?? cs.version,
+        uniqueId: md.uniqueId ?? cs.uniqueId,
+        sourceRepo: md.sourceRepo ?? cs.sourceRepo,
         translations,
         updatedAt: new Date().toISOString(),
       })

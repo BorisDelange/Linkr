@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { ArrowUpDown, ArrowUp, ArrowDown, Settings2, Check, Info } from 'lucide-react'
+import { ArrowUpDown, ArrowUp, ArrowDown, Settings2, Check, Info, Library } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
@@ -102,6 +102,10 @@ interface SuggestionsTableProps {
   selectedConceptId: number | null
   onSelect: (s: SuggestionCandidate | null) => void
   onInfo: (s: SuggestionCandidate) => void
+  /** Open the source data-dictionary concept set for an AI suggestion. */
+  onConceptSet: (s: SuggestionCandidate) => void
+  /** uniqueId → concept set name, for concept sets present locally. */
+  conceptSetNamesByUid: Map<string, string>
 }
 
 function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string {
@@ -116,7 +120,7 @@ function getColLabel(cols: ColumnDef<SuggestionCandidate>[], id: string): string
   return id.replace(/_/g, ' ')
 }
 
-export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selectedConceptId, onSelect, onInfo }: SuggestionsTableProps) {
+export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selectedConceptId, onSelect, onInfo, onConceptSet, conceptSetNamesByUid }: SuggestionsTableProps) {
   const { t } = useTranslation()
   const [sorting, setSorting] = useState<Sorting>({ columnId: 'combined_score', desc: true })
   const [filters, setFilters] = useState<Filters>({})
@@ -382,6 +386,37 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       enableResizing: true,
     },
     {
+      id: 'concept_set',
+      header: () => t('concept_mapping.col_concept_set'),
+      accessorFn: (r) => (r.conceptSetUid ? (conceptSetNamesByUid.get(r.conceptSetUid) ?? r.conceptSetUid) : ''),
+      cell: ({ row }) => {
+        const uid = row.original.conceptSetUid
+        if (!uid) return <span className="text-[10px] text-muted-foreground">—</span>
+        const localName = conceptSetNamesByUid.get(uid)
+        const label = localName ?? t('concept_mapping.cs_not_local')
+        return (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex max-w-full items-center gap-1 rounded px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                onClick={(e) => { e.stopPropagation(); onConceptSet(row.original) }}
+              >
+                <Library size={11} className="shrink-0" />
+                <span className={`truncate ${localName ? '' : 'italic'}`}>{label}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="text-xs">
+              {localName ? t('concept_mapping.cs_open_detail') : t('concept_mapping.cs_not_local_hint')}
+            </TooltipContent>
+          </Tooltip>
+        )
+      },
+      size: 150,
+      minSize: 60,
+      enableResizing: true,
+    },
+    {
       id: '_actions',
       header: '',
       cell: ({ row }) => (
@@ -405,7 +440,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       minSize: 48,
       enableResizing: false,
     },
-  ], [t, alreadyMappedIds, onInfo])
+  ], [t, alreadyMappedIds, onInfo, onConceptSet, conceptSetNamesByUid])
 
   const table = useReactTable({
     data: filtered,

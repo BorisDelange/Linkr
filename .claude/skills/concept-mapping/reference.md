@@ -14,6 +14,8 @@ Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) b
 | `equivalence` | string | SKOS predicate — `skos:exactMatch` (default for syntactic/semantic), `skos:closeMatch`, `skos:broadMatch`, `skos:narrowMatch`, `skos:relatedMatch` (AI may nuance) |
 | `comment` | string \| null | Free-text justification (AI rows only; null for syntactic/semantic) |
 | `created_at` | string | ISO 8601 UTC timestamp |
+| `concept_set_uid` | string \| null | `metadata.uniqueId` of the data-dictionary concept set an AI row was aligned against (data-dictionary priority mode). Null for syntactic/semantic rows and for AI rows that mapped to a plain OMOP target outside any dictionary. Linkr matches this against `ConceptSet.uniqueId` to open the concept-set sidebar. |
+| `concept_set_source_repo` | string \| null | `metadata.sourceRepo` of that dictionary — lets Linkr offer "import this dictionary" when the concept set is not present locally. Null whenever `concept_set_uid` is null. |
 
 Uniqueness key (resume + idempotency): `(source_vocabulary_id, source_concept_code, concept_id, method)`. Resume in `compute_scores.py` is **per method**: a `(source_vocabulary_id, source_concept_code)` pair is skipped for a given method only if that exact method is already present for it, so adding a method never recomputes an existing one. Writes are append-only (each flush is a new part file under `similarity-scores.parquet.parts/`, consolidated into the single output at the end), so already-scored pairs are skipped rather than overwritten — to recompute a method from scratch, delete its rows (or the whole output) first.
 

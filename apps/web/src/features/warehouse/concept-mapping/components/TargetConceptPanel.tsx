@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/select'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -377,6 +377,23 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // Linked concept sets
   const linkedSets = conceptSets.filter((cs) => (project.conceptSetIds ?? []).includes(cs.id))
+
+  // Data-dictionary concept sets keyed by their stable cross-install uniqueId,
+  // so an AI suggestion carrying a concept_set_uid can open the set locally.
+  // Matches across the whole workspace, not just sets linked to this project.
+  const conceptSetsByUid = useMemo(() => {
+    const m = new Map<string, ConceptSet>()
+    for (const cs of conceptSets) if (cs.uniqueId) m.set(cs.uniqueId, cs)
+    return m
+  }, [conceptSets])
+  const conceptSetNamesByUid = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const cs of conceptSets) if (cs.uniqueId) m.set(cs.uniqueId, getConceptSetI18n(cs, lang).name)
+    return m
+  }, [conceptSets, lang])
+
+  // "Concept set not imported locally" prompt (offers import via sourceRepo).
+  const [csNotLocal, setCsNotLocal] = useState<{ uid: string; sourceRepo: string | null } | null>(null)
 
 
   // Existing mappings for selected source concept (match by ID or by code for code-only tables)
@@ -1568,8 +1585,11 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             equivalence: r.equivalence,
             comment: r.comment,
             createdAt: r.created_at,
+            conceptSetUid: r.concept_set_uid,
+            conceptSetSourceRepo: r.concept_set_source_repo,
           }
         })
+        const conceptSet = pickFirstConceptSet(scores)
         return {
           concept_id: targetConceptId,
           concept_name: '',
@@ -1579,6 +1599,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           combined_score: computeCombinedScore(scores),
           equivalence: pickStrongestEquivalence(scores),
           comment: pickFirstComment(scores),
+          conceptSetUid: conceptSet.uid,
+          conceptSetSourceRepo: conceptSet.sourceRepo,
         }
       }).sort((a, b) => b.combined_score - a.combined_score)
       setSuggestions(candidates)
@@ -1739,6 +1761,17 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             standard_concept: s.standard_concept,
           })
           setConceptDetailOpen(true)
+        }}
+        conceptSetNamesByUid={conceptSetNamesByUid}
+        onConceptSet={(s) => {
+          if (!s.conceptSetUid) return
+          const cs = conceptSetsByUid.get(s.conceptSetUid)
+          if (cs) {
+            setDetailSheetCs(cs)
+            setDetailSheetOpen(true)
+          } else {
+            setCsNotLocal({ uid: s.conceptSetUid, sourceRepo: s.conceptSetSourceRepo })
+          }
         }}
       />
     )
@@ -2421,6 +2454,34 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         open={detailSheetOpen}
         onOpenChange={setDetailSheetOpen}
       />
+
+      {/* Concept set referenced by an AI suggestion but not imported in this workspace */}
+      <AlertDialog open={csNotLocal != null} onOpenChange={(o) => { if (!o) setCsNotLocal(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.cs_not_local_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.cs_not_local_desc')}
+              {csNotLocal?.sourceRepo && (
+                <>
+                  {' '}
+                  <a
+                    href={csNotLocal.sourceRepo}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium underline underline-offset-2"
+                  >
+                    {csNotLocal.sourceRepo}
+                  </a>
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.close')}</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Concept detail sheet (OMOP concept info) */}
       <ConceptDetailSheet

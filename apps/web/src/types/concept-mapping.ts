@@ -57,6 +57,14 @@ export interface ConceptSet {
   resolvedConceptIds: number[] | null
   /** Origin URL (GitHub, ATLAS, etc). */
   sourceUrl?: string
+  /** Stable cross-install identifier from the source JSON (`metadata.uniqueId`).
+   *  Unlike `id` (a random UUID minted per import), this is set by the authoring
+   *  tool and is identical across installs — AI suggestion rows reference it to
+   *  link back to the concept set that was used for the mapping. */
+  uniqueId?: string
+  /** Data-dictionary repo this concept set came from (`metadata.sourceRepo`).
+   *  Lets the UI offer "import this dictionary" when a referenced set is absent. */
+  sourceRepo?: string
   /** Category from metadata (e.g. "Clinical observation"). */
   category?: string
   /** Subcategory from metadata (e.g. "Neurological assessment"). */
@@ -299,6 +307,10 @@ export interface SuggestionScore {
   comment: string | null
   /** ISO 8601 UTC timestamp from the producing script. */
   createdAt: string | null
+  /** uniqueId of the data-dictionary concept set an AI row aligned against; null otherwise. */
+  conceptSetUid?: string | null
+  /** sourceRepo of that dictionary; null whenever conceptSetUid is null. */
+  conceptSetSourceRepo?: string | null
   importedAt: string
 }
 

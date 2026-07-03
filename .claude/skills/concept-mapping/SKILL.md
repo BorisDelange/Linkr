@@ -90,6 +90,23 @@ Ask how to select source concepts. Show a preview (count + 5-row sample) before 
 - **Target vocabularies**: default all (`standard_concept = 'S'`). Can restrict to LOINC, SNOMED, RxNorm, etc.
 - **Target domains**: Measurement, Condition, Drug, Procedure, Observation, etc.
 
+### 2e. Data-dictionary priority mode (optional, recommended when a curated dictionary exists)
+
+Often the user does **not** want to map against the whole OMOP vocabulary — they want to align, in priority, onto a **curated data dictionary**: a folder of OHDSI concept-set JSON files, each set typically carrying a stable `metadata.uniqueId` and `metadata.sourceRepo` (the INDICATE Data Dictionary is one such dictionary, but any concept-set collection in this format works). Always **offer** this mode when the user points at such a folder, or mentions aligning "onto a data dictionary / concept sets". Ask for the dictionary folder path — never assume one.
+
+Ask the user (only if a dictionary folder is in play):
+
+> "Do you want to align **in priority onto this data dictionary**, and fall back to the full OMOP vocabulary only when no concept-set target fits? I can also work **category by category** (Ventilation, Vital signs, Drug…) so you review one clinical area at a time."
+
+If yes, this becomes the driving strategy for the AI phase:
+
+1. **Parse the dictionary** — read every `concept_sets/*.json`. For each set, extract: `metadata.uniqueId`, `metadata.sourceRepo`, the localized `category`/`subcategory` (`metadata.translations.<lang>.category`), and every target `concept.conceptId` under `expression.items[]`. Build a table `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)`. **Note: the same `concept_id` can belong to several sets** — keep all `(concept_id → set)` links.
+2. **Category by category** — process one `category` at a time (the user picks the order; default: whatever they name first). This keeps each review clinically coherent and reviewable.
+3. **Invert the mapping direction** — instead of "for each source, find a target", the natural framing is "for each dictionary target in this category, which source concepts align onto it?". Use the pre-computed `similarity-scores.parquet` (biolord + jaro-winkler) restricted to `concept_id ∈ dict_targets`, keep source candidates above a similarity threshold (default `semantic/biolord ≥ 0.5`), and hand those candidate pairs to `/concept-mapping-ai`.
+4. **Priority + OMOP fallback** — the AI's target-selection order is: **dictionary candidate → dictionary by direct search** (a low similarity score can hide a correct match for a terse source label like `VT`, `PEP`, `FR` — search the dictionary targets by name/synonym) **→ full OMOP** (search the whole `concept` table, standard+valid) **→ `no-match`**. When the chosen target is a dictionary concept, the AI stamps the suggestion with that set's `concept_set_uid` + `source_repo`; when it falls back to a plain OMOP target, both are left null and the `comment` notes it is outside the dictionary.
+
+Pass the `dict_targets` table (or the dictionary folder path) to the sub-skill in Step 5 so it can populate the `concept_set_uid` / `concept_set_source_repo` columns.
+
 ## Step 3: Load data into DuckDB
 
 ```bash
@@ -255,12 +272,13 @@ Pass along:
 - Selected concept list (or filter to re-derive it)
 - `similarity-scores.parquet` path if available
 - `projectId` from `project.json`
+- **If data-dictionary priority mode (Step 2e) is active**: the `dict_targets` table (or dictionary folder path), the active `category`, and the instruction to align onto the dictionary first with OMOP fallback. The sub-skill stamps `concept_set_uid` + `concept_set_source_repo` on every suggestion whose target is a dictionary concept.
 
 ## Step 6: Persist sub-skill output
 
 The sub-skill returns a list of rows plus a `mode` flag telling you where to write them:
 
-- `mode = "suggestions"` → append to `similarity-scores.parquet` with `method = "ai/<model-id>"`, populating `equivalence`/`comment`/`created_at`. Use the same parquet schema as `compute_scores.py`. Never overwrite existing rows for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
+- `mode = "suggestions"` → append to `similarity-scores.parquet` with `method = "ai/<model-id>"`, populating `equivalence`/`comment`/`created_at`, plus `concept_set_uid`/`concept_set_source_repo` when the target came from a data dictionary (null otherwise). Use the same parquet schema as `compute_scores.py` (10 columns). Never overwrite existing rows for the same `(source_vocabulary_id, source_concept_code, concept_id, method)` key.
 - `mode = "mappings"` → append to `mappings.json` (existing flow below).
 
 ### Writing mappings.json (mode = "mappings")

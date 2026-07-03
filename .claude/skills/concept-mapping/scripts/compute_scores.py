@@ -82,6 +82,14 @@ PARQUET_SCHEMA = pa.schema([
     pa.field("equivalence",          pa.string()),
     pa.field("comment",              pa.string()),
     pa.field("created_at",           pa.string()),
+    # Stable UUID (metadata.uniqueId) of the data-dictionary concept set an AI
+    # row was aligned against. Always null for syntactic/*, semantic/* rows and
+    # for ai/* rows that mapped to a plain OMOP target outside any dictionary.
+    pa.field("concept_set_uid",         pa.string()),
+    # Source repo of the dictionary the concept set came from (metadata.sourceRepo).
+    # Lets the UI offer "import this dictionary" when the set is not present
+    # locally. Null whenever concept_set_uid is null.
+    pa.field("concept_set_source_repo", pa.string()),
 ])
 
 
@@ -194,6 +202,8 @@ def _buf_to_table(buf: list[dict]) -> pa.Table:
             "equivalence":          pa.array([r["equivalence"]          for r in buf], type=pa.string()),
             "comment":              pa.array([r["comment"]              for r in buf], type=pa.string()),
             "created_at":           pa.array([r["created_at"]           for r in buf], type=pa.string()),
+            "concept_set_uid":         pa.array([r.get("concept_set_uid")         for r in buf], type=pa.string()),
+            "concept_set_source_repo": pa.array([r.get("concept_set_source_repo") for r in buf], type=pa.string()),
         },
         schema=PARQUET_SCHEMA,
     )
@@ -224,12 +234,16 @@ def read_scores(output_path: Path, columns: list[str] | None = None) -> pa.Table
     files. Callers treat this as the single source of truth during a run."""
     def _read(path: Path) -> pa.Table:
         t = pq.read_table(str(path), columns=columns)
-        # Only cast when reading the full row: earlier runs may have written
+        # Only reconcile when reading the full row: earlier runs may have written
         # `comment` as arrow type `null` (all-None), which won't concat with the
-        # `string` column of newer part files. Column subsets skip the cast since
-        # the selected columns are already type-compatible.
+        # `string` column of newer part files, and parts written before the
+        # concept_set_* columns existed lack those fields entirely. Column subsets
+        # skip this since the selected columns are already type-compatible.
         if columns is None and t.schema != PARQUET_SCHEMA:
-            t = t.cast(PARQUET_SCHEMA)
+            for field in PARQUET_SCHEMA:
+                if field.name not in t.schema.names:
+                    t = t.append_column(field.name, pa.nulls(t.num_rows, field.type))
+            t = t.select(PARQUET_SCHEMA.names).cast(PARQUET_SCHEMA)
         return t
 
     tables = []

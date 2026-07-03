@@ -80,6 +80,10 @@ function rowToParsed(r: Record<string, unknown>): ParsedScoreRow | null {
     : DEFAULT_EQUIVALENCE
   const comment = r.comment != null && String(r.comment) !== '' ? String(r.comment) : null
   const createdAt = r.created_at != null && String(r.created_at) !== '' ? String(r.created_at) : null
+  // Optional columns: absent in scores files produced before data-dictionary
+  // support. Read defensively so legacy parquets still parse.
+  const conceptSetUid = r.concept_set_uid != null && String(r.concept_set_uid) !== '' ? String(r.concept_set_uid) : null
+  const conceptSetSourceRepo = r.concept_set_source_repo != null && String(r.concept_set_source_repo) !== '' ? String(r.concept_set_source_repo) : null
   return {
     source_vocabulary_id: sourceVocabId,
     source_concept_code: sourceConceptCode,
@@ -89,6 +93,8 @@ function rowToParsed(r: Record<string, unknown>): ParsedScoreRow | null {
     equivalence,
     comment,
     created_at: createdAt,
+    concept_set_uid: conceptSetUid,
+    concept_set_source_repo: conceptSetSourceRepo,
   }
 }
 
@@ -113,7 +119,10 @@ export async function queryScoresForSource(
   const conn = await db.connect()
   try {
     const stmt = await conn.prepare(
-      `SELECT source_vocabulary_id, source_concept_code, concept_id, method, score, equivalence, comment, created_at
+      // SELECT * (not an explicit column list) so scores files produced before
+      // the concept_set_* columns existed still load — rowToParsed fills the
+      // missing fields with null.
+      `SELECT *
        FROM read_parquet('${name}')
        WHERE source_vocabulary_id = ? AND source_concept_code = ?`,
     )

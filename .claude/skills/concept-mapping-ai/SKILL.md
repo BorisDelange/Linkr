@@ -19,6 +19,7 @@ By the time this skill runs, the following are already in place:
 - `project.json` read → `projectId` known
 - Source concept batch selected and previewed
 - `similarity-scores.parquet` path (may be absent if not precomputed)
+- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table (or a dictionary folder path to build it from) and an active `category`. When present, align onto the dictionary first and fall back to full OMOP only when nothing fits — see "Data-dictionary priority" below.
 
 ## Step 0: Decide where the AI output goes
 
@@ -100,6 +101,17 @@ Search for: `LOINC "heart rate"`, `SNOMED CT "respiratory rate"`, `OMOP concept 
 
 **Strategy 5 — Hierarchy traversal**
 Once a candidate is found, explore ancestors/descendants via `concept_ancestor` and `concept_relationship` (relationship_id = 'Maps to') to find the right specificity level.
+
+**Data-dictionary priority (when `dict_targets` is provided)**
+
+When the orchestrator passed a `dict_targets` table + active `category`, the target-selection order changes. For each source concept, resolve the target in this order and stop at the first that genuinely fits:
+
+1. **Dictionary candidate** — among the pre-computed candidates, prefer any whose `concept_id` is in `dict_targets` for the active category. Verify it clinically like any other candidate; a high `semantic/biolord` score is a lead, not a decision.
+2. **Dictionary by direct search** — if no pre-computed candidate fits, search `dict_targets` (join to `concept`/`concept_synonym`) directly by the source name/synonyms. A terse or abbreviated source label (`VT`, `PEP`, `FR`, `FiO2`) often scores below the similarity threshold yet has an exact dictionary target — expand the abbreviation and look for it.
+3. **Full OMOP fallback** — only if the dictionary has no adequate target, search the whole `concept` table (standard + valid) as usual. This is expected and correct: the dictionary is curated and will not cover every source concept.
+4. **`no-match`** — if neither the dictionary nor OMOP has an adequate target, return no match with a short reason (candidate for a future custom dictionary concept).
+
+Record which branch fired: when the target is a dictionary concept (branches 1–2), stamp the suggestion with that set's `concept_set_uid` and `concept_set_source_repo` from `dict_targets`. When it is a plain OMOP target (branch 3), leave both null and note "outside the dictionary" in the `comment`.
 
 ### 2c. Evaluate and rank candidates
 
@@ -184,8 +196,10 @@ Return one or more rows per source concept (up to top-K, per Q3), matching the p
 | `equivalence` | one of `skos:exactMatch`, `closeMatch`, `broadMatch`, `narrowMatch`, `relatedMatch` |
 | `comment` | one short sentence justifying the match (free text, can include unit/granularity notes) |
 | `created_at` | ISO 8601 UTC timestamp |
+| `concept_set_uid` | `metadata.uniqueId` of the data-dictionary concept set the target came from (data-dictionary priority mode, branches 1–2). `null` for full-OMOP fallback targets. |
+| `concept_set_source_repo` | `metadata.sourceRepo` of that dictionary (lets Linkr offer "import this dictionary" when the set is absent locally). `null` whenever `concept_set_uid` is null. |
 
-This is the only place in the system where `equivalence` is nuanced — for `syntactic/*` and `semantic/*` it is always `skos:exactMatch` and `comment` is null.
+This is the only place in the system where `equivalence` is nuanced — for `syntactic/*` and `semantic/*` it is always `skos:exactMatch`, `comment` is null, and both `concept_set_*` columns are null.
 
 ### If mode = "mappings"
 

@@ -10,6 +10,10 @@ export interface MethodScore {
   comment: string | null
   /** ISO 8601 UTC timestamp from the producing script. */
   createdAt: string | null
+  /** uniqueId of the data-dictionary concept set this AI row aligned against. */
+  conceptSetUid: string | null
+  /** sourceRepo of that dictionary (for "import this dictionary" when absent). */
+  conceptSetSourceRepo: string | null
 }
 
 export interface SuggestionCandidate {
@@ -28,6 +32,9 @@ export interface SuggestionCandidate {
   equivalence: string
   /** First non-null comment across methods, if any. */
   comment: string | null
+  /** Concept set (uniqueId + sourceRepo) the AI aligned this target against, if any. */
+  conceptSetUid: string | null
+  conceptSetSourceRepo: string | null
 }
 
 const EQUIVALENCE_RANK: Record<string, number> = {
@@ -52,6 +59,14 @@ export function pickFirstComment(scores: MethodScore[]): string | null {
     if (s.comment) return s.comment
   }
   return null
+}
+
+/** First method score that carries a concept-set link (uid + repo), if any. */
+export function pickFirstConceptSet(scores: MethodScore[]): { uid: string | null; sourceRepo: string | null } {
+  for (const s of scores) {
+    if (s.conceptSetUid) return { uid: s.conceptSetUid, sourceRepo: s.conceptSetSourceRepo }
+  }
+  return { uid: null, sourceRepo: null }
 }
 
 export const METHOD_COLORS: Record<string, string> = {
