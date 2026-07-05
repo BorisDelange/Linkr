@@ -35,6 +35,13 @@ class SetupStatusResponse(BaseModel):
     needs_setup: bool
 
 
+class DbInfoResponse(BaseModel):
+    """Effective database config the server actually runs on (read-only)."""
+
+    engine: str  # "sqlite" | "postgresql" | other dialect name
+    location: str  # file path (SQLite) or host/db (Postgres), password stripped
+
+
 class SetupRequest(BaseModel):
     username: str
     email: str | None = None

@@ -1,11 +1,17 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, make_url, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.database import get_db
 from app.core.security import hash_password
 from app.models.user import User
-from app.schemas.auth import SetupRequest, SetupStatusResponse, UserResponse
+from app.schemas.auth import (
+    DbInfoResponse,
+    SetupRequest,
+    SetupStatusResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -16,6 +22,19 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(func.count(User.id)))
     count = result.scalar_one()
     return SetupStatusResponse(needs_setup=count == 0)
+
+
+@router.get("/db-info", response_model=DbInfoResponse)
+async def db_info():
+    """Report the database the server actually uses (configured server-side)."""
+    url = make_url(settings.resolved_database_url)
+    engine = url.get_backend_name()  # "sqlite", "postgresql", ...
+    if engine == "sqlite":
+        location = url.database or ":memory:"
+    else:
+        host = f"{url.host or ''}:{url.port}" if url.port else (url.host or "")
+        location = f"{host}/{url.database}" if url.database else host
+    return DbInfoResponse(engine=engine, location=location)
 
 
 @router.post("/initialize", response_model=UserResponse)
