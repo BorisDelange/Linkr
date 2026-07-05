@@ -6,6 +6,7 @@ from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.models.organization import Organization
 from app.models.schema_preset import SchemaPreset
+from app.models.wiki_page import WikiPage
 
 __all__ = [
     "User",
@@ -16,4 +17,5 @@ __all__ = [
     "WorkspaceMember",
     "Organization",
     "SchemaPreset",
+    "WikiPage",
 ]
