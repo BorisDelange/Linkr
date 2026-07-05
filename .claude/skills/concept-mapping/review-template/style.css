@@ -300,11 +300,17 @@ body {
   display: inline-flex; align-items: center; padding: .12rem .55rem; border-radius: 999px;
   font-size: .72rem; font-weight: 600; white-space: nowrap;
 }
-.equiv-exact   { background: var(--ok-bg);  color: #0a6b45; }
-.equiv-close   { background: #cdeee0;        color: #0b6a55; }
-.equiv-broad   { background: var(--warn-bg); color: #8a5108; }
-.equiv-narrow  { background: #ffe2cc;        color: #9a3a12; }
-.equiv-related { background: #e6e0f7;        color: #543aa8; }
+.equiv-exact   { background: #dcfce7; color: #15803d; }
+.equiv-close   { background: #dbeafe; color: #1d4ed8; }
+.equiv-broad   { background: #f3e8ff; color: #7e22ce; }
+.equiv-narrow  { background: #ffedd5; color: #c2410c; }
+.equiv-related { background: #f3f4f6; color: #4b5563; }
+
+.equiv-bar-exact   > div { background: #22c55e; }
+.equiv-bar-close   > div { background: #3b82f6; }
+.equiv-bar-broad   > div { background: #a855f7; }
+.equiv-bar-narrow  > div { background: #f97316; }
+.equiv-bar-related > div { background: #9ca3af; }
 
 .dict-block { margin-top: 1rem; padding-top: .9rem; border-top: 1px solid var(--border-2); font-size: .82rem; display: grid; gap: .35rem; }
 .dict-row { display: flex; justify-content: space-between; gap: .75rem; }

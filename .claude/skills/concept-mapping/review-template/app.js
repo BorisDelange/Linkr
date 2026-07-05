@@ -265,7 +265,7 @@ function renderEquiv(ai) {
         return `<div class="equiv-row">
           <span class="equiv-pill equiv-${short}">${short}</span>
           <span class="equiv-bar-wrap">
-            <span class="equiv-bar"><div style="width:${p}%;background:var(--accent)"></div></span>
+            <span class="equiv-bar equiv-bar-${short}"><div style="width:${p}%"></div></span>
             <span class="equiv-count tnum">${fmt(n)}</span>
           </span>
         </div>`;
