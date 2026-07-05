@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -15,8 +16,10 @@ interface LoginPageProps {
 export function LoginPage({ setupJustCompleted }: LoginPageProps) {
   const { t } = useTranslation()
   const { login, loginError } = useAuthStore()
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
+  // In dev, prefill admin/admin for quick re-login. Empty in prod builds.
+  const devDefault = import.meta.env.DEV ? 'admin' : ''
+  const [username, setUsername] = useState(devDefault)
+  const [password, setPassword] = useState(devDefault)
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -30,15 +33,6 @@ export function LoginPage({ setupJustCompleted }: LoginPageProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
       <div className="w-full max-w-sm px-4">
-        {/* Logo + title */}
-        <div className="mb-8 flex flex-col items-center gap-3">
-          <LinkrLogo size={48} />
-          <h1 className="text-2xl font-bold text-foreground">Linkr</h1>
-          <p className="text-sm text-muted-foreground">
-            {t('login.subtitle')}
-          </p>
-        </div>
-
         {/* Setup success message */}
         {setupJustCompleted && (
           <div className="mb-4 rounded-md border border-green-200 bg-green-50 p-3 text-center text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
@@ -47,7 +41,12 @@ export function LoginPage({ setupJustCompleted }: LoginPageProps) {
         )}
 
         <Card>
-          <CardContent className="p-6">
+          <CardHeader className="flex flex-col items-center gap-2 text-center">
+            <LinkrLogo size={48} />
+            <CardTitle className="text-2xl">Linkr</CardTitle>
+            <CardDescription>{t('login.subtitle')}</CardDescription>
+          </CardHeader>
+          <CardContent className="p-6 pt-0">
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="username">{t('login.username')}</Label>
@@ -62,9 +61,8 @@ export function LoginPage({ setupJustCompleted }: LoginPageProps) {
 
               <div className="space-y-2">
                 <Label htmlFor="password">{t('login.password')}</Label>
-                <Input
+                <PasswordInput
                   id="password"
-                  type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoComplete="current-password"

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useLocation, useNavigate } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useEtlStore } from '@/stores/etl-store'
@@ -97,7 +98,14 @@ export function Header() {
   const language = useAppStore((s) => s.language)
   const setLanguage = useAppStore((s) => s.setLanguage)
   const user = useAppStore((s) => s.user)
-  const logout = useAppStore((s) => s.logout)
+  const appLogout = useAppStore((s) => s.logout)
+  const authLogout = useAuthStore((s) => s.logout)
+  const isServerMode = useAuthStore((s) => s.isServerMode)
+  const logout = () => {
+    appLogout()
+    // In server mode, also clear JWT tokens so AuthGate returns to the login page.
+    if (isServerMode) authLogout()
+  }
   const activeWorkspaceNameRaw = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === s.activeWorkspaceId)?.name)
   // Resolve names live from the raw entities so they follow the active language and renames.
   const activeProjectName = activeProjectNameRaw ? localized(activeProjectNameRaw, language) : (useAppStore.getState().activeProjectName ?? undefined)

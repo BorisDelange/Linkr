@@ -1,9 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Database,
   CheckCircle2,
-  XCircle,
   Loader2,
   ChevronRight,
   ChevronLeft,
@@ -11,19 +10,15 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 import { getApiBaseUrl } from '@/lib/api-client'
 
-const DB_ENGINES = ['sqlite', 'postgresql'] as const
-type DbEngine = (typeof DB_ENGINES)[number]
+interface DbInfo {
+  engine: string
+  location: string
+}
 
 interface SetupWizardProps {
   onComplete: () => void
@@ -33,42 +28,26 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   const { t } = useTranslation()
   const [step, setStep] = useState(1)
 
-  // Step 1: DB config (informational for now)
-  const [engine, setEngine] = useState<DbEngine>('sqlite')
-  const [sqlitePath, setSqlitePath] = useState('./linkr.db')
-  const [pgHost, setPgHost] = useState('localhost')
-  const [pgPort, setPgPort] = useState('5432')
-  const [pgDatabase, setPgDatabase] = useState('linkr')
-  const [pgUsername, setPgUsername] = useState('')
-  const [pgPassword, setPgPassword] = useState('')
-  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
-  const [testMessage, setTestMessage] = useState('')
+  // Step 1: the database is configured server-side (LINKR_DATABASE_URL); we
+  // only display what the server actually runs on — read-only.
+  const [dbInfo, setDbInfo] = useState<DbInfo | null>(null)
+
+  useEffect(() => {
+    fetch(`${getApiBaseUrl()}/api/v1/setup/db-info`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => setDbInfo(data))
+      .catch(() => setDbInfo(null))
+  }, [])
 
   // Step 2: Admin account
-  const [username, setUsername] = useState('')
+  // In dev, prefill admin/admin so first-run setup is one click. Empty in prod builds.
+  const devDefault = import.meta.env.DEV ? 'admin' : ''
+  const [username, setUsername] = useState(devDefault)
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
+  const [password, setPassword] = useState(devDefault)
+  const [confirmPassword, setConfirmPassword] = useState(devDefault)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
-
-  const handleTestConnection = async () => {
-    setTestStatus('testing')
-    setTestMessage('')
-    try {
-      const res = await fetch(`${getApiBaseUrl()}/api/v1/health`)
-      if (res.ok) {
-        setTestStatus('success')
-        setTestMessage(t('setup.test_success'))
-      } else {
-        setTestStatus('error')
-        setTestMessage(t('setup.test_error'))
-      }
-    } catch {
-      setTestStatus('error')
-      setTestMessage(t('setup.test_unreachable'))
-    }
-  }
 
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -133,84 +112,22 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
               </p>
 
               <div className="space-y-4">
-                {/* Engine selector */}
-                <div className="space-y-2">
-                  <Label>{t('settings.general_db_engine')}</Label>
-                  <Select value={engine} onValueChange={(v) => setEngine(v as DbEngine)}>
-                    <SelectTrigger className="w-full sm:w-64">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {DB_ENGINES.map((e) => (
-                        <SelectItem key={e} value={e}>
-                          {t(`settings.general_db_engine_${e}`)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 rounded-md border bg-muted/40 p-4 text-sm">
+                  <span className="text-muted-foreground">{t('settings.general_db_engine')}</span>
+                  <span className="font-medium text-foreground">
+                    {dbInfo ? (dbInfo.engine === 'sqlite' ? 'SQLite' : dbInfo.engine === 'postgresql' ? 'PostgreSQL' : dbInfo.engine) : '…'}
+                  </span>
+                  <span className="text-muted-foreground">{t('setup.db_location')}</span>
+                  <span className="break-all font-mono text-xs text-foreground">
+                    {dbInfo?.location ?? '…'}
+                  </span>
                 </div>
 
-                {/* SQLite */}
-                {engine === 'sqlite' && (
-                  <div className="space-y-2">
-                    <Label>{t('settings.general_db_sqlite_path')}</Label>
-                    <Input
-                      value={sqlitePath}
-                      onChange={(e) => setSqlitePath(e.target.value)}
-                      placeholder="./linkr.db"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      {t('settings.general_db_sqlite_hint')}
-                    </p>
-                  </div>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  {t('setup.db_readonly_hint')}
+                </p>
 
-                {/* PostgreSQL */}
-                {engine === 'postgresql' && (
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label>{t('settings.general_db_host')}</Label>
-                      <Input value={pgHost} onChange={(e) => setPgHost(e.target.value)} placeholder="localhost" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('settings.general_db_port')}</Label>
-                      <Input value={pgPort} onChange={(e) => setPgPort(e.target.value)} placeholder="5432" className="w-28" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('settings.general_db_name')}</Label>
-                      <Input value={pgDatabase} onChange={(e) => setPgDatabase(e.target.value)} placeholder="linkr" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('settings.general_db_username')}</Label>
-                      <Input value={pgUsername} onChange={(e) => setPgUsername(e.target.value)} placeholder="postgres" />
-                    </div>
-                    <div className="space-y-2 sm:col-span-2">
-                      <Label>{t('settings.general_db_password')}</Label>
-                      <Input type="password" value={pgPassword} onChange={(e) => setPgPassword(e.target.value)} className="sm:w-64" />
-                    </div>
-                  </div>
-                )}
-
-                {/* Test + Next */}
-                <div className="flex items-center gap-3 pt-2">
-                  <Button variant="outline" size="sm" onClick={handleTestConnection} disabled={testStatus === 'testing'}>
-                    {testStatus === 'testing' && <Loader2 size={14} className="animate-spin" />}
-                    {t('settings.general_db_test')}
-                  </Button>
-
-                  {testStatus === 'success' && (
-                    <span className="flex items-center gap-1 text-xs text-green-600">
-                      <CheckCircle2 size={14} />
-                      {testMessage}
-                    </span>
-                  )}
-                  {testStatus === 'error' && (
-                    <span className="flex items-center gap-1 text-xs text-destructive">
-                      <XCircle size={14} />
-                      {testMessage}
-                    </span>
-                  )}
-
+                <div className="flex items-center pt-2">
                   <Button size="sm" className="ml-auto" onClick={() => setStep(2)}>
                     {t('setup.next')}
                     <ChevronRight size={14} />
@@ -255,9 +172,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
                 <div className="space-y-2">
                   <Label htmlFor="admin-password">{t('setup.admin_password')}</Label>
-                  <Input
+                  <PasswordInput
                     id="admin-password"
-                    type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                   />
@@ -265,9 +181,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
 
                 <div className="space-y-2">
                   <Label htmlFor="admin-confirm">{t('setup.admin_password_confirm')}</Label>
-                  <Input
+                  <PasswordInput
                     id="admin-confirm"
-                    type="password"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                   />
@@ -313,7 +228,7 @@ function StepDot({ active, completed, label }: { active: boolean; completed: boo
         active
           ? 'bg-primary text-primary-foreground'
           : completed
-            ? 'bg-primary/20 text-primary'
+            ? 'bg-green-600 text-white'
             : 'bg-muted text-muted-foreground'
       }`}
     >
