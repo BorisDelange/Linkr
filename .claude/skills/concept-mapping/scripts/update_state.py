@@ -298,12 +298,11 @@ def build_state(
         "syntactic/ngram-idf",
         "semantic/biolord",
     ]
-    # AI suggestions (method 'ai/*') are surfaced in their own section, not the
-    # syntactic/semantic methods table — keep them out of the extras here.
-    extra_methods = [
-        m for m in scored_methods
-        if m not in known_methods and not str(m).startswith("ai/")
-    ]
+    # Every method present in the parquet — including ai/* — goes into `methods`.
+    # The review page groups them by category (syntactic / semantic / statistical
+    # / agentic), so ai/* rows populate the Agentic category. `aiSuggestions`
+    # carries the richer per-equivalence / dictionary breakdown alongside.
+    extra_methods = [m for m in scored_methods if m not in known_methods]
     methods = {
         name: {
             "computed": name in scored_methods,

@@ -274,11 +274,20 @@ function renderEquiv(ai) {
 
   const dictEl = $("ai-dictionary");
   if (ai.dictionaryConcepts > 0) {
-    const repos = (ai.dictionaryRepos || []).join(", ");
+    const aligned = ai.dictionaryConcepts;
+    const outside = Math.max((ai.concepts || 0) - aligned, 0);
+    const denom = ai.concepts || 0;
+    const repoLinks = (ai.dictionaryRepos || []).map((r) => {
+      const href = /^https?:\/\//.test(r) ? r : null;
+      const label = esc(r.replace(/^https?:\/\/(www\.)?/, ""));
+      return href
+        ? `<a class="dict-link" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label}<span class="dict-link-ext" aria-hidden="true">↗</span></a>`
+        : `<span>${esc(r)}</span>`;
+    }).join("");
     dictEl.innerHTML = `
-      <div class="dict-row"><span class="muted">Dictionary-aligned</span><span class="tnum">${fmt(ai.dictionaryConcepts)} concepts · ${fmt(ai.dictionarySets)} sets</span></div>
-      <div class="dict-row"><span class="muted">Outside dictionary</span><span class="tnum">${fmt(Math.max((ai.concepts || 0) - ai.dictionaryConcepts, 0))} concepts</span></div>
-      ${repos ? `<div class="dict-repos">repos: ${esc(repos)}</div>` : ""}`;
+      <div class="dict-row"><span class="muted">Dictionary-aligned</span><span class="tnum">${fmt(aligned)} concepts <span class="muted">(${pct(aligned, denom)}%)</span> · ${fmt(ai.dictionarySets)} sets</span></div>
+      <div class="dict-row"><span class="muted">Outside dictionary</span><span class="tnum">${fmt(outside)} concepts <span class="muted">(${pct(outside, denom)}%)</span></span></div>
+      ${repoLinks ? `<div class="dict-repos"><span class="muted">Source:</span> ${repoLinks}</div>` : ""}`;
     dictEl.classList.remove("hidden");
   } else {
     dictEl.classList.add("hidden");
