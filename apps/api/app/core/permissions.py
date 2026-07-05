@@ -10,9 +10,14 @@ from app.models.workspace_member import WorkspaceMember
 ROLE_ORDER = {"viewer": 0, "editor": 1, "owner": 2}
 
 
-async def _check_workspace_role(
-    workspace_id: str, user: User, db: AsyncSession, min_role: str
+async def check_workspace_role(
+    db: AsyncSession, workspace_id: str, user: User, min_role: str
 ) -> WorkspaceMember | None:
+    """Enforce at least `min_role` on `workspace_id`; raise 403 otherwise.
+
+    Callable from routes/services outside the dependency system. Global admins
+    bypass the membership check.
+    """
     if user.role == "admin":
         return await db.get(WorkspaceMember, (workspace_id, user.id))
     member = await db.get(WorkspaceMember, (workspace_id, user.id))
@@ -36,7 +41,7 @@ def require_workspace_role(min_role: str):
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> WorkspaceMember | None:
-        return await _check_workspace_role(workspace_id, user, db, min_role)
+        return await check_workspace_role(db, workspace_id, user, min_role)
 
     return _dep
 
@@ -59,7 +64,7 @@ def require_project_role(min_role: str):
                 status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
             )
         if project.workspace_id is not None:
-            await _check_workspace_role(project.workspace_id, user, db, min_role)
+            await check_workspace_role(db, project.workspace_id, user, min_role)
         return project
 
     return _dep

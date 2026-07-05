@@ -10,7 +10,9 @@ from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.health import router as health_router
+from app.api.v1.routes.organizations import router as organizations_router
 from app.api.v1.routes.projects import router as projects_router
+from app.api.v1.routes.schema_presets import router as schema_presets_router
 from app.api.v1.routes.setup import router as setup_router
 from app.api.v1.routes.workspaces import router as workspaces_router
 
@@ -49,3 +51,5 @@ app.include_router(setup_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
+app.include_router(organizations_router, prefix="/api/v1")
+app.include_router(schema_presets_router, prefix="/api/v1")
