@@ -30,27 +30,126 @@ cd apps/web && npm run build
 
 ### Full-stack with FastAPI backend
 
-> **🚧 Under development** — the FastAPI backend is not yet ready for production use.
+> **🚧 Under development** — the FastAPI backend is being built out entity by entity. Auth, setup and the Workspace/Project entities work end-to-end; other entities still fall back to in-browser IndexedDB.
 
-This mode adds a Python backend for server-side features: user authentication, PostgreSQL persistence, git versioning, and server-side code execution.
+This mode adds a Python backend for server-side features: user authentication (multi-user, workspace-level permissions), a shared database (SQLite or PostgreSQL), and — coming — git versioning and server-side code execution. The frontend switches to "server mode" (API-backed storage + login) as soon as it knows the backend URL via `VITE_API_URL`.
+
+> Each block below is meant to be run from the **repository root**. Commands
+> avoid inline `#` comments so you can paste a whole block at once.
+
+#### 1. Install dependencies
+
+Frontend (all workspaces) and Python backend. For a PostgreSQL deploy, use `".[dev,postgres]"` instead of `".[dev]"` on the last line.
 
 ```bash
-# Install dependencies
 npm install
-cd apps/api && pip install -e ".[dev]"
-
-# Start both frontend and backend
-npm run dev:all
-
-# Or start them separately
-npm run dev:web                                      # Frontend (port 3000)
-cd apps/api && uvicorn app.main:app --reload         # Backend (port 8000)
+python -m venv apps/api/.venv
+source apps/api/.venv/bin/activate
+pip install -e "apps/api[dev]"
 ```
+
+#### 2. Configure the backend (dev)
+
+All backend settings are environment variables prefixed `LINKR_` (see `apps/api/.env.example`). For local development, a `.env` file is the easiest:
+
+```bash
+cp apps/api/.env.example apps/api/.env
+```
+
+Then edit `apps/api/.env`. Key settings:
+
+- `LINKR_DATA_DIR` — dedicated folder for all data (default `~/.linkr`). The SQLite database and binary blobs (Parquet, attachments, IDE files) live here together.
+- `LINKR_DATABASE_URL` — **leave unset** for SQLite inside `LINKR_DATA_DIR` (single-user, default). Set it for **PostgreSQL** (multi-user): `postgresql+asyncpg://user:pass@host:5432/linkr`.
+- `LINKR_SECRET_KEY` — signs the auth tokens; **change it** for anything beyond local dev.
+
+The database file is created automatically on first startup, and migrations run on every startup.
+
+#### 3. Point the frontend at the backend
+
+This sets `VITE_API_URL=http://localhost:8000`, which switches the app into server mode:
+
+```bash
+cp apps/web/.env.example apps/web/.env.local
+```
+
+Leaving `VITE_API_URL` unset keeps the app in client-only mode. Setting it enables login + API-backed storage.
+
+#### 4. Run
+
+The backend and frontend are two separate processes. Open **two terminals**, each at the repository root.
+
+**Terminal 1 — backend.** Runs on port 8000. Wait until you see `Uvicorn running on http://127.0.0.1:8000` and the Alembic migration logs, with no traceback:
+
+```bash
+apps/api/.venv/bin/uvicorn app.main:app --reload --port 8000 --app-dir apps/api
+```
+
+**Terminal 2 — frontend.** Serves the app on http://localhost:3000:
+
+```bash
+npm run dev:web
+```
+
+> Alternatively, `npm run dev:all` runs both at once — but it needs `concurrently`, so run `npm install` at the repo root first.
+
+#### 5. Create the first admin — two ways
+
+The very first launch has no users. You create the initial admin account either **through the UI** or **from the command line**:
+
+**Option A — Setup Wizard (in the browser).** Open http://localhost:3000. With an empty database the app shows a first-run wizard: it displays the database the server is using (read-only — configured via `LINKR_DATABASE_URL`), then lets you create the admin account. In dev builds the fields are pre-filled with `admin` / `admin`; production builds start empty. After that you land on the login page.
+
+**Option B — Command line (headless / scripted).** Call the setup endpoint directly, then log in:
+
+```bash
+# Is setup still needed?
+curl localhost:8000/api/v1/setup/status              # {"needs_setup": true}
+
+# Create the first admin
+curl -X POST localhost:8000/api/v1/setup/initialize \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin"}'
+```
+
+Either way, subsequent visits show the login page (pre-filled `admin` / `admin` in dev). Interactive API docs are at http://localhost:8000/docs.
+
+#### Production deployment
+
+On a server, keep three things separate: **code** (the checkout), **data** (a dedicated folder you back up), and **secrets** (never world-readable). Point everything at one data folder and inject config as environment variables — avoid shipping a `.env` file on disk.
+
+```bash
+# Dedicated, owned by the service account, holds the DB + all blobs.
+sudo install -d -o linkr -g linkr /var/lib/linkr
+
+# Generate a strong secret once:
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+**systemd** (recommended) — secrets in an `EnvironmentFile` with `chmod 600`:
+
+```ini
+# /etc/systemd/system/linkr-api.service
+[Service]
+User=linkr
+WorkingDirectory=/opt/linkr/apps/api
+EnvironmentFile=/etc/linkr/linkr.env          # chmod 600, owned by linkr
+ExecStart=/opt/linkr/apps/api/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+```bash
+# /etc/linkr/linkr.env   (chmod 600)
+LINKR_DATA_DIR=/var/lib/linkr
+LINKR_SECRET_KEY=<the generated secret>
+LINKR_CORS_ORIGINS=https://linkr.example.org
+# For multi-user, use PostgreSQL instead of the default SQLite-in-data-dir:
+# LINKR_DATABASE_URL=postgresql+asyncpg://linkr:...@localhost:5432/linkr
+```
+
+**Docker** — pass the same variables via `env_file:` / secrets and mount a volume at `LINKR_DATA_DIR` (see `docker/`). Either way, leaving `LINKR_DATABASE_URL` unset puts a SQLite database inside `/var/lib/linkr` next to the blobs; set it to a PostgreSQL URL for multi-user deployments.
 
 ## Architecture
 
 - **Frontend**: React + TypeScript + Vite + shadcn/ui
-- **Backend**: FastAPI (Python) *(in development)*
-- **Database**: PostgreSQL / SQLite / DuckDB
+- **Backend**: FastAPI (Python), async SQLAlchemy + Alembic, JWT auth *(in development)*
+- **Database**: PostgreSQL or SQLite (same models on both) for app data; DuckDB for analytics
 - **In-browser runtimes**: DuckDB-WASM, Pyodide, webR
 - **Monorepo**: Turborepo
