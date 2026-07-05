@@ -144,6 +144,52 @@ Assign SSSOM equivalence level (see `references/omop-duckdb-reference.md` for fu
 
 **Be rigorous: default to `closeMatch`, not `exactMatch`.** Use exactMatch only when concepts are fully equivalent with no qualifiers lost.
 
+### 2c-bis. Write the justification comment
+
+The `comment` is the single most-read field for a human reviewer accepting or
+rejecting the suggestion — treat it as the sentence that lets them agree without
+re-doing your work. Rules:
+
+- **Language: match the language you are speaking with the user** (French if the
+  conversation is in French, English otherwise). Do not mix languages in one
+  comment.
+- **Concise but explicit: one or two full sentences.** No telegraphic notes.
+- **Never use an unexplained abbreviation.** Spell it out at least once.
+  Forbidden as-is: `S/P`, `per note`, `def.`, `dist. ok`. Write "the Serum or
+  Plasma variant", "per the concept set's Mapping Notes", "the observed
+  distribution is consistent", etc. If you catch yourself writing something you
+  would have to decode later, expand it.
+- **Cite only what actually drove the decision** — do not pad every comment with
+  unit + distribution + specimen. Include an element only when it tipped the
+  choice. When one of these *did* decide, name it concretely:
+  - **Unit** — compare the source unit to the unit the LOINC/target expects, and
+    say so: *"unit g/L matches the target's Mass/Volume dimension"*, not
+    *"unit ok"*.
+  - **Distribution / range** — quote the observed range and why it fits:
+    *"observed 25–50 g/L is consistent with serum albumin"*.
+  - **Specimen / method / site / timing** — when it disambiguated between two
+    near-identical targets, name it: *"source is an arterial blood gas, so the
+    arterial-specimen LOINC was chosen over the venous one"*.
+- **For any inexact match (`closeMatch`, `broadMatch`, `narrowMatch`,
+  `relatedMatch`), the comment MUST state precisely what is lost or differs** —
+  this is not optional. Examples:
+  - `broadMatch`: *"target is more general — it does not distinguish the arterial
+    site recorded in the source"*.
+  - `narrowMatch`: *"target is more specific than the source label, which does
+    not state the specimen"*.
+  - `closeMatch`: *"same measurement; the source's point-of-care method is not
+    reflected in the target"*.
+- **When the target came from a data-dictionary concept set**, and the choice
+  followed the set's Mapping Notes, say so in plain words: *"chosen as the concept
+  set's default target per its Mapping Notes"* — never `default per note`.
+
+Bad → Good examples:
+- `Serum albumin g/L ; default S/P per note` → *"Serum albumin; chose the Serum
+  or Plasma variant as the concept set's default target per its Mapping Notes;
+  unit g/L matches."*
+- `broad, unit ok` → *"broadMatch: target is generic heart rate and does not
+  capture the source's pulse-oximetry method; unit (beats/min) matches."*
+
 ### 2d. Present to user
 
 The presentation flow depends on the destination chosen at Step 0:
@@ -159,7 +205,7 @@ Candidate 1 (recommended):
   <concept_id> — <concept_name> [<vocabulary_id>]
   Domain: <domain_id> | Class: <concept_class_id> | Standard: <S|C>
   Equivalence: skos:<level>
-  Reasoning: <one or two sentences explaining what is preserved and what is lost>
+  Reasoning: <the justification comment — follow the rules in 2c-bis: full sentences, no unexplained abbreviations, and for any inexact match state precisely what is lost>
   Pre-computed scores: syntactic/jaro-winkler=0.92, semantic/biolord=0.89
 
 Candidate 2 (alternative):
@@ -230,4 +276,4 @@ Key fields to populate:
 - **info_json is gold** — units, ranges, and categorical values often disambiguate between two near-identical LOINC codes
 - **Don't re-map** — always check `existing_mappings` before processing a concept
 - **One concept at a time** — present one source concept fully before moving to the next
-- **Cite your reasoning** — the comment field is read by human reviewers; make it useful
+- **Cite your reasoning** — the comment field is read by human reviewers; make it useful. Follow the comment-writing rules in **2c-bis** (full sentences in the user's language, no unexplained abbreviations, concrete unit/distribution/specimen only when it drove the choice, and a precise statement of what is lost for every inexact match).
