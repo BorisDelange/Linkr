@@ -2949,6 +2949,7 @@
     "no_file_data": "Aucune donnée de fichier disponible pour ce projet.",
     "detail_distribution": "Distribution",
     "detail_histogram": "Histogramme",
+    "detail_starts_at_zero": "Démarrer à zéro",
     "detail_categories": "Catégories",
     "detail_col_value": "Valeur",
     "detail_col_count": "Effectif",

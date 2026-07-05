@@ -2949,6 +2949,7 @@
     "no_file_data": "No file data available for this project.",
     "detail_distribution": "Distribution",
     "detail_histogram": "Histogram",
+    "detail_starts_at_zero": "Start at zero",
     "detail_categories": "Categories",
     "detail_col_value": "Value",
     "detail_col_count": "Count",

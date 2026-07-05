@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Code2 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend, LineChart, Line } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { niceStep, niceTicks } from '@/lib/chart-ticks'
 import type { SourceConceptRow } from '../MappingEditorTab'
 
 interface ConceptDetailViewProps {
@@ -25,6 +27,53 @@ const TOOLTIP_STYLE = {
   },
   itemStyle: { color: 'var(--color-popover-foreground)' },
   labelStyle: { color: 'var(--color-popover-foreground)' },
+}
+
+// "Start at zero" is a per-user preference shared by every numeric histogram widget,
+// so it survives switching concepts. Persisted in localStorage, on by default.
+const START_AT_ZERO_KEY = 'concept-mapping.histogram-start-at-zero'
+const startAtZeroListeners = new Set<() => void>()
+
+function getStartAtZero(): boolean {
+  return localStorage.getItem(START_AT_ZERO_KEY) !== 'false'
+}
+
+function setStartAtZero(value: boolean): void {
+  localStorage.setItem(START_AT_ZERO_KEY, String(value))
+  startAtZeroListeners.forEach((fn) => fn())
+}
+
+// Tight histogram axis: domain hugs the real [min, max] (padded half a bin) with
+// round ticks laid *inside* it. Unlike niceTicks, the low bound tracks the data min
+// instead of flooring to 0, so a range like 467..6025 starts near 467, not at 0.
+function tightHistogramScale(xs: number[]): { domain: [number, number]; ticks: number[] } | null {
+  const finite = xs.filter((v) => isFinite(v))
+  if (finite.length === 0) return null
+  const min = Math.min(...finite)
+  const max = Math.max(...finite)
+  if (min === max) return niceTicks(finite)
+  const binWidth = finite.length > 1 ? (max - min) / (finite.length - 1) : 1
+  const lo = min - binWidth / 2
+  const hi = max + binWidth / 2
+  const step = niceStep((max - min) / 7)
+  const decimals = Math.max(0, -Math.floor(Math.log10(step)))
+  const round = (v: number) => Number(v.toFixed(decimals + 1))
+  const firstTick = Math.ceil(lo / step) * step
+  const ticks: number[] = []
+  for (let v = firstTick; v <= hi + step * 1e-9; v += step) ticks.push(round(v))
+  return { domain: [round(lo), round(hi)], ticks }
+}
+
+function useStartAtZero(): [boolean, (value: boolean) => void] {
+  const value = useSyncExternalStore(
+    (cb) => {
+      startAtZeroListeners.add(cb)
+      return () => startAtZeroListeners.delete(cb)
+    },
+    getStartAtZero,
+    () => true,
+  )
+  return [value, setStartAtZero]
 }
 
 export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
@@ -210,6 +259,88 @@ function BoxPlot({ min, p25, median, p75, max, mean, height = 40 }: {
   )
 }
 
+function BarSection({ section }: { section: BarChartSection }) {
+  const { t } = useTranslation()
+  const [startAtZero, setStartAtZero] = useStartAtZero()
+
+  const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
+  const bottomMargin = longLabels ? 70 : 25
+  // Numeric labels (histogram bins) get a clean linear axis with "nice" round ticks
+  // shared with the rest of the app (chart-ticks). Categorical bars stay as-is.
+  const numericLabels = section.data.every((d) => d.label !== '' && !isNaN(Number(d.label)))
+
+  if (numericLabels) {
+    const xs = section.data.map((d) => Number(d.label))
+    // Checked → axis anchored at zero (niceTicks clamps the low bound to 0).
+    // Unchecked → axis tightened on the actual value range: start just below the
+    // real min instead of 0, with round ticks laid inside. Without this, niceTicks'
+    // floor(min/step)*step collapses to 0 whenever step ≥ min, so toggling did nothing.
+    const scale = startAtZero ? niceTicks(xs, true) : tightHistogramScale(xs)
+    const chartData = section.data.map((d) => ({ x: Number(d.label), value: d.value }))
+    const formatTick = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    return (
+      <Card className="p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-medium">{section.title}</p>
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Checkbox
+              checked={startAtZero}
+              onCheckedChange={(v) => setStartAtZero(v === true)}
+              className="size-3.5"
+            />
+            {t('concept_mapping.detail_starts_at_zero')}
+          </label>
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={chartData} margin={{ left: 5, right: 5, bottom: 5 }}>
+            <XAxis
+              // recharts caches the axis scale and ignores in-place domain/ticks
+              // changes, so key it on the domain to force a fresh scale on toggle.
+              key={scale ? `${scale.domain[0]}-${scale.domain[1]}` : 'auto'}
+              type="number"
+              dataKey="x"
+              domain={scale ? scale.domain : ['dataMin', 'dataMax']}
+              ticks={scale?.ticks}
+              tick={{ fontSize: 10 }}
+              tickFormatter={formatTick}
+            />
+            <YAxis tick={{ fontSize: 10 }} width={45} domain={[0, 'auto']} />
+            <Tooltip
+              {...TOOLTIP_STYLE}
+              cursor={{ fill: 'var(--color-accent)' }}
+              labelFormatter={(label) => formatTick(Number(label))}
+            />
+            <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="p-3">
+      <p className="mb-2 text-xs font-medium">{section.title}</p>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={section.data} margin={{ left: 5, right: 5, bottom: bottomMargin }}>
+          <XAxis
+            dataKey="label"
+            tick={longLabels
+              ? <TruncatedTick maxLength={12} />
+              : { fontSize: 10 }}
+            interval={section.data.length > 20 ? 'preserveStartEnd' : 0}
+            angle={longLabels ? -40 : 0}
+            textAnchor={longLabels ? 'end' : 'middle'}
+            height={bottomMargin}
+          />
+          <YAxis tick={{ fontSize: 10 }} width={45} domain={[0, 'auto']} />
+          <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} />
+          <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </Card>
+  )
+}
+
 export function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'stats') {
     return (
@@ -233,51 +364,7 @@ export function SectionRenderer({ section }: { section: Section }) {
   }
 
   if (section.type === 'bar' && section.data.length > 0) {
-    const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
-    const bottomMargin = longLabels ? 70 : 25
-    // Detect numeric labels (histogram bins) to apply rounding
-    const numericLabels = section.data.every((d) => d.label !== '' && !isNaN(Number(d.label)))
-    // Compute a smart rounding function based on the step between bins
-    const formatXTick = numericLabels
-      ? (() => {
-          const nums = section.data.map((d) => Number(d.label)).filter((n) => !isNaN(n))
-          // Find the minimum step between consecutive bins
-          let minStep = Infinity
-          for (let i = 1; i < nums.length; i++) {
-            const step = Math.abs(nums[i] - nums[i - 1])
-            if (step > 0 && step < minStep) minStep = step
-          }
-          // Choose decimal places so we don't lose bin distinction
-          const decimals = minStep >= 1 ? 0 : minStep >= 0.1 ? 1 : 2
-          return (val: string) => {
-            const n = Number(val)
-            return n.toFixed(decimals)
-          }
-        })()
-      : undefined
-    return (
-      <Card className="p-3">
-        <p className="mb-2 text-xs font-medium">{section.title}</p>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={section.data} margin={{ left: 5, right: 5, bottom: bottomMargin }}>
-            <XAxis
-              dataKey="label"
-              tick={longLabels
-                ? <TruncatedTick maxLength={12} />
-                : { fontSize: 10 }}
-              tickFormatter={!longLabels ? formatXTick : undefined}
-              interval={section.data.length > 20 ? 'preserveStartEnd' : 0}
-              angle={longLabels ? -40 : 0}
-              textAnchor={longLabels ? 'end' : 'middle'}
-              height={bottomMargin}
-            />
-            <YAxis tick={{ fontSize: 10 }} width={45} domain={[0, 'auto']} />
-            <Tooltip {...TOOLTIP_STYLE} cursor={{ fill: 'var(--color-accent)' }} />
-            <Bar dataKey="value" fill="#60a5fa" radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
-    )
+    return <BarSection section={section} />
   }
 
   if (section.type === 'line' && section.data.length > 0) {

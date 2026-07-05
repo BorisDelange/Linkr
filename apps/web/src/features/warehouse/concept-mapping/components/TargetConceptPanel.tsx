@@ -2135,16 +2135,6 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         <div className="flex rounded-md bg-muted p-0.5">
           <button
             className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
-              browseMode === 'concept_sets'
-                ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => { setBrowseMode('concept_sets'); setSelectedTarget(null) }}
-          >
-            {t('concept_mapping.mode_concept_sets')}
-          </button>
-          <button
-            className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
               browseMode === 'search'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
@@ -2152,6 +2142,16 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             onClick={() => { setBrowseMode('search'); setSelectedTarget(null) }}
           >
             {t('concept_mapping.mode_search')}
+          </button>
+          <button
+            className={`rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
+              browseMode === 'concept_sets'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+            onClick={() => { setBrowseMode('concept_sets'); setSelectedTarget(null) }}
+          >
+            {t('concept_mapping.mode_concept_sets')}
           </button>
           <button
             className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-colors ${
