@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
 import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
+import { SUGGESTION_CATEGORIES } from '@/types'
 
 interface LinkrDB extends DBSchema {
   organizations: {
@@ -263,13 +264,15 @@ interface LinkrDB extends DBSchema {
     value: { projectId: string; blob: Blob }
   }
   suggestion_scores_meta: {
-    /** Key: projectId. Value: serialised ScoresIndex (sourceKeys persisted as string[]). */
+    /** Key: projectId. Value: serialised ScoresIndex (Sets persisted as string[]). */
     key: string
     value: {
       projectId: string
       rowCount: number
       methods: string[]
       sourceKeys: string[]
+      /** Optional: absent in entries written before category filtering. Keyed by SuggestionCategory. */
+      categorySourceKeys?: Record<string, string[]>
       importedAt: string
     }
   }
@@ -2122,6 +2125,9 @@ class IDBScoresMetaStorage implements ScoresMetaStorage {
       rowCount: entry.rowCount,
       methods: entry.methods,
       sourceKeys: new Set(entry.sourceKeys),
+      categorySourceKeys: Object.fromEntries(
+        SUGGESTION_CATEGORIES.map((c) => [c, new Set(entry.categorySourceKeys?.[c] ?? [])]),
+      ) as ScoresIndex['categorySourceKeys'],
       importedAt: entry.importedAt,
     }
   }
@@ -2133,6 +2139,9 @@ class IDBScoresMetaStorage implements ScoresMetaStorage {
       rowCount: meta.rowCount,
       methods: meta.methods,
       sourceKeys: [...meta.sourceKeys],
+      categorySourceKeys: Object.fromEntries(
+        SUGGESTION_CATEGORIES.map((c) => [c, [...meta.categorySourceKeys[c]]]),
+      ),
       importedAt: meta.importedAt,
     })
   }

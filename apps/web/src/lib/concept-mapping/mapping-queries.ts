@@ -34,6 +34,11 @@ export interface SourceConceptFilters {
    *  may not yet be loaded. Pass a list of `vocab\0code` keys instead. */
   mappedElsewhereKeys?: string[]
   ignoredConceptIds?: number[]
+  /** When true, keep only source concepts that have a suggestion in one of the
+   *  selected categories. The union of matching (vocabulary, code) keys is passed
+   *  as `suggestionCategoryKeys` (`vocab\0code`), computed from the scores index. */
+  hasSuggestionCategoryFilter?: boolean
+  suggestionCategoryKeys?: string[]
 }
 
 /** Local wrapper around the shared `buildFuzzySearchSql` helper for source-
@@ -242,6 +247,22 @@ function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
 }
 
 /** Build WHERE clause from filters. */
+/** Build a `(vocabulary_id, concept_code) IN ((...),(...))` predicate from
+ *  `vocab\0code` keys. DuckDB supports tuple IN. Returns null when empty. */
+function tupleInClause(keys: string[]): string | null {
+  if (keys.length === 0) return null
+  const tuples: string[] = []
+  for (const k of keys) {
+    const sep = k.indexOf('\0')
+    if (sep < 0) continue
+    const vocab = esc(k.slice(0, sep))
+    const code = esc(k.slice(sep + 1))
+    tuples.push(`('${vocab}','${code}')`)
+  }
+  if (tuples.length === 0) return null
+  return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
+}
+
 function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
   if (filters.searchText) {
@@ -275,21 +296,6 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const elsewhereKeys = filters.mappedElsewhereKeys ?? []
     const ignored = filters.ignoredConceptIds ?? []
     const idList = (ids: number[]) => ids.length > 0 ? ids.map((n) => Number.isFinite(n) ? n : 0).join(',') : 'NULL'
-    /** Build a `(vocabulary_id, concept_code) IN ((...),(...))` predicate from
-     *  `vocab\0code` keys. DuckDB supports tuple IN. */
-    const tupleInClause = (keys: string[]): string | null => {
-      if (keys.length === 0) return null
-      const tuples: string[] = []
-      for (const k of keys) {
-        const sep = k.indexOf('\0')
-        if (sep < 0) continue
-        const vocab = esc(k.slice(0, sep))
-        const code = esc(k.slice(sep + 1))
-        tuples.push(`('${vocab}','${code}')`)
-      }
-      if (tuples.length === 0) return null
-      return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
-    }
     if (filters.mappingStatus === 'mapped') {
       conditions.push(`concept_id IN (${idList(mapped)})`)
     } else if (filters.mappingStatus === 'mapped_elsewhere') {
@@ -311,6 +317,12 @@ function buildWhereClause(filters: SourceConceptFilters): string {
       const tupleClause = tupleInClause(elsewhereKeys)
       if (tupleClause) conditions.push(`NOT ${tupleClause}`)
     }
+  }
+  // Suggestion-category filter: keep only rows whose (vocabulary, code) has a
+  // suggestion in one of the selected categories. Empty key set → no match.
+  if (filters.hasSuggestionCategoryFilter) {
+    const clause = tupleInClause(filters.suggestionCategoryKeys ?? [])
+    conditions.push(clause ?? '1=0')
   }
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
   return ''

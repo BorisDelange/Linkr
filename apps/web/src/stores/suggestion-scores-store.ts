@@ -3,7 +3,7 @@ import { getStorage } from '@/lib/storage'
 import type { ScoresIndex } from '@/types'
 import { validateScoresFile, type ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
 import { deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
-import { persistScoresFile, queryScoresForSource, unregisterProject } from '@/lib/concept-mapping/scores-engine'
+import { persistScoresFile, queryScoresForSource, unregisterProject, buildIndex } from '@/lib/concept-mapping/scores-engine'
 
 interface SuggestionScoresState {
   activeProjectId: string | null
@@ -11,6 +11,9 @@ interface SuggestionScoresState {
   loaded: boolean
 
   loadProjectMeta: (projectId: string) => Promise<void>
+  /** Rebuild the query index from the already-persisted parquet (no File needed).
+   *  Used to upgrade indexes written before a schema change (e.g. category keys). */
+  reindexProject: (projectId: string) => Promise<void>
   importScores: (projectId: string, file: File) => Promise<ScoresIndex>
   deleteProjectScores: (projectId: string) => Promise<void>
 
@@ -27,6 +30,13 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
     if (get().activeProjectId === projectId && get().loaded) return
     const index = await getStorage().scoresMeta.get(projectId) ?? null
     set({ activeProjectId: projectId, index, loaded: true })
+  },
+
+  async reindexProject(projectId) {
+    const index = await buildIndex(projectId)
+    if (!index) return
+    await getStorage().scoresMeta.put(index)
+    if (get().activeProjectId === projectId) set({ index })
   },
 
   async importScores(projectId, file) {

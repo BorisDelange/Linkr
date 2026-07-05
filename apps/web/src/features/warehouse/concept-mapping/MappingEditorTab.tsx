@@ -16,11 +16,12 @@ import {
   type FilterOptionsVocabScope,
 } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { getStorage } from '@/lib/storage'
 import { SourceConceptTable, type MappingStatusFilter } from './components/SourceConceptTable'
 import { TargetConceptPanel } from './components/TargetConceptPanel'
 import { ConceptDetailView } from './components/ConceptDetailView'
-import type { MappingProject, DataSource } from '@/types'
+import type { MappingProject, DataSource, SuggestionCategory } from '@/types'
 
 export interface SourceConceptRow {
   concept_id: number
@@ -110,6 +111,45 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
   const [mappingStatusFilter, setMappingStatusFilter] = useState<MappingStatusFilter>('all')
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
   const [fileSourceReady, setFileSourceReady] = useState(false)
+  const [suggestionCategories, setSuggestionCategories] = useState<Set<SuggestionCategory>>(new Set())
+
+  // Suggestion scores index: drives the source-side "filter by suggestion" control.
+  const scoresIndex = useSuggestionScoresStore((s) => s.index)
+  const loadScoresMeta = useSuggestionScoresStore((s) => s.loadProjectMeta)
+  const reindexScores = useSuggestionScoresStore((s) => s.reindexProject)
+  useEffect(() => { void loadScoresMeta(project.id) }, [project.id, loadScoresMeta])
+  const hasScores = scoresIndex?.projectId === project.id && (scoresIndex?.rowCount ?? 0) > 0
+
+  // Indexes written before category filtering carry rows but no category keys.
+  // Rebuild once from the persisted parquet so the filter has data to match.
+  // Guarded by a per-project ref so a genuinely-empty result can't loop.
+  const reindexAttemptedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!scoresIndex || scoresIndex.projectId !== project.id || scoresIndex.rowCount === 0) return
+    if (reindexAttemptedRef.current === project.id) return
+    const cats = scoresIndex.categorySourceKeys
+    const hasAnyCategoryKey = !!cats && Object.values(cats).some((s) => s.size > 0)
+    if (!hasAnyCategoryKey) {
+      reindexAttemptedRef.current = project.id
+      void reindexScores(project.id)
+    }
+  }, [scoresIndex, project.id, reindexScores])
+
+  // Union of source keys across the selected suggestion categories → SQL filter keys.
+  // Store keys use `vocab::code`; the query builder expects `vocab\0code` tuples.
+  const suggestionCategoryKeys = useMemo(() => {
+    if (suggestionCategories.size === 0 || !scoresIndex || scoresIndex.projectId !== project.id) return null
+    const union = new Set<string>()
+    for (const cat of suggestionCategories) {
+      for (const k of scoresIndex.categorySourceKeys[cat] ?? []) union.add(k)
+    }
+    return [...union].map((k) => {
+      const sep = k.indexOf('::')
+      return sep < 0 ? '' : `${k.slice(0, sep)}\0${k.slice(sep + 2)}`
+    }).filter((k) => k !== '')
+  }, [suggestionCategories, scoresIndex, project.id])
+  const suggestionCategoryKeysRef = useRef<string[] | null>(null)
+  suggestionCategoryKeysRef.current = suggestionCategoryKeys
 
   const loadingRef = useRef(false)
   /** Monotonic request id — incremented for each load. Stale completions are ignored. */
@@ -338,7 +378,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
       // instead, which lives in the store and covers the full project. The
       // store keys use `vocab:code`; convert to `vocab\0code` for the SQL builder.
       const filtersWithStatus: SourceConceptFilters = mappingStatusFilterRef.current === 'all'
-        ? filters
+        ? { ...filters }
         : {
             ...filters,
             mappingStatus: mappingStatusFilterRef.current,
@@ -351,6 +391,14 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
               .filter((k) => k !== ''),
             ignoredConceptIds: Array.from(ignoredConceptIdsRef.current),
           }
+
+      // Suggestion-category filter (source side): a non-null key set means at least
+      // one category is selected. Read via ref so it retriggers via the effect below,
+      // not by widening loadConcepts' deps.
+      if (suggestionCategoryKeysRef.current) {
+        filtersWithStatus.hasSuggestionCategoryFilter = true
+        filtersWithStatus.suggestionCategoryKeys = suggestionCategoryKeysRef.current
+      }
 
       // Count (only on first page load)
       if (pageToLoad === 0) {
@@ -419,7 +467,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     setHasMore(false)
     loadConceptsRef.current(0)
 
-  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter])
+  }, [isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, filters, sorting, mappingStatusFilter, suggestionCategoryKeys])
 
   // Load more when page increments (scroll infinite)
   useEffect(() => {
@@ -561,6 +609,9 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             onImportExternal={async (info, localSourceConceptId) => {
               await importExternalMapping(info, project.id, { sourceConceptId: localSourceConceptId })
             }}
+            suggestionCategories={suggestionCategories}
+            onSuggestionCategoriesChange={setSuggestionCategories}
+            hasScores={hasScores}
           />
           )}
         </Allotment.Pane>

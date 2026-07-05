@@ -119,6 +119,16 @@ export function getProviderForMethod(method: string): string {
   return METHOD_PROVIDER_MAP[method] ?? method
 }
 
+/** Map a raw `method` string to a filterable suggestion category (excludes
+ *  `data_dictionary`, which is orthogonal — keyed on the concept-set link, not the method). */
+export function categoryForMethod(method: string): 'syntactic' | 'semantic' | 'statistical' | 'agentic' | null {
+  if (method.startsWith(AI_METHOD_PREFIX)) return 'agentic'
+  if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return 'statistical'
+  if (method.startsWith('semantic/')) return 'semantic'
+  if (method.startsWith('syntactic/')) return 'syntactic'
+  return null
+}
+
 export function getMethodLabel(method: string): string {
   if (method.startsWith(AI_METHOD_PREFIX)) return method.slice(AI_METHOD_PREFIX.length)
   if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return method.slice(STATISTICAL_METHOD_PREFIX.length)

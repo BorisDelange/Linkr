@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery } from './mapping-queries'
+import { buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery } from './mapping-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 const mapping: SchemaMapping = {
@@ -77,5 +77,27 @@ describe('buildFileSourceFilterOptionsQuery — vocabulary scoping', () => {
   it('adds an IN (...) clause when scoped', () => {
     const sql = buildFileSourceFilterOptionsQuery('category', { column: 'vocabulary_id', values: ['LOINC'] })
     expect(sql).toContain("vocabulary_id IN ('LOINC')")
+  })
+})
+
+describe('buildWhereClause — suggestion-category filter', () => {
+  const SEP = '\0'
+  it('emits a (vocabulary_id, concept_code) tuple IN predicate from the keys', () => {
+    const sql = buildFileSourceConceptsCountQuery({
+      hasSuggestionCategoryFilter: true,
+      suggestionCategoryKeys: [`LOINC${SEP}718-7`, `SNOMED${SEP}38341003`],
+    })
+    expect(sql).toContain("(vocabulary_id, concept_code) IN (('LOINC','718-7'),('SNOMED','38341003'))")
+  })
+
+  it('matches no rows when the filter is on but no keys are provided', () => {
+    const sql = buildFileSourceConceptsCountQuery({ hasSuggestionCategoryFilter: true, suggestionCategoryKeys: [] })
+    expect(sql).toContain('WHERE 1=0')
+  })
+
+  it('adds no predicate when the filter is off', () => {
+    const sql = buildFileSourceConceptsCountQuery({})
+    expect(sql).not.toContain('vocabulary_id, concept_code')
+    expect(sql).not.toContain('1=0')
   })
 })

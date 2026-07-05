@@ -334,8 +334,18 @@ export interface ScoresIndex {
   methods: string[]
   /** Set of `${sourceVocabularyId}::${sourceConceptCode}` keys. */
   sourceKeys: Set<string>
+  /** Per suggestion-category subsets of `sourceKeys`: which source concepts have at
+   *  least one suggestion of that category. `data_dictionary` = a row aligned to a
+   *  data-dictionary concept set (non-null `concept_set_uid`); the others map from the
+   *  `method` prefix. Used to filter the source table. Empty for legacy scores files. */
+  categorySourceKeys: Record<SuggestionCategory, Set<string>>
   importedAt: string
 }
+
+/** Filterable suggestion categories, derived from the scores `method` (+ concept-set link). */
+export type SuggestionCategory = 'syntactic' | 'semantic' | 'statistical' | 'agentic' | 'data_dictionary'
+
+export const SUGGESTION_CATEGORIES: SuggestionCategory[] = ['syntactic', 'semantic', 'statistical', 'agentic', 'data_dictionary']
 
 // --- Source Concept ID Registry (OMOP custom IDs > 2,000,000,000) ---
 

@@ -3,7 +3,8 @@ import { getDuckDB, registerResetHook } from '@/lib/duckdb/engine'
 import { getScoresFile, saveScoresFile } from './scores-storage'
 import { getStorage } from '@/lib/storage'
 import type { ParsedScoreRow } from './scores-parser'
-import type { ScoresIndex } from '@/types'
+import type { ScoresIndex, SuggestionCategory } from '@/types'
+import { categoryForMethod } from './syntactic-suggestions'
 
 const DEFAULT_EQUIVALENCE = 'skos:exactMatch'
 const CACHE_MAX = 50
@@ -173,11 +174,44 @@ export async function buildIndex(projectId: string): Promise<ScoresIndex | null>
       if (v && c) sourceKeys.add(`${v}::${c}`)
     }
 
+    // Per-category source keys. Method categories (syntactic/semantic/statistical/
+    // agentic) come from guaranteed columns; data_dictionary needs concept_set_uid,
+    // so it runs in a separate guarded query — a legacy parquet missing that column
+    // must not wipe out the method categories.
+    const categorySourceKeys: Record<SuggestionCategory, Set<string>> = {
+      syntactic: new Set(), semantic: new Set(), statistical: new Set(), agentic: new Set(), data_dictionary: new Set(),
+    }
+    const methodResult = await conn.query(
+      `SELECT DISTINCT source_vocabulary_id, source_concept_code, method FROM read_parquet('${name}')`,
+    )
+    for (const r of methodResult.toArray()) {
+      const j = r.toJSON() as { source_vocabulary_id: unknown; source_concept_code: unknown; method: unknown }
+      const v = String(j.source_vocabulary_id ?? '')
+      const c = String(j.source_concept_code ?? '')
+      if (!v || !c) continue
+      const cat = categoryForMethod(String(j.method ?? ''))
+      if (cat) categorySourceKeys[cat].add(`${v}::${c}`)
+    }
+    try {
+      const csResult = await conn.query(
+        `SELECT DISTINCT source_vocabulary_id, source_concept_code
+         FROM read_parquet('${name}')
+         WHERE concept_set_uid IS NOT NULL AND concept_set_uid <> ''`,
+      )
+      for (const r of csResult.toArray()) {
+        const j = r.toJSON() as { source_vocabulary_id: unknown; source_concept_code: unknown }
+        const v = String(j.source_vocabulary_id ?? '')
+        const c = String(j.source_concept_code ?? '')
+        if (v && c) categorySourceKeys.data_dictionary.add(`${v}::${c}`)
+      }
+    } catch { /* concept_set_uid absent in pre-dictionary scores files */ }
+
     return {
       projectId,
       rowCount,
       methods,
       sourceKeys,
+      categorySourceKeys,
       importedAt: new Date().toISOString(),
     }
   } finally {

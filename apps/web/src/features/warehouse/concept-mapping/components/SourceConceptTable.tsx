@@ -18,6 +18,7 @@ import {
   X,
   Download,
   Check,
+  SlidersHorizontal,
 } from 'lucide-react'
 import {
   Dialog,
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
@@ -49,6 +51,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
+import { SUGGESTION_CATEGORIES, type SuggestionCategory } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptDictionary } from '@/types/schema-mapping'
 import type { ConceptMapping } from '@/types'
@@ -106,6 +109,11 @@ interface SourceConceptTableProps {
    *  source concept id is required so the imported row is wired to the current
    *  project's concept dictionary (and the dot turns green immediately). */
   onImportExternal?: (info: ExternalMappingInfo, localSourceConceptId: number) => Promise<void> | void
+  /** Suggestion-category filter (Syntactic / Semantic / … / Data dictionary). */
+  suggestionCategories: Set<SuggestionCategory>
+  onSuggestionCategoriesChange: (next: Set<SuggestionCategory>) => void
+  /** True when a scores file is loaded; the category filter is disabled otherwise. */
+  hasScores: boolean
 }
 
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
@@ -211,6 +219,9 @@ export function SourceConceptTable({
   initialScrollTop,
   onScrollTopChange,
   onImportExternal,
+  suggestionCategories,
+  onSuggestionCategoriesChange,
+  hasScores,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
@@ -780,14 +791,96 @@ export function SourceConceptTable({
     if (filters.searchTextFuzzy) onFiltersChange({ ...filters, searchTextFuzzy: undefined })
   }
 
+  // Vocabulary filter wiring for the Filters popover — mirrors the inline
+  // terminology_name column filter (prefer terminology names, fall back to vocab ids).
+  const vocabOptions = filterOptions.terminology_name?.length ? filterOptions.terminology_name : filterOptions.vocabulary_id
+  const vocabFilterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
+  const vocabValue = (vocabFilterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId) ?? []
+  const categoryOptions = filterOptions.category ?? []
+  const suggestionCategoryOptions = SUGGESTION_CATEGORIES.map((c) => ({ value: c, label: t(`concept_mapping.suggestion_category_${c}`) }))
+  const activeFilterCount = vocabValue.length + (filters.category?.length ?? 0) + suggestionCategories.size
+
   return (
     <div className="flex h-full flex-col border-r overflow-hidden">
-      {/* Search bar — fuzzy ranked search by concept_name (DuckDB jaro_winkler) */}
+      {/* Search bar — fuzzy ranked search by concept_name (DuckDB jaro_winkler).
+          Mirrors the target-concept panel: filter popover + input + search button. */}
       <div className="flex items-center gap-1.5 border-b px-3 py-2">
+        {/* Filter popover — column filters (vocabulary, category) + suggestion category */}
+        <Popover>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon-sm" className={`h-8 w-8 shrink-0 ${activeFilterCount > 0 ? 'text-primary' : ''}`}>
+                  <SlidersHorizontal size={14} />
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.source_filters')}</TooltipContent>
+          </Tooltip>
+          <PopoverContent align="start" className="w-[260px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium">{t('concept_mapping.source_filters')}</p>
+              {activeFilterCount > 0 && (
+                <button
+                  type="button"
+                  className="text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    onFiltersChange({ ...filters, terminologyName: undefined, vocabularyId: undefined, category: undefined })
+                    onSuggestionCategoriesChange(new Set())
+                  }}
+                >
+                  {t('common.clear')}
+                </button>
+              )}
+            </div>
+            {/* Vocabulary */}
+            {vocabOptions?.length ? (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_vocabulary')}</label>
+                <MultiSelectFilter
+                  value={vocabValue}
+                  options={vocabOptions}
+                  placeholder={t('concept_mapping.col_terminology')}
+                  onChange={(v) => onFiltersChange({ ...filters, [vocabFilterKey]: v.length ? v : undefined })}
+                  triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                  popoverWidthClass="w-[300px]"
+                />
+              </div>
+            ) : null}
+            {/* Category */}
+            {categoryOptions.length > 0 && (
+              <div className="space-y-1">
+                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.col_category')}</label>
+                <MultiSelectFilter
+                  value={filters.category ?? []}
+                  options={categoryOptions}
+                  placeholder={t('concept_mapping.col_category')}
+                  onChange={(v) => onFiltersChange({ ...filters, category: v.length ? v : undefined })}
+                  triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                  popoverWidthClass="w-[300px]"
+                />
+              </div>
+            )}
+            {/* Has a suggestion from */}
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">{t('concept_mapping.filter_by_suggestion')}</label>
+              <MultiSelectFilter
+                value={[...suggestionCategories]}
+                options={suggestionCategoryOptions}
+                placeholder={hasScores ? t('concept_mapping.filter_by_suggestion_any') : t('concept_mapping.source_filters_no_scores')}
+                onChange={(v) => onSuggestionCategoriesChange(new Set(v as SuggestionCategory[]))}
+                triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                popoverWidthClass="w-[240px]"
+              />
+              {!hasScores && <p className="text-[10px] text-muted-foreground">{t('concept_mapping.source_filters_no_scores')}</p>}
+            </div>
+          </PopoverContent>
+        </Popover>
+        {/* Search input */}
         <div className="relative min-w-0 flex-1">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            type="text"
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-8 pl-8 pr-7 text-xs"
             value={pendingSearch}
             onChange={(e) => setPendingSearch(e.target.value)}
             onKeyDown={(e) => {
@@ -795,7 +888,6 @@ export function SourceConceptTable({
               else if (e.key === 'Escape') { e.preventDefault(); clearSearch() }
             }}
             placeholder={t('concept_mapping.search_concepts')}
-            className="h-7 w-full rounded-md border bg-transparent pl-8 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
           />
           {pendingSearch && (
             <button
@@ -808,7 +900,7 @@ export function SourceConceptTable({
             </button>
           )}
         </div>
-        <Button size="sm" variant="outline" className="h-7 text-xs shrink-0" onClick={commitSearch}>
+        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={commitSearch}>
           {t('common.search')}
         </Button>
         {filters.searchTextFuzzy && !sorting && (
