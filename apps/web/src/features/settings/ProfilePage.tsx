@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
@@ -14,7 +15,26 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EditorSettingsForm } from './EditorSettingsForm'
-import { Info, Lock } from 'lucide-react'
+import { ChangePasswordDialog } from './ChangePasswordDialog'
+import { Lock } from 'lucide-react'
+
+interface AccountDraft {
+  firstName: string
+  lastName: string
+  affiliation: string
+  profession: string
+  orcid: string
+}
+
+function accountDraftFrom(user: { firstName?: string; lastName?: string; affiliation?: string; profession?: string; orcid?: string } | null): AccountDraft {
+  return {
+    firstName: user?.firstName ?? '',
+    lastName: user?.lastName ?? '',
+    affiliation: user?.affiliation ?? '',
+    profession: user?.profession ?? '',
+    orcid: user?.orcid ?? '',
+  }
+}
 
 export function ProfilePage() {
   const { t, i18n } = useTranslation()
@@ -29,6 +49,21 @@ export function ProfilePage() {
     dismissSeedUpdateNotifications,
     setDismissSeedUpdateNotifications,
   } = useAppStore()
+
+  const [draft, setDraft] = useState<AccountDraft>(() => accountDraftFrom(user))
+  const [passwordOpen, setPasswordOpen] = useState(false)
+  // Re-sync the draft if the stored user changes from elsewhere.
+  useEffect(() => { setDraft(accountDraftFrom(user)) }, [user?.firstName, user?.lastName, user?.affiliation, user?.profession, user?.orcid])
+
+  const accountDirty =
+    draft.firstName !== (user?.firstName ?? '') ||
+    draft.lastName !== (user?.lastName ?? '') ||
+    draft.affiliation !== (user?.affiliation ?? '') ||
+    draft.profession !== (user?.profession ?? '') ||
+    draft.orcid !== (user?.orcid ?? '')
+
+  const setField = (key: keyof AccountDraft, value: string) => setDraft((d) => ({ ...d, [key]: value }))
+  const saveAccount = () => updateUser({ ...draft })
 
   const currentTab = searchParams.get('tab') ?? 'profile'
 
@@ -89,44 +124,57 @@ export function ProfilePage() {
                   <div className="space-y-2">
                     <Label>{t('profile.first_name')}</Label>
                     <Input
-                      value={user?.firstName ?? ''}
+                      value={draft.firstName}
                       placeholder={t('profile.first_name')}
-                      onChange={(e) => updateUser({ firstName: e.target.value })}
+                      onChange={(e) => setField('firstName', e.target.value)}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label>{t('profile.last_name')}</Label>
                     <Input
-                      value={user?.lastName ?? ''}
+                      value={draft.lastName}
                       placeholder={t('profile.last_name')}
-                      onChange={(e) => updateUser({ lastName: e.target.value })}
+                      onChange={(e) => setField('lastName', e.target.value)}
                     />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">
-                  {t('profile.change_password')}
-                </CardTitle>
-                <CardDescription>
-                  {t('profile.change_password_description')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex flex-col items-center py-6">
-                  <Lock size={36} className="text-muted-foreground/50" />
-                  <p className="mt-3 text-sm font-medium text-foreground">
-                    {t('profile.change_password_requires_backend')}
-                  </p>
-                  <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950 max-w-md">
-                    <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-                    <p className="text-xs text-amber-700 dark:text-amber-300">
-                      {t('profile.change_password_requires_backend_description')}
-                    </p>
+                <div className="space-y-2">
+                  <Label>{t('profile.affiliation')}</Label>
+                  <Input
+                    value={draft.affiliation}
+                    placeholder={t('profile.affiliation_placeholder')}
+                    onChange={(e) => setField('affiliation', e.target.value)}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>{t('profile.profession')}</Label>
+                    <Input
+                      value={draft.profession}
+                      placeholder={t('profile.profession_placeholder')}
+                      onChange={(e) => setField('profession', e.target.value)}
+                    />
                   </div>
+                  <div className="space-y-2">
+                    <Label>{t('profile.orcid')}</Label>
+                    <Input
+                      value={draft.orcid}
+                      placeholder="0000-0000-0000-0000"
+                      onChange={(e) => setField('orcid', e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between border-t pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setPasswordOpen(true)}
+                  >
+                    <Lock size={14} />
+                    {t('profile.change_password')}
+                  </Button>
+                  <Button onClick={saveAccount} disabled={!accountDirty}>
+                    {t('common.save')}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -231,6 +279,8 @@ export function ProfilePage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </div>
   )
 }
