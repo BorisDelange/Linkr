@@ -47,11 +47,11 @@ def _configure(connection):
 
 def run_migrations_offline() -> None:
     context.configure(
-        url=settings.database_url,
+        url=settings.resolved_database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=settings.database_url.startswith("sqlite"),
+        render_as_batch=settings.resolved_database_url.startswith("sqlite"),
         compare_type=True,
     )
     with context.begin_transaction():
@@ -65,7 +65,7 @@ def _do_run_migrations(connection):
 
 
 async def run_migrations_online() -> None:
-    engine = create_async_engine(settings.database_url)
+    engine = create_async_engine(settings.resolved_database_url)
     async with engine.connect() as connection:
         await connection.run_sync(_do_run_migrations)
     await engine.dispose()
