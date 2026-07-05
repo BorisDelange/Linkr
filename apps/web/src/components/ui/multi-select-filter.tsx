@@ -2,8 +2,12 @@ import { useState, useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+
+/** Cap the number of option rows rendered at once. With very large option sets
+ *  (e.g. ~3700 categories) rendering every row is the dominant cost; users reach
+ *  any value via the search box. Small lists (the common case) never hit this. */
+const RENDER_CAP = 200
 
 /** Generic option shape. */
 export type MultiSelectOption = string | { value: string; label: string }
@@ -63,6 +67,9 @@ export function MultiSelectFilter({
     return normalized.filter((o) => o.label.toLowerCase().includes(q))
   }, [normalized, search])
 
+  const visible = searchFiltered.length > RENDER_CAP ? searchFiltered.slice(0, RENDER_CAP) : searchFiltered
+  const hiddenCount = searchFiltered.length - visible.length
+
   const valueSet = useMemo(() => new Set(value), [value])
   const isActive = value.length > 0
 
@@ -105,7 +112,9 @@ export function MultiSelectFilter({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className={cn(popoverWidthClass, 'p-2 bg-popover')}
+        collisionPadding={12}
+        className={cn(popoverWidthClass, 'p-2 bg-popover flex flex-col overflow-hidden')}
+        style={{ maxHeight: 'var(--radix-popover-content-available-height, 420px)' }}
         onCloseAutoFocus={(e) => e.preventDefault()}
         onClick={(e) => e.stopPropagation()}
       >
@@ -114,7 +123,11 @@ export function MultiSelectFilter({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation()
+              // Enter selects every filtered option (not just the rendered slice).
+              if (e.key === 'Enter') { e.preventDefault(); selectAll(); setOpen(false) }
+            }}
             placeholder={t('common.search')}
             className="h-7 w-full rounded border bg-transparent pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
           />
@@ -141,44 +154,45 @@ export function MultiSelectFilter({
             {value.length}/{normalized.length}
           </span>
         </div>
-        <TooltipProvider delayDuration={400}>
-          <div
-            className="max-h-[220px] overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
-            onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
-          >
-            {searchFiltered.map((opt) => {
-              const isSelected = valueSet.has(opt.value)
-              return (
-                <Tooltip key={opt.value}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => toggle(opt.value)}
-                      className={cn(
-                        'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors text-left',
-                        isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
-                          isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
-                        )}
-                      >
-                        {isSelected && <Check size={10} />}
-                      </div>
-                      {renderOption ? renderOption(opt) : <span className="truncate">{opt.label}</span>}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-64">{opt.label}</TooltipContent>
-                </Tooltip>
-              )
-            })}
-            {searchFiltered.length === 0 && (
-              <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-            )}
-          </div>
-        </TooltipProvider>
+        <div
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain rounded-md border divide-y divide-border bg-popover"
+          style={{ maxHeight: 'min(420px, var(--radix-popover-content-available-height, 420px))' }}
+          onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+        >
+          {visible.map((opt) => {
+            const isSelected = valueSet.has(opt.value)
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.label}
+                onClick={() => toggle(opt.value)}
+                className={cn(
+                  'flex w-full items-center gap-2 px-2 py-1.5 text-xs transition-colors text-left',
+                  isSelected ? 'bg-accent/60 text-accent-foreground' : 'hover:bg-accent/30',
+                )}
+              >
+                <div
+                  className={cn(
+                    'flex size-3.5 shrink-0 items-center justify-center rounded-sm border',
+                    isSelected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/30',
+                  )}
+                >
+                  {isSelected && <Check size={10} />}
+                </div>
+                {renderOption ? renderOption(opt) : <span className="truncate">{opt.label}</span>}
+              </button>
+            )
+          })}
+          {searchFiltered.length === 0 && (
+            <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
+          )}
+          {hiddenCount > 0 && (
+            <p className="py-1.5 text-center text-[10px] text-muted-foreground">
+              {t('common.refine_search', { shown: visible.length, total: searchFiltered.length, defaultValue: 'Showing {{shown}} of {{total}} — refine your search' })}
+            </p>
+          )}
+        </div>
       </PopoverContent>
     </Popover>
   )

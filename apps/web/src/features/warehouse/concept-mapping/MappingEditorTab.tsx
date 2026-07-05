@@ -13,6 +13,7 @@ import {
   buildFileSourceFilterOptionsQuery,
   type SourceConceptFilters,
   type SourceConceptSorting,
+  type FilterOptionsVocabScope,
 } from '@/lib/concept-mapping/mapping-queries'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { getStorage } from '@/lib/storage'
@@ -240,6 +241,73 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
     }
     loadOptions()
   }, [isFileSource, dataSource?.id, dataSource?.schemaMapping, ensureMounted])
+
+  // Re-scope category/subcategory options to the selected vocabulary. With ~3700
+  // categories across all vocabularies, narrowing to the picked vocabulary keeps
+  // the filter dropdown small and relevant. Empty selection → full list restored.
+  const vocabScopeKey = `${(filters.terminologyName ?? []).join('|')}__${(filters.vocabularyId ?? []).join('|')}`
+  useEffect(() => {
+    const vocabScope: FilterOptionsVocabScope | undefined =
+      (filters.terminologyName?.length ?? 0) > 0
+        ? { column: 'terminology_name', values: filters.terminologyName! }
+        : (filters.vocabularyId?.length ?? 0) > 0
+          ? { column: 'vocabulary_id', values: filters.vocabularyId! }
+          : undefined
+
+    let cancelled = false
+    const rescope = async () => {
+      const next: Record<string, string[]> = {}
+      if (isFileSource) {
+        if (!fileSourceReady) return
+        const dsId = fileSourceDataSourceId(project.id)
+        for (const col of ['category', 'subcategory']) {
+          try {
+            const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope))
+            next[col] = result.map((r: Record<string, unknown>) => String(r.val ?? '')).filter(Boolean)
+          } catch {
+            // column may not exist
+          }
+        }
+      } else {
+        if (!dataSource?.id || !dataSource.schemaMapping) return
+        await ensureMounted(dataSource.id)
+        for (const col of ['category', 'subcategory']) {
+          const sql = buildFilterOptionsQuery(dataSource.schemaMapping, col, vocabScope)
+          if (!sql) continue
+          try {
+            const result = await queryDataSource(dataSource.id, sql)
+            next[col] = result.map((r: Record<string, unknown>) => String(r.val ?? ''))
+          } catch {
+            // column may not exist
+          }
+        }
+      }
+      if (cancelled) return
+      setFilterOptions((prev) => ({ ...prev, ...next }))
+      // Drop selected category/subcategory values that no longer exist in the
+      // newly scoped option lists, so stale selections don't silently filter out
+      // everything.
+      setFilters((prev) => {
+        let changed = false
+        const patch: Partial<SourceConceptFilters> = {}
+        for (const key of ['category', 'subcategory'] as const) {
+          const selected = prev[key]
+          if (!selected?.length || !next[key]) continue
+          const allowed = new Set(next[key])
+          const kept = selected.filter((v) => allowed.has(v))
+          if (kept.length !== selected.length) {
+            patch[key] = kept.length ? kept : undefined
+            changed = true
+          }
+        }
+        return changed ? { ...prev, ...patch } : prev
+      })
+    }
+    rescope()
+    return () => { cancelled = true }
+    // vocabScopeKey captures the selected-vocabulary identity; other deps gate readiness.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vocabScopeKey, isFileSource, fileSourceReady, dataSource?.id, dataSource?.schemaMapping, project.id, ensureMounted])
 
   // Load source concepts (unified: both file and database mode use DuckDB)
   const loadConcepts = useCallback(async (pageToLoad: number) => {

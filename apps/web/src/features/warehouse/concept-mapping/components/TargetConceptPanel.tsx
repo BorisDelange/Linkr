@@ -7,7 +7,7 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, CheckCheck, XSquare, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, ArrowUpDown, ArrowUp, ArrowDown, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
@@ -59,6 +59,7 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
+import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { ConceptSetDetailSheet } from '../ConceptSetDetailSheet'
@@ -177,7 +178,9 @@ function ColumnFilterSelect({
 
 const RESOLVED_FILTER_INPUT = 'h-5 w-full rounded border border-dashed bg-transparent px-1 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
-/** Multi-select dropdown for resolved concept column filters. */
+/** Multi-select dropdown for resolved concept column filters.
+ *  Thin `Set`-based adapter over the shared {@link MultiSelectFilter} so every
+ *  column filter across the app renders identically. */
 function ResolvedMultiSelect({
   options,
   selected,
@@ -189,94 +192,16 @@ function ResolvedMultiSelect({
   onChange: (v: Set<string>) => void
   triggerClass?: string
 }) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
   if (options.length === 0) return <span />
-  const count = selected?.size ?? 0
-  const filtered = search ? options.filter((o) => o.toLowerCase().includes(search.toLowerCase())) : options
-
-  const selectAll = () => onChange(new Set(filtered))
-  const deselectFiltered = () => {
-    if (!selected) { onChange(new Set()); return }
-    const next = new Set(selected)
-    for (const o of filtered) next.delete(o)
-    onChange(next)
-  }
-
   return (
-    <DropdownMenu open={open} onOpenChange={(o) => { setOpen(o); if (!o) setSearch('') }}>
-      <DropdownMenuTrigger asChild>
-        <button className={`${triggerClass ?? RESOLVED_FILTER_INPUT} flex items-center justify-between truncate ${count > 0 ? 'border-primary text-foreground' : ''}`}>
-          <span className="truncate">{count > 0 ? `(${count})` : '...'}</span>
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="start"
-        className="w-[200px]"
-        onCloseAutoFocus={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => { e.detail.originalEvent.stopPropagation() }}
-      >
-        <div className="flex items-center gap-1 px-2 py-1.5">
-          <input
-            autoFocus
-            className="h-6 min-w-0 flex-1 rounded border bg-transparent px-1.5 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"
-            placeholder={t('common.search')}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => {
-              e.stopPropagation()
-              if (e.key === 'Enter') { selectAll(); setOpen(false) }
-            }}
-          />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                onMouseDown={(e) => { e.preventDefault(); selectAll() }}
-              >
-                <CheckCheck size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">{t('common.select_all')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                onMouseDown={(e) => { e.preventDefault(); deselectFiltered() }}
-              >
-                <XSquare size={13} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="text-xs">{t('common.deselect_all')}</TooltipContent>
-          </Tooltip>
-        </div>
-        <DropdownMenuSeparator />
-        <div className="max-h-72 overflow-auto">
-          {filtered.map((opt) => (
-            <DropdownMenuCheckboxItem
-              key={opt}
-              checked={selected?.has(opt) ?? false}
-              onCheckedChange={(v) => {
-                const next = new Set(selected)
-                if (v) next.add(opt); else next.delete(opt)
-                onChange(next)
-              }}
-              onSelect={(e) => e.preventDefault()}
-              className="text-xs"
-            >
-              {opt}
-            </DropdownMenuCheckboxItem>
-          ))}
-          {filtered.length === 0 && (
-            <p className="px-2 py-1.5 text-[10px] text-muted-foreground">{t('common.no_results')}</p>
-          )}
-        </div>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <MultiSelectFilter
+      options={options}
+      value={selected ? [...selected] : []}
+      onChange={(next) => onChange(new Set(next))}
+      placeholder="..."
+      triggerClass={triggerClass ?? `${RESOLVED_FILTER_INPUT} justify-between`}
+      popoverWidthClass="w-[220px]"
+    />
   )
 }
 
@@ -287,6 +212,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const lang = i18n.language
   const { mappings, conceptSets, createMapping, deleteMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const allDataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
@@ -649,10 +575,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       comments: comment ? [{
         id: crypto.randomUUID(),
         authorId: getUserDisplayName(),
+        authorDetails: getAuthorDetails(),
         text: comment,
         createdAt: now,
       }] : undefined,
       mappedBy: getUserDisplayName(),
+      mappedByDetails: getAuthorDetails(),
       mappedOn: now,
       createdAt: now,
       updatedAt: now,
@@ -703,10 +631,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
         comments: comment ? [{
           id: crypto.randomUUID(),
           authorId: getUserDisplayName(),
+          authorDetails: getAuthorDetails(),
           text: comment,
           createdAt: now,
         }] : undefined,
         mappedBy: getUserDisplayName(),
+        mappedByDetails: getAuthorDetails(),
         mappedOn: now,
         createdAt: now,
         updatedAt: now,

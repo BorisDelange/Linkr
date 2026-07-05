@@ -363,8 +363,13 @@ export function buildFileSourceConceptsCountQuery(
 /** Distinct values for a column in the file source table (for filter dropdowns). */
 export function buildFileSourceFilterOptionsQuery(
   columnName: string,
+  vocabScope?: FilterOptionsVocabScope,
 ): string {
-  return `SELECT DISTINCT ${columnName} AS val FROM source_concepts WHERE ${columnName} IS NOT NULL AND ${columnName} != '' ORDER BY val`
+  const where = [`${columnName} IS NOT NULL`, `${columnName} != ''`]
+  if (vocabScope && vocabScope.values.length > 0) {
+    where.push(inListClause(vocabScope.column, vocabScope.values))
+  }
+  return `SELECT DISTINCT ${columnName} AS val FROM source_concepts WHERE ${where.join(' AND ')} ORDER BY val`
 }
 
 // ---------------------------------------------------------------------------
@@ -581,12 +586,25 @@ export function buildConceptCategoryQuery(
   return `SELECT concept_id, category, subcategory FROM (${parts.join(' UNION ALL ')}) GROUP BY concept_id, category, subcategory`
 }
 
+/** Optional scoping of filter options to a selected vocabulary/terminology.
+ *  `column` picks which per-dictionary vocabulary column to constrain (matching
+ *  the filter the user selected), and `values` are the selected vocabulary ids
+ *  or terminology names. Dictionaries with no such column emit no rows when a
+ *  scope is active, so only concepts from the selected vocabularies contribute. */
+export interface FilterOptionsVocabScope {
+  column: 'vocabulary_id' | 'terminology_name'
+  values: string[]
+}
+
 export function buildFilterOptionsQuery(
   mapping: SchemaMapping,
   columnAlias: string,
+  vocabScope?: FilterOptionsVocabScope,
 ): string {
   const dicts = mapping.conceptTables ?? []
   if (dicts.length === 0) return ''
+
+  const scoped = vocabScope && vocabScope.values.length > 0 ? vocabScope : undefined
 
   const unionParts = dicts.map((dict) => {
     let col: string | undefined
@@ -597,10 +615,26 @@ export function buildFilterOptionsQuery(
     else if (dict.extraColumns?.[columnAlias]) col = dict.extraColumns[columnAlias]
     // When no column exists for vocabulary_id, use the table name as a static value
     if (!col) {
-      if (columnAlias === 'vocabulary_id') return `SELECT '${dict.table}' AS val`
+      if (columnAlias === 'vocabulary_id') {
+        // Static vocabulary_id = table name: honour the scope by dropping tables
+        // whose implicit vocabulary isn't in the selected set.
+        if (scoped?.column === 'vocabulary_id' && !scoped.values.includes(dict.table)) return null
+        return `SELECT '${dict.table}' AS val`
+      }
       return null
     }
-    return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${col} IS NOT NULL`
+
+    const where = [`${col} IS NOT NULL`]
+    if (scoped) {
+      const scopeCol = scoped.column === 'vocabulary_id'
+        ? (dict.terminologyIdColumn ?? dict.vocabularyColumn)
+        : dict.terminologyNameColumn
+      // No matching vocabulary column on this dictionary → it can't satisfy the
+      // scope, so exclude it entirely rather than returning unscoped values.
+      if (!scopeCol) return null
+      where.push(inListClause(scopeCol, scoped.values))
+    }
+    return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${where.join(' AND ')}`
   }).filter(Boolean)
 
   if (unionParts.length === 0) return ''
