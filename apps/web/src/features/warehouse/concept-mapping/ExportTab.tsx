@@ -86,6 +86,15 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     })
   }
 
+  const selectAllOptions = () => {
+    setIncludedStatuses(new Set(STATUSES))
+    setIncludeAllSourceConcepts(true)
+  }
+  const selectNoneOptions = () => {
+    setIncludedStatuses(new Set())
+    setIncludeAllSourceConcepts(false)
+  }
+
   // Effective status per mapping (review-aware) — keeps Export, Mapping Editor, Progress in sync.
   const mappingsWithEffective = useMemo(
     () => mappings.map((m) => ({ mapping: m, effective: effectiveMappingStatus(m) })),
@@ -369,7 +378,26 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       <div className="mx-auto max-w-3xl space-y-6">
         {/* Status filter section — two columns: statuses (left) / source-concept option + total (right) */}
         <Card className="p-4">
-          <p className="mb-0.5 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={selectAllOptions}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_all')}
+              </button>
+              <span className="text-[10px] text-muted-foreground">/</span>
+              <button
+                type="button"
+                onClick={selectNoneOptions}
+                className="text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {t('common.select_none')}
+              </button>
+            </div>
+          </div>
           <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
             {/* Left: status checkboxes */}
             <div>
