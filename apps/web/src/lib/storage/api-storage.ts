@@ -1,6 +1,7 @@
 import { apiOrganizationStorage } from '@/lib/api/organizations'
 import { apiProjectStorage } from '@/lib/api/projects'
 import { apiSchemaPresetStorage } from '@/lib/api/schema-presets'
+import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
 import type { Storage } from '@/lib/storage'
 import { createIDBStorage } from '@/lib/storage/idb-storage'
@@ -19,5 +20,6 @@ export function createAPIStorage(): Storage {
     projects: apiProjectStorage,
     organizations: apiOrganizationStorage,
     schemaPresets: apiSchemaPresetStorage,
+    wikiPages: apiWikiPageStorage,
   }
 }
