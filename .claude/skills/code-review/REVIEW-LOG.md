@@ -29,6 +29,28 @@ Notes / follow-ups:
 
 ---
 
+## 2026-07-05 — Author provenance mixin + suggestion-category filter + review-page redesign + change-password dialog
+
+- Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews on features/UI diffs + manual verification of the core types/stores/lib diff)
+- Range: 7d357873..eac0095f (20 commits, 52 files, ~2.7k insertions — structured author details (`AuthorDetails`/`Authored` mixin) stamped onto created entities via new `stampAuthored()`; per-suggestion-category source filter (scores-engine `categorySourceKeys` + `reindexProject` upgrade path + `mapping-queries` tuple/vocab-scope predicates); mapping-editor source-search harmonization + histogram X-ticks/start-at-zero + target-tab reorder (default to Search); concept-mapping review-page 3-stage pipeline redesign (skill review-template, not app code); ProfilePage explicit-save + new ChangePasswordDialog; multi-select-filter render-cap + Enter-select-all; concept-mapping skill docs refactor. Version bumped 2.0.20→2.0.21 within the range, then →2.0.22 by this review. Note: `eac0095f` (target-tab default) landed mid-review — already covered by the features sub-review diff.
+- Last reviewed commit: eac0095f749522d8ffe6d615aee0a0e60c75ed4e
+- Verdict: **Ship it** (one 🟠 to track — frontend-ahead-of-backend, does not affect the shipping static build)
+- Tests: 142 passed (13 new: 11 mapping-queries + 2 export author round-trip) · Lint: 0 errors (156 warnings, all pre-existing React Compiler category) · Typecheck: 0 errors
+
+Findings (all verified in code; false positives discarded):
+- 🟠 NOT BLOCKING — ChangePasswordDialog.tsx:48-49 — in server mode the dialog POSTs to `${VITE_API_URL||'http://localhost:8000'}/auth/change-password`, but (a) `apps/api` registers only health + projects routers — **no auth/change-password endpoint exists**, and (b) the path is missing the `/api/v1` prefix that every real route (and the existing GeneralTab.tsx fetches) uses. So server-mode password change always 404s → user always sees the generic error; it can never succeed. Non-blocking because the shipping mode is static WASM (`VITE_API_URL` unset), where the dialog correctly shows a "requires backend" notice. Fix when the backend lands: add the `/api/v1` prefix and implement the route (or gate the server branch behind a feature flag until then). Password handling itself is clean — state-only, `credentials: 'include'`, never logged, cleared on close.
+- 🟡 ChangePasswordDialog.tsx:48 — hardcoded `http://localhost:8000` fallback baked into a shipped component (dead in practice: only reachable when `VITE_API_URL` is truthy). Same pattern as pre-existing GeneralTab.tsx; consider dropping the fallback repo-wide.
+- ✅ SQL safety verified: new vocab-scope + suggestion-category predicates (`inListClause`→`esc`, `tupleInClause` escapes both vocab & code; `columnName`/`vocabScope.column` are code-controlled unions). No raw interpolation. `global-summary-queries.ts` localized(proj.name) still esc()-wrapped.
+- ✅ Correctness verified: `reindexProject` upgrade path guarded by per-project `reindexAttemptedRef` (empty result can't loop); scores-engine `data_dictionary` category runs in a try/guarded query so a legacy parquet missing `concept_set_uid` can't wipe method categories; idb-storage serializes/hydrates `categorySourceKeys` as Sets↔string[] with `?? []` back-compat; MappingEditorTab `{...filters}` copy prevents mutating shared state; `suggestionCategoryKeys` `vocab::code`→`vocab\0code` conversion correct; RelationsTable composite key retained.
+- ✅ i18n: all new keys (`profile.password_*`, `affiliation/profession/orcid` (+placeholders), `common.refine_search`/`select_all`/`select_none`/`clear`, `concept_mapping.source_filters*`/`filter_by_suggestion*`/`detail_starts_at_zero`/`suggestion_category_*` ×5) present in both en.json and fr.json.
+- ✅ multi-select-filter render-cap: `selectAll` uses full `searchFiltered` (not the truncated `visible` slice), `no_results`/`hiddenCount` keyed off the full set — capping doesn't drop selections.
+- ✅ No new `any` (2 justified `as unknown as` double-casts with comments); no debug/dead code; no secrets; author-details spreads resolve to real typed store fns.
+
+Notes / follow-ups:
+- The concept-mapping skill files (SKILL.md, references/, review-template/app.js+index.html+style.css, scripts/update_state.py) are tooling, not shipped app code — scanned, not adversarially reviewed line-by-line.
+- 🟠 follow-up owed on the backend: implement `POST /api/v1/auth/change-password` (or gate the dialog's server branch) before enabling password change in any server deployment.
+- Pre-existing (out of scope): fr.json is missing `data_sources.detail_visits`/`detail_visit_units` (has `detail_visit_occurrences`/`detail_visit_details` instead) — a latent EN/FR mismatch worth a separate fix.
+
 ## 2026-07-03 — LocalizedString migration + short-id URLs + entity actions menu + concept-mapping provenance
 
 - Reviewed by: Claude Opus 4.8 (5 parallel adversarial cluster sub-reviews + manual verification + fixes applied)
