@@ -106,6 +106,12 @@ Once a candidate is found, explore ancestors/descendants via `concept_ancestor` 
 
 When the orchestrator passed a `dict_targets` table + active `category`, the target-selection order changes.
 
+**Dictionary folder layout — targets come from the RESOLVED sets, not the expression.** The dictionary has two parallel folders per set (`<id>.json` in each):
+- `concept_sets/<id>.json` — the OHDSI concept-set **expression** (a *definition*) plus all metadata + the `longDescription`. `expression.items[]` lists seed concepts with boolean flags: `includeDescendants` (pull in all descendants via the hierarchy), `includeMapped` (pull in all concepts that "Maps to" this one), `isExcluded` (remove this concept, and its descendants when combined with `includeDescendants`). Seeds are often high-level **classification** concepts (e.g. `37036048 "Sodium | Blood"`, `standardConcept:"C"`) with `includeDescendants:true`. **Reading these `conceptId`s as targets is the trap** — they are classification nodes, not the measurable standard concepts.
+- `concept_sets_resolved/<id>.json` — the expression **evaluated** against the vocabulary: the concrete standard targets under `resolvedConcepts[]` (`conceptId`, `conceptName`, `vocabularyId`, `standardConcept`), e.g. the canonical `3019550 Sodium [Moles/volume] in Serum or Plasma`.
+
+`dict_targets` (built by the orchestrator) already holds the resolved `standardConcept:"S"` targets. Read set metadata and the `longDescription` from `concept_sets/<id>.json`.
+
 **First, read the set's `longDescription` — it is the mapping authority (MANDATORY when present).** For each candidate dictionary set, open `concept_sets/<id>.json` and read `metadata.translations.<lang>.longDescription` (Markdown). Its `## Mapping Notes` section names the **default target concept** for the set, gives **conditional rules** (specimen/site/method/setting-vs-measured), and lists **excluded / out-of-scope** concepts. You MUST follow it:
 - Pick the **named default concept** unless the source's own `metadata_json` documents a specificity the notes map to a named variant (e.g. blood-gas analyser → arterial specimen; heart rate explicitly from pulse oximetry → the by-oximetry LOINC).
 - **Never** choose a concept the notes list as excluded/out-of-scope, even if its biolord/jaro-winkler score is high — the longDescription **overrides** the similarity ranking.
