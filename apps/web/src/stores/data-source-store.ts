@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import type {
@@ -304,6 +304,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }
@@ -419,6 +420,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       schemaMapping: source.schemaMapping,
       status: 'configuring' as DataSourceStatus,
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

@@ -4,7 +4,7 @@ import { deleteProjectData } from '@/lib/entity-io'
 import { slugifyId } from '@/lib/slugify-id'
 import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
-import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility } from '@/types'
+import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
 // Populated via registerWorkspaceStore() called from workspace-store.ts after it's created.
@@ -25,6 +25,9 @@ interface AuthUser {
   firstName: string
   lastName: string
   role: string
+  affiliation?: string
+  profession?: string
+  orcid?: string
 }
 
 interface ProjectItem {
@@ -66,6 +69,9 @@ interface Preferences {
   dismissSeedUpdateNotifications: boolean
   userFirstName?: string
   userLastName?: string
+  userAffiliation?: string
+  userProfession?: string
+  userOrcid?: string
 }
 
 function loadPreferences(): Partial<Preferences> {
@@ -102,9 +108,11 @@ interface AppState {
   user: AuthUser | null
   login: (user: AuthUser) => void
   logout: () => void
-  updateUser: (changes: Partial<Pick<AuthUser, 'firstName' | 'lastName'>>) => void
+  updateUser: (changes: Partial<Pick<AuthUser, 'firstName' | 'lastName' | 'affiliation' | 'profession' | 'orcid'>>) => void
   /** Get display name: "First Last", or username if no name set. */
   getUserDisplayName: () => string
+  /** Structured author identity snapshot for stamping onto created entities. */
+  getAuthorDetails: () => AuthorDetails
 
   // Projects
   _projectsRaw: Project[]
@@ -182,7 +190,7 @@ const prefs = loadPreferences()
 let nextUserId = 2
 
 export const useAppStore = create<AppState>((set, get) => ({
-  user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin' },
+  user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin', affiliation: prefs.userAffiliation ?? '', profession: prefs.userProfession ?? '', orcid: prefs.userOrcid ?? '' },
   login: (user) => set({ user }),
   logout: () => set({ user: null }),
   updateUser: (changes) => set((s) => {
@@ -194,6 +202,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!u) return ''
     const full = `${u.firstName} ${u.lastName}`.trim()
     return full || u.username
+  },
+  getAuthorDetails: () => {
+    const u = get().user
+    if (!u) return {}
+    const details: AuthorDetails = {}
+    if (u.firstName?.trim()) details.firstName = u.firstName.trim()
+    if (u.lastName?.trim()) details.lastName = u.lastName.trim()
+    if (u.affiliation?.trim()) details.affiliation = u.affiliation.trim()
+    if (u.profession?.trim()) details.profession = u.profession.trim()
+    if (u.orcid?.trim()) details.orcid = u.orcid.trim()
+    return details
   },
 
   // Projects
@@ -297,6 +316,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       shortDescription: {},
       config: {},
       ownerId: get().user?.id ?? 0,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }
@@ -538,5 +558,15 @@ useAppStore.subscribe((state) => {
     dismissSeedUpdateNotifications: state.dismissSeedUpdateNotifications,
     userFirstName: state.user?.firstName,
     userLastName: state.user?.lastName,
+    userAffiliation: state.user?.affiliation,
+    userProfession: state.user?.profession,
+    userOrcid: state.user?.orcid,
   })
 })
+
+/** Snapshot the current user as creator provenance for a freshly created entity.
+ *  Usable outside React (e.g. inside store actions and Create dialogs). */
+export function stampAuthored(): Authored {
+  const s = useAppStore.getState()
+  return { createdBy: s.getUserDisplayName(), createdByDetails: s.getAuthorDetails() }
+}

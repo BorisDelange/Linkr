@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { stampAuthored } from '@/stores/app-store'
 import type { WikiPage, WikiSnapshot, LocalizedString } from '@/types'
 
 export type WikiViewMode = 'view' | 'edit' | 'history'
@@ -116,6 +117,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       template,
       sortOrder: maxOrder + 1,
       history: [],
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

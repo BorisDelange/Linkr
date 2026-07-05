@@ -1,4 +1,5 @@
 import type { Seedable, LocalizedString } from './index'
+import type { AuthorDetails } from './author'
 
 // --- Concept Mapping Enums ---
 
@@ -219,6 +220,8 @@ export interface ResolvedConcept {
 export interface MappingComment {
   id: string
   authorId: string
+  /** Structured author identity (affiliation, profession, ORCID) captured at write time. */
+  authorDetails?: AuthorDetails
   text: string
   createdAt: string
 }
@@ -229,6 +232,8 @@ export interface MappingComment {
 export interface MappingReview {
   id: string
   reviewerId: string
+  /** Structured reviewer identity captured at write time. */
+  reviewerDetails?: AuthorDetails
   status: MappingStatus
   comment?: string
   createdAt: string
@@ -276,10 +281,14 @@ export interface ConceptMapping {
   reviews?: MappingReview[]
   // Provenance
   mappedBy?: string
+  /** Structured author identity of the mapper (affiliation, profession, ORCID). */
+  mappedByDetails?: AuthorDetails
   mappedOn?: string
   // Review
   assignedReviewer?: string
   reviewedBy?: string
+  /** Structured author identity of the reviewer. */
+  reviewedByDetails?: AuthorDetails
   reviewedOn?: string
   reviewComment?: string
   // Timestamps

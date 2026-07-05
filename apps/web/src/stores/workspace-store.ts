@@ -3,7 +3,7 @@ import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
 import { isShellHtml, toLocalized, setLocalized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
-import { useAppStore, registerWorkspaceStore } from './app-store'
+import { useAppStore, registerWorkspaceStore, stampAuthored } from './app-store'
 import { useOrganizationStore } from './organization-store'
 
 export interface WorkspaceItem {
@@ -111,6 +111,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       description: { [lang]: description },
       organizationId,
       gitRemoteConfig,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

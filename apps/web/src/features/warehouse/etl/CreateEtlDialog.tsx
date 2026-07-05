@@ -23,7 +23,7 @@ import { RequiredMark } from '@/components/ui/required-mark'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useEtlStore } from '@/stores/etl-store'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import type { EtlPipeline } from '@/types'
 
@@ -91,6 +91,7 @@ export function CreateEtlDialog({ open, onOpenChange, onCreated, editingPipeline
           sourceDataSourceId: sourceId,
           targetDataSourceId: targetId || undefined,
           status: 'draft',
+          ...stampAuthored(),
           createdAt: now,
           updatedAt: now,
         }

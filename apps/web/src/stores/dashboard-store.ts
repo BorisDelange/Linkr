@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { toLocalized } from '@/lib/localized'
+import { stampAuthored } from '@/stores/app-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-columns'
 import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
@@ -207,6 +208,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       name,
       filterConfig: [],
       gridV: 2,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

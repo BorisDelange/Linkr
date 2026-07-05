@@ -3,6 +3,8 @@ export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, Cust
 export type { ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
 export { getDefaultDimensions } from './catalog'
+export type { AuthorDetails, Authored } from './author'
+import type { Authored } from './author'
 
 export interface User {
   id: number
@@ -93,7 +95,7 @@ export interface ChangelogEntry {
 // --- Workspace ---
 
 /** A workspace is an organizational container for projects, like a GitHub Organization. */
-export interface Workspace extends Seedable {
+export interface Workspace extends Seedable, Authored {
   id: string
   name: LocalizedString
   description: LocalizedString
@@ -109,7 +111,7 @@ export interface Workspace extends Seedable {
 
 // --- Project ---
 
-export interface Project extends Seedable {
+export interface Project extends Seedable, Authored {
   uid: string
   /** Human-readable, URL-safe identifier (e.g. "mimic-iv-sepsis"). Set once at creation, never changes. Used as folder name in exports/git. */
   projectId?: string
@@ -245,7 +247,7 @@ export interface DatabaseStatsCache {
   tableCounts: TableRowCount[]
 }
 
-export interface DataSource extends Seedable {
+export interface DataSource extends Seedable, Authored {
   id: string
   workspaceId?: string
   /** Short, URL-safe identifier used as the DuckDB schema name. Auto-generated from `name`, editable. */
@@ -324,7 +326,7 @@ export interface WikiSnapshot {
   savedAt: string
 }
 
-export interface WikiPage {
+export interface WikiPage extends Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. Used as folder name in exports/git. */
   entityId?: string
@@ -387,7 +389,7 @@ export interface DashboardFilter {
   datePresets?: DatePreset[]
 }
 
-export interface Dashboard extends Seedable {
+export interface Dashboard extends Seedable, Authored {
   id: string
   projectUid: string
   name: LocalizedString
@@ -633,7 +635,7 @@ export interface DatasetParseOptions {
   sheet?: string
 }
 
-export interface DatasetFile extends Seedable {
+export interface DatasetFile extends Seedable, Authored {
   id: string
   projectUid: string
   name: string
@@ -689,7 +691,7 @@ export interface ColumnStats {
 
 export type EtlPipelineStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface EtlPipeline extends Seedable {
+export interface EtlPipeline extends Seedable, Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -765,7 +767,7 @@ export interface EtlSourceProfile {
 
 // --- SQL Script Types ---
 
-export interface SqlScriptCollection {
+export interface SqlScriptCollection extends Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string
@@ -795,7 +797,7 @@ export interface SqlScriptFile {
 
 export type DqRuleSetStatus = 'draft' | 'ready' | 'running' | 'success' | 'error'
 
-export interface DqRuleSet extends Seedable {
+export interface DqRuleSet extends Seedable, Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

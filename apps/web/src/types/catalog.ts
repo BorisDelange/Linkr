@@ -1,4 +1,5 @@
 import type { Seedable, LocalizedString } from './index'
+import type { Authored } from './author'
 
 // --- Catalog Status ---
 
@@ -128,7 +129,7 @@ export interface CatalogPeriodRow {
 
 // --- Data Catalog ---
 
-export interface DataCatalog extends Seedable {
+export interface DataCatalog extends Seedable, Authored {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. */
   entityId?: string

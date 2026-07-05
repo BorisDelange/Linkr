@@ -145,6 +145,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -166,6 +167,7 @@ function CommentsSheet({ mappingId, open, onOpenChange }: {
     const comment: MappingComment = {
       id: crypto.randomUUID(),
       authorId: currentUser,
+      authorDetails: getAuthorDetails(),
       text,
       createdAt: new Date().toISOString(),
     }
@@ -287,6 +289,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
   const { t } = useTranslation()
   const { mappings, updateMapping } = useConceptMappingStore()
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
   // Always read from live store so reviews appear immediately after save
@@ -314,6 +317,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
       ...(newStatus !== 'unchecked' ? [{
         id: myReview?.id ?? crypto.randomUUID(),
         reviewerId: currentUser,
+        reviewerDetails: getAuthorDetails(),
         status: newStatus,
         comment: comment.trim() || undefined,
         createdAt: new Date().toISOString(),
@@ -322,6 +326,7 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
     updateMapping(mapping.id, {
       reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? currentUser : undefined,
+      reviewedByDetails: newStatus !== 'unchecked' ? getAuthorDetails() : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
   }
@@ -912,6 +917,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const mappings = useConceptMappingStore.getState().mappings
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
@@ -2017,6 +2023,7 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
       ...(newStatus !== 'unchecked' ? [{
         id: prevReviews.find((r) => r.reviewerId === reviewer)?.id ?? crypto.randomUUID(),
         reviewerId: reviewer,
+        reviewerDetails: getAuthorDetails(),
         status: newStatus,
         createdAt: new Date().toISOString(),
       }] : []),
@@ -2024,9 +2031,10 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     updateMapping(mappingId, {
       reviews: newReviews,
       reviewedBy: newStatus !== 'unchecked' ? reviewer : undefined,
+      reviewedByDetails: newStatus !== 'unchecked' ? getAuthorDetails() : undefined,
       reviewedOn: newStatus !== 'unchecked' ? new Date().toISOString() : undefined,
     })
-  }, [updateMapping, getUserDisplayName, requireIdentity])
+  }, [updateMapping, getUserDisplayName, getAuthorDetails, requireIdentity])
 
   /** Stable handlers for the memoized ReviewActionsCell. They take a mapping id and
    *  resolve the full mapping via the store's id index — this lets the cell pass only

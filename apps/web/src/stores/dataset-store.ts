@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { stampAuthored } from '@/stores/app-store'
 
 export interface UndoAction {
   id: string
@@ -194,6 +195,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       parentId,
       columns: [],
       rowCount: 0,
+      ...stampAuthored(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -232,6 +234,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       name,
       type: 'folder',
       parentId,
+      ...stampAuthored(),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }
@@ -666,6 +669,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       columns,
       rowCount: rows.length,
       parseOptions,
+      ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
     }

@@ -20,7 +20,7 @@ import {
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
-import { useAppStore } from '@/stores/app-store'
+import { useAppStore, stampAuthored } from '@/stores/app-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -89,6 +89,7 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
         anonymization: { threshold: 10, mode: 'replace' },
         status: 'draft',
+        ...stampAuthored(),
         createdAt: now,
         updatedAt: now,
       })
