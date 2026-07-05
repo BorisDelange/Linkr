@@ -268,7 +268,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   const [resolvedColVisibility, setResolvedColVisibility] = useState({ vocab: true, id: false, name: true, code: false, domain: false, class: false, std: true })
 
   // Browse mode toggle
-  const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('concept_sets')
+  const [browseMode, setBrowseMode] = useState<'concept_sets' | 'search' | 'suggestions'>('search')
 
   // Suggestions state (from imported scores)
   const [suggestionsImporting, setSuggestionsImporting] = useState(false)
