@@ -68,7 +68,8 @@ def count_source_concepts(path: Path) -> tuple[int, list[str]]:
         with open(path, "r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             vocab_col = next((c for c in reader.fieldnames or []
-                              if c.lower() in ("terminology", "vocabulary", "source_vocab", "vocabulary_id")), None)
+                              if c.lower() in ("terminology", "terminology_code", "vocab",
+                                               "vocabulary", "source_vocab", "vocabulary_id")), None)
             for row in reader:
                 count += 1
                 if vocab_col:
@@ -261,7 +262,12 @@ def build_state(
     methods_event: str | None,
 ) -> dict:
     project_json = safe_read_json(project_dir / "project.json") or {}
-    project_name = project_json.get("name") or project_dir.name
+    # name may be an i18n object {"en": "…", "fr": "…"} — resolve to a string
+    raw_name = project_json.get("name")
+    if isinstance(raw_name, dict):
+        project_name = raw_name.get("en") or next(iter(raw_name.values()), None) or project_dir.name
+    else:
+        project_name = raw_name or project_dir.name
 
     source_csv = project_dir / "source-concepts.csv"
     n_source, vocab_ids = count_source_concepts(source_csv)

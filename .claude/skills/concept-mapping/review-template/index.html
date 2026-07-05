@@ -4,168 +4,276 @@
   <meta charset="utf-8" />
   <title>Concept Mapping — Review</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="./style.css" />
 </head>
-<body class="bg-slate-50 text-slate-900 antialiased">
-  <header class="bg-slate-900 text-white">
-    <div class="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-      <div>
-        <div class="text-xs uppercase tracking-wider text-slate-400">Concept mapping</div>
-        <h1 id="project-name" class="text-xl font-semibold">Loading…</h1>
+<body>
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-brand">
+        <div class="eyebrow">Concept mapping</div>
+        <h1 id="project-name">Loading…</h1>
       </div>
-      <div class="text-right text-sm text-slate-300">
-        <div>Last updated</div>
-        <div id="last-updated" class="font-mono text-xs">—</div>
+      <div class="header-meta">
+        <div class="header-updated">
+          <span class="header-updated-label">Updated</span>
+          <span id="last-updated">—</span>
+        </div>
       </div>
     </div>
-    <nav class="max-w-6xl mx-auto px-6 flex gap-6 text-sm border-t border-slate-700">
-      <button data-tab="overview"  class="tab-btn py-3 border-b-2 border-transparent">Overview</button>
-      <button data-tab="sessions"  class="tab-btn py-3 border-b-2 border-transparent">Sessions</button>
-      <button data-tab="files"     class="tab-btn py-3 border-b-2 border-transparent">Files</button>
+    <nav class="header-nav" role="tablist" aria-label="Sections">
+      <button data-tab="overview"    class="tab-btn" role="tab">Overview</button>
+      <button data-tab="embeddings"  class="tab-btn" role="tab"><span class="tab-step">1</span> OMOP embeddings</button>
+      <button data-tab="suggestions" class="tab-btn" role="tab"><span class="tab-step">2</span> Suggestions</button>
+      <button data-tab="mappings"    class="tab-btn" role="tab"><span class="tab-step">3</span> Mappings</button>
+      <button data-tab="info"        class="tab-btn tab-btn-aux" role="tab">Info</button>
     </nav>
   </header>
 
-  <main class="max-w-6xl mx-auto px-6 py-8 space-y-8">
-    <div id="error-banner" class="hidden rounded border border-red-200 bg-red-50 text-red-800 px-4 py-3 text-sm"></div>
+  <main class="page">
+    <div id="error-banner" class="banner banner-error hidden"></div>
 
-    <!-- OVERVIEW -->
-    <section id="tab-overview" class="tab-panel space-y-8">
-      <div class="panel">
-        <h2 class="panel-title">OMOP vocabulary embeddings</h2>
-        <p class="text-xs text-slate-500 mb-3">
-          Prerequisite for semantic suggestions. Generated once per OHDSI vocabulary release by <span class="font-mono">embed_concepts.py</span>.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="card">
-            <div class="card-label">Status</div>
-            <div id="kpi-omop-status" class="card-value">—</div>
-            <div id="kpi-omop-status-sub" class="card-sub">—</div>
-          </div>
-          <div class="card">
-            <div class="card-label">Embeddings</div>
-            <div id="kpi-omop-count" class="card-value">—</div>
-            <div id="kpi-omop-count-sub" class="card-sub">—</div>
-          </div>
-          <div class="card">
-            <div class="card-label">Model</div>
-            <div id="kpi-omop-model" class="card-value text-base font-mono break-all">—</div>
-            <div id="kpi-omop-model-sub" class="card-sub">—</div>
-          </div>
+    <!-- ══════════════════ OVERVIEW ══════════════════ -->
+    <section id="tab-overview" class="tab-panel" role="tabpanel">
+      <details class="note">
+        <summary><span class="note-icon" aria-hidden="true">i</span><span class="note-summary">What this is</span></summary>
+        <div class="note-body">
+          <p>The pipeline that turns your hospital's local codes into standard OMOP concepts.</p>
+          <p>It runs in three stages — each one feeds the next. Open a stage's tab for the detail.</p>
         </div>
-        <div class="mt-4">
-          <div class="progress-row">
-            <div class="progress-label">OMOP coverage</div>
-            <div class="progress-track"><div id="omop-progress-fill" class="progress-fill" style="width:0%"></div></div>
-            <div id="omop-progress-num" class="progress-num">—</div>
-          </div>
-        </div>
-      </div>
+      </details>
 
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div class="card">
-          <div class="card-label">Source concepts</div>
-          <div id="kpi-source" class="card-value">—</div>
-          <div id="kpi-source-sub" class="card-sub">—</div>
-        </div>
-        <div class="card">
-          <div class="card-label">With scores</div>
-          <div id="kpi-scores" class="card-value">—</div>
-          <div id="kpi-scores-sub" class="card-sub">—</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Source embeddings</div>
-          <div id="kpi-embeddings" class="card-value">—</div>
-          <div id="kpi-embeddings-sub" class="card-sub">—</div>
-        </div>
-        <div class="card">
-          <div class="card-label">Authored mappings</div>
-          <div id="kpi-mapped" class="card-value">—</div>
-          <div id="kpi-mapped-sub" class="card-sub">—</div>
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="panel">
-          <h2 class="panel-title">Progress</h2>
-          <div id="progress-bars" class="space-y-3"></div>
-        </div>
-
-        <div class="panel">
-          <h2 class="panel-title">Mapping status</h2>
-          <p class="text-xs text-slate-500 mb-3">Authored mappings in <span class="font-mono">mappings.json</span>, by review status.</p>
-          <div id="status-breakdown" class="space-y-2"></div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2 class="panel-title">AI suggestions</h2>
-        <p class="text-xs text-slate-500 mb-3">
-          Candidates proposed by <span class="font-mono">/concept-mapping-ai</span> in suggestions mode
-          (method <span class="font-mono">ai/*</span> in <span class="font-mono">similarity-scores.parquet</span>).
-          A reviewer accepts or rejects them later in the Linkr UI — they are <em>not</em> authored mappings.
-        </p>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-          <div class="card">
-            <div class="card-label">Source concepts with a suggestion</div>
-            <div id="kpi-ai-concepts" class="card-value">—</div>
-            <div id="kpi-ai-concepts-sub" class="card-sub">—</div>
-          </div>
-          <div class="card">
-            <div class="card-label">Model</div>
-            <div id="kpi-ai-model" class="card-value text-base font-mono break-all">—</div>
-            <div id="kpi-ai-model-sub" class="card-sub">—</div>
-          </div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">By equivalence</div>
-            <div id="ai-equiv-breakdown" class="space-y-2"></div>
-          </div>
-          <div id="ai-dictionary" class="hidden space-y-1 text-sm"></div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h2 class="panel-title">Suggestion methods</h2>
-        <table class="w-full text-sm">
-          <thead class="text-slate-500 text-left">
-            <tr><th class="py-2 font-medium">Method</th><th class="font-medium">Computed</th><th class="font-medium">Coverage</th></tr>
-          </thead>
-          <tbody id="methods-body"></tbody>
-        </table>
+      <div class="pipeline">
+        <button class="stage-card" data-goto="embeddings">
+          <div class="stage-head"><span class="stage-num">1</span><span class="stage-title">OMOP embeddings</span></div>
+          <div id="ov-emb-status" class="stage-status">—</div>
+          <ul id="ov-emb-lines" class="stage-lines"></ul>
+          <div class="stage-track"><div id="ov-emb-fill" class="stage-fill"></div></div>
+        </button>
+        <div class="pipeline-arrow" aria-hidden="true">→</div>
+        <button class="stage-card" data-goto="suggestions">
+          <div class="stage-head"><span class="stage-num">2</span><span class="stage-title">Suggestions</span></div>
+          <div id="ov-sug-status" class="stage-status">—</div>
+          <ul id="ov-sug-lines" class="stage-lines"></ul>
+          <ul id="ov-sug-types" class="stage-lines stage-lines-types"></ul>
+          <div class="stage-track"><div id="ov-sug-fill" class="stage-fill"></div></div>
+        </button>
+        <div class="pipeline-arrow" aria-hidden="true">→</div>
+        <button class="stage-card" data-goto="mappings">
+          <div class="stage-head"><span class="stage-num">3</span><span class="stage-title">Mappings</span></div>
+          <div id="ov-map-status" class="stage-status">—</div>
+          <ul id="ov-map-lines" class="stage-lines"></ul>
+          <div class="stage-track"><div id="ov-map-fill" class="stage-fill"></div></div>
+        </button>
       </div>
     </section>
 
-    <!-- SESSIONS -->
-    <section id="tab-sessions" class="tab-panel hidden">
-      <div class="panel">
-        <h2 class="panel-title">Recent mapping sessions</h2>
-        <p class="text-xs text-slate-500 mb-3">Recorded by the concept-mapping skill at the end of each batch. Last 50 entries.</p>
-        <div id="sessions-list" class="space-y-2 text-sm"></div>
+    <!-- ══════════════════ 1 · EMBEDDINGS ══════════════════ -->
+    <section id="tab-embeddings" class="tab-panel hidden" role="tabpanel">
+      <details class="note">
+        <summary><span class="note-icon" aria-hidden="true">?</span><span class="note-summary">What this is</span></summary>
+        <div class="note-body">
+          <p>Before we can rank OMOP concepts by <em>meaning</em>, every concept
+          in the OHDSI vocabulary is turned into a vector (an “embedding”) by the BioLORD model.</p>
+          <p>This is a one-off, shared by every project on this machine — you only rebuild it when the
+          vocabulary is updated.</p>
+          <p>It's the prerequisite for the <em>semantic</em> suggestions in stage 2.</p>
+        </div>
+      </details>
+
+      <div class="cards-3">
+        <div class="card">
+          <div class="card-label">Status</div>
+          <div id="emb-status" class="card-value">—</div>
+          <div id="emb-status-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Concepts embedded</div>
+          <div id="emb-count" class="card-value">—</div>
+          <div id="emb-count-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Model</div>
+          <div id="emb-model" class="card-value card-value-sm mono">—</div>
+          <div id="emb-model-sub" class="card-sub">—</div>
+        </div>
+      </div>
+
+      <div class="file-ref">
+        <span class="file-ref-label">File</span>
+        <span id="emb-path" class="file-ref-path mono">—</span>
+      </div>
+
+      <div class="bar-block">
+        <div class="bar-row">
+          <span class="bar-label">Vocabulary coverage</span>
+          <div class="bar-track"><div id="emb-fill" class="bar-fill"></div></div>
+          <span id="emb-num" class="bar-num">—</span>
+        </div>
       </div>
     </section>
 
-    <!-- FILES -->
-    <section id="tab-files" class="tab-panel hidden">
+    <!-- ══════════════════ 2 · SUGGESTIONS ══════════════════ -->
+    <section id="tab-suggestions" class="tab-panel hidden" role="tabpanel">
+      <details class="note">
+        <summary><span class="note-icon" aria-hidden="true">?</span><span class="note-summary">What this is</span></summary>
+        <div class="note-body">
+          <p>For each source concept we propose candidate OMOP targets, from several complementary angles.</p>
+          <p>A reviewer accepts or rejects them later in the Linkr UI — nothing here is final.</p>
+          <ul class="note-list">
+            <li><strong>Syntactic</strong> — string similarity on names (fast, catches typos &amp; variants).</li>
+            <li><strong>Semantic</strong> — meaning similarity via BioLORD embeddings (catches synonyms &amp; paraphrases).</li>
+            <li><strong>Statistical</strong> — compares the value <em>distributions</em> of numeric concepts. <span class="soon">Not implemented yet.</span></li>
+            <li><strong>Agentic (AI)</strong> — Claude reads each concept's metadata and reasons about the best target, with an equivalence judgement.</li>
+          </ul>
+        </div>
+      </details>
+
+      <div class="cards-3">
+        <div class="card">
+          <div class="card-label">Concepts with ≥1 suggestion</div>
+          <div id="sug-covered" class="card-value">—</div>
+          <div id="sug-covered-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Reviewed by AI</div>
+          <div id="sug-ai" class="card-value">—</div>
+          <div id="sug-ai-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">AI model</div>
+          <div id="sug-model" class="card-value card-value-sm mono">—</div>
+          <div id="sug-model-sub" class="card-sub">—</div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <h3 class="panel-title">Methods by category</h3>
+          <p class="panel-hint">Each category is one angle. You don't need them all — one syntactic method is often enough.</p>
+          <div id="methods-by-category" class="method-cats"></div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">AI equivalence</h3>
+          <p class="panel-hint">How close each AI suggestion's target is to the source (SSSOM levels).</p>
+          <div id="ai-equiv-breakdown" class="equiv-list"></div>
+          <div id="ai-dictionary" class="dict-block hidden"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ 3 · MAPPINGS ══════════════════ -->
+    <section id="tab-mappings" class="tab-panel hidden" role="tabpanel">
+      <details class="note">
+        <summary><span class="note-icon" aria-hidden="true">?</span><span class="note-summary">What this is</span></summary>
+        <div class="note-body">
+          <p>The mappings a human (or Claude, on their behalf) has actually
+          committed to <span class="mono">mappings.json</span> — the deliverable.</p>
+          <p>Suggestions from stage 2 become mappings once accepted.</p>
+          <p>Each carries a review <em>status</em>: freshly authored ones are
+          <span class="status-pill status-unchecked">unchecked</span> until a second reviewer approves them.</p>
+        </div>
+      </details>
+
+      <div class="cards-3">
+        <div class="card">
+          <div class="card-label">Authored</div>
+          <div id="map-total" class="card-value">—</div>
+          <div id="map-total-sub" class="card-sub">—</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Approved</div>
+          <div id="map-approved" class="card-value">—</div>
+          <div id="map-approved-sub" class="card-sub">second-reviewer signed off</div>
+        </div>
+        <div class="card">
+          <div class="card-label">Remaining source concepts</div>
+          <div id="map-remaining" class="card-value">—</div>
+          <div id="map-remaining-sub" class="card-sub">not yet authored</div>
+        </div>
+      </div>
+
       <div class="panel">
-        <h2 class="panel-title">Project files</h2>
-        <table class="w-full text-sm">
-          <thead class="text-slate-500 text-left">
-            <tr>
-              <th class="py-2 font-medium">File</th>
-              <th class="font-medium">Present</th>
-              <th class="font-medium">Details</th>
-            </tr>
-          </thead>
-          <tbody id="files-body"></tbody>
-        </table>
-        <p class="text-xs text-slate-500 mt-4">
-          Project dir: <span id="project-dir" class="font-mono"></span>
-        </p>
-        <p class="text-xs text-slate-500">
-          Vocab dir: <span id="vocab-dir" class="font-mono"></span>
-        </p>
+        <h3 class="panel-title">By review status</h3>
+        <div id="status-breakdown" class="status-grid"></div>
+      </div>
+    </section>
+
+    <!-- ══════════════════ INFO (About · Sessions · Files) ══════════════════ -->
+    <section id="tab-info" class="tab-panel hidden" role="tabpanel">
+      <nav class="subnav" role="tablist" aria-label="Info sections">
+        <button data-sub="about"    class="subtab" role="tab">About</button>
+        <button data-sub="sessions" class="subtab" role="tab">Sessions</button>
+        <button data-sub="files"    class="subtab" role="tab">Files</button>
+      </nav>
+
+      <!-- ABOUT -->
+      <div id="sub-about" class="subpanel">
+        <details class="note">
+          <summary><span class="note-icon" aria-hidden="true">i</span><span class="note-summary">What this is</span></summary>
+          <div class="note-body">
+            <p>A read-only dashboard tracking one concept-mapping project:
+            how far the source codes are through the three-stage pipeline (embeddings → suggestions → mappings).</p>
+            <p>It's generated by the <span class="mono">concept-mapping</span> Claude skill and refreshed whenever the
+            skill runs <span class="mono">update_state.py</span> — it never edits your data.</p>
+          </div>
+        </details>
+
+        <div class="cards-3">
+          <div class="card">
+            <div class="card-label">Last activity</div>
+            <div id="about-last" class="card-value card-value-sm">—</div>
+            <div id="about-last-sub" class="card-sub">most recent session</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Sessions recorded</div>
+            <div id="about-sessions" class="card-value">—</div>
+            <div class="card-sub">one per processed batch</div>
+          </div>
+          <div class="card">
+            <div class="card-label">State refreshed</div>
+            <div id="about-updated" class="card-value card-value-sm">—</div>
+            <div class="card-sub">last update_state.py run</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3 class="panel-title">Where the data lives</h3>
+          <p class="panel-hint">Everything is plain files on disk — nothing is uploaded. This page reads <span class="mono">state.json</span> next to them.</p>
+          <table class="files-table" id="about-storage"></table>
+        </div>
+      </div>
+
+      <!-- SESSIONS -->
+      <div id="sub-sessions" class="subpanel hidden">
+        <p id="sessions-hint" class="panel-hint mb">One entry per batch the skill processed. Most recent first · last 50.</p>
+        <div id="sessions-list" class="sessions"></div>
+      </div>
+
+      <!-- FILES -->
+      <div id="sub-files" class="subpanel hidden">
+        <div class="panel">
+          <div class="dir-head">
+            <h3 class="panel-title">Project directory</h3>
+            <span id="project-dir" class="dir-path mono"></span>
+          </div>
+          <table class="files-table">
+            <thead><tr><th>File</th><th>Present</th><th>Details</th></tr></thead>
+            <tbody id="files-project"></tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <div class="dir-head">
+            <h3 class="panel-title">Vocabulary directory</h3>
+            <span id="vocab-dir" class="dir-path mono"></span>
+          </div>
+          <p class="panel-hint">Shared across all projects on this machine.</p>
+          <table class="files-table">
+            <thead><tr><th>File</th><th>Present</th><th>Details</th></tr></thead>
+            <tbody id="files-vocab"></tbody>
+          </table>
+        </div>
       </div>
     </section>
   </main>
