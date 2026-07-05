@@ -10,7 +10,7 @@ description: >-
 
 # Concept Mapping — Drugs
 
-Read `.claude/skills/concept-mapping/reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+Read `.claude/skills/concept-mapping/references/omop-duckdb-reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
 
 ## Why drug mapping is different
 

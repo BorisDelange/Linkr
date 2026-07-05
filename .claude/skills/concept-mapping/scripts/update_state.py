@@ -143,6 +143,66 @@ def count_unique_source_pairs_per_method(path: Path) -> dict[str, int]:
         return {}
 
 
+def summarize_ai_suggestions(path: Path) -> dict:
+    """AI suggestions = rows whose method starts with 'ai/'.
+
+    Returns per-source-concept and per-equivalence breakdowns, plus how many are
+    aligned onto a data dictionary (concept_set_uid non-null). Distinct from
+    authored mappings (mappings.json): a source concept can have several AI
+    suggestions and zero authored mappings.
+    """
+    empty = {
+        "concepts": 0,
+        "rows": 0,
+        "byEquivalence": {},
+        "models": [],
+        "dictionaryConcepts": 0,
+        "dictionarySets": 0,
+        "dictionaryRepos": [],
+    }
+    if not path.exists() or not HAS_PYARROW:
+        return empty
+    try:
+        pf = pq.ParquetFile(str(path))
+        cols = [f.name for f in pf.schema_arrow]
+        want = [c for c in (
+            "source_vocabulary_id", "source_concept_code", "method",
+            "equivalence", "concept_set_uid", "concept_set_source_repo",
+        ) if c in cols]
+        df = pq.read_table(str(path), columns=want).to_pandas()
+        ai = df[df["method"].astype(str).str.startswith("ai/")]
+        if ai.empty:
+            return empty
+        pair = ["source_vocabulary_id", "source_concept_code"]
+        by_equiv = {}
+        if "equivalence" in ai.columns:
+            by_equiv = (
+                ai.dropna(subset=["equivalence"])
+                .groupby("equivalence").size().astype(int).to_dict()
+            )
+        dict_concepts, dict_sets, dict_repos = 0, 0, []
+        if "concept_set_uid" in ai.columns:
+            dict_rows = ai[ai["concept_set_uid"].notna()]
+            dict_concepts = len(dict_rows.drop_duplicates(subset=pair))
+            dict_sets = dict_rows["concept_set_uid"].nunique()
+            if "concept_set_source_repo" in dict_rows.columns:
+                dict_repos = sorted(
+                    r for r in dict_rows["concept_set_source_repo"].dropna().unique()
+                )
+        return {
+            "concepts": len(ai.drop_duplicates(subset=pair)),
+            "rows": len(ai),
+            "byEquivalence": by_equiv,
+            "models": sorted(ai["method"].unique().tolist()),
+            "dictionaryConcepts": int(dict_concepts),
+            "dictionarySets": int(dict_sets),
+            "dictionaryRepos": dict_repos,
+        }
+    except Exception as e:
+        print(f"  warning: cannot summarize AI suggestions: {e}", file=sys.stderr)
+        return empty
+
+
 def count_source_embeddings(path: Path) -> int:
     if not path.exists() or not HAS_PYARROW:
         return 0
@@ -214,6 +274,7 @@ def build_state(
     n_with_scores = count_unique_source_pairs_in_scores(scores_path)
     scored_methods = (scores_info or {}).get("methods", []) if scores_info else []
     per_method_coverage = count_unique_source_pairs_per_method(scores_path)
+    ai_suggestions = summarize_ai_suggestions(scores_path)
 
     src_emb_path = project_dir / "source_embeddings.parquet"
     n_src_embeddings = count_source_embeddings(src_emb_path)
@@ -231,7 +292,12 @@ def build_state(
         "syntactic/ngram-idf",
         "semantic/biolord",
     ]
-    extra_methods = [m for m in scored_methods if m not in known_methods]
+    # AI suggestions (method 'ai/*') are surfaced in their own section, not the
+    # syntactic/semantic methods table — keep them out of the extras here.
+    extra_methods = [
+        m for m in scored_methods
+        if m not in known_methods and not str(m).startswith("ai/")
+    ]
     methods = {
         name: {
             "computed": name in scored_methods,
@@ -282,6 +348,7 @@ def build_state(
             "remaining": max(n_source - n_mapped, 0),
         },
         "methods":  methods,
+        "aiSuggestions": ai_suggestions,
         "scoresInfo": scores_info,
         "omopEmbeddingsInfo": omop_emb_info,
         "sessions": sessions[-50:],
@@ -322,7 +389,10 @@ def main() -> None:
         print(f"  source concepts:    {c['sourceConceptsTotal']:,}")
         print(f"  with scores:        {c['withScores']:,}")
         print(f"  source embeddings:  {c['withSourceEmbeddings']:,}")
-        print(f"  mapped:             {m['total']:,}  by status: {m['byStatus']}")
+        print(f"  authored mappings:  {m['total']:,}  by status: {m['byStatus']}")
+        ai = state["aiSuggestions"]
+        ai_extra = f" ({ai['dictionaryConcepts']:,} dictionary-aligned)" if ai["dictionaryConcepts"] else ""
+        print(f"  AI suggestions:     {ai['concepts']:,} concepts, {ai['rows']:,} rows{ai_extra}")
         methods_on = [k for k, v in state["methods"].items() if v["computed"]]
         print(f"  methods computed:   {', '.join(methods_on) or 'none'}")
 

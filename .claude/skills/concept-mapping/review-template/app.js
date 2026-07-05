@@ -31,7 +31,7 @@ function renderProgressBars(c) {
   const rows = [
     { label: "Embeddings",  num: c.withSourceEmbeddings || 0, denom: total },
     { label: "Scores",      num: c.withScores || 0,          denom: total },
-    { label: "Mapped",      num: (c.mapped && c.mapped.total) || 0, denom: total },
+    { label: "Authored mappings", num: (c.mapped && c.mapped.total) || 0, denom: total },
   ];
   const html = rows.map((r) => {
     const p = pct(r.num, r.denom);
@@ -48,7 +48,7 @@ function renderProgressBars(c) {
 function renderStatusBreakdown(mapped) {
   const total = mapped.total || 0;
   const by = mapped.byStatus || {};
-  const keys = ["unchecked", "approved", "rejected", "flagged", "invalid", "ignored", "suggested"];
+  const keys = ["unchecked", "approved", "rejected", "flagged", "invalid", "ignored"];
   const rows = keys.filter((k) => by[k]).map((k) => {
     const n = by[k];
     return `
@@ -58,6 +58,52 @@ function renderStatusBreakdown(mapped) {
       </div>`;
   }).join("") || `<div class="text-sm text-slate-500">No mappings yet.</div>`;
   $("status-breakdown").innerHTML = rows;
+}
+
+const EQUIV_ORDER = ["skos:exactMatch", "skos:closeMatch", "skos:broadMatch", "skos:narrowMatch", "skos:relatedMatch"];
+const equivShort = (k) => k.replace(/^skos:/, "").replace(/Match$/, "");
+
+function renderAiSuggestions(ai, sourceTotal) {
+  ai = ai || { concepts: 0, rows: 0, byEquivalence: {}, models: [], dictionaryConcepts: 0, dictionarySets: 0, dictionaryRepos: [] };
+  $("kpi-ai-concepts").textContent = fmt(ai.concepts);
+  $("kpi-ai-concepts-sub").textContent = sourceTotal > 0
+    ? `${pct(ai.concepts, sourceTotal)}% of source · ${fmt(ai.rows)} candidate rows`
+    : `${fmt(ai.rows)} candidate rows`;
+
+  const models = ai.models || [];
+  $("kpi-ai-model").textContent = models.length ? models.map((m) => m.replace(/^ai\//, "")).join(", ") : "—";
+  $("kpi-ai-model-sub").textContent = "awaiting review in the Linkr UI";
+
+  const byEquiv = ai.byEquivalence || {};
+  const equivKeys = EQUIV_ORDER.filter((k) => byEquiv[k]).concat(
+    Object.keys(byEquiv).filter((k) => !EQUIV_ORDER.includes(k))
+  );
+  const equivHtml = equivKeys.length
+    ? equivKeys.map((k) => `
+        <div class="flex items-center justify-between text-sm">
+          <span class="equiv-pill equiv-${equivShort(k)}">${equivShort(k)}</span>
+          <span class="font-mono">${fmt(byEquiv[k])}</span>
+        </div>`).join("")
+    : `<div class="text-sm text-slate-500">No AI suggestions yet. Run /concept-mapping-ai in suggestions mode.</div>`;
+  $("ai-equiv-breakdown").innerHTML = equivHtml;
+
+  const dictEl = $("ai-dictionary");
+  if (ai.dictionaryConcepts > 0) {
+    const repos = (ai.dictionaryRepos || []).join(", ");
+    dictEl.innerHTML = `
+      <div class="flex items-center justify-between">
+        <span class="text-slate-600">Dictionary-aligned</span>
+        <span class="font-mono">${fmt(ai.dictionaryConcepts)} concepts · ${fmt(ai.dictionarySets)} sets</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="text-slate-600">Outside dictionary</span>
+        <span class="font-mono">${fmt(Math.max(ai.concepts - ai.dictionaryConcepts, 0))} concepts</span>
+      </div>
+      ${repos ? `<div class="text-xs text-slate-400 mt-1">repos: ${repos}</div>` : ""}`;
+    dictEl.classList.remove("hidden");
+  } else {
+    dictEl.classList.add("hidden");
+  }
 }
 
 function renderMethods(methods, sourceTotal) {
@@ -214,6 +260,7 @@ async function load() {
   renderOmopEmbeddings(state);
   renderProgressBars(c);
   renderStatusBreakdown(mapped);
+  renderAiSuggestions(state.aiSuggestions, c.sourceConceptsTotal || 0);
   renderMethods(state.methods || {}, c.sourceConceptsTotal || 0);
   renderSessions(state.sessions);
   renderFiles(state);

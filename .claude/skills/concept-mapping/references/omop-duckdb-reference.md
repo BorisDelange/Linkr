@@ -1,5 +1,20 @@
 # Concept Mapping — Reference
 
+Type definitions, source/target data shapes, and DuckDB query patterns shared by
+the orchestrator and both sub-skills. Read the section you need — this file is a
+lookup, not a linear read.
+
+## Contents
+
+- **similarity-scores.parquet schema** — columns, methods, uniqueness/idempotency
+- **ConceptMapping type definition** — the `mappings.json` object shape
+- **Source concepts CSV structure** — columns of the exported `source-concepts.csv`
+- **info_json structure** — rich per-concept metadata + how to use it for mapping
+- **DuckDB query patterns** — 6 search strategies (name/synonym/keyword/Maps-to/hierarchy/fuzzy) + category & unmapped queries
+- **UUID generation** — id minting
+- **Writing mappings.json** — append pattern
+- **Domain heuristics from info_json** — infer the OMOP domain
+
 ## similarity-scores.parquet schema
 
 Long-format parquet emitted by `compute_scores.py` and (in `suggestions` mode) by `/concept-mapping-ai`. Loaded by Linkr to populate the Suggestions panel.

@@ -10,7 +10,7 @@ description: >-
 
 # Concept Mapping — Agentic (Claude)
 
-Read `.claude/skills/concept-mapping/reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+Read `.claude/skills/concept-mapping/references/omop-duckdb-reference.md` for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
 
 ## Context expected from the orchestrator
 
@@ -19,7 +19,7 @@ By the time this skill runs, the following are already in place:
 - `project.json` read → `projectId` known
 - Source concept batch selected and previewed
 - `similarity-scores.parquet` path (may be absent if not precomputed)
-- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table (or a dictionary folder path to build it from) and an active `category`. When present, align onto the dictionary first and fall back to full OMOP only when nothing fits — see "Data-dictionary priority" below.
+- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table, the dictionary folder path, and an active `category`. When present, follow the full protocol in `.claude/skills/concept-mapping/references/data-dictionary.md` (align onto the dictionary first, OMOP fallback, `longDescription`/Mapping Notes authority, stamping).
 
 ## Step 0: Decide where the AI output goes
 
@@ -77,7 +77,7 @@ For each source concept in the batch:
    - `numerical_data`: unit, min, max, mean — validates the mapping
    - `categorical_data`: possible values — reveals what the concept represents
    - `hospital_units`: clinical context (ICU, step-down, etc.)
-3. Infer OMOP domain (see domain heuristics in `reference.md`)
+3. Infer OMOP domain (see domain heuristics in `references/omop-duckdb-reference.md`)
 
 ### 2b. Search for candidates
 
@@ -87,7 +87,7 @@ Apply strategies in order. Stop when you have ≥ 3 strong candidates.
 If `scores.parquet` loaded, retrieve top candidates for this concept. High `semantic/biolord` score (> 0.85) with matching domain is a strong signal.
 
 **Strategy 2 — Direct name search**
-Search `concept` and `concept_synonym` with the English translation. See DuckDB patterns in `reference.md`.
+Search `concept` and `concept_synonym` with the English translation. See DuckDB patterns in `references/omop-duckdb-reference.md`.
 
 **Strategy 3 — Keyword decomposition**
 Break the name into clinical keywords. Search combinations. Useful for compound terms (e.g., "Pression artérielle systolique" → "systolic" + "arterial" + "pressure").
@@ -104,27 +104,14 @@ Once a candidate is found, explore ancestors/descendants via `concept_ancestor` 
 
 **Data-dictionary priority (when `dict_targets` is provided)**
 
-When the orchestrator passed a `dict_targets` table + active `category`, the target-selection order changes.
-
-**Dictionary folder layout — targets come from the RESOLVED sets, not the expression.** The dictionary has two parallel folders per set (`<id>.json` in each):
-- `concept_sets/<id>.json` — the OHDSI concept-set **expression** (a *definition*) plus all metadata + the `longDescription`. `expression.items[]` lists seed concepts with boolean flags: `includeDescendants` (pull in all descendants via the hierarchy), `includeMapped` (pull in all concepts that "Maps to" this one), `isExcluded` (remove this concept, and its descendants when combined with `includeDescendants`). Seeds are often high-level **classification** concepts (e.g. `37036048 "Sodium | Blood"`, `standardConcept:"C"`) with `includeDescendants:true`. **Reading these `conceptId`s as targets is the trap** — they are classification nodes, not the measurable standard concepts.
-- `concept_sets_resolved/<id>.json` — the expression **evaluated** against the vocabulary: the concrete standard targets under `resolvedConcepts[]` (`conceptId`, `conceptName`, `vocabularyId`, `standardConcept`), e.g. the canonical `3019550 Sodium [Moles/volume] in Serum or Plasma`.
-
-`dict_targets` (built by the orchestrator) already holds the resolved `standardConcept:"S"` targets. Read set metadata and the `longDescription` from `concept_sets/<id>.json`.
-
-**First, read the set's `longDescription` — it is the mapping authority (MANDATORY when present).** For each candidate dictionary set, open `concept_sets/<id>.json` and read `metadata.translations.<lang>.longDescription` (Markdown). Its `## Mapping Notes` section names the **default target concept** for the set, gives **conditional rules** (specimen/site/method/setting-vs-measured), and lists **excluded / out-of-scope** concepts. You MUST follow it:
-- Pick the **named default concept** unless the source's own `metadata_json` documents a specificity the notes map to a named variant (e.g. blood-gas analyser → arterial specimen; heart rate explicitly from pulse oximetry → the by-oximetry LOINC).
-- **Never** choose a concept the notes list as excluded/out-of-scope, even if its biolord/jaro-winkler score is high — the longDescription **overrides** the similarity ranking.
-- When a set has no Mapping Notes, use clinical judgement over its `resolvedConcepts`.
-
-Then resolve the target in this order and stop at the first that genuinely fits:
-
-1. **Dictionary candidate** — among the pre-computed candidates, prefer any whose `concept_id` is in `dict_targets` for the active category, **as directed by the set's Mapping Notes**. A high `semantic/biolord` score is a lead, not a decision; the Mapping Notes' default concept wins over a higher-scoring excluded one.
-2. **Dictionary by direct search** — if no pre-computed candidate fits, search `dict_targets` (join to `concept`/`concept_synonym`) directly by the source name/synonyms. A terse or abbreviated source label (`VT`, `PEP`, `FR`, `FiO2`) often scores below the similarity threshold yet has an exact dictionary target — expand the abbreviation and look for it. Confirm the chosen concept against the Mapping Notes.
-3. **Full OMOP fallback** — only if the dictionary has no adequate target (or its Mapping Notes mark the only plausible target as out-of-scope), search the whole `concept` table (standard + valid) as usual. This is expected and correct: the dictionary is curated and will not cover every source concept.
-4. **`no-match`** — if neither the dictionary nor OMOP has an adequate target, return no match with a short reason (candidate for a future custom dictionary concept).
-
-Record which branch fired: when the target is a dictionary concept (branches 1–2), stamp the suggestion with that set's `concept_set_uid` and `concept_set_source_repo` from `dict_targets`. When it is a plain OMOP target (branch 3), leave both null and note "outside the dictionary" in the `comment`.
+When the orchestrator passed a `dict_targets` table + dictionary folder path +
+active `category`, the target-selection order changes: align onto the dictionary
+first, OMOP fallback only when nothing fits. The full protocol —
+`concept_sets_resolved/` vs `expression.items[]` (the classification-node trap),
+the `longDescription`/Mapping Notes authority, the four-branch resolution order,
+and `concept_set_uid`/`concept_set_source_repo` stamping — lives in
+`.claude/skills/concept-mapping/references/data-dictionary.md`. Read it now and
+follow it for this batch.
 
 ### 2c. Evaluate and rank candidates
 
@@ -135,7 +122,7 @@ For each candidate:
 4. **Unit compatibility** — for measurements: does the LOINC expect the same unit as `numerical_data.unit`?
 5. **Standard status** — prefer `standard_concept = 'S'` over `'C'` or non-standard
 
-Assign SSSOM equivalence level (see `reference.md` for full guidelines):
+Assign SSSOM equivalence level (see `references/omop-duckdb-reference.md` for full guidelines):
 - `skos:exactMatch` — truly identical meaning, no information loss
 - `skos:closeMatch` — very similar but some qualifier lost (method, device, location, timing)
 - `skos:broadMatch` — target is more general
@@ -216,7 +203,7 @@ This is the only place in the system where `equivalence` is nuanced — for `syn
 
 ### If mode = "mappings"
 
-Return a list of approved `ConceptMapping` objects (see `reference.md` for full structure). The orchestrator writes them to `mappings.json`.
+Return a list of approved `ConceptMapping` objects (see `references/omop-duckdb-reference.md` for full structure). The orchestrator writes them to `mappings.json`.
 
 Key fields to populate:
 - `mappedBy`: from Q2 — either `"Claude Opus 4.7"` (use actual current model name) or `"<First Last>"`

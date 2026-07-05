@@ -11,7 +11,7 @@ argument-hint: [path-to-project-zip-or-folder]
 
 # Concept Mapping — Orchestrator
 
-Read `reference.md` in this directory for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
+Read `references/omop-duckdb-reference.md` in this directory for type definitions, DuckDB query patterns, and SSSOM equivalence guidelines.
 
 ## Step 0: Check existing state and offer review page
 
@@ -90,21 +90,19 @@ Ask how to select source concepts. Show a preview (count + 5-row sample) before 
 - **Target vocabularies**: default all (`standard_concept = 'S'`). Can restrict to LOINC, SNOMED, RxNorm, etc.
 - **Target domains**: Measurement, Condition, Drug, Procedure, Observation, etc.
 
-### 2e. Data-dictionary priority mode (optional, recommended when a curated dictionary exists)
+### 2e. Data-dictionary priority mode (optional)
 
-Often the user does **not** want to map against the whole OMOP vocabulary — they want to align, in priority, onto a **curated data dictionary**: a folder of OHDSI concept-set JSON files, each set typically carrying a stable `metadata.uniqueId` and `metadata.sourceRepo` (the INDICATE Data Dictionary is one such dictionary, but any concept-set collection in this format works). Always **offer** this mode when the user points at such a folder, or mentions aligning "onto a data dictionary / concept sets". Ask for the dictionary folder path — never assume one.
+If the user points at a **curated data dictionary** (a folder of OHDSI
+concept-set JSON files) or mentions aligning "onto a data dictionary / concept
+sets", offer to align onto it in priority with OMOP fallback. **Never assume a
+dictionary folder — the user must name one.**
 
-Ask the user (only if a dictionary folder is in play):
-
-> "Do you want to align **in priority onto this data dictionary**, and fall back to the full OMOP vocabulary only when no concept-set target fits? I can also work **category by category** (Ventilation, Vital signs, Drug…) so you review one clinical area at a time."
-
-If yes, the orchestrator's role is only to **prepare inputs and hand off** — all the target-selection detail (dictionary folder layout, reading each set's `longDescription`/Mapping Notes, dictionary-first-then-OMOP fallback, stamping) lives in `/concept-mapping-ai` under "Data-dictionary priority". Here you:
-
-1. **Build `dict_targets` from the resolved sets.** A dictionary in this format has two parallel folders: `concept_sets/<id>.json` (the OHDSI concept-set *expression* + metadata) and `concept_sets_resolved/<id>.json` (the expression evaluated to concrete standard concepts). Build `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` from `concept_sets_resolved/<id>.json` → `resolvedConcepts[]` (keep `standardConcept:"S"`), joined to metadata (`metadata.uniqueId`, `metadata.sourceRepo`, `metadata.translations.<lang>.category`/`subcategory`, set name) in the matching `concept_sets/<id>.json`. **Do not read targets from `expression.items[]`** — those are seed/classification concepts, not the resolved targets (the sub-skill explains why). The same `concept_id` can belong to several sets — keep all links.
-2. **Category by category** — process one `category` at a time (the user picks the order; default: whatever they name first), so each review stays clinically coherent.
-3. **Invert the direction and build the shortlist** — frame it as "for each dictionary target in this category, which source concepts align onto it?". Restrict the pre-computed `similarity-scores.parquet` (biolord + jaro-winkler) to `concept_id ∈ dict_targets`, keep source candidates above a threshold (default `semantic/biolord ≥ 0.5`), and pass those candidate pairs to the sub-skill.
-
-Then hand off to `/concept-mapping-ai` with the `dict_targets` table, **the dictionary folder path** (so it can read each set's `longDescription`), the active `category`, and the candidate pairs. Target selection and `concept_set_uid`/`concept_set_source_repo` stamping happen there.
+When this mode is active, read `references/data-dictionary.md` — it holds the
+full protocol (folder layout, building `dict_targets`, category-by-category
+processing, target selection, stamping). The orchestrator's job here is only to
+build the `dict_targets` table and the candidate shortlist, then hand off to
+`/concept-mapping-ai` with the dictionary folder path and active category. All
+target selection happens in the sub-skill.
 
 ## Step 3: Load data into DuckDB
 
@@ -129,11 +127,18 @@ CREATE INDEX idx_rel_c2       ON concept_relationship(concept_id_2);
 
 For CSV vocabularies, replace `read_parquet` with `read_csv(..., auto_detect=true)`.
 
-## Step 3b: Normalize source CSV columns
+This loads the **full** `source-concepts.csv` (all columns, including `info_json`/`metadata_json`) — that is what the AI mapping in Step 5 needs. The 3-column normalization below is only for the precompute scripts, not for AI mapping.
 
-Before passing the source CSV to `compute_scores.py`, verify that it contains the three required columns: `terminology`, `concept_code`, `concept_name`.
+## Step 4: Precompute suggestions (syntactic + semantic) — only if needed
 
-If any are missing, inspect the actual columns and apply this heuristic to propose a mapping:
+Only when the user wants **fresh suggestions**, or `similarity-scores.parquet` is
+missing/stale. For simple mapping of an existing batch, skip to Step 5.
+
+### Step 4a: Normalize source CSV columns (for the scripts only)
+
+The precompute scripts read only three columns: `terminology`, `concept_code`, `concept_name`. This normalization is **exclusively** a pre-condition of `compute_scores.py` — it does **not** apply to Step 5 (AI mapping still uses the full CSV loaded in Step 3).
+
+Verify the source CSV contains those three columns. If any are missing, inspect the actual columns and apply this heuristic to propose a mapping:
 
 | Required column | Candidate patterns (case-insensitive) |
 |---|---|
@@ -157,101 +162,28 @@ If the user confirms, generate a normalized CSV **inside the project folder** at
 
 If a required column cannot be matched even heuristically, list the actual columns and ask the user to specify the mapping explicitly.
 
-## Step 4: Precompute suggestions (syntactic + semantic)
+### Step 4b: Run the scripts
 
-These two Python scripts live in `.claude/skills/concept-mapping/scripts/`. Run them when the user wants fresh suggestions, or when `similarity-scores.parquet` is missing/stale.
+Two scripts in `.claude/skills/concept-mapping/scripts/`:
+- `embed_concepts.py` — BioLORD embeddings for OMOP concepts (run **once per
+  vocabulary release**, shared across projects).
+- `compute_scores.py` — syntactic + semantic scores for the project's source
+  concepts (run **per project**). Needs the embeddings from the first script for
+  semantic scores.
 
-Both scripts are long-running (minutes to hours). Before launching one, ask the user **how they want to run it**:
+Both are long-running, resume-safe, and have a **memory pitfall that can OOM a
+laptop**. Before launching either, read `references/running-scripts.md` for when
+to run each, the terminal-vs-Monitor decision, the mandatory target filters, and
+the grep patterns. Run `python <script> --help` for the full flag list — that is
+the source of truth for flags, resume semantics, and the FAISS cache.
 
-> "These scripts can take a long time. Two options:
->
-> 1. **Run it yourself in a terminal (recommended)** — copy the command below, paste it into your terminal. No extra token cost.
-> 2. **I run it via Monitor** — I stream progress here, but every progress line costs tokens (can be significant over hours)."
-
-If the user picks **option 1**, print the exact command in a copy-paste block and stop. When they come back and say it's done (or interrupted), continue with the next step (verify the output file, refresh `state.json`).
-
-If the user picks **option 2**, launch with `Monitor` and `persistent: true` (no timeout). Filter aggressively to keep token cost down (see grep patterns below). Do NOT use `run_in_background` for these scripts.
-
-### Script 1 — embed_concepts.py (run once per vocabulary release)
-
-Generates BioLORD-2023-M embeddings for all OMOP concepts. **Supports resume**: if the output file already exists, already-encoded concepts are skipped automatically. Safe to interrupt and restart.
-
-```bash
-TRANSFORMERS_CACHE=<models_dir> python \
-  .claude/skills/concept-mapping/scripts/embed_concepts.py \
-  --concept <vocab_dir>/CONCEPT.parquet
-  # output defaults to <vocab_dir>/concept_embeddings.parquet (co-located with CONCEPT.parquet)
-# Optional filters: --only-standard --only-valid --domain Measurement Condition --vocabulary LOINC SNOMED
-# Optional: --flush-every 50  (append to parquet every N batches, default 50 = ~25k concepts)
-```
-
-Output: `<vocab_dir>/concept_embeddings.parquet` — columns: `concept_id`, `encoded_text`, `model_id`, `embedding`.
-Runtime: can be several hours on CPU for large vocabularies (~4M concepts). The file is written incrementally every 50 batches, so progress is never lost on interrupt.
-
-The script prints progress lines every 10 batches and flush confirmations every 50 batches:
-```
-[embed] batch 10/7991 — 5,120/4,091,099 concepts (0.1%) — 201 concepts/s — ETA 338m46s
-[flush] 5,120 embeddings saved to concept_embeddings.parquet
-```
-
-**Recommended: hand off to the user's terminal.** A full run takes several hours; streaming every `[embed]` line through `Monitor` burns thousands of tokens for no benefit. Tell the user it is safer and cheaper to paste the command in their own terminal and come back when done — the script is resume-safe, so an interrupt loses at most one flush window (~25k concepts).
-
-If the user explicitly wants `Monitor`, use `persistent: true` and filter for `[flush]` only (skip `[embed]`) to cut the notification volume by 5×:
-```
-\[flush\]|Done|Error|Traceback
-```
-
-### Script 2 — compute_scores.py (run per project)
-
-Computes syntactic and semantic similarity scores for all source concepts in the project. Also saves source concept embeddings alongside the scores.
-
-```bash
-TRANSFORMERS_CACHE=<models_dir> python \
-  .claude/skills/concept-mapping/scripts/compute_scores.py \
-  --source     <project_dir>/source-concepts.csv \
-  --concept    <vocab_dir>/CONCEPT.parquet \
-  --embeddings <vocab_dir>/concept_embeddings.parquet
-  # output defaults to <project_dir>/similarity-scores.parquet
-  # source embeddings default to <project_dir>/source_embeddings.parquet
-# Optional: --top-k 50 --flush-every 100
-# Optional: --methods syntactic/jaro-winkler syntactic/token-sort syntactic/ngram-idf semantic/biolord
-# Optional filters: --only-standard --only-valid --domain --vocabulary
-```
-
-Default methods: `syntactic/jaro-winkler` + `semantic/biolord`. **Do not add `syntactic/ngram-idf` unless the user explicitly asks** — it requires building a full bigram IDF index over all OMOP concepts (~4M), which takes ~1 hour on CPU.
-
-**⚠️ Memory — always pass target filters.** The semantic step builds a FAISS index over the *target* OMOP concepts. Unfiltered, that is ~4M vectors (~12.5 GB matrix, ~25 GB+ peak during the build — enough to OOM-kill a laptop). **Always restrict the target set** with `--only-standard --only-valid` plus a `--domain` (and/or `--vocabulary`) matched to what you are mapping. The single biggest driver is the **Drug domain (RxNorm ≈ 2M standard concepts on its own)** — exclude it unless you are specifically mapping medications, in which case run Drug as its own pass. Non-Drug standard+valid targets total ≈ 500k (~3 GB peak) and are safe. The `--only-standard/--only-valid/--domain/--vocabulary` filters bound both the embeddings *load* (only matching `concept_id`s are read into RAM) and the FAISS index.
-
-**FAISS index is cached on disk** at `<vocab_dir>/faiss/<model>__<filter-key>.index` (+ a `.ids.npy` sidecar), keyed by the target filter. The first run with a given filter scans the embeddings file once (~30s for 4M rows) and writes the index; every rerun with the *same* filter reloads it via `mmap` — no rescan, minimal resident RAM. A different scope (e.g. adding Drug) produces a distinct key, so a stale index is never silently reused. The cache is shared across projects (the OMOP target index does not depend on the project).
-
-Output written to `<project_dir>/`:
-- `similarity-scores.parquet` — long format: `source_vocabulary_id | source_concept_code | concept_id | method | score | equivalence | comment | created_at`
-  - For `syntactic/*` and `semantic/*` methods: `equivalence` is always `"skos:exactMatch"` and `comment` is `null`.
-  - These columns exist so AI-generated rows (method `ai/<model-id>`, written by `/concept-mapping-ai` when the user picks the "suggestions" mode) can carry nuanced SKOS equivalence and a justification.
-  - A `statistical/*` method prefix is reserved for distributional similarity (comparing value distributions, e.g. KS or Wasserstein on `info_json.numerical_data`) — not yet implemented. See `reference.md`.
-  - While a run is in progress, flushes land in a sidecar `similarity-scores.parquet.parts/` directory (one small file per flush, append-only — never rewrites the growing output); they are merged into the single `similarity-scores.parquet` at the end. If a run is interrupted, the part files remain and are picked up on the next run.
-- `source_embeddings.parquet` — BioLORD embeddings of the source concepts (reused if scores are extended)
-
-**Supports resume, per method**: resume is computed independently for each method. Adding a second method to an existing run (e.g. `semantic/biolord` on top of a completed `syntactic/jaro-winkler`) only computes the missing method — it does **not** recompute the one already done. An interrupt loses at most one flush window (`--flush-every`, default 100 source concepts). Safe to interrupt (`Ctrl-C`) and restart with the same command.
-
-The user loads this file in Linkr (Suggestions tab → "Load scores file") to populate pre-computed suggestions.
-
-Inform the user of estimated runtime based on source concept count × OMOP concept count.
-
-Progress tags emitted by the script:
-- `[syntactic]` — every 10 source concepts (jaro-winkler, token-sort)
-- `[embed-load]` — every 500k rows while scanning the embeddings file on a first (uncached) index build
-- `[index-add]` — while building a fresh FAISS index
-- `[index]` — every 500k concepts during ngram-idf index build
-- `[semantic]` — every 50 source concepts (biolord)
-- `[flush]` — every `--flush-every` source concepts (default 100)
-
-**Same trade-off as `embed_concepts.py`**: recommend running it in the user's terminal. **Never launch it as a background task** — a first, uncached semantic build peaks at several GB and a background run cannot be RAM-throttled; hand the command to the user so they can watch memory and `Ctrl-C` if needed. If they want `Monitor`, use `persistent: true` with a flush-only filter to limit token cost:
-```
-\[flush\]|\[index-add\]|\[index\]|Done|Error|Traceback
-```
+The output `similarity-scores.parquet` schema (and its resume/idempotency rules)
+is documented in `references/omop-duckdb-reference.md`. The user loads it in Linkr (Suggestions tab →
+"Load scores file").
 
 ## Step 5: AI mapping (route to sub-skill)
+
+> **⚠️ The sub-skill needs the FULL `source-concepts.csv`** — all columns, including `info_json`/`metadata_json` (`full_name`, units, ranges, categorical values, hospital units…). This metadata is what disambiguates near-identical targets. **Never** pass `source-concepts-normalized.csv`: that 3-column file (Step 4a) exists only for `compute_scores.py`. The `source_concepts` table loaded in Step 3 already holds the full CSV — use it.
 
 Based on the selected concepts' inferred domain, recommend the appropriate sub-skill:
 
@@ -266,7 +198,7 @@ The sub-skill itself asks the user (at session start) whether its output should 
 Tell the user which sub-skill will handle the batch and why. Then invoke it.
 
 Pass along:
-- Project files (`project.json` path, `mappings.json` path, `source-concepts.csv` path)
+- Project files (`project.json` path, `mappings.json` path, the **full** `source-concepts.csv` path — never the normalized one)
 - Vocabulary location
 - Selected concept list (or filter to re-derive it)
 - `similarity-scores.parquet` path if available
@@ -297,7 +229,7 @@ python .claude/skills/concept-mapping/scripts/update_state.py \
 
 Source concept uniqueness key: `(sourceVocabularyId, sourceConceptCode)`. Check existing mappings before adding.
 
-See `reference.md` for the full `ConceptMapping` JSON structure.
+See `references/omop-duckdb-reference.md` for the full `ConceptMapping` JSON structure.
 
 ## Step 7: Summary
 

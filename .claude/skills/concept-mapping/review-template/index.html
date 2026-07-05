@@ -79,7 +79,7 @@
           <div id="kpi-embeddings-sub" class="card-sub">—</div>
         </div>
         <div class="card">
-          <div class="card-label">Mapped</div>
+          <div class="card-label">Authored mappings</div>
           <div id="kpi-mapped" class="card-value">—</div>
           <div id="kpi-mapped-sub" class="card-sub">—</div>
         </div>
@@ -93,7 +93,36 @@
 
         <div class="panel">
           <h2 class="panel-title">Mapping status</h2>
+          <p class="text-xs text-slate-500 mb-3">Authored mappings in <span class="font-mono">mappings.json</span>, by review status.</p>
           <div id="status-breakdown" class="space-y-2"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2 class="panel-title">AI suggestions</h2>
+        <p class="text-xs text-slate-500 mb-3">
+          Candidates proposed by <span class="font-mono">/concept-mapping-ai</span> in suggestions mode
+          (method <span class="font-mono">ai/*</span> in <span class="font-mono">similarity-scores.parquet</span>).
+          A reviewer accepts or rejects them later in the Linkr UI — they are <em>not</em> authored mappings.
+        </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div class="card">
+            <div class="card-label">Source concepts with a suggestion</div>
+            <div id="kpi-ai-concepts" class="card-value">—</div>
+            <div id="kpi-ai-concepts-sub" class="card-sub">—</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Model</div>
+            <div id="kpi-ai-model" class="card-value text-base font-mono break-all">—</div>
+            <div id="kpi-ai-model-sub" class="card-sub">—</div>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-slate-400 mb-2">By equivalence</div>
+            <div id="ai-equiv-breakdown" class="space-y-2"></div>
+          </div>
+          <div id="ai-dictionary" class="hidden space-y-1 text-sm"></div>
         </div>
       </div>
 
