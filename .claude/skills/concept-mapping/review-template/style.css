@@ -135,7 +135,7 @@ body {
 /* didactic note box — collapsible <details> */
 .note {
   background: var(--accent-bg); border: 1px solid #bfe3dd; border-radius: var(--radius);
-  padding: 0 1.1rem; overflow: hidden;
+  padding: 0 1.1rem; flex: none;
 }
 .note > summary {
   display: flex; align-items: center; gap: .6rem; cursor: pointer; list-style: none;
