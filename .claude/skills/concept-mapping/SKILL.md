@@ -99,10 +99,39 @@ dictionary folder — the user must name one.**
 
 When this mode is active, read `references/data-dictionary.md` — it holds the
 full protocol (folder layout, building `dict_targets`, category-by-category
-processing, target selection, stamping). The orchestrator's job here is only to
-build the `dict_targets` table and the candidate shortlist, then hand off to
-`/concept-mapping-ai` with the dictionary folder path and active category. All
-target selection happens in the sub-skill.
+processing, target selection, stamping).
+
+**Then ask which iteration direction to use — this is the key choice, explain
+the nuance clearly. Both directions resolve the same target (dictionary first,
+OMOP fallback) and write the same rows; what changes is *what you loop over* and
+therefore *what gets fully covered*.**
+
+> "Two ways to drive this, depending on what you want covered:
+>
+> **1. Source-first (default).** I go through **your source concepts** one by
+> one, and for each I find the best target — a dictionary concept set if one
+> fits, otherwise the full OMOP vocabulary. This guarantees every one of *your
+> local codes* is looked at, dictionary or not. Best when the goal is *'map all
+> of my hospital terminology'*.
+>
+> **2. Dictionary-first.** I go through **the dictionary's concept sets** one by
+> one (category by category), and for each target I pull *all* the source
+> concepts that align onto it and map them together. This guarantees every
+> *concept set* gets filled in turn — you never lose track of which sets are
+> still empty, and you fill your alignments toward all the sets fast, without
+> getting lost. A single set can receive several sources (e.g. several local
+> 'heart rate' codes → the same set). Source concepts that match *no* dictionary
+> set are **not** mapped in this mode — I list them at the end so you can run a
+> source-first pass over them afterwards.
+>
+> In short: source-first covers all *your codes*; dictionary-first covers all
+> *the dictionary's sets*. Which one?"
+
+The orchestrator's job here is only to build the `dict_targets` table and the
+candidate shortlist, then hand off to `/concept-mapping-ai` with the dictionary
+folder path, the active category, **and the chosen direction**
+(`source-first` | `dictionary-first`). All target selection happens in the
+sub-skill; the direction only tells it which loop to run.
 
 ## Step 3: Load data into DuckDB
 
@@ -203,7 +232,7 @@ Pass along:
 - Selected concept list (or filter to re-derive it)
 - `similarity-scores.parquet` path if available
 - `projectId` from `project.json`
-- **If data-dictionary priority mode (Step 2e) is active**: the `dict_targets` table (or dictionary folder path), the active `category`, and the instruction to align onto the dictionary first with OMOP fallback. The sub-skill stamps `concept_set_uid` + `concept_set_source_repo` on every suggestion whose target is a dictionary concept.
+- **If data-dictionary priority mode (Step 2e) is active**: the `dict_targets` table (or dictionary folder path), the active `category`, the chosen **iteration direction** (`source-first` | `dictionary-first`), and the instruction to align onto the dictionary first with OMOP fallback. The sub-skill stamps `concept_set_uid` + `concept_set_source_repo` on every suggestion whose target is a dictionary concept.
 
 ## Step 6: Persist sub-skill output
 

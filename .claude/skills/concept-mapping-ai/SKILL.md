@@ -19,7 +19,7 @@ By the time this skill runs, the following are already in place:
 - `project.json` read → `projectId` known
 - Source concept batch selected and previewed
 - `similarity-scores.parquet` path (may be absent if not precomputed)
-- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table, the dictionary folder path, and an active `category`. When present, follow the full protocol in `.claude/skills/concept-mapping/references/data-dictionary.md` (align onto the dictionary first, OMOP fallback, `longDescription`/Mapping Notes authority, stamping).
+- **Optionally, data-dictionary priority mode** (from the orchestrator's Step 2e): a `dict_targets(concept_id, concept_set_uid, source_repo, category, subcategory, set_name)` table, the dictionary folder path, an active `category`, and an **iteration direction** (`source-first` | `dictionary-first`). When present, follow the full protocol in `.claude/skills/concept-mapping/references/data-dictionary.md` (align onto the dictionary first, OMOP fallback, `longDescription`/Mapping Notes authority, stamping). The direction decides which loop Step 2 runs.
 
 ## Step 0: Decide where the AI output goes
 
@@ -63,6 +63,19 @@ CREATE TABLE precomputed_scores AS
 Filter out rows with `method LIKE 'ai/%'` if you only want non-AI signals. Use these scores to prioritize DuckDB search candidates. A concept with `semantic/biolord` score > 0.90 is a strong lead — verify it, don't skip the reasoning step.
 
 ## Step 2: Process concepts in batches
+
+**If data-dictionary priority mode is active with direction `dictionary-first`,
+run the inverted loop instead of the source-by-source loop below** — iterate
+over `dict_targets` (one category at a time), and for each target collect and
+align *all* the source concepts that fit it (N sources → 1 target), presenting
+grouped by target. The full dictionary-first execution steps, the multi-source
+rule, and the end-of-category coverage report live in
+`.claude/skills/concept-mapping/references/data-dictionary.md` ("Two iteration
+directions"). The candidate evaluation (2c), edge cases (2e), and output schema
+(Step 3) are identical to below; only the loop variable and presentation change.
+
+Otherwise (plain OMOP, or dictionary priority with direction `source-first`),
+process source concept by source concept:
 
 Default batch size: 10. Ask the user if they want a different size.
 

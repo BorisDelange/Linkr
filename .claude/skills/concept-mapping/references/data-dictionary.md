@@ -20,6 +20,75 @@ When a dictionary folder is in play, ask:
 > work **category by category** (Ventilation, Vital signs, Drug…) so you review
 > one clinical area at a time."
 
+## Two iteration directions — source-first vs dictionary-first
+
+Once the priority mode is on, the mapping can be driven in **two directions**.
+They resolve the *same* target (dictionary first, OMOP fallback) and produce the
+*same* output schema — only the **loop variable** and the **presentation**
+differ. Pick one per session; the orchestrator asks (Step 2e) and passes the
+choice through.
+
+- **Source-first (default).** Loop over `source_concepts`. For each source
+  concept, find its best target (dictionary candidate → dictionary direct search
+  → OMOP fallback → no-match). This is the classic flow — it guarantees full
+  coverage of the **source terminology**: every local code is looked at, whether
+  or not the dictionary has a home for it. Best when the goal is "map all of my
+  hospital terminology".
+
+- **Dictionary-first (new).** Loop over `dict_targets`, **one category at a
+  time**. For each dictionary target, pull the source concepts that align onto
+  it and align them. This guarantees full coverage of the **dictionary**: every
+  concept set gets filled in turn, so you never lose track of which sets are
+  still empty. Best when the goal is "fill my concept sets fast, without getting
+  lost". Sources with no dictionary home are **not** mapped here — they are
+  listed at the end for a later source-first pass.
+
+The four-branch resolution order below (Mapping Notes authority, dictionary →
+OMOP → no-match) applies to **both** directions. Dictionary-first only changes
+*which* concepts you iterate over and *how* you present them (grouped by target
+instead of by source).
+
+### Dictionary-first execution
+
+1. **Iterate `dict_targets` for the active category**, grouped by concept set
+   (`concept_set_uid` / `set_name`). Process one set fully before the next so a
+   set is either "done" or "not started", never half-reviewed.
+
+2. **For each dictionary target concept, collect its source candidates.** Query
+   the restricted `similarity-scores.parquet` (already filtered to
+   `concept_id ∈ dict_targets`) for rows whose `concept_id` is this target and
+   whose `semantic/biolord ≥ threshold` (default 0.5). These are the source
+   concepts that *might* belong to this set.
+
+3. **Read the set's `longDescription` / Mapping Notes** (as always — see below)
+   before deciding. The notes tell you what genuinely belongs to the set and
+   what is out-of-scope.
+
+4. **Align every source that genuinely fits — N sources → 1 target.** A concept
+   set legitimately receives **multiple** source concepts (e.g. several local
+   codes all meaning "heart rate" all map onto the same set's canonical
+   concept). Emit one suggestion row per aligning source; they share the same
+   `concept_id` but differ on `source_concept_code`, so the parquet uniqueness
+   key `(source_vocabulary_id, source_concept_code, concept_id, method)` stays
+   distinct — no schema change. Do **not** keep only the single best source.
+
+5. **Present grouped by target**, not by source:
+
+   ```
+   Concept set: <set_name> [<concept_set_uid>]  → target <concept_id> <concept_name>
+     Aligned sources:
+       <vocab>/<code> <name>   equiv=skos:<level>  biolord=0.88  <one-line note>
+       <vocab>/<code> <name>   equiv=skos:<level>  biolord=0.81  <one-line note>
+     No source candidate above threshold — set left empty this pass.
+   ```
+
+6. **End-of-category coverage report.** After each category, report:
+   - concept sets **filled** (≥1 source aligned) vs **left empty** (no adequate
+     source candidate),
+   - the list of **source concepts not covered** by any dictionary target in
+     this category. These are NOT mapped in dictionary-first mode — surface them
+     so the user can run a later source-first pass over them.
+
 ## Folder layout — targets come from the RESOLVED sets, not the expression
 
 The dictionary has two parallel folders, one file (`<id>.json`) per set in each:
