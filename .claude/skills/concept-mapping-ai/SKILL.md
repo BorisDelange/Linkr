@@ -104,11 +104,18 @@ Once a candidate is found, explore ancestors/descendants via `concept_ancestor` 
 
 **Data-dictionary priority (when `dict_targets` is provided)**
 
-When the orchestrator passed a `dict_targets` table + active `category`, the target-selection order changes. For each source concept, resolve the target in this order and stop at the first that genuinely fits:
+When the orchestrator passed a `dict_targets` table + active `category`, the target-selection order changes.
 
-1. **Dictionary candidate** — among the pre-computed candidates, prefer any whose `concept_id` is in `dict_targets` for the active category. Verify it clinically like any other candidate; a high `semantic/biolord` score is a lead, not a decision.
-2. **Dictionary by direct search** — if no pre-computed candidate fits, search `dict_targets` (join to `concept`/`concept_synonym`) directly by the source name/synonyms. A terse or abbreviated source label (`VT`, `PEP`, `FR`, `FiO2`) often scores below the similarity threshold yet has an exact dictionary target — expand the abbreviation and look for it.
-3. **Full OMOP fallback** — only if the dictionary has no adequate target, search the whole `concept` table (standard + valid) as usual. This is expected and correct: the dictionary is curated and will not cover every source concept.
+**First, read the set's `longDescription` — it is the mapping authority (MANDATORY when present).** For each candidate dictionary set, open `concept_sets/<id>.json` and read `metadata.translations.<lang>.longDescription` (Markdown). Its `## Mapping Notes` section names the **default target concept** for the set, gives **conditional rules** (specimen/site/method/setting-vs-measured), and lists **excluded / out-of-scope** concepts. You MUST follow it:
+- Pick the **named default concept** unless the source's own `metadata_json` documents a specificity the notes map to a named variant (e.g. blood-gas analyser → arterial specimen; heart rate explicitly from pulse oximetry → the by-oximetry LOINC).
+- **Never** choose a concept the notes list as excluded/out-of-scope, even if its biolord/jaro-winkler score is high — the longDescription **overrides** the similarity ranking.
+- When a set has no Mapping Notes, use clinical judgement over its `resolvedConcepts`.
+
+Then resolve the target in this order and stop at the first that genuinely fits:
+
+1. **Dictionary candidate** — among the pre-computed candidates, prefer any whose `concept_id` is in `dict_targets` for the active category, **as directed by the set's Mapping Notes**. A high `semantic/biolord` score is a lead, not a decision; the Mapping Notes' default concept wins over a higher-scoring excluded one.
+2. **Dictionary by direct search** — if no pre-computed candidate fits, search `dict_targets` (join to `concept`/`concept_synonym`) directly by the source name/synonyms. A terse or abbreviated source label (`VT`, `PEP`, `FR`, `FiO2`) often scores below the similarity threshold yet has an exact dictionary target — expand the abbreviation and look for it. Confirm the chosen concept against the Mapping Notes.
+3. **Full OMOP fallback** — only if the dictionary has no adequate target (or its Mapping Notes mark the only plausible target as out-of-scope), search the whole `concept` table (standard + valid) as usual. This is expected and correct: the dictionary is curated and will not cover every source concept.
 4. **`no-match`** — if neither the dictionary nor OMOP has an adequate target, return no match with a short reason (candidate for a future custom dictionary concept).
 
 Record which branch fired: when the target is a dictionary concept (branches 1–2), stamp the suggestion with that set's `concept_set_uid` and `concept_set_source_repo` from `dict_targets`. When it is a plain OMOP target (branch 3), leave both null and note "outside the dictionary" in the `comment`.
