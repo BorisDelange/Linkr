@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { localized } from '@/lib/localized'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -64,6 +65,36 @@ export function WorkspaceSettingsPage() {
   const [newBadgeLabel, setNewBadgeLabel] = useState('')
   const [newBadgeColor, setNewBadgeColor] = useState<BadgeColor>('blue')
 
+  const handleSaveGeneral = async () => {
+    if (!workspace || !wsUid) return
+    await updateWorkspace(wsUid, {
+      name: { ...workspace.name, [language]: name },
+      description: { ...workspace.description, [language]: description },
+    })
+  }
+
+  const general = useSaveForm({
+    current: { name, description },
+    baseline: {
+      name: localized(workspace?.name, language),
+      description: localized(workspace?.description, language),
+    },
+    onSave: handleSaveGeneral,
+    canSave: !!name.trim(),
+  })
+
+  const handleSaveOrganization = async () => {
+    if (!wsUid) return
+    const orgId = selectedOrgId === NONE ? undefined : selectedOrgId
+    await updateWorkspace(wsUid, { organizationId: orgId })
+  }
+
+  const organization = useSaveForm({
+    current: selectedOrgId,
+    baseline: workspace?.organizationId ?? NONE,
+    onSave: handleSaveOrganization,
+  })
+
   if (!workspace || !wsUid) return null
 
   const badges = workspace.badges ?? []
@@ -86,18 +117,6 @@ export function WorkspaceSettingsPage() {
   const linkedOrg = workspace.organizationId ? getOrganization(workspace.organizationId) : null
   // Fallback to embedded org for legacy data
   const displayOrg = linkedOrg ?? (workspace.organization?.name ? workspace.organization : null)
-
-  const handleSaveGeneral = async () => {
-    await updateWorkspace(wsUid, {
-      name: { ...workspace.name, [language]: name },
-      description: { ...workspace.description, [language]: description },
-    })
-  }
-
-  const handleSaveOrganization = async () => {
-    const orgId = selectedOrgId === NONE ? undefined : selectedOrgId
-    await updateWorkspace(wsUid, { organizationId: orgId })
-  }
 
   const handleDelete = async () => {
     setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
@@ -142,6 +161,7 @@ export function WorkspaceSettingsPage() {
                     id="ws-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') general.save() }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -153,7 +173,7 @@ export function WorkspaceSettingsPage() {
                     rows={3}
                   />
                 </div>
-                <Button size="sm" onClick={handleSaveGeneral} disabled={!name.trim()}>
+                <Button size="sm" onClick={general.save} disabled={!general.canSaveNow}>
                   {t('common.save')}
                 </Button>
               </CardContent>
@@ -314,7 +334,7 @@ export function WorkspaceSettingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button size="sm" onClick={handleSaveOrganization}>
+                <Button size="sm" onClick={organization.save} disabled={!organization.canSaveNow}>
                   {t('common.save')}
                 </Button>
               </CardContent>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge } from '@/types'
@@ -126,6 +127,16 @@ export function ProjectSettingsPage() {
     updateProject(uid, nameInput.trim(), descInput.trim())
   }
 
+  const general = useSaveForm({
+    current: { name: nameInput, description: descInput },
+    baseline: {
+      name: localized(projectRaw?.name, language),
+      description: localized(projectRaw?.description, language),
+    },
+    onSave: handleSaveGeneral,
+    canSave: !!nameInput.trim(),
+  })
+
   const handleAddBadge = () => {
     if (!uid || !newBadgeLabel.trim()) return
     const badge: ProjectBadge = {
@@ -179,7 +190,7 @@ export function ProjectSettingsPage() {
                   <Input
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleSaveGeneral() }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') general.save() }}
                   />
                 </div>
                 {projectRaw?.projectId && (
@@ -199,7 +210,7 @@ export function ProjectSettingsPage() {
                     rows={3}
                   />
                 </div>
-                <Button size="sm" onClick={handleSaveGeneral}>{t('common.save')}</Button>
+                <Button size="sm" onClick={general.save} disabled={!general.canSaveNow}>{t('common.save')}</Button>
               </CardContent>
             </Card>
           </div>

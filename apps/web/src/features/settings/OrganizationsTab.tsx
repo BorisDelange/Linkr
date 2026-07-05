@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -53,6 +54,7 @@ export function OrganizationsTab() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<OrganizationInfo>({ ...emptyOrg })
+  const [baseline, setBaseline] = useState<OrganizationInfo>({ ...emptyOrg })
   const [deleteId, setDeleteId] = useState<string | null>(null)
 
   const getLinkedWorkspaceCount = (orgId: string) =>
@@ -61,6 +63,7 @@ export function OrganizationsTab() {
   const handleOpenCreate = () => {
     setEditingId(null)
     setForm({ ...emptyOrg })
+    setBaseline({ ...emptyOrg })
     setDialogOpen(true)
   }
 
@@ -68,7 +71,7 @@ export function OrganizationsTab() {
     const org = _organizationsRaw.find((o) => o.id === orgId)
     if (!org) return
     setEditingId(orgId)
-    setForm({
+    const values: OrganizationInfo = {
       name: org.name,
       type: org.type ?? '',
       customType: org.customType ?? '',
@@ -77,7 +80,9 @@ export function OrganizationsTab() {
       website: org.website ?? '',
       email: org.email ?? '',
       referenceId: org.referenceId ?? '',
-    })
+    }
+    setForm(values)
+    setBaseline(values)
     setDialogOpen(true)
   }
 
@@ -90,6 +95,15 @@ export function OrganizationsTab() {
     }
     setDialogOpen(false)
   }
+
+  const { canSaveNow, save } = useSaveForm({
+    current: form,
+    baseline,
+    onSave: handleSave,
+    // A brand-new org has an empty baseline, so "dirty" already covers it;
+    // require a non-empty name to enable Save.
+    canSave: !!form.name.trim(),
+  })
 
   const handleDelete = async () => {
     if (!deleteId) return
@@ -205,7 +219,15 @@ export function OrganizationsTab() {
               {editingId ? t('settings.edit_organization') : t('settings.add_organization')}
             </DialogTitle>
           </DialogHeader>
-          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div
+            className="mt-2 grid gap-3 sm:grid-cols-2"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
+                e.preventDefault()
+                save()
+              }
+            }}
+          >
             <div className="space-y-2">
               <Label>{t('workspaces.field_org_name')}</Label>
               <Input
@@ -284,7 +306,7 @@ export function OrganizationsTab() {
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleSave} disabled={!form.name.trim()}>
+            <Button onClick={save} disabled={!canSaveNow}>
               {editingId ? t('common.save') : t('common.create')}
             </Button>
           </DialogFooter>

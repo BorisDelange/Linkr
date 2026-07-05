@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft, Info } from 'lucide-react'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -231,22 +232,26 @@ function FileBrowserDialog({
 export function GeneralTab() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<DbConnectionConfig>(loadConfig)
+  const [savedConfig, setSavedConfig] = useState<DbConnectionConfig>(loadConfig)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
-  const [saved, setSaved] = useState(false)
   const [browseOpen, setBrowseOpen] = useState(false)
 
   const updateField = <K extends keyof DbConnectionConfig>(key: K, value: DbConnectionConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
-    setSaved(false)
     setTestStatus('idle')
   }
 
   const handleSave = () => {
     saveConfig(config)
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+    setSavedConfig(config)  // becomes the new baseline → Save greys out again
   }
+
+  const { canSaveNow, save } = useSaveForm({
+    current: config,
+    baseline: savedConfig,
+    onSave: handleSave,
+  })
 
   const handleTestConnection = async () => {
     setTestStatus('testing')
@@ -307,7 +312,7 @@ export function GeneralTab() {
       </div>
 
       <Card className="mt-4">
-        <CardContent className="p-5">
+        <CardContent className="px-5 pb-5 pt-3">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Database size={16} className="text-primary" />
             {t('settings.general_db_connection')}
@@ -412,8 +417,8 @@ export function GeneralTab() {
 
           {/* Actions */}
           <div className="mt-6 flex items-center gap-3">
-            <Button onClick={handleSave} size="sm">
-              {saved ? t('settings.general_db_saved') : t('common.save')}
+            <Button onClick={save} size="sm" disabled={!canSaveNow}>
+              {t('common.save')}
             </Button>
             <Button
               variant="outline"
