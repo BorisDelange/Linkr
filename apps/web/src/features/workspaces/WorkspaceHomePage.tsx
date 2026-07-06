@@ -97,7 +97,7 @@ export function WorkspaceHomePage() {
     <div className="flex h-full flex-col overflow-hidden">
       {/* Workspace header */}
       <div className="shrink-0 px-8 pt-8 pb-2">
-        <Card className="max-w-3xl">
+        <Card>
           <CardContent className="flex gap-0 p-0">
             {/* Workspace (left) */}
             <div className="min-w-0 flex-1 p-5">
