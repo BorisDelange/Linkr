@@ -87,15 +87,16 @@ export interface ProjectBadge {
 
 /** Organization or author metadata. */
 export interface OrganizationInfo {
-  name: string
+  /** Multilingual; legacy string values are read transparently via localized(). */
+  name: LocalizedString | string
   /** Type of organization (e.g. hospital, university, research_institute, company, consortium). */
   type?: string
-  location?: string
-  country?: string
+  location?: LocalizedString | string
+  country?: LocalizedString | string
   website?: string
   email?: string
-  /** Free-text type label when type is 'other'. */
-  customType?: string
+  /** Free-text type label when type is 'other'. Multilingual. */
+  customType?: LocalizedString | string
   /** Internal organization identifier (ROR ID, institutional code, etc.). */
   referenceId?: string
   /** User-defined key-value pairs (e.g. department, FINESS code, NPI). */

@@ -117,13 +117,13 @@ export function WorkspaceHomePage() {
                     <div className="flex items-center gap-2 min-w-0">
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <p className="truncate text-sm font-medium text-card-foreground">{org.name}</p>
+                          <p className="truncate text-sm font-medium text-card-foreground">{localized(org.name, language)}</p>
                         </TooltipTrigger>
-                        <TooltipContent>{org.name}</TooltipContent>
+                        <TooltipContent>{localized(org.name, language)}</TooltipContent>
                       </Tooltip>
                       {org.type && (
                         <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {org.type === 'other' && org.customType ? org.customType : t(`workspaces.org_type_${org.type}`)}
+                          {org.type === 'other' && org.customType ? localized(org.customType, language) : t(`workspaces.org_type_${org.type}`)}
                         </span>
                       )}
                     </div>
@@ -131,7 +131,7 @@ export function WorkspaceHomePage() {
                       {(org.location || org.country) && (
                         <span className="flex items-center gap-1">
                           <MapPin size={10} />
-                          {[org.location, org.country].filter(Boolean).join(', ')}
+                          {[localized(org.location, language), localized(org.country, language)].filter(Boolean).join(', ')}
                         </span>
                       )}
                       {org.website && (

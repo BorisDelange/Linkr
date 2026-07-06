@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
+import { localized } from '@/lib/localized'
 import {
   Select,
   SelectContent,
@@ -32,7 +33,7 @@ const NONE = '__none__'
 const CREATE_NEW = '__create_new__'
 
 export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { addWorkspace } = useWorkspaceStore()
   const { _organizationsRaw, addOrganization } = useOrganizationStore()
   const [name, setName] = useState('')
@@ -108,7 +109,7 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
                     <SelectItem value={NONE}>{t('workspaces.no_organization')}</SelectItem>
                     {_organizationsRaw.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
-                        {org.name}
+                        {localized(org.name, i18n.language)}
                         {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
                       </SelectItem>
                     ))}

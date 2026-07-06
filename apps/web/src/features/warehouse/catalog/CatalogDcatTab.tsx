@@ -80,10 +80,10 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
     if (!ws) return ''
     if (ws.organizationId) {
       const org = getOrganization(ws.organizationId)
-      if (org) return org.name
+      if (org) return localized(org.name, language)
     }
-    return ws.organization?.name ?? ''
-  }, [activeWorkspaceId, _workspacesRaw, getOrganization])
+    return localized(ws.organization?.name, language)
+  }, [activeWorkspaceId, _workspacesRaw, getOrganization, language])
 
   const handleFieldChange = async (key: string, value: unknown) => {
     const next = { ...metadata, [key]: value }

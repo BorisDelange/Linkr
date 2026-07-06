@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useAppStore } from '@/stores/app-store'
+import { localized, setLocalized } from '@/lib/localized'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -56,6 +58,7 @@ const emptyOrg: OrganizationInfo = {
 
 export function OrganizationsTab() {
   const { t } = useTranslation()
+  const language = useAppStore((s) => s.language)
   const { _organizationsRaw, addOrganization, updateOrganization, deleteOrganization } = useOrganizationStore()
   const { _workspacesRaw } = useWorkspaceStore()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -94,7 +97,7 @@ export function OrganizationsTab() {
   }
 
   const handleSave = async () => {
-    if (!form.name.trim()) return
+    if (!localized(form.name, language).trim()) return
     if (editingId) {
       await updateOrganization(editingId, form)
     } else {
@@ -109,7 +112,7 @@ export function OrganizationsTab() {
     onSave: handleSave,
     // A brand-new org has an empty baseline, so "dirty" already covers it;
     // require a non-empty name to enable Save.
-    canSave: !!form.name.trim(),
+    canSave: !!localized(form.name, language).trim(),
   })
 
   const [deleteConfirm, setDeleteConfirm] = useState('')
@@ -165,10 +168,10 @@ export function OrganizationsTab() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-card-foreground">{org.name}</p>
+                      <p className="text-sm font-semibold text-card-foreground">{localized(org.name, language)}</p>
                       {org.type && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {org.type === 'other' && org.customType ? org.customType : t(`workspaces.org_type_${org.type}`)}
+                          {org.type === 'other' && org.customType ? localized(org.customType, language) : t(`workspaces.org_type_${org.type}`)}
                         </span>
                       )}
                     </div>
@@ -176,7 +179,7 @@ export function OrganizationsTab() {
                       {(org.location || org.country) && (
                         <span className="flex items-center gap-1">
                           <MapPin size={12} />
-                          {[org.location, org.country].filter(Boolean).join(', ')}
+                          {[localized(org.location, language), localized(org.country, language)].filter(Boolean).join(', ')}
                         </span>
                       )}
                       {org.website && (
@@ -246,8 +249,8 @@ export function OrganizationsTab() {
             <div className="space-y-2">
               <Label>{t('workspaces.field_org_name')}</Label>
               <Input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                value={localized(form.name, language)}
+                onChange={(e) => setForm({ ...form, name: setLocalized(form.name, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_name_placeholder')}
                 autoFocus
               />
@@ -271,8 +274,8 @@ export function OrganizationsTab() {
               <div className="space-y-2 sm:col-span-2">
                 <Label>{t('workspaces.field_org_custom_type')}</Label>
                 <Input
-                  value={form.customType ?? ''}
-                  onChange={(e) => setForm({ ...form, customType: e.target.value })}
+                  value={localized(form.customType, language)}
+                  onChange={(e) => setForm({ ...form, customType: setLocalized(form.customType, language, e.target.value) })}
                   placeholder={t('workspaces.field_org_custom_type_placeholder')}
                 />
               </div>
@@ -280,16 +283,16 @@ export function OrganizationsTab() {
             <div className="space-y-2">
               <Label>{t('workspaces.field_org_location')}</Label>
               <Input
-                value={form.location ?? ''}
-                onChange={(e) => setForm({ ...form, location: e.target.value })}
+                value={localized(form.location, language)}
+                onChange={(e) => setForm({ ...form, location: setLocalized(form.location, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_location_placeholder')}
               />
             </div>
             <div className="space-y-2">
               <Label>{t('workspaces.field_org_country')}</Label>
               <Input
-                value={form.country ?? ''}
-                onChange={(e) => setForm({ ...form, country: e.target.value })}
+                value={localized(form.country, language)}
+                onChange={(e) => setForm({ ...form, country: setLocalized(form.country, language, e.target.value) })}
                 placeholder={t('workspaces.field_org_country_placeholder')}
               />
             </div>
@@ -347,7 +350,7 @@ export function OrganizationsTab() {
                 )}
                 <span className="block text-sm">
                   {t('settings.delete_organization_confirm')}{' '}
-                  <span className="font-semibold text-foreground">{deleteOrg?.name}</span>
+                  <span className="font-semibold text-foreground">{localized(deleteOrg?.name, language)}</span>
                 </span>
               </div>
             </AlertDialogDescription>
@@ -355,14 +358,14 @@ export function OrganizationsTab() {
           <Input
             value={deleteConfirm}
             onChange={(e) => setDeleteConfirm(e.target.value)}
-            placeholder={deleteOrg?.name}
+            placeholder={localized(deleteOrg?.name, language)}
             autoFocus
           />
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deleteConfirm !== (deleteOrg?.name ?? '')}
+              disabled={deleteConfirm !== localized(deleteOrg?.name, language)}
               className="bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50"
             >
               {t('settings.delete_organization')}

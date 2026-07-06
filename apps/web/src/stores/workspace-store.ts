@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
-import { isShellHtml, toLocalized, setLocalized } from '@/lib/localized'
+import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored } from './app-store'
 import { useOrganizationStore } from './organization-store'
@@ -15,13 +15,13 @@ export interface WorkspaceItem {
   updatedAt: string
 }
 
-function resolveOrgName(ws: Workspace): string {
+function resolveOrgName(ws: Workspace, lang: string): string {
   if (ws.organizationId) {
     const org = useOrganizationStore.getState().getOrganization(ws.organizationId)
-    if (org) return org.name
+    if (org) return localized(org.name, lang)
   }
   // Fallback to embedded org (legacy data)
-  return ws.organization?.name ?? ''
+  return localized(ws.organization?.name, lang)
 }
 
 function workspaceToItem(ws: Workspace, lang: string): WorkspaceItem {
@@ -29,7 +29,7 @@ function workspaceToItem(ws: Workspace, lang: string): WorkspaceItem {
     id: ws.id,
     name: ws.name[lang] ?? ws.name['en'] ?? Object.values(ws.name)[0] ?? '',
     description: ws.description[lang] ?? ws.description['en'] ?? Object.values(ws.description)[0] ?? '',
-    organizationName: resolveOrgName(ws),
+    organizationName: resolveOrgName(ws, lang),
     createdAt: ws.createdAt.split('T')[0],
     updatedAt: ws.updatedAt,
   }

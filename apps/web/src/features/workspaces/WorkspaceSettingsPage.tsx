@@ -279,10 +279,10 @@ export function WorkspaceSettingsPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-card-foreground">{displayOrg.name}</p>
+                      <p className="text-sm font-semibold text-card-foreground">{localized(displayOrg.name, language)}</p>
                       {displayOrg.type && (
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                          {displayOrg.type === 'other' && displayOrg.customType ? displayOrg.customType : t(`workspaces.org_type_${displayOrg.type}`)}
+                          {displayOrg.type === 'other' && displayOrg.customType ? localized(displayOrg.customType, language) : t(`workspaces.org_type_${displayOrg.type}`)}
                         </span>
                       )}
                     </div>
@@ -290,7 +290,7 @@ export function WorkspaceSettingsPage() {
                       {(displayOrg.location || displayOrg.country) && (
                         <span className="flex items-center gap-1">
                           <MapPin size={12} />
-                          {[displayOrg.location, displayOrg.country].filter(Boolean).join(', ')}
+                          {[localized(displayOrg.location, language), localized(displayOrg.country, language)].filter(Boolean).join(', ')}
                         </span>
                       )}
                       {displayOrg.website && (
@@ -328,7 +328,7 @@ export function WorkspaceSettingsPage() {
                     <SelectItem value={NONE}>{t('workspaces.no_organization')}</SelectItem>
                     {_organizationsRaw.map((org) => (
                       <SelectItem key={org.id} value={org.id}>
-                        {org.name}
+                        {localized(org.name, language)}
                         {org.type ? ` (${t(`workspaces.org_type_${org.type}`)})` : ''}
                       </SelectItem>
                     ))}
