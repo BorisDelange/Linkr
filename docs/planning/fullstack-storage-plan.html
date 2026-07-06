@@ -1,0 +1,338 @@
+<title>Linkr full-stack — plan de stockage base / fichiers</title>
+<style>
+  :root {
+    --ink: #16201c;
+    --ink-soft: #4a5a52;
+    --paper: #f6f7f4;
+    --card: #ffffff;
+    --line: #dfe4dd;
+    --teal: #0f766e;        /* accent — warehouse teal, from app */
+    --teal-soft: #e2f0ee;
+    --db: #1d5f8a;          /* "base" family */
+    --db-soft: #e3eef5;
+    --fs: #9a5b16;          /* "fichiers" family */
+    --fs-soft: #f6ebdd;
+    --calc: #6b6f76;        /* recalculable */
+    --calc-soft: #ececee;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); line-height: 1.55;
+    font-size: 15px;
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 48px 28px 96px; }
+
+  header.hd { border-bottom: 2px solid var(--ink); padding-bottom: 20px; margin-bottom: 8px; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--teal); font-weight: 600; }
+  h1 { font-size: 30px; line-height: 1.15; margin: 8px 0 6px; text-wrap: balance; letter-spacing: -.01em; }
+  .lede { color: var(--ink-soft); max-width: 68ch; margin: 0; }
+
+  h2 { font-size: 20px; margin: 44px 0 4px; letter-spacing: -.01em; }
+  h2 .n { color: var(--teal); font-variant-numeric: tabular-nums; margin-right: .5ch; }
+  .sub { color: var(--ink-soft); margin: 0 0 18px; max-width: 74ch; }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 22px 0 8px; padding: 14px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  .legend .item { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+  .dot { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+  .dot.db { background: var(--db); } .dot.fs { background: var(--fs); } .dot.calc { background: var(--calc); }
+
+  .scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  table { border-collapse: collapse; width: 100%; min-width: 780px; font-size: 13.5px; }
+  thead th { text-align: left; background: #eef1ec; color: var(--ink); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--line); position: sticky; top: 0; }
+  td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.ent { font-weight: 600; white-space: nowrap; }
+  td.ent small { display:block; font-weight: 400; color: var(--ink-soft); font-family: var(--mono); font-size: 11.5px; }
+  code { font-family: var(--mono); font-size: 12px; background: #f0f2ee; padding: 1px 5px; border-radius: 4px; }
+
+  .tag { display: inline-block; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+  .tag.db { background: var(--db-soft); color: var(--db); }
+  .tag.fs { background: var(--fs-soft); color: var(--fs); }
+  .tag.calc { background: var(--calc-soft); color: var(--calc); }
+
+  ul.pathlist { margin: 6px 0 0; padding: 0; list-style: none; }
+  ul.pathlist li { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); padding: 1px 0; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 20px 22px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 720px) { .grid2 { grid-template-columns: 1fr; } }
+  .card h3 { margin: 0 0 8px; font-size: 15px; }
+  .card p, .card li { color: var(--ink-soft); font-size: 13.5px; }
+  .card ul { margin: 6px 0 0; padding-left: 18px; }
+
+  .tree { font-family: var(--mono); font-size: 12.5px; line-height: 1.7; background: #12201b; color: #cfe3dc; border-radius: 10px; padding: 20px 22px; overflow-x: auto; }
+  .tree .c { color: #7f9b90; }        /* comment */
+  .tree .k { color: #7fd1c0; }        /* folder */
+  .tree .f { color: #e8b57a; }        /* file (raw) */
+  .tree .j { color: #a9c8e8; }        /* json */
+
+  .q { border-left: 3px solid var(--teal); background: var(--teal-soft); padding: 14px 18px; border-radius: 0 8px 8px 0; margin: 14px 0; }
+  .q strong { color: var(--teal); }
+
+  .decisions { counter-reset: d; list-style: none; padding: 0; margin: 16px 0 0; display: grid; gap: 12px; }
+  .decisions li { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px 14px 52px; position: relative; }
+  .decisions li::before { counter-increment: d; content: counter(d); position: absolute; left: 14px; top: 13px; width: 26px; height: 26px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font-size: 13px; font-weight: 600; }
+  .decisions b { display:block; margin-bottom: 2px; }
+  .decisions span { color: var(--ink-soft); font-size: 13.5px; }
+  footer { margin-top: 40px; color: var(--ink-soft); font-size: 12.5px; border-top: 1px solid var(--line); padding-top: 16px; }
+</style>
+
+<div class="wrap">
+  <header class="hd">
+    <div class="eyebrow">Linkr · backend full-stack</div>
+    <h1>Où vit chaque donnée : base relationnelle vs fichiers bruts</h1>
+    <p class="lede">Pour chaque entité, on croise trois sources : son stockage actuel en mode client-only (IndexedDB), ce que produit l'export ZIP, et ce qui existe déjà côté API. La règle : <strong>métadonnées légères en base</strong>, <strong>contenu lourd/binaire en fichiers</strong> sous un dossier racine unique, calqué sur <code>linkr-portal/</code>.</p>
+  </header>
+
+  <div class="legend">
+    <span class="item"><span class="dot db"></span> <b>Base</b> — métadonnées, relations, requêtes transversales</span>
+    <span class="item"><span class="dot fs"></span> <b>Fichiers</b> — contenu lourd, git-lisible, façon portal</span>
+    <span class="item"><span class="dot calc"></span> <b>Recalculable</b> — cache, peut ne pas être persisté</span>
+  </div>
+
+  <h2><span class="n">01</span>Le principe de partage</h2>
+  <p class="sub">La ligne est nette et confirmée par les deux explorations. Rien de nouveau à inventer : l'export ZIP fait <em>déjà</em> exactement cette séparation (un <code>_tree.json</code> de métadonnées + les fichiers de contenu à leur chemin). Le backend full-stack reproduit ce layout sur disque et indexe les métadonnées en base.</p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="color:var(--db)">→ En base (SQLite / Postgres)</h3>
+      <ul>
+        <li>Identité &amp; relations : <code>id</code>, <code>workspaceId</code>, <code>projectUid</code>, FK, cascades</li>
+        <li>Métadonnées : noms multilingues, <code>description</code>, <code>config</code>, <code>status</code>, <code>badges</code>, timestamps, auteur</li>
+        <li>Arbres de fichiers <em>sans</em> contenu (le <code>_tree.json</code>) : chemin, type, langage, ordre</li>
+        <li>Concept mappings (texte structuré), structure dashboards (tabs/widgets/filtres)</li>
+        <li>Registres : source-concept-id ranges &amp; entries</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--fs)">→ En fichiers (data_dir)</h3>
+      <ul>
+        <li>Code &amp; scripts : IDE, ETL, SQL, code inline des widgets, fichiers de plugins</li>
+        <li>Données : CSV/Parquet des datasets, fichier source brut des mappings, blobs Parquet</li>
+        <li>Fichiers de bases importées (vocabulaires OHDSI) — <em>dédupliqués par hash</em></li>
+        <li>Markdown : README, pages wiki</li>
+        <li>Pièces jointes binaires : readme, wiki</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2><span class="n">02</span>Carte par entité</h2>
+  <p class="sub">Chaque entité, avec ce qui va en base, ce qui va en fichiers, et le chemin sur disque (relatif au workspace ou au projet). Les champs « recalculables » sont des caches : on peut choisir de ne pas les persister du tout côté serveur et les recalculer à la demande.</p>
+
+  <div class="scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Entité</th>
+          <th>Portée</th>
+          <th>En base</th>
+          <th>En fichiers</th>
+          <th>Chemin (façon portal)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ent">Workspace<small>workspaces</small></td>
+          <td>racine</td>
+          <td><span class="tag db">tout</span> name, description, badges, orga, gitRemoteConfig</td>
+          <td><span class="tag fs">README</span> markdown multilingue</td>
+          <td><ul class="pathlist"><li>workspaces/&lt;ws&gt;/workspace.json</li><li>workspaces/&lt;ws&gt;/README.md</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Organization<small>organizations</small></td>
+          <td>racine</td>
+          <td><span class="tag db">tout</span> déjà fait ✓ (multilingue)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>(métadonnée seule)</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Project<small>projects</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">méta</span> name, config, status, todos, notes, badges, readmeHistory</td>
+          <td><span class="tag fs">README</span> + pièces jointes readme</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/project.json</li><li>projects/&lt;p&gt;/README.md · tasks.json</li><li>projects/&lt;p&gt;/attachments/&lt;id&gt;-&lt;file&gt;</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">IDE files<small>ide_files</small></td>
+          <td>project</td>
+          <td><span class="tag db">arbre</span> tree sans contenu (path, type, langage)</td>
+          <td><span class="tag fs">code</span> chaque fichier à son chemin</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/scripts/_tree.json</li><li>projects/&lt;p&gt;/scripts/&lt;path&gt;</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">IDE connections<small>ide_connections</small></td>
+          <td>project</td>
+          <td><span class="tag db">tout</span> params connexion (hors mdp)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/databases/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Pipeline<small>pipelines</small></td>
+          <td>project</td>
+          <td><span class="tag db">tout</span> nodes + edges (DAG JSON)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/pipeline/pipeline.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Cohort<small>cohorts</small></td>
+          <td>project</td>
+          <td><span class="tag db">tout</span> arbre de critères (JSON)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/cohorts/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Dataset<small>dataset_files / _data / _raw / _analyses</small></td>
+          <td>project</td>
+          <td><span class="tag db">arbre+</span> tree, colonnes, parseOptions, rowCount, analyses</td>
+          <td><span class="tag fs">données</span> CSV/rows + fichier original (xlsx/parquet)</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/datasets/_tree.json</li><li>datasets/&lt;folder&gt;/_columns.json</li><li>datasets/&lt;folder&gt;/&lt;name&gt;.csv · original</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Dashboard<small>dashboards / tabs / widgets</small></td>
+          <td>project</td>
+          <td><span class="tag db">structure</span> dashboard + tabs + widgets + filtres</td>
+          <td><span class="tag fs">code</span> code inline des widgets (option)</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/dashboards/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Data source<small>data_sources / files / file_handles</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">méta</span> alias, sourceType, schemaMapping, stats · <span class="tag fs">hors mdp</span></td>
+          <td><span class="tag fs">blobs</span> Parquet/CSV importés, dédup par contentHash</td>
+          <td><ul class="pathlist"><li>databases/&lt;slug&gt;.json</li><li>_files/&lt;hash&gt;.parquet (dédup)</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Mapping project<small>mapping_projects / concept_mappings</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">méta+</span> projet, mappings (texte), stats, importBatches</td>
+          <td><span class="tag fs">source</span> fichier source (CSV) + scores Parquet (option)</td>
+          <td><ul class="pathlist"><li>mapping-projects/&lt;slug&gt;/_project.json</li><li>.../mappings.json · source-concepts.csv</li><li>.../similarity-scores.parquet</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Concept set<small>concept_sets</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">tout</span> expression + resolvedIds (cache inline)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>concept-sets/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Source-concept IDs<small>ranges / entries</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">tout</span> ranges + entries (format compact)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>source-concept-ids/ranges.json · entries.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">ETL pipeline<small>etl_pipelines / etl_files</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">arbre</span> pipeline + tree sans contenu</td>
+          <td><span class="tag fs">code</span> scripts SQL/Python/R à leur chemin</td>
+          <td><ul class="pathlist"><li>etl/&lt;slug&gt;/_pipeline.json · _tree.json</li><li>etl/&lt;slug&gt;/&lt;path&gt;.sql</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">SQL scripts<small>sql_script_collections / _files</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">arbre</span> collection + tree sans contenu</td>
+          <td><span class="tag fs">code</span> scripts SQL à leur chemin</td>
+          <td><ul class="pathlist"><li>sql-scripts/&lt;slug&gt;/_collection.json · _tree.json</li><li>sql-scripts/&lt;slug&gt;/&lt;path&gt;.sql</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">DQ rule set<small>dq_rule_sets / dq_custom_checks</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">tout</span> ruleSet + checks (SQL inline, court)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>data-quality/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Data catalog<small>data_catalogs / catalog_results</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">config</span> dimensions, anonymisation, DCAT</td>
+          <td><span class="tag calc">résultats</span> gros cache de comptages</td>
+          <td><ul class="pathlist"><li>catalogs/&lt;slug&gt;.json</li><li>(résultats recalculables)</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Wiki<small>wiki_pages / wiki_attachments</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">arbre</span> tree sans contenu ni historique</td>
+          <td><span class="tag fs">md</span> contenu markdown + pièces jointes</td>
+          <td><ul class="pathlist"><li>wiki/_tree.json</li><li>wiki/&lt;slug&gt;--&lt;id&gt;.md</li><li>wiki/_attachments/&lt;id&gt;-&lt;file&gt;</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">User plugin<small>user_plugins</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">méta</span> id, entityId, timestamps</td>
+          <td><span class="tag fs">code</span> fichiers du plugin</td>
+          <td><ul class="pathlist"><li>plugins/&lt;slug&gt;/_plugin.json</li><li>plugins/&lt;slug&gt;/&lt;file&gt;</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Schema preset<small>schema_presets</small></td>
+          <td>workspace</td>
+          <td><span class="tag db">tout</span> mapping (DDL possiblement long)</td>
+          <td>—</td>
+          <td><ul class="pathlist"><li>schemas/&lt;slug&gt;.json</li></ul></td>
+        </tr>
+        <tr>
+          <td class="ent">Stats / scores<small>*_stats_cache / scores_*</small></td>
+          <td>divers</td>
+          <td>—</td>
+          <td><span class="tag calc">cache</span> à recalculer ; scores Parquet sur disque si gardés</td>
+          <td><ul class="pathlist"><li>(non exporté / recalculable)</li></ul></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2><span class="n">03</span>Le dossier racine « Application database »</h2>
+  <p class="sub">Un seul dossier configurable (<code>LINKR_DATA_DIR</code>, déjà en place) contient tout : la base, les blobs, et l'arbo git-lisible. C'est le pendant serveur de <code>linkr-portal/</code>.</p>
+
+  <div class="tree">
+<span class="c"># LINKR_DATA_DIR (ex. /var/lib/linkr ou ~/.linkr)</span>
+<span class="k">linkr-data/</span>
+├─ <span class="j">linkr.db</span>            <span class="c"># base : métadonnées + relations (ou Postgres externe)</span>
+├─ <span class="k">workspaces/</span>
+│  └─ <span class="k">&lt;ws-slug&gt;/</span>
+│     ├─ <span class="j">workspace.json</span>  <span class="f">README.md</span>
+│     ├─ <span class="k">projects/&lt;p&gt;/</span>   <span class="c"># scripts/ datasets/ dashboards/ …</span>
+│     ├─ <span class="k">wiki/</span>           <span class="k">mapping-projects/</span>  <span class="k">etl/</span>  <span class="k">sql-scripts/</span>
+│     ├─ <span class="k">databases/</span>      <span class="k">catalogs/</span>  <span class="k">data-quality/</span>  <span class="k">plugins/</span>
+│     └─ <span class="k">source-concept-ids/</span>
+└─ <span class="k">_files/</span>              <span class="c"># blobs partagés dédupliqués par hash (Parquet, uploads)</span>
+   └─ <span class="f">&lt;sha256&gt;.parquet</span>
+  </div>
+
+  <div class="q">
+    <strong>Décision ouverte.</strong> Écrit-on <em>toutes</em> les métadonnées <u>aussi</u> en fichiers (arbo git complète, comme le portal), ou seulement les <u>blobs</u> — la base restant l'unique source de vérité des métadonnées ? Voir décision ①.
+  </div>
+
+  <h2><span class="n">04</span>Décisions à trancher avant de coder</h2>
+  <ol class="decisions">
+    <li>
+      <b>Fichiers : source de vérité ou export ?</b>
+      <span><b>A —</b> Base = vérité pour les métadonnées ; les fichiers ne stockent que les blobs ; l'arbo git complète est générée <em>à la demande</em> via l'export existant. Plus simple, pas de double écriture à synchroniser. &nbsp; <b>B —</b> On écrit systématiquement l'arbo complète (façon portal) à chaque changement : git-lisible en continu, mais double source à garder synchro. <em>Reco : A.</em></span>
+    </li>
+    <li>
+      <b>Import de dataset — le chemin prioritaire.</b>
+      <span>Remodeler <code>dataset.py</code> (aujourd'hui scaffold obsolète) en <code>DatasetFile</code> + <code>DatasetAnalysis</code> (base) ; le CSV/Parquet et le fichier original vont dans <code>data_dir</code> ; endpoints d'upload + parse. C'est la première brique concrète.</span>
+    </li>
+    <li>
+      <b>Couche blobs + déduplication.</b>
+      <span>Un service de stockage fichiers unique (écrit/lit sous <code>data_dir/_files/&lt;hash&gt;</code>), réutilisé par datasets, databases, attachments. Reproduit le <code>contentHash</code> + <code>dedupRef</code> du client.</span>
+    </li>
+    <li>
+      <b>Caches : persister ou recalculer ?</b>
+      <span>catalog_results, *_stats_cache, scores : <em>reco</em> ne pas les mettre en base — les recalculer côté serveur à la demande (ils sont volumineux et dérivés).</span>
+    </li>
+    <li>
+      <b>Réglage UI du dossier racine.</b>
+      <span>Aujourd'hui <code>LINKR_DATA_DIR</code> est fixé côté serveur (lecture seule dans le wizard). Confirmer qu'on reste là-dessus (recommandé, sécurité) plutôt qu'un chemin choisi depuis le navigateur.</span>
+    </li>
+  </ol>
+
+  <footer>
+    Synthèse issue de deux explorations du code (stockage IndexedDB + export ZIP) et de l'état backend actuel. Aucune ligne de code écrite — document de décision.
+  </footer>
+</div>
