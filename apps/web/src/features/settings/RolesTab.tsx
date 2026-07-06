@@ -29,6 +29,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 /** Group "resource:action" strings by resource, preserving catalogue order. */
 function groupByResource(perms: Permission[]): { resource: string; actions: string[] }[] {
@@ -152,6 +153,7 @@ export function RolesTab() {
         </Button>
       </div>
 
+      <TooltipProvider>
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full table-fixed border-collapse text-sm">
           <thead>
@@ -159,30 +161,41 @@ export function RolesTab() {
               <th className="sticky left-0 z-10 w-56 bg-muted/40 px-3 py-2 text-left font-medium">
                 {t('settings.permission')}
               </th>
-              {roles.map((role) => (
-                <th key={role.id} className="px-3 py-2 text-center font-medium">
-                  <div className="flex flex-col items-center gap-1">
-                    <div className="flex items-center gap-1">
-                      <span>{localized(role.label, i18n.language) || role.name}</span>
-                      {role.isSystem ? (
-                        <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
-                      ) : (
-                        <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(role)} title={t('common.delete')}>
-                          <Trash2 size={12} />
+              {roles.map((role) => {
+                const displayName = localized(role.label, i18n.language) || role.name
+                return (
+                  <th key={role.id} className="w-28 px-2 py-2 align-top font-medium">
+                    <div className="flex flex-col items-center gap-1">
+                      {/* Line 1: name, truncated with a full-text tooltip on hover. */}
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="block w-full truncate text-center">{displayName}</span>
+                        </TooltipTrigger>
+                        <TooltipContent>{displayName}</TooltipContent>
+                      </Tooltip>
+                      {/* Line 2: system badge or delete action. */}
+                      <div className="flex h-6 items-center">
+                        {role.isSystem ? (
+                          <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
+                        ) : (
+                          <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(role)} title={t('common.delete')}>
+                            <Trash2 size={12} />
+                          </Button>
+                        )}
+                      </div>
+                      {/* Line 3: select-all / select-none. */}
+                      <div className="flex items-center gap-0.5 text-muted-foreground">
+                        <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, true)} title={t('common.select_all')}>
+                          <CheckCheck size={13} />
                         </Button>
-                      )}
+                        <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, false)} title={t('common.select_none')}>
+                          <SquareX size={13} />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-0.5 text-muted-foreground">
-                      <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, true)} title={t('common.select_all')}>
-                        <CheckCheck size={13} />
-                      </Button>
-                      <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, false)} title={t('common.select_none')}>
-                        <SquareX size={13} />
-                      </Button>
-                    </div>
-                  </div>
-                </th>
-              ))}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
           <tbody>
@@ -216,6 +229,7 @@ export function RolesTab() {
           </tbody>
         </table>
       </div>
+      </TooltipProvider>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
