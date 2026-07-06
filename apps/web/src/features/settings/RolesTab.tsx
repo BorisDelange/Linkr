@@ -17,6 +17,17 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 
 /** Group "resource:action" strings by resource, preserving catalogue order. */
@@ -42,6 +53,7 @@ export function RolesTab() {
   const [newName, setNewName] = useState('')
   const [newLabel, setNewLabel] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
 
   const load = useCallback(async () => {
     const storage = getStorage()
@@ -76,11 +88,8 @@ export function RolesTab() {
     )
   }
 
-  const togglePermission = async (role: Role, permission: Permission, checked: boolean) => {
-    const permissions = checked
-      ? [...role.permissions, permission]
-      : role.permissions.filter((p) => p !== permission)
-    // Optimistic: reflect the toggle immediately, then persist.
+  // Optimistically reflect a new permission set for a role, then persist it.
+  const persistPermissions = async (role: Role, permissions: Permission[]) => {
     setRoles((rs) => rs.map((r) => (r.id === role.id ? { ...r, permissions } : r)))
     try {
       await getStorage().roles.update(role.id, { permissions })
@@ -88,6 +97,15 @@ export function RolesTab() {
       await load()
     }
   }
+
+  const togglePermission = (role: Role, permission: Permission, checked: boolean) =>
+    persistPermissions(
+      role,
+      checked ? [...role.permissions, permission] : role.permissions.filter((p) => p !== permission),
+    )
+
+  const setAllForRole = (role: Role, all: boolean) =>
+    persistPermissions(role, all ? [...catalogue] : [])
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -110,11 +128,13 @@ export function RolesTab() {
     }
   }
 
-  const handleDelete = async (role: Role) => {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    setDeleteTarget(null)
     try {
-      await getStorage().roles.delete(role.id)
-      await load()
-    } catch {
+      await getStorage().roles.delete(id)
+    } finally {
       await load()
     }
   }
@@ -133,23 +153,34 @@ export function RolesTab() {
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full border-collapse text-sm">
+        <table className="w-full table-fixed border-collapse text-sm">
           <thead>
             <tr className="border-b bg-muted/40">
-              <th className="sticky left-0 z-10 bg-muted/40 px-3 py-2 text-left font-medium">
+              <th className="sticky left-0 z-10 w-56 bg-muted/40 px-3 py-2 text-left font-medium">
                 {t('settings.permission')}
               </th>
               {roles.map((role) => (
                 <th key={role.id} className="px-3 py-2 text-center font-medium">
                   <div className="flex flex-col items-center gap-1">
-                    <span>{localized(role.label, i18n.language) || role.name}</span>
-                    {role.isSystem ? (
-                      <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
-                    ) : (
-                      <Button variant="ghost" size="icon-xs" onClick={() => handleDelete(role)} title={t('common.delete')}>
-                        <Trash2 size={12} />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-1">
+                      <span>{localized(role.label, i18n.language) || role.name}</span>
+                      {role.isSystem ? (
+                        <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
+                      ) : (
+                        <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(role)} title={t('common.delete')}>
+                          <Trash2 size={12} />
+                        </Button>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
+                      <button type="button" className="underline hover:text-foreground" onClick={() => setAllForRole(role, true)}>
+                        {t('common.select_all')}
+                      </button>
+                      <span>/</span>
+                      <button type="button" className="underline hover:text-foreground" onClick={() => setAllForRole(role, false)}>
+                        {t('common.select_none')}
+                      </button>
+                    </div>
                   </div>
                 </th>
               ))}
@@ -196,7 +227,7 @@ export function RolesTab() {
             </DialogHeader>
             <div className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="role-name">{t('settings.role_name')}</Label>
+                <Label htmlFor="role-name">{t('settings.role_name')}<RequiredMark /></Label>
                 <Input id="role-name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="data-scientist" autoFocus />
               </div>
               <div className="space-y-2">
@@ -216,6 +247,29 @@ export function RolesTab() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.delete_role')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.delete_role_confirm')}{' '}
+              <span className="font-semibold text-foreground">
+                {deleteTarget ? (localized(deleteTarget.label, i18n.language) || deleteTarget.name) : ''}
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

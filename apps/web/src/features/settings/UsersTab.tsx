@@ -17,6 +17,17 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RequiredMark } from '@/components/ui/required-mark'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import {
   Select,
   SelectContent,
@@ -77,6 +88,7 @@ export function UsersTab() {
   const [editing, setEditing] = useState<User | null>(null)
   const [draft, setDraft] = useState<UserDraft>(emptyDraft)
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
   const load = useCallback(async () => {
     const storage = getStorage()
@@ -169,12 +181,14 @@ export function UsersTab() {
     }
   }
 
-  const handleDelete = async (id: number) => {
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    setDeleteTarget(null)
     try {
       await getStorage().users.delete(id)
-      await load()
-    } catch {
-      // Backend guards (e.g. last admin) surface as a rejected request; reload to stay consistent.
+    } finally {
+      // Backend guards (e.g. last admin) surface as a rejected request; reload either way.
       await load()
     }
   }
@@ -234,7 +248,7 @@ export function UsersTab() {
                     <Button
                       variant="ghost"
                       size="icon-xs"
-                      onClick={() => handleDelete(user.id)}
+                      onClick={() => setDeleteTarget(user)}
                       disabled={user.role === 'admin' && adminCount === 1}
                     >
                       <Trash2 size={14} />
@@ -256,7 +270,7 @@ export function UsersTab() {
             </DialogHeader>
             <div className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="user-username">{t('settings.user_username')}</Label>
+                <Label htmlFor="user-username">{t('settings.user_username')}{!editing && <RequiredMark />}</Label>
                 <Input
                   id="user-username"
                   value={draft.username}
@@ -267,7 +281,7 @@ export function UsersTab() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="user-password">
-                  {editing ? t('settings.new_password_optional') : t('settings.temporary_password')}
+                  {editing ? t('settings.new_password_optional') : <>{t('settings.temporary_password')}<RequiredMark /></>}
                 </Label>
                 <Input
                   id="user-password"
@@ -344,6 +358,27 @@ export function UsersTab() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(open) => { if (!open) setDeleteTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('settings.delete_user')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.delete_user_confirm')}{' '}
+              <span className="font-semibold text-foreground">{deleteTarget?.username}</span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
