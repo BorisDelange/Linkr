@@ -312,7 +312,7 @@ export function GeneralTab() {
       </div>
 
       <Card className="mt-4">
-        <CardContent className="px-5 pb-5 pt-3">
+        <CardContent className="px-5 pb-5 pt-2">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
             <Database size={16} className="text-primary" />
             {t('settings.general_db_connection')}

@@ -32,9 +32,20 @@ function AlertDialogOverlay({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+  // Radix AlertDialog blocks outside-click dismissal by design. We opt back in
+  // globally: clicking the overlay triggers the dialog's Cancel button (a safe,
+  // non-destructive dismissal). Dialogs without a Cancel button stay modal.
+  const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const cancel = e.currentTarget.parentElement?.querySelector<HTMLButtonElement>(
+      '[data-slot="alert-dialog-cancel"]',
+    )
+    cancel?.click()
+  }
+
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
+      onClick={handleOverlayClick}
       className={cn(
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
         className
@@ -160,6 +171,7 @@ function AlertDialogCancel({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
   return (
     <AlertDialogPrimitive.Cancel
+      data-slot="alert-dialog-cancel"
       className={cn(buttonVariants({ variant: "outline" }), className)}
       {...props}
     />
