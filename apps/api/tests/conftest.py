@@ -1,3 +1,4 @@
+import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
@@ -5,10 +6,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401  -- populate Base.metadata
+from app.config import settings
 from app.core.database import get_db
 from app.core.permissions import seed_default_roles
 from app.main import app
 from app.models.base import Base
+
+
+@pytest.fixture(autouse=True)
+def _isolate_data_dir(tmp_path, monkeypatch):
+    """Point blob/upload storage at a temp dir so tests never touch ~/.linkr."""
+    monkeypatch.setattr(settings, "data_dir", str(tmp_path))
+    # data_path is a cached_property; drop any cached value so it re-resolves.
+    settings.__dict__.pop("data_path", None)
+    yield
+    settings.__dict__.pop("data_path", None)
 
 
 @pytest_asyncio.fixture
