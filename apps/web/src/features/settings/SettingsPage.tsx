@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { GeneralTab } from './GeneralTab'
 import { UsersTab } from './UsersTab'
+import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
 
 export function SettingsPage() {
@@ -25,6 +26,7 @@ export function SettingsPage() {
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
+            <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
           </TabsList>
           <TabsContent value="general">
             <GeneralTab />
@@ -34,6 +36,9 @@ export function SettingsPage() {
           </TabsContent>
           <TabsContent value="users">
             <UsersTab />
+          </TabsContent>
+          <TabsContent value="roles">
+            <RolesTab />
           </TabsContent>
         </Tabs>
       </div>
