@@ -203,7 +203,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave}>
+                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave} disabled={localContent === localized(page.content, language)}>
                     <Check size={12} /> {t('common.save')}
                   </Button>
                 </TooltipTrigger>

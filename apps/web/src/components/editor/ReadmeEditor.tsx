@@ -224,7 +224,7 @@ export function ReadmeEditor({ readme, onSave, resolveUrls, headerActions }: Rea
                 <X size={12} />
                 {t('common.cancel')}
               </Button>
-              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave}>
+              <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-primary" onClick={handleSave} disabled={localReadme === readme}>
                 <Check size={12} />
                 {t('common.save')}
               </Button>
