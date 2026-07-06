@@ -99,3 +99,22 @@ async def test_non_member_cannot_see_or_access(client, db):
 
     r = await client.delete(f"{API}/workspaces/{ws_id}", headers=other_headers)
     assert r.status_code == 403
+
+
+async def test_workspace_badges_persist(client):
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/workspaces", headers=headers, json={"name": {"en": "Demo"}}
+    )
+    ws_id = r.json()["id"]
+
+    badges = [{"id": "b1", "label": "Prod", "color": "blue"}]
+    r = await client.patch(
+        f"{API}/workspaces/{ws_id}", headers=headers, json={"badges": badges}
+    )
+    assert r.status_code == 200
+    assert r.json()["badges"] == badges
+
+    # Persisted across a fresh read.
+    r = await client.get(f"{API}/workspaces/{ws_id}", headers=headers)
+    assert r.json()["badges"] == badges
