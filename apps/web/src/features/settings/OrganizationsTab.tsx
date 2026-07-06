@@ -213,7 +213,7 @@ export function OrganizationsTab() {
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
+                          variant="destructive"
                           onClick={() => setDeleteId(org.id)}
                         >
                           <Trash2 size={14} />
