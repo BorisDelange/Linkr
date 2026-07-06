@@ -12,7 +12,48 @@ export interface User {
   username: string
   email?: string
   role: string
-  preferences: Record<string, unknown>
+  firstName?: string
+  lastName?: string
+  affiliation?: string
+  profession?: string
+  orcid?: string
+  isActive?: boolean
+  authProvider?: string
+  lastLogin?: string
+  preferences?: Record<string, unknown>
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Payload to create a user (admin). `password` is an admin-set temporary secret. */
+export interface UserCreateInput {
+  username: string
+  password: string
+  role?: string
+  email?: string
+  firstName?: string
+  lastName?: string
+  affiliation?: string
+  profession?: string
+  orcid?: string
+  isActive?: boolean
+}
+
+/** A single "resource:action" capability string, e.g. "projects:write". */
+export type Permission = string
+
+/** A role: a named, ordered bundle of permissions. System roles ship by default
+ *  and cannot be deleted (their label/permissions stay editable). */
+export interface Role {
+  id: string
+  name: string
+  label: LocalizedString
+  /** "workspace" gates workspace-scoped entities; "global" gates the account. */
+  scope: 'workspace' | 'global'
+  isSystem: boolean
+  permissions: Permission[]
+  createdAt: string
+  updatedAt: string
 }
 
 /** How an entity entered the local store. */

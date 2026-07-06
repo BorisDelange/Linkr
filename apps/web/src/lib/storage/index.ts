@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -16,6 +16,26 @@ export interface WorkspaceStorage {
   create(workspace: Workspace): Promise<void>
   update(id: string, changes: Partial<Workspace>): Promise<void>
   delete(id: string): Promise<void>
+}
+
+/** Storage interface for user accounts (admin, server mode only). */
+export interface UserStorage {
+  getAll(): Promise<User[]>
+  getById(id: number): Promise<User | undefined>
+  create(user: UserCreateInput): Promise<User>
+  update(id: number, changes: Partial<UserCreateInput>): Promise<void>
+  delete(id: number): Promise<void>
+}
+
+/** Storage interface for roles + the permission catalogue (admin, server mode only). */
+export interface RoleStorage {
+  getAll(): Promise<Role[]>
+  getById(id: string): Promise<Role | undefined>
+  create(role: Partial<Role> & { name: string }): Promise<Role>
+  update(id: string, changes: Partial<Role>): Promise<void>
+  delete(id: string): Promise<void>
+  /** The code-defined permission catalogue the UI renders the matrix from. */
+  getPermissions(): Promise<Permission[]>
 }
 
 /** Storage interface for project persistence. */
@@ -382,6 +402,8 @@ export interface ScoresMetaStorage {
 export interface Storage {
   organizations: OrganizationStorage
   workspaces: WorkspaceStorage
+  users: UserStorage
+  roles: RoleStorage
   projects: ProjectStorage
   dataSources: DataSourceStorage
   files: FileStorage

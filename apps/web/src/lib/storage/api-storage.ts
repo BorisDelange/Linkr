@@ -1,6 +1,8 @@
 import { apiOrganizationStorage } from '@/lib/api/organizations'
 import { apiProjectStorage } from '@/lib/api/projects'
+import { apiRoleStorage } from '@/lib/api/roles'
 import { apiSchemaPresetStorage } from '@/lib/api/schema-presets'
+import { apiUserStorage } from '@/lib/api/users'
 import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
 import type { Storage } from '@/lib/storage'
@@ -17,6 +19,8 @@ export function createAPIStorage(): Storage {
   return {
     ...idb,
     workspaces: apiWorkspaceStorage,
+    users: apiUserStorage,
+    roles: apiRoleStorage,
     projects: apiProjectStorage,
     organizations: apiOrganizationStorage,
     schemaPresets: apiSchemaPresetStorage,

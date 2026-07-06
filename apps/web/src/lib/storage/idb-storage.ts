@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -2152,10 +2152,36 @@ class IDBScoresMetaStorage implements ScoresMetaStorage {
   }
 }
 
+/**
+ * Users and roles are server-only concepts (accounts, server-side auth). In
+ * client-only mode the Settings UI hides these tabs, so these stubs exist only
+ * to satisfy the Storage interface: reads return empty, writes throw loudly.
+ */
+const SERVER_ONLY = 'User and role management requires server mode.'
+
+class UnsupportedUserStorage implements UserStorage {
+  async getAll() { return [] }
+  async getById() { return undefined }
+  async create(): Promise<never> { throw new Error(SERVER_ONLY) }
+  async update(): Promise<never> { throw new Error(SERVER_ONLY) }
+  async delete(): Promise<never> { throw new Error(SERVER_ONLY) }
+}
+
+class UnsupportedRoleStorage implements RoleStorage {
+  async getAll() { return [] }
+  async getById() { return undefined }
+  async create(): Promise<never> { throw new Error(SERVER_ONLY) }
+  async update(): Promise<never> { throw new Error(SERVER_ONLY) }
+  async delete(): Promise<never> { throw new Error(SERVER_ONLY) }
+  async getPermissions() { return [] }
+}
+
 export function createIDBStorage(): Storage {
   return {
     organizations: new IDBOrganizationStorage(),
     workspaces: new IDBWorkspaceStorage(),
+    users: new UnsupportedUserStorage(),
+    roles: new UnsupportedRoleStorage(),
     projects: new IDBProjectStorage(),
     dataSources: new IDBDataSourceStorage(),
     files: new IDBFileStorage(),
