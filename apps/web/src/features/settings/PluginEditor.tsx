@@ -149,6 +149,18 @@ export function PluginEditor() {
     savePlugin()
   }, [savePlugin])
 
+  // Cmd/Ctrl+S saves when there are unsaved changes.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (isDirty && !isSystemPlugin) handleSave()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [isDirty, isSystemPlugin, handleSave])
+
   const handleDuplicate = useCallback(() => {
     if (editingPluginId) duplicatePlugin(editingPluginId)
   }, [editingPluginId, duplicatePlugin])
