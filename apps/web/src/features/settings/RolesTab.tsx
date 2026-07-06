@@ -38,6 +38,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** Resources that gate the account instance-wide rather than a single workspace. */
 const GLOBAL_RESOURCES = new Set(['users', 'roles', 'settings'])
@@ -70,7 +71,6 @@ function sortRoles(roles: Role[]): Role[] {
 }
 
 interface RoleMatrixProps {
-  title: string
   description: string
   roles: Role[]
   /** Permission catalogue restricted to this section's scope. */
@@ -81,7 +81,7 @@ interface RoleMatrixProps {
   onDelete: (role: Role) => void
 }
 
-function RoleMatrix({ title, description, roles, catalogue, draft, onToggle, onSetAll, onDelete }: RoleMatrixProps) {
+function RoleMatrix({ description, roles, catalogue, draft, onToggle, onSetAll, onDelete }: RoleMatrixProps) {
   const { t, i18n } = useTranslation()
   const groups = useMemo(() => groupByResource(catalogue), [catalogue])
 
@@ -89,10 +89,7 @@ function RoleMatrix({ title, description, roles, catalogue, draft, onToggle, onS
 
   return (
     <div className="space-y-2">
-      <div>
-        <h4 className="text-sm font-medium text-foreground">{title}</h4>
-        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
-      </div>
+      <p className="text-xs text-muted-foreground">{description}</p>
       <TooltipProvider>
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full table-fixed border-collapse text-sm">
@@ -183,6 +180,7 @@ export function RolesTab() {
   const [newScope, setNewScope] = useState<'workspace' | 'global'>('workspace')
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+  const [roleTab, setRoleTab] = useState<'workspace' | 'global'>('workspace')
 
   const applyRoles = useCallback((r: Role[]) => {
     setRoles(r)
@@ -277,6 +275,7 @@ export function RolesTab() {
       setAddOpen(false)
       setNewName('')
       setNewLabel('')
+      setRoleTab(newScope)
       setNewScope('workspace')
       setError(null)
       await load()
@@ -314,27 +313,34 @@ export function RolesTab() {
         </div>
       </div>
 
-      <RoleMatrix
-        title={t('settings.roles_workspace_title')}
-        description={t('settings.roles_workspace_description')}
-        roles={workspaceRoles}
-        catalogue={workspaceCatalogue}
-        draft={draft}
-        onToggle={toggle}
-        onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
-        onDelete={setDeleteTarget}
-      />
-
-      <RoleMatrix
-        title={t('settings.roles_global_title')}
-        description={t('settings.roles_global_description')}
-        roles={globalRoles}
-        catalogue={globalCatalogue}
-        draft={draft}
-        onToggle={toggle}
-        onSetAll={(roleId, next) => setAll(roleId, globalCatalogue, next)}
-        onDelete={setDeleteTarget}
-      />
+      <Tabs value={roleTab} onValueChange={(v) => setRoleTab(v as 'workspace' | 'global')}>
+        <TabsList>
+          <TabsTrigger value="workspace">{t('settings.roles_workspace_title')}</TabsTrigger>
+          <TabsTrigger value="global">{t('settings.roles_global_title')}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="workspace" className="mt-4">
+          <RoleMatrix
+            description={t('settings.roles_workspace_description')}
+            roles={workspaceRoles}
+            catalogue={workspaceCatalogue}
+            draft={draft}
+            onToggle={toggle}
+            onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
+            onDelete={setDeleteTarget}
+          />
+        </TabsContent>
+        <TabsContent value="global" className="mt-4">
+          <RoleMatrix
+            description={t('settings.roles_global_description')}
+            roles={globalRoles}
+            catalogue={globalCatalogue}
+            draft={draft}
+            onToggle={toggle}
+            onSetAll={(roleId, next) => setAll(roleId, globalCatalogue, next)}
+            onDelete={setDeleteTarget}
+          />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
