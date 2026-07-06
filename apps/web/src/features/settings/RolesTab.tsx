@@ -76,6 +76,13 @@ export function RolesTab() {
 
   const groups = useMemo(() => groupByResource(catalogue), [catalogue])
 
+  // Show built-in roles first, most→least privileged; custom roles after.
+  const sortedRoles = useMemo(() => {
+    const rank = new Map(['admin', 'owner', 'editor', 'user', 'viewer'].map((n, i) => [n, i]))
+    const rankOf = (r: Role) => (rank.has(r.name) ? rank.get(r.name)! : Number.MAX_SAFE_INTEGER)
+    return [...roles].sort((a, b) => rankOf(a) - rankOf(b))
+  }, [roles])
+
   if (!isServerMode()) {
     return (
       <div className="flex flex-col items-center py-10">
@@ -161,7 +168,7 @@ export function RolesTab() {
               <th className="sticky left-0 z-10 w-56 bg-muted/40 px-3 py-2 text-left font-medium">
                 {t('settings.permission')}
               </th>
-              {roles.map((role) => {
+              {sortedRoles.map((role) => {
                 const displayName = localized(role.label, i18n.language) || role.name
                 return (
                   <th key={role.id} className="w-28 px-2 py-2 align-top font-medium">
@@ -214,7 +221,7 @@ export function RolesTab() {
                       <td className="sticky left-0 z-10 bg-background px-3 py-1.5 pl-6 text-muted-foreground">
                         {t(`settings.action_${action}`, action)}
                       </td>
-                      {roles.map((role) => (
+                      {sortedRoles.map((role) => (
                         <td key={role.id} className="px-3 py-1.5 text-center">
                           <Checkbox
                             checked={role.permissions.includes(permission)}
