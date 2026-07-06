@@ -87,6 +87,17 @@ async def test_reimport_reparses_raw_file(client):
     assert r.json()["rowCount"] == 3
 
 
+async def test_import_missing_blob_is_400_not_500(client):
+    headers = await _admin_headers(client)
+    _, project_uid = await _project(client, headers)
+    r = await client.post(
+        f"{API}/datasets/import",
+        headers=headers,
+        json={"projectUid": project_uid, "name": "d", "sha": "0" * 64, "fileName": "d.csv"},
+    )
+    assert r.status_code == 400
+
+
 async def test_raw_file_downloadable_after_import(client):
     headers = await _admin_headers(client)
     _, project_uid = await _project(client, headers)

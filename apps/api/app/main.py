@@ -2,8 +2,10 @@ import asyncio
 from contextlib import asynccontextmanager
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.core.database import async_session
@@ -45,6 +47,25 @@ app = FastAPI(
     version=settings.app_version,
     lifespan=lifespan,
 )
+
+class _ErrorLoggingMiddleware(BaseHTTPMiddleware):
+    """Turn unhandled exceptions into a real 500 JSON response.
+
+    Without this, an unhandled error propagates past the CORS middleware, so the
+    browser reports a misleading "CORS header missing" instead of the actual
+    error. Catching here means the response still flows back through CORS and the
+    client sees the real message. The traceback is logged server-side.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            return await call_next(request)
+        except Exception:
+            logger.exception("unhandled_error", path=request.url.path)
+            return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+app.add_middleware(_ErrorLoggingMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

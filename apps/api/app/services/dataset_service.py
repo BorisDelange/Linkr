@@ -90,13 +90,20 @@ async def _write_rows_blob(rows: list[dict]) -> str:
     return sha
 
 
+class DatasetParseError(Exception):
+    """A blob could not be parsed into a dataset (bad format / options)."""
+
+
 async def import_file(
     db: AsyncSession, req: DatasetImportRequest, owner: User
 ) -> DatasetFile:
     stamp = int(time.time() * 1000)
-    columns, rows, row_count = parse_blob(
-        blob_store.path_for(req.sha), req.file_name, req.parse_options, stamp
-    )
+    try:
+        columns, rows, row_count = parse_blob(
+            blob_store.path_for(req.sha), req.file_name, req.parse_options, stamp
+        )
+    except Exception as e:  # noqa: BLE001 — normalize parser/DuckDB errors
+        raise DatasetParseError(str(e)) from e
     data_sha = await _write_rows_blob(rows)
     node = DatasetFile(
         project_uid=req.project_uid,
@@ -123,12 +130,15 @@ async def reimport_file(
     if not node.raw_sha:
         raise ValueError("no raw file to re-parse")
     stamp = int(time.time() * 1000)
-    columns, rows, row_count = parse_blob(
-        blob_store.path_for(node.raw_sha),
-        node.raw_file_name or "data.csv",
-        parse_options,
-        stamp,
-    )
+    try:
+        columns, rows, row_count = parse_blob(
+            blob_store.path_for(node.raw_sha),
+            node.raw_file_name or "data.csv",
+            parse_options,
+            stamp,
+        )
+    except Exception as e:  # noqa: BLE001
+        raise DatasetParseError(str(e)) from e
     old_data_sha = node.data_sha
     node.columns = columns
     node.row_count = row_count

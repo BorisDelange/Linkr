@@ -73,7 +73,17 @@ async def import_dataset(
     db: AsyncSession = Depends(get_db),
 ):
     await _require_project_access(db, body.project_uid, user, "editor")
-    return await dataset_service.import_file(db, body, user)
+    if not blob_store.exists(body.sha):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "Uploaded file not found — the upload may not have completed.",
+        )
+    try:
+        return await dataset_service.import_file(db, body, user)
+    except dataset_service.DatasetParseError as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Could not parse the file: {e}"
+        )
 
 
 @router.get("/{file_id}", response_model=DatasetFileResponse)
@@ -116,6 +126,10 @@ async def reimport_dataset(
     node = await _load_file(db, file_id, user, "editor")
     try:
         return await dataset_service.reimport_file(db, node, body.parse_options)
+    except dataset_service.DatasetParseError as e:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Could not parse the file: {e}"
+        )
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
