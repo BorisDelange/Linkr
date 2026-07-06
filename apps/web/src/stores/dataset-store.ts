@@ -52,6 +52,8 @@ interface DatasetState {
   importData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[]) => void
   createFileWithData: (name: string, parentId: string | null, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions, rawFile?: { blob: Blob; fileName: string }) => Promise<string>
   reimportData: (fileId: string, columns: DatasetColumn[], rows: Record<string, unknown>[], parseOptions?: import('@/types').DatasetParseOptions) => Promise<void>
+  /** Insert a file already created + persisted server-side (server-mode import) into state. */
+  addImportedFile: (node: DatasetFile) => void
 
   saveFile: (id: string) => Promise<void>
   revertFile: (id: string) => void
@@ -725,6 +727,15 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     }))
     await storage.datasetFiles.update(fileId, { columns, rowCount: rows.length, parseOptions, updatedAt: new Date().toISOString() })
     await storage.datasetData.save({ datasetFileId: fileId, rows })
+  },
+
+  addImportedFile: (node) => {
+    set((s) => ({
+      files: s.files.some((f) => f.id === node.id) ? s.files : [...s.files, node],
+      selectedFileId: node.id,
+      openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
+      _dirtyVersion: s._dirtyVersion + 1,
+    }))
   },
 
   saveFile: async (id) => {

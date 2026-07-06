@@ -71,6 +71,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   const [parsed, setParsed] = useState<ParsedData | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -91,6 +92,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       setParsed(null)
       setError(null)
       setLoading(false)
+      setImporting(false)
       setDelimiter('auto')
       setSkipRows(0)
       setEncoding('UTF-8')
@@ -334,35 +336,44 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     // Build raw file blob for re-import support
     const rawFile = { blob: file, fileName: file.name }
 
-    // Close dialog immediately to avoid re-render showing conflict banner
-    onOpenChange(false)
-
     // Server mode: upload the raw file and let the backend parse it (DuckDB),
     // rather than persisting the browser-parsed rows. The preview above still
-    // used the browser parse for a fast UX.
+    // used the browser parse for a fast UX. Keep the dialog open until success
+    // so any error is shown in place.
     if (isServerMode()) {
       const projectUid = store.activeProjectUid ?? ''
-      if (mode === 'overwrite' && existingFile) {
-        const { getStorage } = await import('@/lib/storage')
-        await getStorage().datasetFiles.delete(existingFile.id)
-      }
       const name =
         mode === 'copy'
           ? getUniqueName(parsed.fileName, parentId, store.files)
           : parsed.fileName
-      const created = await importDatasetOnServer({
-        projectUid,
-        name,
-        parentId,
-        file,
-        fileName: file.name,
-        parseOptions: parseOpts,
-      })
-      await store.loadProjectDatasets(projectUid)
-      store.openFile(created.id)
-      store.selectFile(created.id)
+      setImporting(true)
+      setError(null)
+      try {
+        if (mode === 'overwrite' && existingFile) {
+          const { getStorage } = await import('@/lib/storage')
+          await getStorage().datasetFiles.delete(existingFile.id)
+          store.deleteNode(existingFile.id)
+        }
+        const created = await importDatasetOnServer({
+          projectUid,
+          name,
+          parentId,
+          file,
+          fileName: file.name,
+          parseOptions: parseOpts,
+        })
+        store.addImportedFile(created)
+        onOpenChange(false)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+      } finally {
+        setImporting(false)
+      }
       return
     }
+
+    // Close dialog immediately to avoid re-render showing conflict banner
+    onOpenChange(false)
 
     if (mode === 'overwrite' && existingFile) {
       // Sequential IDB writes via reimportData (awaited)
@@ -379,7 +390,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       // Single atomic method — no race conditions
       await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
     }
-  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader, selectedSheet])
+  }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader, selectedSheet, t])
 
   const handleImport = useCallback(() => {
     if (!parsed) return
@@ -622,20 +633,21 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         )}
 
         <DialogFooter className="mt-2">
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" onClick={handleClose} disabled={importing}>
             {t('common.cancel')}
           </Button>
           {parsed && !existingFile && (
-            <Button onClick={handleImport} size="default">
+            <Button onClick={handleImport} size="default" disabled={importing}>
+              {importing && <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />}
               {t('datasets.import')} ({parsed.totalRows.toLocaleString()} {t('datasets.rows')})
             </Button>
           )}
           {parsed && existingFile && (
             <>
-              <Button variant="outline" onClick={() => doImport('copy')} size="default">
+              <Button variant="outline" onClick={() => doImport('copy')} size="default" disabled={importing}>
                 {t('datasets.upload_import_copy')}
               </Button>
-              <Button onClick={() => doImport('overwrite')} size="default">
+              <Button onClick={() => doImport('overwrite')} size="default" disabled={importing}>
                 {t('datasets.upload_overwrite')}
               </Button>
             </>

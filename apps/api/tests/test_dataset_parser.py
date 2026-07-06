@@ -63,6 +63,16 @@ def test_parse_csv_custom_delimiter(tmp_path):
     assert rows[0]["col-1-0"] == 1
 
 
+def test_csv_renamed_as_xlsx_gives_clear_error(tmp_path):
+    # A CSV renamed to .xlsx is a common trap — expect a helpful ValueError,
+    # not DuckDB's cryptic "Failed to open zip".
+    import pytest
+
+    p = _write(tmp_path, "fake.xlsx", "a,b\n1,2\n")
+    with pytest.raises(ValueError, match="not a valid Excel"):
+        parse_blob(p, "fake.xlsx", {}, 1)
+
+
 def test_parse_empty_cell_is_none(tmp_path):
     p = _write(tmp_path, "d.csv", "a,b\nx,\n")
     columns, rows, _ = parse_blob(p, "d.csv", {}, stamp=1)

@@ -35,6 +35,15 @@ def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict)
         return con.sql(f"SELECT * FROM read_parquet('{p}')")
 
     if ext in _EXCEL_EXT:
+        # A real .xlsx is a zip starting with "PK". Files renamed from CSV are a
+        # common trap — give a clear message instead of DuckDB's "open zip" error.
+        with open(p, "rb") as fh:
+            if fh.read(2) != b"PK":
+                raise ValueError(
+                    f"'{name}' has an .xlsx extension but is not a valid Excel "
+                    "file (it looks like a CSV or text file renamed to .xlsx). "
+                    "Rename it to .csv and import again."
+                )
         con.execute("INSTALL excel; LOAD excel;")
         sheet = opts.get("sheet")
         sheet_arg = f", sheet='{sheet}'" if sheet else ""
