@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, Info } from 'lucide-react'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -125,6 +126,18 @@ export function DashboardSettingsDialog({
 
   const bulkCount = bulkAssignScope === 'all' ? allDashboardWidgets.length : currentTabWidgets.length
   const currentTabName = currentTabId ? dashboardTabs.find(tab => tab.id === currentTabId)?.name ?? '' : ''
+
+  const settings = useSaveForm({
+    current: { showWidgetTitles, defaultDatasetFileId, widgetSpacing, reloadWidgetsOnTabSwitch, fitToHeight },
+    baseline: {
+      showWidgetTitles: dashboard.showWidgetTitles ?? true,
+      defaultDatasetFileId: dashboard.defaultDatasetFileId ?? null,
+      widgetSpacing: dashboard.widgetSpacing ?? 12,
+      reloadWidgetsOnTabSwitch: dashboard.reloadWidgetsOnTabSwitch ?? false,
+      fitToHeight: dashboard.fitToHeight !== false,
+    },
+    onSave: handleSave,
+  })
 
   return (
     <>
@@ -256,7 +269,7 @@ export function DashboardSettingsDialog({
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave}>
+          <Button size="sm" onClick={settings.save} disabled={!settings.canSaveNow}>
             {t('common.save')}
           </Button>
         </DialogFooter>

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { useSaveForm } from '@/hooks/use-save-form'
 
 interface PatientDataSettingsDialogProps {
   open: boolean
@@ -40,6 +41,12 @@ export function PatientDataSettingsDialog({
     onOpenChange(false)
   }
 
+  const { canSaveNow, save } = useSaveForm({
+    current: localShowTitles,
+    baseline: showWidgetTitles[projectUid] ?? true,
+    onSave: handleSave,
+  })
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -62,7 +69,7 @@ export function PatientDataSettingsDialog({
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave}>
+          <Button size="sm" onClick={save} disabled={!canSaveNow}>
             {t('common.save')}
           </Button>
         </DialogFooter>
