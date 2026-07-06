@@ -202,9 +202,10 @@ export function RolesTab() {
             {groups.map((group) => (
               <Fragment key={group.resource}>
                 <tr className="border-b bg-muted/20">
-                  <td colSpan={roles.length + 1} className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  <td className="sticky left-0 z-10 w-56 bg-muted/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {t(`settings.resource_${group.resource}`, group.resource)}
                   </td>
+                  <td colSpan={roles.length} className="bg-muted/20" />
                 </tr>
                 {group.actions.map((action) => {
                   const permission = `${group.resource}:${action}`
