@@ -3,11 +3,18 @@ import { useTranslation } from 'react-i18next'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useSaveForm } from '@/hooks/use-save-form'
-import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail } from 'lucide-react'
+import { Plus, Pencil, Trash2, Building2, MapPin, Globe, Mail, MoreHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -105,10 +112,13 @@ export function OrganizationsTab() {
     canSave: !!form.name.trim(),
   })
 
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+
   const handleDelete = async () => {
     if (!deleteId) return
     await deleteOrganization(deleteId)
     setDeleteId(null)
+    setDeleteConfirm('')
   }
 
   const deleteOrg = deleteId ? _organizationsRaw.find((o) => o.id === deleteId) : null
@@ -186,23 +196,28 @@ export function OrganizationsTab() {
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground"
-                      onClick={() => handleOpenEdit(org.id)}
-                    >
-                      <Pencil size={14} />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                      onClick={() => setDeleteId(org.id)}
-                    >
-                      <Trash2 size={14} />
-                    </Button>
+                  <div className="flex shrink-0">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
+                          <MoreHorizontal size={16} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleOpenEdit(org.id)}>
+                          <Pencil size={14} />
+                          {t('common.edit')}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setDeleteId(org.id)}
+                        >
+                          <Trash2 size={14} />
+                          {t('common.delete')}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </CardContent>
               </Card>
@@ -313,25 +328,42 @@ export function OrganizationsTab() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete confirmation */}
-      <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
+      {/* Delete confirmation — type the name to confirm */}
+      <AlertDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) { setDeleteId(null); setDeleteConfirm('') } }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t('settings.delete_organization')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteLinkedCount > 0
-                ? t('settings.delete_organization_has_workspaces', { count: deleteLinkedCount })
-                : t('settings.delete_organization_confirm')}
+            <AlertDialogDescription asChild>
+              <div className="space-y-3">
+                {deleteLinkedCount > 0 && (
+                  <span className="block">
+                    {t('settings.delete_organization_has_workspaces', { count: deleteLinkedCount })}
+                    <br />
+                    {t('settings.delete_organization_removes_link')}
+                  </span>
+                )}
+                <span className="block text-sm">
+                  {t('settings.delete_organization_confirm')}{' '}
+                  <span className="font-semibold text-foreground">{deleteOrg?.name}</span>
+                </span>
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {deleteOrg && (
-            <p className="text-sm font-medium">{deleteOrg.name}</p>
-          )}
+          <Input
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+            placeholder={deleteOrg?.name}
+            autoFocus
+          />
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              className="bg-destructive text-white hover:bg-destructive/90"
+              disabled={deleteConfirm !== (deleteOrg?.name ?? '')}
+              className="bg-destructive text-white hover:bg-destructive/90 disabled:opacity-50"
             >
               {t('settings.delete_organization')}
             </AlertDialogAction>
