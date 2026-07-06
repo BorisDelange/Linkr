@@ -87,7 +87,7 @@ export function RenameDialog({
             >
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <Button type="submit" disabled={!name.trim() || name.trim() === currentName}>
               {t('common.save')}
             </Button>
           </DialogFooter>

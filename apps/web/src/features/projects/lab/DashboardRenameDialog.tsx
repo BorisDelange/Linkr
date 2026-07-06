@@ -45,7 +45,7 @@ export function DashboardRenameDialog({ item, onOpenChange }: { item: Dashboard;
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!name.trim()}>
+          <Button size="sm" onClick={handleSave} disabled={!name.trim() || name.trim() === localized(item.name, language)}>
             {t('common.save')}
           </Button>
         </DialogFooter>

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
+import { useSaveForm } from '@/hooks/use-save-form'
 import type { Workspace } from '@/types'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,16 +39,28 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
     }
   }, [open, workspace, language])
 
-  const canSubmit = name.trim().length > 0
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!canSubmit || !workspace) return
+  const doSave = async () => {
+    if (!workspace) return
     await updateWorkspace(workspace.id, {
       name: setLocalized(workspace.name, language, name.trim()),
       description: setLocalized(workspace.description, language, description.trim()),
     })
     onOpenChange(false)
+  }
+
+  const { canSaveNow, save } = useSaveForm({
+    current: { name, description },
+    baseline: {
+      name: localized(workspace?.name, language),
+      description: localized(workspace?.description, language),
+    },
+    onSave: doSave,
+    canSave: name.trim().length > 0,
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    save()
   }
 
   return (
@@ -82,7 +95,7 @@ export function EditWorkspaceDialog({ open, onOpenChange, workspace }: EditWorks
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t('common.cancel')}
             </Button>
-            <Button type="submit" disabled={!canSubmit}>
+            <Button type="submit" disabled={!canSaveNow}>
               {t('common.save')}
             </Button>
           </DialogFooter>

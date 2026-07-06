@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { useAppStore } from '@/stores/app-store'
+import { useSaveForm } from '@/hooks/use-save-form'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -55,15 +56,14 @@ export function ProfilePage() {
   // Re-sync the draft if the stored user changes from elsewhere.
   useEffect(() => { setDraft(accountDraftFrom(user)) }, [user?.firstName, user?.lastName, user?.affiliation, user?.profession, user?.orcid])
 
-  const accountDirty =
-    draft.firstName !== (user?.firstName ?? '') ||
-    draft.lastName !== (user?.lastName ?? '') ||
-    draft.affiliation !== (user?.affiliation ?? '') ||
-    draft.profession !== (user?.profession ?? '') ||
-    draft.orcid !== (user?.orcid ?? '')
-
   const setField = (key: keyof AccountDraft, value: string) => setDraft((d) => ({ ...d, [key]: value }))
   const saveAccount = () => updateUser({ ...draft })
+
+  const account = useSaveForm({
+    current: draft,
+    baseline: accountDraftFrom(user),
+    onSave: saveAccount,
+  })
 
   const currentTab = searchParams.get('tab') ?? 'profile'
 
@@ -172,7 +172,7 @@ export function ProfilePage() {
                     <Lock size={14} />
                     {t('profile.change_password')}
                   </Button>
-                  <Button onClick={saveAccount} disabled={!accountDirty}>
+                  <Button onClick={account.save} disabled={!account.canSaveNow}>
                     {t('common.save')}
                   </Button>
                 </div>
