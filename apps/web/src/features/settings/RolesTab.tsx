@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Info, Plus, Shield, Trash2 } from 'lucide-react'
+import { CheckCheck, Info, Plus, Shield, SquareX, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
@@ -172,14 +172,13 @@ export function RolesTab() {
                         </Button>
                       )}
                     </div>
-                    <div className="flex items-center gap-1.5 text-[11px] font-normal text-muted-foreground">
-                      <button type="button" className="underline hover:text-foreground" onClick={() => setAllForRole(role, true)}>
-                        {t('common.select_all')}
-                      </button>
-                      <span>/</span>
-                      <button type="button" className="underline hover:text-foreground" onClick={() => setAllForRole(role, false)}>
-                        {t('common.select_none')}
-                      </button>
+                    <div className="flex items-center gap-0.5 text-muted-foreground">
+                      <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, true)} title={t('common.select_all')}>
+                        <CheckCheck size={13} />
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, false)} title={t('common.select_none')}>
+                        <SquareX size={13} />
+                      </Button>
                     </div>
                   </div>
                 </th>
