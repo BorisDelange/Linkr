@@ -1,6 +1,6 @@
 from app.models.user import User
 from app.models.project import Project
-from app.models.dataset import Dataset
+from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.plugin import Plugin
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -12,7 +12,8 @@ from app.models.role import Role
 __all__ = [
     "User",
     "Project",
-    "Dataset",
+    "DatasetFile",
+    "DatasetAnalysis",
     "Plugin",
     "Workspace",
     "WorkspaceMember",

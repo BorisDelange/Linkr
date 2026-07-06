@@ -11,6 +11,7 @@ from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
+from app.api.v1.routes.datasets import router as datasets_router
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.organizations import router as organizations_router
 from app.api.v1.routes.projects import router as projects_router
@@ -65,3 +66,4 @@ app.include_router(wiki_pages_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
+app.include_router(datasets_router, prefix="/api/v1")
