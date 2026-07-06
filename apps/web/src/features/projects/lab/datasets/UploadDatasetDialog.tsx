@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { buildColumns } from '@/lib/dataset-utils'
+import { isServerMode } from '@/lib/api-client'
+import { importDatasetOnServer } from '@/lib/api/datasets'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
 interface UploadDatasetDialogProps {
@@ -334,6 +336,33 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
     // Close dialog immediately to avoid re-render showing conflict banner
     onOpenChange(false)
+
+    // Server mode: upload the raw file and let the backend parse it (DuckDB),
+    // rather than persisting the browser-parsed rows. The preview above still
+    // used the browser parse for a fast UX.
+    if (isServerMode()) {
+      const projectUid = store.activeProjectUid ?? ''
+      if (mode === 'overwrite' && existingFile) {
+        const { getStorage } = await import('@/lib/storage')
+        await getStorage().datasetFiles.delete(existingFile.id)
+      }
+      const name =
+        mode === 'copy'
+          ? getUniqueName(parsed.fileName, parentId, store.files)
+          : parsed.fileName
+      const created = await importDatasetOnServer({
+        projectUid,
+        name,
+        parentId,
+        file,
+        fileName: file.name,
+        parseOptions: parseOpts,
+      })
+      await store.loadProjectDatasets(projectUid)
+      store.openFile(created.id)
+      store.selectFile(created.id)
+      return
+    }
 
     if (mode === 'overwrite' && existingFile) {
       // Sequential IDB writes via reimportData (awaited)

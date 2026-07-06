@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,7 +20,7 @@ from app.schemas.dataset import (
     DatasetImportRequest,
     DatasetReimportRequest,
 )
-from app.services import dataset_service
+from app.services import blob_store, dataset_service
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -129,6 +130,24 @@ async def get_dataset_data(
 ):
     node = await _load_file(db, file_id, user, "viewer")
     return DatasetDataResponse(rows=await dataset_service.read_rows(node))
+
+
+@router.get("/{file_id}/raw")
+async def get_dataset_raw(
+    file_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The original uploaded file, for re-parsing with new options."""
+    node = await _load_file(db, file_id, user, "viewer")
+    if not node.raw_sha or not blob_store.exists(node.raw_sha):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No raw file")
+    data = await blob_store.read_bytes(node.raw_sha)
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"x-file-name": node.raw_file_name or "data"},
+    )
 
 
 @router.put("/{file_id}/data", status_code=status.HTTP_204_NO_CONTENT)

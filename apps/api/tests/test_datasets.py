@@ -87,6 +87,20 @@ async def test_reimport_reparses_raw_file(client):
     assert r.json()["rowCount"] == 3
 
 
+async def test_raw_file_downloadable_after_import(client):
+    headers = await _admin_headers(client)
+    _, project_uid = await _project(client, headers)
+    csv = b"a,b\n1,2\n"
+    sha, fn = await _upload_csv(client, headers, csv)
+    ds = (await client.post(f"{API}/datasets/import", headers=headers,
+          json={"projectUid": project_uid, "name": "d", "sha": sha, "fileName": fn})).json()
+
+    r = await client.get(f"{API}/datasets/{ds['id']}/raw", headers=headers)
+    assert r.status_code == 200
+    assert r.content == csv
+    assert r.headers["x-file-name"] == "d.csv"
+
+
 async def test_write_and_read_rows(client):
     headers = await _admin_headers(client)
     _, project_uid = await _project(client, headers)
