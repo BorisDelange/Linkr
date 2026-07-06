@@ -46,6 +46,22 @@ async def test_organization_crud(client):
     ).status_code == 404
 
 
+async def test_multilingual_fields_round_trip(client):
+    headers = await _admin_headers(client)
+    r = await client.post(
+        f"{API}/organizations",
+        headers=headers,
+        json={
+            "name": {"en": "Rennes Hospital", "fr": "CHU de Rennes"},
+            "location": {"en": "Rennes", "fr": "Rennes"},
+        },
+    )
+    assert r.status_code == 201
+    body = r.json()
+    assert body["name"] == {"en": "Rennes Hospital", "fr": "CHU de Rennes"}
+    assert body["location"] == {"en": "Rennes", "fr": "Rennes"}
+
+
 async def test_client_supplied_id_kept(client):
     headers = await _admin_headers(client)
     r = await client.post(

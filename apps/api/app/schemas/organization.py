@@ -3,40 +3,44 @@ from datetime import datetime
 from app.schemas.base import CamelModel
 
 
+# Multilingual fields accept a LocalizedString ({"en": ...}) or a legacy string.
+LocalizedOrStr = dict[str, str] | str
+
+
 class OrganizationCreate(CamelModel):
     id: str | None = None  # client supplies crypto.randomUUID()
-    name: str
+    name: LocalizedOrStr
     type: str | None = None
-    location: str | None = None
-    country: str | None = None
+    location: LocalizedOrStr | None = None
+    country: LocalizedOrStr | None = None
     website: str | None = None
     email: str | None = None
-    custom_type: str | None = None
+    custom_type: LocalizedOrStr | None = None
     reference_id: str | None = None
     custom_fields: dict[str, str] | None = None
 
 
 class OrganizationUpdate(CamelModel):
-    name: str | None = None
+    name: LocalizedOrStr | None = None
     type: str | None = None
-    location: str | None = None
-    country: str | None = None
+    location: LocalizedOrStr | None = None
+    country: LocalizedOrStr | None = None
     website: str | None = None
     email: str | None = None
-    custom_type: str | None = None
+    custom_type: LocalizedOrStr | None = None
     reference_id: str | None = None
     custom_fields: dict[str, str] | None = None
 
 
 class OrganizationResponse(CamelModel):
     id: str
-    name: str
+    name: LocalizedOrStr
     type: str | None = None
-    location: str | None = None
-    country: str | None = None
+    location: LocalizedOrStr | None = None
+    country: LocalizedOrStr | None = None
     website: str | None = None
     email: str | None = None
-    custom_type: str | None = None
+    custom_type: LocalizedOrStr | None = None
     reference_id: str | None = None
     custom_fields: dict[str, str] | None = None
     created_at: datetime
