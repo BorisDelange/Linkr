@@ -502,7 +502,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     })),
 
   loadFileData: async (fileId) => {
-    // Skip IDB load if data is already in memory (e.g. just imported)
+    // Skip load if data is already in memory (e.g. just imported)
     if (_loadedData.has(fileId)) return
     try {
       const storage = getStorage()
@@ -518,6 +518,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       _loadedData.set(fileId, [])
       _savedDataSnapshot.set(fileId, '[]')
     }
+    // Rows live in a module-level Map, not Zustand state, so bump the version to
+    // re-render subscribers now that the (async) fetch has populated the cache.
+    set((s) => ({ _dirtyVersion: s._dirtyVersion + 1 }))
   },
 
   getFileRows: (fileId) => {
