@@ -372,23 +372,31 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
       return
     }
 
-    // Close dialog immediately to avoid re-render showing conflict banner
-    onOpenChange(false)
-
-    if (mode === 'overwrite' && existingFile) {
-      // Sequential IDB writes via reimportData (awaited)
-      await store.reimportData(existingFile.id, parsed.columns, parsed.rows, parseOpts)
-      store.openFile(existingFile.id)
-      store.selectFile(existingFile.id)
-      // Save raw file for re-import
-      const { getStorage } = await import('@/lib/storage')
-      await getStorage().datasetRawFiles.save({ datasetFileId: existingFile.id, ...rawFile })
-    } else {
-      const fileName = mode === 'copy'
-        ? getUniqueName(parsed.fileName, parentId, store.files)
-        : parsed.fileName
-      // Single atomic method — no race conditions
-      await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
+    // Local (client-only) mode: persist to IndexedDB. Keep the dialog open on
+    // error so an IDB write failure is shown rather than lost silently.
+    setImporting(true)
+    setError(null)
+    try {
+      if (mode === 'overwrite' && existingFile) {
+        // Sequential IDB writes via reimportData (awaited)
+        await store.reimportData(existingFile.id, parsed.columns, parsed.rows, parseOpts)
+        store.openFile(existingFile.id)
+        store.selectFile(existingFile.id)
+        // Save raw file for re-import
+        const { getStorage } = await import('@/lib/storage')
+        await getStorage().datasetRawFiles.save({ datasetFileId: existingFile.id, ...rawFile })
+      } else {
+        const fileName = mode === 'copy'
+          ? getUniqueName(parsed.fileName, parentId, store.files)
+          : parsed.fileName
+        // Single atomic method — no race conditions
+        await store.createFileWithData(fileName, parentId, parsed.columns, parsed.rows, parseOpts, rawFile)
+      }
+      onOpenChange(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+    } finally {
+      setImporting(false)
     }
   }, [parsed, file, parentId, onOpenChange, existingFile, delimiter, encoding, skipRows, hasHeader, selectedSheet, t])
 
