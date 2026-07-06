@@ -157,7 +157,7 @@ export function OrganizationsTab() {
           </CardContent>
         </Card>
       ) : (
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
           {_organizationsRaw.map((org) => {
             const linkedCount = getLinkedWorkspaceCount(org.id)
             return (
