@@ -4,6 +4,7 @@ import { CheckCheck, Info, Plus, Shield, SquareX, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
+import { useSaveForm } from '@/hooks/use-save-form'
 import type { Permission, Role } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -30,6 +31,21 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+/** Resources that gate the account instance-wide rather than a single workspace. */
+const GLOBAL_RESOURCES = new Set(['users', 'roles', 'settings'])
+
+const resourceOf = (permission: Permission) => permission.split(':')[0]
+const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
+
+type Draft = Record<string, Permission[]>
 
 /** Group "resource:action" strings by resource, preserving catalogue order. */
 function groupByResource(perms: Permission[]): { resource: string; actions: string[] }[] {
@@ -46,22 +62,139 @@ function groupByResource(perms: Permission[]): { resource: string; actions: stri
   return order.map((resource) => ({ resource, actions: byResource.get(resource)! }))
 }
 
+/** Built-in roles first, most→least privileged; custom roles after. */
+function sortRoles(roles: Role[]): Role[] {
+  const rank = new Map(['admin', 'owner', 'editor', 'user', 'viewer'].map((n, i) => [n, i]))
+  const rankOf = (r: Role) => (rank.has(r.name) ? rank.get(r.name)! : Number.MAX_SAFE_INTEGER)
+  return [...roles].sort((a, b) => rankOf(a) - rankOf(b))
+}
+
+interface RoleMatrixProps {
+  title: string
+  description: string
+  roles: Role[]
+  /** Permission catalogue restricted to this section's scope. */
+  catalogue: Permission[]
+  draft: Draft
+  onToggle: (roleId: string, permission: Permission, checked: boolean) => void
+  onSetAll: (roleId: string, permissions: Permission[]) => void
+  onDelete: (role: Role) => void
+}
+
+function RoleMatrix({ title, description, roles, catalogue, draft, onToggle, onSetAll, onDelete }: RoleMatrixProps) {
+  const { t, i18n } = useTranslation()
+  const groups = useMemo(() => groupByResource(catalogue), [catalogue])
+
+  if (roles.length === 0) return null
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <h4 className="text-sm font-medium text-foreground">{title}</h4>
+        <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>
+      </div>
+      <TooltipProvider>
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full table-fixed border-collapse text-sm">
+            <thead>
+              <tr className="border-b bg-muted/40">
+                <th className="sticky left-0 z-10 w-56 bg-muted/40 px-3 py-2 text-left font-medium">
+                  {t('settings.permission')}
+                </th>
+                {roles.map((role) => {
+                  const displayName = localized(role.label, i18n.language) || role.name
+                  return (
+                    <th key={role.id} className="w-28 px-2 py-2 align-top font-medium">
+                      <div className="flex flex-col items-center gap-1">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="block w-full truncate text-center">{displayName}</span>
+                          </TooltipTrigger>
+                          <TooltipContent>{displayName}</TooltipContent>
+                        </Tooltip>
+                        <div className="flex h-6 items-center">
+                          {role.isSystem ? (
+                            <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
+                          ) : (
+                            <Button variant="ghost" size="icon-xs" onClick={() => onDelete(role)} title={t('common.delete')}>
+                              <Trash2 size={12} />
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-0.5 text-muted-foreground">
+                          <Button variant="ghost" size="icon-xs" onClick={() => onSetAll(role.id, [...catalogue])} title={t('common.select_all')}>
+                            <CheckCheck size={13} />
+                          </Button>
+                          <Button variant="ghost" size="icon-xs" onClick={() => onSetAll(role.id, [])} title={t('common.select_none')}>
+                            <SquareX size={13} />
+                          </Button>
+                        </div>
+                      </div>
+                    </th>
+                  )
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {groups.map((group) => (
+                <Fragment key={group.resource}>
+                  <tr className="border-b bg-muted/20">
+                    <td className="sticky left-0 z-10 w-56 bg-muted/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {t(`settings.resource_${group.resource}`, group.resource)}
+                    </td>
+                    <td colSpan={roles.length} className="bg-muted/20" />
+                  </tr>
+                  {group.actions.map((action) => {
+                    const permission = `${group.resource}:${action}`
+                    return (
+                      <tr key={permission} className="border-b last:border-0">
+                        <td className="sticky left-0 z-10 bg-background px-3 py-1.5 pl-6 text-muted-foreground">
+                          {t(`settings.action_${action}`, action)}
+                        </td>
+                        {roles.map((role) => (
+                          <td key={role.id} className="px-3 py-1.5 text-center">
+                            <Checkbox
+                              checked={(draft[role.id] ?? []).includes(permission)}
+                              onCheckedChange={(v) => onToggle(role.id, permission, v === true)}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    )
+                  })}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </TooltipProvider>
+    </div>
+  )
+}
+
 export function RolesTab() {
   const { t, i18n } = useTranslation()
   const [roles, setRoles] = useState<Role[]>([])
   const [catalogue, setCatalogue] = useState<Permission[]>([])
+  const [draft, setDraft] = useState<Draft>({})
   const [addOpen, setAddOpen] = useState(false)
   const [newName, setNewName] = useState('')
   const [newLabel, setNewLabel] = useState('')
+  const [newScope, setNewScope] = useState<'workspace' | 'global'>('workspace')
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
+
+  const applyRoles = useCallback((r: Role[]) => {
+    setRoles(r)
+    setDraft(Object.fromEntries(r.map((role) => [role.id, [...role.permissions]])))
+  }, [])
 
   const load = useCallback(async () => {
     const storage = getStorage()
     const [r, perms] = await Promise.all([storage.roles.getAll(), storage.roles.getPermissions()])
-    setRoles(r)
+    applyRoles(r)
     setCatalogue(perms)
-  }, [])
+  }, [applyRoles])
 
   useEffect(() => {
     if (!isServerMode()) return
@@ -69,19 +202,38 @@ export function RolesTab() {
     void (async () => {
       const storage = getStorage()
       const [r, perms] = await Promise.all([storage.roles.getAll(), storage.roles.getPermissions()])
-      if (!cancelled) { setRoles(r); setCatalogue(perms) }
+      if (!cancelled) {
+        setRoles(r)
+        setDraft(Object.fromEntries(r.map((role) => [role.id, [...role.permissions]])))
+        setCatalogue(perms)
+      }
     })()
     return () => { cancelled = true }
   }, [])
 
-  const groups = useMemo(() => groupByResource(catalogue), [catalogue])
+  const baseline = useMemo(
+    () => Object.fromEntries(roles.map((r) => [r.id, r.permissions])),
+    [roles],
+  )
 
-  // Show built-in roles first, most→least privileged; custom roles after.
-  const sortedRoles = useMemo(() => {
-    const rank = new Map(['admin', 'owner', 'editor', 'user', 'viewer'].map((n, i) => [n, i]))
-    const rankOf = (r: Role) => (rank.has(r.name) ? rank.get(r.name)! : Number.MAX_SAFE_INTEGER)
-    return [...roles].sort((a, b) => rankOf(a) - rankOf(b))
-  }, [roles])
+  const saveChanges = useCallback(async () => {
+    const storage = getStorage()
+    const changed = roles.filter(
+      (r) => JSON.stringify([...(draft[r.id] ?? [])].sort()) !== JSON.stringify([...r.permissions].sort()),
+    )
+    try {
+      await Promise.all(changed.map((r) => storage.roles.update(r.id, { permissions: draft[r.id] ?? [] })))
+    } finally {
+      await load()
+    }
+  }, [roles, draft, load])
+
+  const form = useSaveForm({ current: draft, baseline, onSave: saveChanges })
+
+  const workspaceRoles = useMemo(() => sortRoles(roles.filter((r) => r.scope === 'workspace')), [roles])
+  const globalRoles = useMemo(() => sortRoles(roles.filter((r) => r.scope === 'global')), [roles])
+  const workspaceCatalogue = useMemo(() => catalogue.filter((p) => !isGlobalPermission(p)), [catalogue])
+  const globalCatalogue = useMemo(() => catalogue.filter(isGlobalPermission), [catalogue])
 
   if (!isServerMode()) {
     return (
@@ -96,24 +248,20 @@ export function RolesTab() {
     )
   }
 
-  // Optimistically reflect a new permission set for a role, then persist it.
-  const persistPermissions = async (role: Role, permissions: Permission[]) => {
-    setRoles((rs) => rs.map((r) => (r.id === role.id ? { ...r, permissions } : r)))
-    try {
-      await getStorage().roles.update(role.id, { permissions })
-    } catch {
-      await load()
-    }
-  }
+  const toggle = (roleId: string, permission: Permission, checked: boolean) =>
+    setDraft((d) => ({
+      ...d,
+      [roleId]: checked
+        ? [...(d[roleId] ?? []), permission]
+        : (d[roleId] ?? []).filter((p) => p !== permission),
+    }))
 
-  const togglePermission = (role: Role, permission: Permission, checked: boolean) =>
-    persistPermissions(
-      role,
-      checked ? [...role.permissions, permission] : role.permissions.filter((p) => p !== permission),
-    )
-
-  const setAllForRole = (role: Role, all: boolean) =>
-    persistPermissions(role, all ? [...catalogue] : [])
+  // Replace only this section's permissions for the role, preserving the other scope's.
+  const setAll = (roleId: string, sectionPermissions: Permission[], next: Permission[]) =>
+    setDraft((d) => {
+      const kept = (d[roleId] ?? []).filter((p) => !sectionPermissions.includes(p))
+      return { ...d, [roleId]: [...kept, ...next] }
+    })
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -123,12 +271,13 @@ export function RolesTab() {
       await getStorage().roles.create({
         name,
         label: newLabel.trim() ? { en: newLabel.trim() } : {},
-        scope: 'workspace',
+        scope: newScope,
         permissions: [],
       })
       setAddOpen(false)
       setNewName('')
       setNewLabel('')
+      setNewScope('workspace')
       setError(null)
       await load()
     } catch (err) {
@@ -148,96 +297,44 @@ export function RolesTab() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-sm font-medium text-foreground">{t('settings.roles_title')}</h3>
           <p className="mt-0.5 text-xs text-muted-foreground">{t('settings.roles_description')}</p>
         </div>
-        <Button size="sm" onClick={() => { setError(null); setAddOpen(true) }}>
-          <Plus size={14} />
-          {t('settings.add_role')}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => { setError(null); setAddOpen(true) }}>
+            <Plus size={14} />
+            {t('settings.add_role')}
+          </Button>
+          <Button size="sm" onClick={form.save} disabled={!form.canSaveNow}>
+            {t('common.save')}
+          </Button>
+        </div>
       </div>
 
-      <TooltipProvider>
-      <div className="overflow-x-auto rounded-lg border">
-        <table className="w-full table-fixed border-collapse text-sm">
-          <thead>
-            <tr className="border-b bg-muted/40">
-              <th className="sticky left-0 z-10 w-56 bg-muted/40 px-3 py-2 text-left font-medium">
-                {t('settings.permission')}
-              </th>
-              {sortedRoles.map((role) => {
-                const displayName = localized(role.label, i18n.language) || role.name
-                return (
-                  <th key={role.id} className="w-28 px-2 py-2 align-top font-medium">
-                    <div className="flex flex-col items-center gap-1">
-                      {/* Line 1: name, truncated with a full-text tooltip on hover. */}
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="block w-full truncate text-center">{displayName}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>{displayName}</TooltipContent>
-                      </Tooltip>
-                      {/* Line 2: system badge or delete action. */}
-                      <div className="flex h-6 items-center">
-                        {role.isSystem ? (
-                          <Badge variant="outline" className="text-[10px]">{t('settings.role_system')}</Badge>
-                        ) : (
-                          <Button variant="ghost" size="icon-xs" onClick={() => setDeleteTarget(role)} title={t('common.delete')}>
-                            <Trash2 size={12} />
-                          </Button>
-                        )}
-                      </div>
-                      {/* Line 3: select-all / select-none. */}
-                      <div className="flex items-center gap-0.5 text-muted-foreground">
-                        <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, true)} title={t('common.select_all')}>
-                          <CheckCheck size={13} />
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" onClick={() => setAllForRole(role, false)} title={t('common.select_none')}>
-                          <SquareX size={13} />
-                        </Button>
-                      </div>
-                    </div>
-                  </th>
-                )
-              })}
-            </tr>
-          </thead>
-          <tbody>
-            {groups.map((group) => (
-              <Fragment key={group.resource}>
-                <tr className="border-b bg-muted/20">
-                  <td className="sticky left-0 z-10 w-56 bg-muted/20 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {t(`settings.resource_${group.resource}`, group.resource)}
-                  </td>
-                  <td colSpan={roles.length} className="bg-muted/20" />
-                </tr>
-                {group.actions.map((action) => {
-                  const permission = `${group.resource}:${action}`
-                  return (
-                    <tr key={permission} className="border-b last:border-0">
-                      <td className="sticky left-0 z-10 bg-background px-3 py-1.5 pl-6 text-muted-foreground">
-                        {t(`settings.action_${action}`, action)}
-                      </td>
-                      {sortedRoles.map((role) => (
-                        <td key={role.id} className="px-3 py-1.5 text-center">
-                          <Checkbox
-                            checked={role.permissions.includes(permission)}
-                            onCheckedChange={(v) => togglePermission(role, permission, v === true)}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  )
-                })}
-              </Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      </TooltipProvider>
+      <RoleMatrix
+        title={t('settings.roles_workspace_title')}
+        description={t('settings.roles_workspace_description')}
+        roles={workspaceRoles}
+        catalogue={workspaceCatalogue}
+        draft={draft}
+        onToggle={toggle}
+        onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
+        onDelete={setDeleteTarget}
+      />
+
+      <RoleMatrix
+        title={t('settings.roles_global_title')}
+        description={t('settings.roles_global_description')}
+        roles={globalRoles}
+        catalogue={globalCatalogue}
+        draft={draft}
+        onToggle={toggle}
+        onSetAll={(roleId, next) => setAll(roleId, globalCatalogue, next)}
+        onDelete={setDeleteTarget}
+      />
 
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="sm:max-w-md">
@@ -254,6 +351,18 @@ export function RolesTab() {
               <div className="space-y-2">
                 <Label htmlFor="role-label">{t('settings.role_label')}</Label>
                 <Input id="role-label" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder={t('settings.role_label_placeholder')} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t('settings.role_scope')}</Label>
+                <Select value={newScope} onValueChange={(v) => setNewScope(v as 'workspace' | 'global')}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="workspace">{t('settings.roles_scope_workspace')}</SelectItem>
+                    <SelectItem value="global">{t('settings.roles_scope_global')}</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
