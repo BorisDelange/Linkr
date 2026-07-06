@@ -13,6 +13,11 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     email: Mapped[str | None] = mapped_column(String(255))
+    first_name: Mapped[str | None] = mapped_column(String(255))
+    last_name: Mapped[str | None] = mapped_column(String(255))
+    affiliation: Mapped[str | None] = mapped_column(String(255))
+    profession: Mapped[str | None] = mapped_column(String(255))
+    orcid: Mapped[str | None] = mapped_column(String(255))
     # Nullable: LDAP/SSO users authenticate against an external directory.
     password_hash: Mapped[str | None] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(50), default="user")

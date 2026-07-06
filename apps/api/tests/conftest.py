@@ -6,6 +6,7 @@ from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401  -- populate Base.metadata
 from app.core.database import get_db
+from app.core.permissions import seed_default_roles
 from app.main import app
 from app.models.base import Base
 
@@ -36,6 +37,14 @@ async def db(engine) -> AsyncSession:
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
         yield session
+
+
+@pytest_asyncio.fixture
+async def seed_roles(engine):
+    """Seed the default system roles (the lifespan does this in production)."""
+    maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with maker() as session:
+        await seed_default_roles(session)
 
 
 @pytest_asyncio.fixture
