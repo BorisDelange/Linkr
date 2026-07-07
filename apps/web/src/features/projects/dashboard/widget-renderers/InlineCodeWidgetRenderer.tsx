@@ -3,8 +3,12 @@ import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { useDashboardData } from '../DashboardDataProvider'
+import { resolveServerFilters } from '../resolve-server-filters'
 import { useWidgetExecution } from './use-widget-execution'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
+import { useAppStore } from '@/stores/app-store'
 
 interface InlineCodeWidgetRendererProps {
   widget: DashboardWidget
@@ -18,7 +22,8 @@ export function InlineCodeWidgetRenderer({ widget }: InlineCodeWidgetRendererPro
 
 function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
   const { t } = useTranslation()
-  const { filteredRows, columns, reloadOnTabSwitch, dataSignature } = useDashboardData()
+  const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
 
   const source = widget.source as { type: 'inline'; language: string; code: string; config: Record<string, unknown> }
 
@@ -27,6 +32,16 @@ function InlineCodeExecutor({ widget }: { widget: DashboardWidget }) {
       return { stdout: 'No code to execute', stderr: '', figures: [], table: null, html: null }
     }
     try {
+      const language = source.language === 'r' ? 'r' : 'python'
+      if (isServerMode()) {
+        // Server mode: backend loads the dataset Parquet as `dataset` and applies
+        // the dashboard filters — no rows are shipped to the browser.
+        return await executeOnServer(language, source.code, {
+          projectUid: activeProjectUid ?? undefined,
+          datasetFileId: datasetFileId ?? undefined,
+          datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
+        })
+      }
       const executor = await import('@/features/projects/lab/datasets/analysis-executor')
       const exec = source.language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
       return await exec(source.code, filteredRows, columns)

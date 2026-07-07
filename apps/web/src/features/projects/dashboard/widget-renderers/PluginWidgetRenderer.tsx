@@ -5,8 +5,12 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { getComponent } from '@/lib/plugins/component-registry'
 import { useDashboardData } from '../DashboardDataProvider'
+import { resolveServerFilters } from '../resolve-server-filters'
 import { useWidgetExecution } from './use-widget-execution'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
+import { useAppStore } from '@/stores/app-store'
 
 interface PluginWidgetRendererProps {
   widget: DashboardWidget
@@ -36,12 +40,12 @@ export function PluginWidgetRenderer({ widget }: PluginWidgetRendererProps) {
 
 function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
   const { t } = useTranslation()
-  const { filteredRows, columns, reloadOnTabSwitch, dataSignature } = useDashboardData()
+  const { filteredRows, columns, reloadOnTabSwitch, dataSignature, datasetFileId, filters } = useDashboardData()
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
 
   const source = widget.source as { type: 'plugin'; pluginId: string; language?: 'python' | 'r'; config: Record<string, unknown> }
 
   const run = async (): Promise<RuntimeOutput> => {
-    const executor = await import('@/features/projects/lab/datasets/analysis-executor')
     const plugin = getPlugin(source.pluginId)
     if (!plugin || !plugin.templates) {
       return { stdout: '', stderr: 'Plugin templates not found', figures: [], table: null, html: null }
@@ -54,9 +58,6 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
       return { stdout: '', stderr: 'No code template found', figures: [], table: null, html: null }
     }
 
-    // Ensure plugin dependencies are installed (cached per session)
-    await ensurePluginDependencies(source.pluginId, language)
-
     const { resolveTemplate } = await import('@/lib/plugins/template-resolver')
     const code = resolveTemplate(
       template,
@@ -66,8 +67,18 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
       language,
     )
 
-    const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
     try {
+      if (isServerMode()) {
+        return await executeOnServer(language, code, {
+          projectUid: activeProjectUid ?? undefined,
+          datasetFileId: datasetFileId ?? undefined,
+          datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
+        })
+      }
+      // Ensure plugin dependencies are installed (cached per session) — WASM only.
+      await ensurePluginDependencies(source.pluginId, language)
+      const executor = await import('@/features/projects/lab/datasets/analysis-executor')
+      const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
       return await exec(code, filteredRows, columns)
     } catch (err) {
       return { stdout: '', stderr: String(err), figures: [], table: null, html: null }
@@ -124,6 +135,16 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
     return (
       <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
         Component not found: {componentId}
+      </div>
+    )
+  }
+
+  // Built-in viz components compute in-browser from all rows; gated in server mode
+  // until each has a server-side aggregation endpoint (same as analysis viz).
+  if (isServerMode()) {
+    return (
+      <div className="flex h-full items-center justify-center p-3 text-center text-xs text-muted-foreground">
+        {t('datasets.component_server_unavailable')}
       </div>
     )
   }

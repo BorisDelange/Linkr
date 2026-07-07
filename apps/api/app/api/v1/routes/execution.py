@@ -16,15 +16,17 @@ from app.services.execution import injection, kernel, runtime
 router = APIRouter(prefix="/execute", tags=["execution"])
 
 
-async def _dataset_preamble(db: AsyncSession, dataset_file_id: str, language: str) -> str:
+async def _dataset_preamble(
+    db: AsyncSession, dataset_file_id: str, language: str, filters: list[dict] | None
+) -> str:
     """Server-side `dataset` injection code for the requested dataset."""
     node = await dataset_service.get(db, dataset_file_id)
     if node is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     return (
-        injection.python_preamble(node)
+        injection.python_preamble(node, filters)
         if language == "python"
-        else injection.r_preamble(node)
+        else injection.r_preamble(node, filters)
     )
 
 
@@ -40,7 +42,9 @@ async def execute_code(
     never the underlying data (see storage plan §03/§06)."""
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
-        preamble = await _dataset_preamble(db, body.dataset_file_id, body.language)
+        preamble = await _dataset_preamble(
+            db, body.dataset_file_id, body.language, body.dataset_filters
+        )
         code = preamble + "\n" + code
 
     # sql_query() in the kernel routes back here; the host runs the SQL against the

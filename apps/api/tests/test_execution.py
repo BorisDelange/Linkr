@@ -141,6 +141,26 @@ async def test_execute_injects_dataset_python(client):
     assert "age" in out and "grp" in out and "35" in out
 
 
+async def test_execute_injects_filtered_dataset(client):
+    headers = await _admin_headers(client)
+    project_uid, ds_id = await _import_dataset(client, headers)  # age: 30, 40
+    # Filters are keyed by the parser's generated column id.
+    ds = (await client.get(f"{API}/datasets/{ds_id}", headers=headers)).json()
+    age_col = next(c["id"] for c in ds["columns"] if c["name"] == "age")
+    # Keep only age >= 35 -> one row (age 40).
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python",
+        "code": "print(len(dataset))",
+        "projectUid": project_uid, "datasetFileId": ds_id,
+        "datasetFilters": [
+            {"colId": age_col, "kind": "number",
+             "alternatives": [{"op": "between", "min": 35}]},
+        ],
+    })
+    assert r.status_code == 200
+    assert r.json()["stdout"].strip() == "1"
+
+
 async def test_execute_dataset_not_found_is_404(client):
     headers = await _admin_headers(client)
     r = await client.post(f"{API}/execute", headers=headers, json={

@@ -8,6 +8,8 @@ interface DashboardDataContextValue {
   rows: Record<string, unknown>[]
   filteredRows: Record<string, unknown>[]
   hasDataset: boolean
+  datasetFileId: string | null
+  filters: Record<string, FilterValue>
   /** When true, widgets re-run on every (re)mount instead of reusing their cached result. */
   reloadOnTabSwitch: boolean
   /** Stable fingerprint of the data feeding widgets (dataset + active filters). Part of the
@@ -20,6 +22,8 @@ const DashboardDataContext = createContext<DashboardDataContextValue>({
   rows: [],
   filteredRows: [],
   hasDataset: false,
+  datasetFileId: null,
+  filters: {},
   reloadOnTabSwitch: false,
   dataSignature: '',
 })
@@ -134,10 +138,14 @@ export function DashboardDataProvider({ datasetFileId, filters, reloadOnTabSwitc
       rows,
       filteredRows,
       hasDataset: !!datasetFileId,
+      // Exposed for server mode: widgets send the datasetFileId + resolved filters
+      // to the backend instead of shipping filteredRows.
+      datasetFileId: datasetFileId ?? null,
+      filters: filters ?? {},
       reloadOnTabSwitch,
       dataSignature,
     }),
-    [columns, rows, filteredRows, datasetFileId, reloadOnTabSwitch, dataSignature]
+    [columns, rows, filteredRows, datasetFileId, filters, reloadOnTabSwitch, dataSignature]
   )
 
   return (
