@@ -560,15 +560,16 @@ export function AddDatabaseDialog({
                     </SelectTrigger>
                     <SelectContent>
                       {/* Only engines the current deployment mode can actually run:
-                          front-only (WASM) → file engines; server → + external DBs. */}
-                      <SelectItem value="duckdb">DuckDB</SelectItem>
-                      <SelectItem value="sqlite">SQLite</SelectItem>
+                          front-only (WASM) → file engines; server → + external DBs.
+                          Order: network DBs first (server mode), then file engines. */}
                       {isServerMode() && (
                         <>
                           <SelectItem value="postgresql">PostgreSQL</SelectItem>
                           <SelectItem value="mysql">MySQL</SelectItem>
                         </>
                       )}
+                      <SelectItem value="duckdb">DuckDB</SelectItem>
+                      <SelectItem value="sqlite">SQLite</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

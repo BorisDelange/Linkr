@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { retestConnectionOnServer, testConnectionOnServer } from '@/lib/api/data-sources'
+import { retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
@@ -249,47 +249,70 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
     // --- Path B: Full copy to IndexedDB (classic) ---
     else if (source.files && source.files.length > 0) {
-      for (const file of source.files) {
-        const data = await file.arrayBuffer()
-        const fileName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+      const fileNameOf = (f: File) =>
+        (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
 
-        // Content-hash dedup: scoped to vocabulary reference imports for now. The same
-        // OHDSI Athena vocabulary used across multiple mapping projects is a common case
-        // and would otherwise pile up gigabytes of duplicate bytes in IDB.
-        let contentHash: string | undefined
-        let dedupRef: string | undefined
-        let bytesToStore: ArrayBuffer = data
-        if (source.isVocabularyReference) {
-          const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-          contentHash = Array.from(new Uint8Array(hashBuffer))
-            .map((b) => b.toString(16).padStart(2, '0'))
-            .join('')
-          const canonical = await getStorage().files.findByHash(contentHash)
-          if (canonical) {
-            dedupRef = canonical.id
-            // Store an empty buffer — readers follow the dedupRef to fetch real bytes.
-            bytesToStore = new ArrayBuffer(0)
+      if (isServerMode()) {
+        // Stream each File straight to the server in chunks — never read it into
+        // an ArrayBuffer (which caps at 2 GB and would hold the whole file in RAM).
+        const fileIds: string[] = []
+        const fileNames: string[] = []
+        for (const file of source.files) {
+          const fileName = fileNameOf(file)
+          const fileId = crypto.randomUUID()
+          await uploadDataSourceFile(id, file, fileName)
+          fileIds.push(fileId)
+          fileNames.push(fileName)
+        }
+        if (fileIds.length === 1 && source.sourceType === 'database') {
+          connectionConfig.fileId = fileIds[0]
+        } else if (fileIds.length > 0) {
+          connectionConfig.fileIds = fileIds
+          connectionConfig.fileNames = fileNames
+        }
+      } else {
+        for (const file of source.files) {
+          const data = await file.arrayBuffer()
+          const fileName = fileNameOf(file)
+
+          // Content-hash dedup: scoped to vocabulary reference imports for now. The same
+          // OHDSI Athena vocabulary used across multiple mapping projects is a common case
+          // and would otherwise pile up gigabytes of duplicate bytes in IDB.
+          let contentHash: string | undefined
+          let dedupRef: string | undefined
+          let bytesToStore: ArrayBuffer = data
+          if (source.isVocabularyReference) {
+            const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+            contentHash = Array.from(new Uint8Array(hashBuffer))
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('')
+            const canonical = await getStorage().files.findByHash(contentHash)
+            if (canonical) {
+              dedupRef = canonical.id
+              // Store an empty buffer — readers follow the dedupRef to fetch real bytes.
+              bytesToStore = new ArrayBuffer(0)
+            }
           }
-        }
 
-        const storedFile: StoredFile = {
-          id: crypto.randomUUID(),
-          dataSourceId: id,
-          fileName,
-          fileSize: file.size,
-          data: bytesToStore,
-          createdAt: now,
-          ...(contentHash ? { contentHash } : {}),
-          ...(dedupRef ? { dedupRef } : {}),
+          const storedFile: StoredFile = {
+            id: crypto.randomUUID(),
+            dataSourceId: id,
+            fileName,
+            fileSize: file.size,
+            data: bytesToStore,
+            createdAt: now,
+            ...(contentHash ? { contentHash } : {}),
+            ...(dedupRef ? { dedupRef } : {}),
+          }
+          storedFiles.push(storedFile)
+          await getStorage().files.create(storedFile)
         }
-        storedFiles.push(storedFile)
-        await getStorage().files.create(storedFile)
-      }
-      if (storedFiles.length === 1 && source.sourceType === 'database') {
-        connectionConfig.fileId = storedFiles[0].id
-      } else if (storedFiles.length > 0) {
-        connectionConfig.fileIds = storedFiles.map((f) => f.id)
-        connectionConfig.fileNames = storedFiles.map((f) => f.fileName)
+        if (storedFiles.length === 1 && source.sourceType === 'database') {
+          connectionConfig.fileId = storedFiles[0].id
+        } else if (storedFiles.length > 0) {
+          connectionConfig.fileIds = storedFiles.map((f) => f.id)
+          connectionConfig.fileNames = storedFiles.map((f) => f.fileName)
+        }
       }
     }
 

@@ -49,6 +49,34 @@ export async function queryDataSourceOnServer(
   return res.rows
 }
 
+/** Register an already-uploaded blob (by sha) as a file of a data source. */
+export function registerDataSourceFile(
+  dataSourceId: string,
+  sha: string,
+  fileName: string,
+  fileSize: number,
+): Promise<void> {
+  return apiRequest('/data-sources/files/import', {
+    method: 'POST',
+    body: JSON.stringify({ dataSourceId, sha, fileName, fileSize }),
+  }).then(() => undefined)
+}
+
+/**
+ * Upload a File (streamed in chunks) and register it as a data source file.
+ * Streaming the File avoids reading it fully into an ArrayBuffer — required for
+ * files over 2 GB, which the Blob/ArrayBuffer path cannot hold.
+ */
+export async function uploadDataSourceFile(
+  dataSourceId: string,
+  file: File,
+  fileName: string,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  const uploaded = await uploadFileInChunks(file, fileName, onProgress)
+  await registerDataSourceFile(dataSourceId, uploaded.sha, fileName, file.size)
+}
+
 /**
  * Re-validate a stored external source using its saved (encrypted) credentials —
  * no password sent from the browser. Returns ok + introspected tables.
@@ -174,17 +202,12 @@ export const apiFileStorage: FileStorage = {
   },
 
   create: async (file) => {
+    // file.data is an in-memory ArrayBuffer; wrapping it in a Blob throws for
+    // payloads > 2 GB. Callers with large files should use uploadDataSourceFile
+    // (streams the File). This path stays for small, already-materialized blobs.
     const blob = new Blob([file.data])
     const uploaded = await uploadFileInChunks(blob, file.fileName)
-    await apiRequest('/data-sources/files/import', {
-      method: 'POST',
-      body: JSON.stringify({
-        dataSourceId: file.dataSourceId,
-        sha: uploaded.sha,
-        fileName: file.fileName,
-        fileSize: file.fileSize,
-      }),
-    })
+    await registerDataSourceFile(file.dataSourceId, uploaded.sha, file.fileName, file.fileSize)
   },
 
   delete: async (id) => {
