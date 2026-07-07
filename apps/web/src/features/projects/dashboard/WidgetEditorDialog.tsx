@@ -23,7 +23,7 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
-import { getComponent } from '@/lib/plugins/component-registry'
+import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import { getLucideIcon } from '@/lib/plugins/shared-styles'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -396,7 +396,14 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
           <Allotment.Pane minSize={200}>
             <SizedPreview widget={widget} gridWidth={gridWidth} widgetSpacing={widgetSpacing}>
               {isComponentPlugin && plugin?.componentId ? (
-                <ComponentPluginOutput componentId={plugin.componentId} config={debouncedConfig} columns={columns} rows={filteredRows} />
+                <ComponentPluginOutput
+                  componentId={plugin.componentId}
+                  config={debouncedConfig}
+                  columns={columns}
+                  rows={filteredRows}
+                  datasetFileId={datasetFileId}
+                  datasetFilters={datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+                />
               ) : (
                 <PluginOutputRenderer
                   result={result}
@@ -579,12 +586,17 @@ function ComponentPluginOutput({
   config,
   columns,
   rows,
+  datasetFileId,
+  datasetFilters,
 }: {
   componentId: string
   config: Record<string, unknown>
   columns: DatasetColumn[]
   rows: Record<string, unknown>[]
+  datasetFileId?: string | null
+  datasetFilters?: unknown[]
 }) {
+  const { t } = useTranslation()
   const Component = getComponent(componentId)
 
   if (!Component) {
@@ -595,11 +607,27 @@ function ComponentPluginOutput({
     )
   }
 
+  // Gate in-browser viz in server mode unless the component computes server-side.
+  if (isServerMode() && !componentSupportsServer(componentId)) {
+    return (
+      <div className="flex items-center justify-center h-full p-3 text-center text-xs text-muted-foreground">
+        {t('datasets.component_server_unavailable')}
+      </div>
+    )
+  }
+
   // `compact` matches how the widget renders on the dashboard (full-bleed, no extra chrome).
   return (
     <div className="h-full overflow-hidden">
       {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-      <Component config={config} columns={columns} rows={rows} compact />
+      <Component
+        config={config}
+        columns={columns}
+        rows={rows}
+        compact
+        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+        datasetFilters={isServerMode() && datasetFileId ? datasetFilters : undefined}
+      />
     </div>
   )
 }
