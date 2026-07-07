@@ -1,4 +1,4 @@
-import json
+import asyncio
 import time
 
 from sqlalchemy import select
@@ -14,6 +14,7 @@ from app.schemas.dataset import (
     DatasetImportRequest,
 )
 from app.services import blob_store
+from app.services.data import dataset_rows
 from app.services.data.dataset_parser import parse_blob
 
 
@@ -84,9 +85,10 @@ async def delete(db: AsyncSession, node: DatasetFile) -> None:
 
 # --- Import / re-import (parse a blob into a file) -------------------------
 
-async def _write_rows_blob(rows: list[dict]) -> str:
-    payload = json.dumps({"rows": rows}).encode("utf-8")
-    sha, _ = await blob_store.store_bytes(payload)
+async def _write_rows_blob(rows: list[dict], columns: list[dict] | None) -> str:
+    """Serialise rows to a typed Parquet blob (see data/dataset_rows.py)."""
+    path = await asyncio.to_thread(dataset_rows.write_parquet, rows, columns or [])
+    sha, _ = await blob_store.store_file(path)
     return sha
 
 
@@ -104,7 +106,7 @@ async def import_file(
         )
     except Exception as e:  # noqa: BLE001 — normalize parser/DuckDB errors
         raise DatasetParseError(str(e)) from e
-    data_sha = await _write_rows_blob(rows)
+    data_sha = await _write_rows_blob(rows, columns)
     node = DatasetFile(
         project_uid=req.project_uid,
         name=req.name,
@@ -143,7 +145,7 @@ async def reimport_file(
     node.columns = columns
     node.row_count = row_count
     node.parse_options = parse_options
-    node.data_sha = await _write_rows_blob(rows)
+    node.data_sha = await _write_rows_blob(rows, columns)
     await db.commit()
     await db.refresh(node)
     if old_data_sha and old_data_sha != node.data_sha:
@@ -157,13 +159,14 @@ async def reimport_file(
 async def read_rows(node: DatasetFile) -> list[dict]:
     if not node.data_sha or not blob_store.exists(node.data_sha):
         return []
-    raw = await blob_store.read_bytes(node.data_sha)
-    return json.loads(raw).get("rows", [])
+    return await asyncio.to_thread(
+        dataset_rows.read_parquet, blob_store.path_for(node.data_sha)
+    )
 
 
 async def write_rows(db: AsyncSession, node: DatasetFile, rows: list[dict]) -> None:
     old = node.data_sha
-    node.data_sha = await _write_rows_blob(rows)
+    node.data_sha = await _write_rows_blob(rows, node.columns)
     node.row_count = len(rows)
     await db.commit()
     if old and old != node.data_sha and not await _sha_still_referenced(db, old, node.id):

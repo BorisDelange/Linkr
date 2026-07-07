@@ -188,8 +188,8 @@
           <td class="ent">Dataset<small>dataset_files / _data / _raw / _analyses</small></td>
           <td>project</td>
           <td><span class="tag db">arbre+</span> tree, colonnes, parseOptions, rowCount, analyses</td>
-          <td><span class="tag fs">données</span> CSV/rows + fichier original (xlsx/parquet)</td>
-          <td><ul class="pathlist"><li>projects/&lt;p&gt;/datasets/_tree.json</li><li>datasets/&lt;folder&gt;/_columns.json</li><li>datasets/&lt;folder&gt;/&lt;name&gt;.csv · original</li></ul></td>
+          <td><span class="tag fs">Parquet</span> lignes en <b>Parquet</b> (interrogeable) + fichier original (xlsx/parquet). Voir §05.</td>
+          <td><ul class="pathlist"><li>projects/&lt;p&gt;/datasets/_tree.json</li><li>_files/&lt;sha&gt;.parquet (lignes)</li><li>_files/&lt;sha&gt; (fichier original)</li></ul></td>
         </tr>
         <tr>
           <td class="ent">Dashboard<small>dashboards / tabs / widgets</small></td>
@@ -286,7 +286,83 @@
     </table>
   </div>
 
-  <h2><span class="n">03</span>Le dossier racine « Application database »</h2>
+  <h2><span class="n">03</span>Où tourne le calcul : décision d'architecture</h2>
+  <p class="sub">Décision structurante, actée. Elle vaut pour <em>toute</em> l'app (warehouse, datasets, IDE, dashboards), pas seulement le stockage. Deux modes de déploiement, deux endroits pour le calcul — et <strong>le mode seul décide, jamais la nature de la donnée.</strong></p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3 style="color:var(--db)">Full-stack (CHU) — <span style="font-weight:700">compute 100 % serveur</span></h3>
+      <p>Cible des déploiements en établissement. DuckDB, R et Python s'exécutent <b>sur le serveur</b> ; le WASM n'est pas chargé. Le navigateur envoie du SQL / des specs d'analyse et ne reçoit que des <b>résultats agrégés</b> qu'il affiche.</p>
+      <ul>
+        <li><b>Perf</b> : postes hospitaliers peu puissants → le serveur mutualisé calcule, le poste reste léger.</li>
+        <li><b>Sécurité</b> : la donnée patient brute <b>ne descend jamais</b> sur le poste (pas de cache, pas d'IDB, pas de RAM navigateur).</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--fs)">Front-only (WASM) — conservé</h3>
+      <p>Déploiement statique (GitLab Pages, <code>linkr-portal</code>), démos, données publiques (MIMIC). C'est le <b>seul</b> mode où le compute est dans le navigateur, via DuckDB-WASM / Pyodide / WebR.</p>
+      <ul>
+        <li>Pas de backend → le WASM navigateur reste le moteur, comme aujourd'hui.</li>
+        <li>N'est <b>pas</b> destiné à manipuler de la vraie donnée patient.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="q">
+    <strong>Pas de classification de sensibilité.</strong> On n'essaie jamais de trier « donnée sensible vs non sensible » (impraticable, une colonne OMOP à la fois). La frontière est <u>technique</u> : <b>tout ce qui lit les tables s'exécute au serveur</b> ; le navigateur ne fait que réafficher / re-trier des résultats <em>déjà</em> reçus. Le drapeau <code>isServerMode()</code> (présence de <code>VITE_API_URL</code>) tranche, rien d'autre.
+  </div>
+
+  <p class="sub" style="margin-top:18px">C'est l'architecture standard du domaine : <b>OHDSI/ATLAS</b> (front génère le SQL, WebAPI l'exécute, analyses en R serveur — zéro donnée dans le navigateur), <b>Dataiku</b> (moteur central + SQL pushdown, kernels R/Python serveur), <b>Metabase/Superset</b> (pushdown + cache serveur, navigateur = rendu), <b>Posit Workbench / JupyterHub</b> (sessions R/Python isolées par utilisateur côté serveur). Aucun acteur sérieux en santé ne fait tourner le moteur analytique dans le navigateur.</p>
+
+  <ol class="decisions">
+    <li>
+      <b>Séquençage (l'app reste utilisable à chaque étape).</b>
+      <span><b>a —</b> Stockage : métadonnées en base, blobs (dont lignes de dataset en Parquet) sur disque serveur. <em>C'est le socle : sans lui le compute serveur n'a rien à lire.</em> &nbsp; <b>b —</b> Moteur DuckDB serveur : une API de requêtes remplace <code>queryDataSource</code> (~142 appels) et <code>computeStats</code> ; le navigateur reçoit des lignes de résultat. &nbsp; <b>c —</b> R / Python serveur : exécution isolée par session (voir §06), en dernier car le plus délicat.</span>
+    </li>
+    <li>
+      <b>Une option « tout serveur » à activer ? Non — elle tombe du mode.</b>
+      <span>En mode serveur, <code>queryDataSource</code> route vers l'API ; il n'y a rien à « activer ». Pas de troisième mode à maintenir.</span>
+    </li>
+  </ol>
+
+  <h2><span class="n">04</span>Datasets en full-stack</h2>
+  <p class="sub">Application concrète de §03 à l'entité Dataset. Le modèle actuel (client-only) charge <b>toutes</b> les lignes en RAM navigateur (<code>_loadedData</code>, double copie sérialisée pour le dirty-check) et injecte <code>JSON.stringify(toutes_les_lignes)</code> dans Pyodide/WebR. Sur un CSV de 100k lignes c'est des dizaines de Mo dans l'onglet — intenable et contraire à §03.</p>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Usage</th><th>Client-only WASM (aujourd'hui)</th><th>Full-stack (cible)</th></tr></thead>
+      <tbody>
+        <tr><td class="ent">Stockage des lignes</td><td>1 blob JSON, tout en IndexedDB</td><td><span class="tag fs">Parquet</span> sur serveur — colonnaire, interrogeable par DuckDB</td></tr>
+        <tr><td class="ent">Afficher le tableau</td><td>tout en RAM navigateur</td><td><span class="tag db">pagination</span> <code>LIMIT/OFFSET</code> serveur → ~100 lignes/page</td></tr>
+        <tr><td class="ent">Trier / filtrer</td><td>en RAM navigateur</td><td><span class="tag db">serveur</span> <code>ORDER BY / WHERE</code> → ~100 lignes</td></tr>
+        <tr><td class="ent">Stats par colonne <small>ColumnStatsPanel</small></td><td>calcul JS sur tout le tableau</td><td><span class="tag db">serveur</span> agrégats DuckDB sur le Parquet</td></tr>
+        <tr><td class="ent">Analyse R / Python</td><td>100k lignes → Pyodide/WebR navigateur</td><td><span class="tag db">serveur</span> code au serveur, <b>seul le résultat</b> revient (table/figure/stdout)</td></tr>
+        <tr><td class="ent">Chart de dashboard</td><td>agrégation en RAM navigateur</td><td><span class="tag db">serveur</span> <code>GROUP BY</code> → poignée de lignes</td></tr>
+        <tr><td class="ent">Édition (grille tableur)</td><td>updateCell/addRow/addColumn en RAM</td><td><span class="tag fs">lecture seule</span> dataset importé = source immuable (cf. warehouse) ; transformer → pipeline</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ol class="decisions">
+    <li>
+      <b>Lecture seule pour les datasets importés.</b>
+      <span>Un fichier importé est une <em>donnée source</em>, immuable — même principe que le warehouse OMOP (« source data never modified »). On affiche/trie/filtre/analyse côté serveur, on n'édite plus cellule par cellule. Toute transformation passe par le <b>pipeline</b> (qui produit une nouvelle sortie). Supprime d'un coup le problème des 100k lignes en RAM.</span>
+    </li>
+    <li>
+      <b>Analyses = exécution serveur, résultat seul.</b>
+      <span>Le code R/Python tourne là où le Parquet est local ; le navigateur reçoit la sortie rendue (table, figure, stdout/stderr), jamais les lignes. <code>analysis-executor.ts</code> devient un client d'API en mode serveur.</span>
+    </li>
+    <li>
+      <b>Lignes en Parquet, pas en JSON.</b>
+      <span>Le parser produit aujourd'hui des lignes keyées par <code>columnId</code> sérialisées en JSON. Pour paginer/agréger sans tout désérialiser, on écrit un <code>.parquet</code> (colonnaire). <em>Dette signalée : ne PAS toucher au parsing d'import dans la tâche en cours ; à traiter avec le compute serveur des datasets.</em></span>
+    </li>
+    <li>
+      <b>Point ouvert : petits datasets saisis à la main.</b>
+      <span>Créer une grille vide et la remplir à la main reste un cas légitime (petits volumes). À traiter comme un mode d'édition explicite « petit dataset », séparé de la lecture seule des gros fichiers importés — <em>non tranché, non bloquant</em>.</span>
+    </li>
+  </ol>
+
+  <h2><span class="n">05</span>Le dossier racine « Application database »</h2>
   <p class="sub">Un seul dossier configurable (<code>LINKR_DATA_DIR</code>, déjà en place) contient tout : la base, les blobs, et l'arbo git-lisible. C'est le pendant serveur de <code>linkr-portal/</code>.</p>
 
   <div class="tree">
@@ -308,7 +384,33 @@
     <strong>Décision ouverte.</strong> Écrit-on <em>toutes</em> les métadonnées <u>aussi</u> en fichiers (arbo git complète, comme le portal), ou seulement les <u>blobs</u> — la base restant l'unique source de vérité des métadonnées ? Voir décision ①.
   </div>
 
-  <h2><span class="n">04</span>Décisions à trancher avant de coder</h2>
+  <h2><span class="n">06</span>Exécuter R et Python côté serveur</h2>
+  <p class="sub">Conséquence de §03/§04 : les analyses (datasets, IDE, dashboards) doivent tourner sur le serveur. État actuel + pistes. <em>Étape (c) du séquençage — la plus délicate, à faire en dernier.</em></p>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>Ce qui existe déjà</h3>
+      <ul>
+        <li><code>docker/Dockerfile.api</code> installe déjà <b><code>r-base</code></b> → <code>Rscript</code> disponible dans l'image API. Python est l'interpréteur du backend.</li>
+        <li><code>app/services/execution/</code> existe mais est <b>vide</b> (juste <code>__init__.py</code>). Aucune dépendance R↔Python (pas de <code>rpy2</code>), aucun runner branché.</li>
+        <li>Côté navigateur : <code>pyodide-engine.ts</code> (Python) + <code>webr-engine.ts</code> (R) — restent le moteur du <b>mode front-only</b> uniquement.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>À construire (piste)</h3>
+      <ul>
+        <li>Un service d'exécution serveur : Python via sous-process/venv, R via <b><code>Rscript</code></b> (pas besoin de <code>rpy2</code> — on passe les données par fichier Parquet et on récupère la sortie).</li>
+        <li>Injection des données <em>par le serveur</em> : le Parquet du dataset est monté localement (Arrow/pandas côté Python, <code>arrow</code>/<code>duckdb</code> côté R) — plus de <code>JSON.stringify</code> des lignes.</li>
+        <li>Isolation par session (modèle Posit Workbench / JupyterHub) : process séparé, quotas CPU/mémoire, timeout, répertoire de travail jetable. Surface maîtrisée car infra CHU + utilisateurs authentifiés (pas un SaaS public).</li>
+        <li>Retour : uniquement le <code>RuntimeOutput</code> (table, figures encodées, stdout/stderr) — même contrat que l'executor actuel.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="q">
+    <strong>À trancher le moment venu.</strong> R et Python : deux runners séparés, ou un orchestrateur commun (mêmes endpoints <code>POST /execute</code>, param <code>language</code>) ? &nbsp; Process direct vs conteneur par exécution (isolation forte mais lourde) ? &nbsp; Réutilisation d'un kernel chaud entre exécutions (perf notebooks) vs cold-start propre à chaque run ? Aucune de ces questions ne bloque le stockage (étape a).
+  </div>
+
+  <h2><span class="n">07</span>Décisions à trancher avant de coder</h2>
   <ol class="decisions">
     <li>
       <b>Fichiers : source de vérité ou export ?</b>
