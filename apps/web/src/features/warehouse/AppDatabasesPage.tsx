@@ -49,7 +49,6 @@ import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailSheet } from '@/features/projects/warehouse/databases/DatabaseDetailSheet'
-import { ExportDatabaseDialog } from '@/features/projects/warehouse/databases/ExportDatabaseDialog'
 
 // ---------------------------------------------------------------------------
 // CreateFromPresetDialog — create an empty database from a preset DDL
@@ -235,7 +234,6 @@ export function AppDatabasesPage() {
   const [sourceToRemove, setSourceToRemove] = useState<DataSource | null>(null)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
-  const [sourceToExport, setSourceToExport] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
 
   // Show only databases for the current workspace, hide vocabulary-only sources
@@ -343,7 +341,6 @@ export function AppDatabasesPage() {
                   onDisconnect={() => disconnectDataSource(ds.id)}
                   onReconnect={() => reconnectDataSource(ds.id)}
                   onEdit={() => setSourceToEdit(ds)}
-                  onExport={() => setSourceToExport(ds)}
                   onRemove={() => setSourceToRemove(ds)}
                 />
                 {linkedProjects.length > 0 && (
@@ -396,11 +393,6 @@ export function AppDatabasesPage() {
         onOpenChange={(open) => { if (!open) setSelectedSource(null) }}
       />
 
-      <ExportDatabaseDialog
-        source={sourceToExport}
-        open={!!sourceToExport}
-        onOpenChange={(open) => { if (!open) setSourceToExport(null) }}
-      />
 
       <AlertDialog
         open={!!sourceToRemove}

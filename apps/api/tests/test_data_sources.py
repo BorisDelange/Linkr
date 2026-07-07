@@ -294,6 +294,6 @@ async def test_live_postgres_query():
 
     config = json.loads(os.environ["LINKR_TEST_PG_DSN"])
     rows = await asyncio.to_thread(
-        db_connect.query_postgres, config, config.get("password"), "SELECT 1 AS one"
+        db_connect.query_external, config, config.get("password"), "SELECT 1 AS one"
     )
     assert rows == [{"one": 1}]

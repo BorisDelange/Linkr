@@ -10,7 +10,6 @@ import {
   MoreHorizontal,
   Trash2,
   Check,
-  Download,
   History,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,7 +31,6 @@ interface DatabaseCardProps {
   onDisconnect?: () => void
   onReconnect?: () => void
   onEdit?: () => void
-  onExport?: () => void
   onRemove: () => void
 }
 
@@ -85,7 +83,6 @@ export const DatabaseCard = memo(function DatabaseCard({
   onDisconnect,
   onReconnect,
   onEdit,
-  onExport,
   onRemove,
 }: DatabaseCardProps) {
   const { t } = useTranslation()
@@ -162,12 +159,6 @@ export const DatabaseCard = memo(function DatabaseCard({
                         {t('databases.connect')}
                       </DropdownMenuItem>
                     )
-                  )}
-                  {onExport && source.status === 'connected' && source.sourceType !== 'fhir' && (
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onExport() }}>
-                      <Download size={14} />
-                      {t('databases.download_data')}
-                    </DropdownMenuItem>
                   )}
                   <DropdownMenuItem disabled>
                     <History size={14} />

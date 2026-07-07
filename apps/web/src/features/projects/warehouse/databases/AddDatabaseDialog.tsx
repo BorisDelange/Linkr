@@ -68,6 +68,8 @@ const sourceTypes: {
   labelKey: string
   descKey: string
   color: string
+  /** Not yet available — shown greyed out. */
+  disabled?: boolean
 }[] = [
   {
     type: 'database',
@@ -82,6 +84,7 @@ const sourceTypes: {
     labelKey: 'databases.type_fhir',
     descKey: 'databases.type_fhir_desc',
     color: 'bg-teal-500/10 text-teal-600',
+    disabled: true,  // FHIR server support comes much later
   },
 ]
 
@@ -166,8 +169,10 @@ export function AddDatabaseDialog({
   const [fsHandles, setFsHandles] = useState<{ fileName: string; handle: FileSystemFileHandle; fileSize: number }[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Database fields
-  const [dbEngine, setDbEngine] = useState<DatabaseEngine>('duckdb')
+  // Database fields — default to PostgreSQL in server mode (external DBs are the
+  // common case there), DuckDB in front-only (Postgres isn't offered).
+  const defaultEngine: DatabaseEngine = isServerMode() ? 'postgresql' : 'duckdb'
+  const [dbEngine, setDbEngine] = useState<DatabaseEngine>(defaultEngine)
   const [dbHost, setDbHost] = useState('')
   const [dbPort, setDbPort] = useState('')
   const [dbDatabase, setDbDatabase] = useState('')
@@ -191,7 +196,7 @@ export function AddDatabaseDialog({
     setFsHandles([])
     setImportMode('duckdb')
     setSchemaPresetId('omop-5.4')
-    setDbEngine('duckdb')
+    setDbEngine(defaultEngine)
     setDbHost('')
     setDbPort('')
     setDbDatabase('')
@@ -444,7 +449,8 @@ export function AddDatabaseDialog({
                 <button
                   key={st.type}
                   onClick={() => handleSelectType(st.type)}
-                  className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent"
+                  disabled={st.disabled}
+                  className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
                 >
                   <div
                     className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${st.color}`}
@@ -452,7 +458,14 @@ export function AddDatabaseDialog({
                     <Icon size={18} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium">{t(st.labelKey)}</p>
+                    <p className="flex items-center gap-2 text-sm font-medium">
+                      {t(st.labelKey)}
+                      {st.disabled && (
+                        <span className="text-[10px] font-normal text-muted-foreground">
+                          {t('databases.coming_soon')}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-muted-foreground">
                       {t(st.descKey)}
                     </p>
@@ -548,7 +561,10 @@ export function AddDatabaseDialog({
                       <SelectItem value="duckdb">DuckDB</SelectItem>
                       <SelectItem value="sqlite">SQLite</SelectItem>
                       {isServerMode() && (
-                        <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                        <>
+                          <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                          <SelectItem value="mysql">MySQL</SelectItem>
+                        </>
                       )}
                     </SelectContent>
                   </Select>

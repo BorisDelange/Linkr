@@ -14,6 +14,9 @@ from app.schemas.data_source import (
 from app.services import blob_store
 from app.services.data import db_connect
 
+# Engines Linkr can reach server-side via DuckDB's ATTACH extensions.
+_EXTERNAL_ENGINES = ("postgresql", "mysql")
+
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
 _SECRET_KEYS = ("password", "token")
@@ -157,11 +160,11 @@ async def query(source: DataSource, sql: str) -> list[dict]:
     password to open the connection. Rows come back as JSON-ready dicts."""
     config = dict(source.connection_config or {})
     engine = config.get("engine")
-    if engine != "postgresql":
+    if engine not in _EXTERNAL_ENGINES:
         raise ValueError(f"queries not supported for engine: {engine}")
     password = connection_password(source)
     return await asyncio.to_thread(
-        db_connect.query_postgres, config, password, sql
+        db_connect.query_external, config, password, sql
     )
 
 
@@ -169,10 +172,10 @@ async def introspect(source: DataSource) -> list[dict]:
     """Introspect a stored external source's schema (tables + columns), using its
     decrypted password. Returns the IntrospectedTable[] shape."""
     config = dict(source.connection_config or {})
-    if config.get("engine") != "postgresql":
+    if config.get("engine") not in _EXTERNAL_ENGINES:
         return []
     password = connection_password(source)
-    return await asyncio.to_thread(db_connect.introspect_postgres, config, password)
+    return await asyncio.to_thread(db_connect.introspect_external, config, password)
 
 
 async def test_connection_stored(
@@ -188,12 +191,12 @@ async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
     """Open a live connection using the (unpersisted) password in `config`,
     introspect the schema, and return (ok, error, tables)."""
     engine = config.get("engine")
-    if engine != "postgresql":
+    if engine not in _EXTERNAL_ENGINES:
         return False, f"unsupported engine for server-side test: {engine}", []
     password = config.get("password")
     try:
         tables = await asyncio.to_thread(
-            db_connect.introspect_postgres, config, password
+            db_connect.introspect_external, config, password
         )
         return True, None, tables
     except Exception as e:  # noqa: BLE001 — surface driver/connection errors to the UI
