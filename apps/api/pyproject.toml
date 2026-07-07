@@ -43,3 +43,9 @@ postgres = [
     "asyncpg>=0.30",
     "psycopg2-binary>=2.9",
 ]
+# Packages available to server-side Python execution (parity with the browser
+# Pyodide default set). Install in execution-enabled deployments.
+execution = [
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+]

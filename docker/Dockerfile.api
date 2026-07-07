@@ -7,9 +7,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-base \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps
+# Install Python deps (with server-side execution extras: pandas, matplotlib)
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir -e ".[execution]"
 
 COPY . .
 

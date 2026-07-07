@@ -1,0 +1,171 @@
+"""Server-side R/Python execution — the counterpart to the browser's Pyodide /
+WebR engines (see docs/planning/fullstack-storage-plan.html §06).
+
+A run happens in a throwaway working directory as a subprocess with a hard
+wall-clock timeout. The subprocess wraps the user's code in a harness that
+mirrors the browser engines' capture contract exactly, and writes a single JSON
+``RuntimeOutput`` to ``_linkr_output.json``:
+
+    {stdout, stderr, figures: [{type, data, label}], table: {headers, rows} | null, html}
+
+Isolation is process-level (fresh cwd, timeout) — sufficient for the trusted,
+authenticated CHU deployment (RStudio Workbench model). Stronger sandboxing
+(cpu/mem quotas, seccomp) is a later hardening pass, not a blocker.
+"""
+
+import asyncio
+import json
+import shutil
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from app.config import settings
+
+_OUTPUT_FILE = "_linkr_output.json"
+_USER_FILE = "_linkr_user_code.py"
+_HARNESS_FILE = "_linkr_harness.py"
+
+
+@dataclass
+class RuntimeOutput:
+    """Mirror of the frontend RuntimeOutput type (lib/runtimes/types.ts)."""
+
+    stdout: str = ""
+    stderr: str = ""
+    figures: list[dict] = field(default_factory=list)
+    table: dict | None = None
+    html: str | None = None
+
+
+class ExecutionError(Exception):
+    """A run could not be carried out (timeout, missing interpreter, harness crash)."""
+
+
+# The Python harness runs user code with exec() so a trailing expression is not
+# auto-printed; we capture a `result` variable (or the last DataFrame) as a table,
+# matching pyodide-engine._linkr_capture_table. matplotlib figures -> SVG, as in
+# _linkr_get_figures.
+_PY_HARNESS = '''\
+import sys, io, json, traceback
+
+_out, _err = io.StringIO(), io.StringIO()
+figures, table, html = [], None, None
+
+try:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+except Exception:
+    plt = None
+
+
+def _capture_table(obj):
+    try:
+        import pandas as pd
+    except Exception:
+        return None
+    if isinstance(obj, pd.DataFrame):
+        headers = [str(c) for c in obj.columns]
+        rows = obj.head(1000).astype(str).values.tolist()
+        return {"headers": headers, "rows": rows}
+    return None
+
+
+_real_out, _real_err = sys.stdout, sys.stderr
+sys.stdout, sys.stderr = _out, _err
+_ns = {"__name__": "__main__"}
+try:
+    with open("''' + _USER_FILE + '''", "r", encoding="utf-8") as fh:
+        _code = fh.read()
+    exec(compile(_code, "<analysis>", "exec"), _ns)
+    table = _capture_table(_ns.get("result"))
+    if plt is not None:
+        for num in plt.get_fignums():
+            buf = io.BytesIO()
+            plt.figure(num).savefig(buf, format="svg", bbox_inches="tight")
+            figures.append({
+                "type": "svg",
+                "data": buf.getvalue().decode("utf-8"),
+                "label": "Figure " + str(num),
+            })
+        plt.close("all")
+except Exception:
+    traceback.print_exc()
+finally:
+    sys.stdout, sys.stderr = _real_out, _real_err
+
+with open("''' + _OUTPUT_FILE + '''", "w", encoding="utf-8") as fh:
+    json.dump({
+        "stdout": _out.getvalue(),
+        "stderr": _err.getvalue(),
+        "figures": figures,
+        "table": table,
+        "html": html,
+    }, fh)
+'''
+
+
+async def run_python(code: str) -> RuntimeOutput:
+    if not settings.enable_code_execution:
+        raise ExecutionError("Code execution is disabled on this server.")
+
+    workdir = Path(tempfile.mkdtemp(prefix="linkr-exec-"))
+    try:
+        (workdir / _USER_FILE).write_text(code, encoding="utf-8")
+        (workdir / _HARNESS_FILE).write_text(_PY_HARNESS, encoding="utf-8")
+        await _run_subprocess([sys_executable(), _HARNESS_FILE], workdir)
+        return _read_output(workdir)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def _run_subprocess(cmd: list[str], workdir: Path) -> None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(workdir),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as e:
+        raise ExecutionError(f"Interpreter not found: {cmd[0]}") from e
+
+    try:
+        _, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=settings.execution_timeout_seconds
+        )
+    except asyncio.TimeoutError as e:
+        proc.kill()
+        await proc.wait()
+        raise ExecutionError(
+            f"Execution exceeded the {settings.execution_timeout_seconds}s time limit."
+        ) from e
+
+    # The harness always writes _OUTPUT_FILE, even on user error (it traps
+    # exceptions into stderr). A non-zero exit with no output means the harness
+    # itself crashed — surface its stderr.
+    if proc.returncode != 0 and not (workdir / _OUTPUT_FILE).exists():
+        raise ExecutionError(
+            (stderr or b"").decode("utf-8", "replace") or "Execution failed."
+        )
+
+
+def _read_output(workdir: Path) -> RuntimeOutput:
+    path = workdir / _OUTPUT_FILE
+    if not path.exists():
+        raise ExecutionError("Execution produced no output.")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return RuntimeOutput(
+        stdout=data.get("stdout", ""),
+        stderr=data.get("stderr", ""),
+        figures=data.get("figures", []),
+        table=data.get("table"),
+        html=data.get("html"),
+    )
+
+
+def sys_executable() -> str:
+    import sys
+
+    return sys.executable

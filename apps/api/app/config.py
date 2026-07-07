@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     enable_code_execution: bool = True
     max_sessions_per_user: int = 5
     session_timeout_minutes: int = 60
+    # Hard wall-clock limit for a single server-side R/Python run (subprocess).
+    execution_timeout_seconds: int = 120
 
     # Features
     enable_git: bool = True
