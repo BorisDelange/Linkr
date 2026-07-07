@@ -151,17 +151,31 @@ function SqlScriptsFileTreeItem({
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const inputRef = useRef<HTMLInputElement>(null)
+  // True until the first selection is applied — prevents re-selecting on every
+  // later focus (e.g. clicking into the field to place the cursor).
+  const needsSelectRef = useRef(false)
 
   useEffect(() => {
     if (!editing) return
-    // Defer to the next frame: the context menu that triggered rename is still
-    // releasing focus, which would otherwise clear the selection we set here.
-    const raf = requestAnimationFrame(() => {
+    needsSelectRef.current = true
+    // The context menu closes a frame or two after rename starts and restores
+    // focus to its trigger; poll focus across a few frames so we win the race
+    // and select once it finally lands on the input.
+    let tries = 0
+    let raf = 0
+    const tick = () => {
       const el = inputRef.current
-      if (!el) return
-      el.focus()
-      el.select()  // select all so typing replaces the name outright
-    })
+      if (el && needsSelectRef.current) {
+        if (document.activeElement !== el) el.focus()
+        if (document.activeElement === el) {
+          el.select()
+          needsSelectRef.current = false
+          return
+        }
+      }
+      if (tries++ < 10) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [editing])
 
@@ -175,6 +189,7 @@ function SqlScriptsFileTreeItem({
 
   const handleStartRename = () => {
     setEditName(file.name)
+    needsSelectRef.current = true  // set now so onCloseAutoFocus sees it synchronously
     setEditing(true)
   }
 
@@ -188,24 +203,24 @@ function SqlScriptsFileTreeItem({
               else onSelect(file.id)
             }}
             className={cn(
-              'flex w-full items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
+              'flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-left text-xs transition-colors hover:bg-accent/50',
               isActive && !isFolder && 'bg-accent text-accent-foreground',
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
             {isFolder ? (
               <>
-                {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {isExpanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
                 {isExpanded ? (
-                  <FolderOpen size={14} className="text-blue-400" />
+                  <FolderOpen size={14} className="shrink-0 text-blue-400" />
                 ) : (
-                  <Folder size={14} className="text-blue-400" />
+                  <Folder size={14} className="shrink-0 text-blue-400" />
                 )}
               </>
             ) : (
               <>
-                <span className="w-3" />
-                <FileCode size={14} className="text-blue-500" />
+                <span className="w-3 shrink-0" />
+                <FileCode size={14} className="shrink-0 text-blue-500" />
               </>
             )}
             {editing ? (
@@ -221,8 +236,11 @@ function SqlScriptsFileTreeItem({
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
                   onKeyDown={(e) => {
+                    // Keep rename keys local — Escape must not bubble to the page
+                    // (it would exit fullscreen), nor Enter to any global handler.
+                    e.stopPropagation()
                     if (e.key === 'Enter') handleRenameSubmit()
-                    if (e.key === 'Escape') setEditing(false)
+                    else if (e.key === 'Escape') setEditing(false)
                   }}
                   className="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
                 />
@@ -250,7 +268,13 @@ function SqlScriptsFileTreeItem({
             )}
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent>
+        <ContextMenuContent
+          onCloseAutoFocus={(e) => {
+            // When closing to start a rename, don't let Radix return focus to the
+            // trigger — that blur would clear the input's initial text selection.
+            if (needsSelectRef.current) e.preventDefault()
+          }}
+        >
           <ContextMenuItem onClick={handleStartRename}>
             <Pencil size={14} />
             {t('sql_scripts.rename')}

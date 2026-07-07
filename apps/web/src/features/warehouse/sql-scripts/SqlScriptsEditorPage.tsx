@@ -856,6 +856,11 @@ function SchemaInspectorDialog({
   const [columns, setColumns] = useState<ColumnInfo[]>([])
   const [loading, setLoading] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [tableSearch, setTableSearch] = useState('')
+
+  const filteredTables = tables.filter((t) =>
+    t.toLowerCase().includes(tableSearch.trim().toLowerCase()),
+  )
 
   useEffect(() => {
     if (!open) return
@@ -917,14 +922,26 @@ function SchemaInspectorDialog({
           <DialogTitle>{t('sql_scripts.browse_schema')}</DialogTitle>
         </DialogHeader>
         <div className="flex h-[560px] gap-0 overflow-hidden rounded-md border">
-          <div className="w-48 shrink-0 overflow-y-auto border-r bg-muted/30">
+          <div className="flex w-48 shrink-0 flex-col overflow-hidden border-r bg-muted/30">
+            <div className="shrink-0 border-b p-1.5">
+              <Input
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                placeholder={t('sql_scripts.search_tables')}
+                className="h-7 text-xs"
+              />
+            </div>
+            <div className="flex-1 overflow-y-auto">
             {loading && (
               <p className="p-3 text-xs text-muted-foreground">{t('common.loading')}…</p>
             )}
             {!loading && tables.length === 0 && (
               <p className="p-3 text-xs text-muted-foreground">{t('sql_scripts.no_tables')}</p>
             )}
-            {tables.map((table) => (
+            {!loading && tables.length > 0 && filteredTables.length === 0 && (
+              <p className="p-3 text-xs text-muted-foreground">{t('sql_scripts.no_tables')}</p>
+            )}
+            {filteredTables.map((table) => (
               <button
                 key={table}
                 onClick={() => setSelectedTable(table)}
@@ -939,6 +956,7 @@ function SchemaInspectorDialog({
                 <span className="truncate">{table}</span>
               </button>
             ))}
+            </div>
           </div>
           <div className="flex flex-1 flex-col overflow-hidden">
             {selectedTable && columns.length > 0 && (
@@ -960,8 +978,9 @@ function SchemaInspectorDialog({
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-muted/50">
-                      <tr className="border-b">
+                    {/* Opaque (not /50) so scrolled rows don't show through. */}
+                    <thead className="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--color-border)]">
+                      <tr>
                         <th className="px-3 py-2 text-left font-medium">{t('sql_scripts.column_name')}</th>
                         <th className="px-3 py-2 text-left font-medium">{t('sql_scripts.data_type')}</th>
                         <th className="px-3 py-2 text-left font-medium">{t('sql_scripts.nullable')}</th>
