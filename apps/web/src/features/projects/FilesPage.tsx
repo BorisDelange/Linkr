@@ -33,6 +33,7 @@ import {
   PanelRight,
   Check,
   XCircle,
+  Table2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -87,6 +88,7 @@ import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
+import { SchemaInspectorDialog } from '@/features/warehouse/databases/SchemaInspectorDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -143,6 +145,7 @@ export function FilesPage() {
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
@@ -923,6 +926,20 @@ export function FilesPage() {
                       language={selectedLanguage as 'python' | 'r' | undefined}
                       projectUid={activeProjectUid ?? undefined}
                     />
+                    {isSql && activeConnectionId && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            onClick={() => setSchemaDialogOpen(true)}
+                          >
+                            <Table2 size={14} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{t('sql_scripts.browse_schema')}</TooltipContent>
+                      </Tooltip>
+                    )}
                   </>
                 )}
 
@@ -1727,6 +1744,13 @@ export function FilesPage() {
           open={shortcutsOpen}
           onOpenChange={setShortcutsOpen}
         />
+        {activeConnectionId && (
+          <SchemaInspectorDialog
+            open={schemaDialogOpen}
+            onOpenChange={setSchemaDialogOpen}
+            dataSourceId={activeConnectionId}
+          />
+        )}
         <EditorSettingsDialog
           open={editorSettingsOpen}
           onOpenChange={setEditorSettingsOpen}
