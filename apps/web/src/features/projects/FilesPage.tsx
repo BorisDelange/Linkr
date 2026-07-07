@@ -1111,21 +1111,7 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
-                  {editorVisible && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant={connectionsOpen ? 'secondary' : 'ghost'}
-                          size="icon-xs"
-                          onClick={() => setConnectionsOpen(true)}
-                        >
-                          <Plug size={14} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('connections.title')}</TooltipContent>
-                    </Tooltip>
-                  )}
-
+                  {/* Order: editor settings, keyboard shortcuts, connections, terminal. */}
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1153,6 +1139,21 @@ export function FilesPage() {
                     </TooltipTrigger>
                     <TooltipContent>{t('files.shortcuts')}</TooltipContent>
                   </Tooltip>
+
+                  {editorVisible && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant={connectionsOpen ? 'secondary' : 'ghost'}
+                          size="icon-xs"
+                          onClick={() => setConnectionsOpen(true)}
+                        >
+                          <Plug size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('connections.title')}</TooltipContent>
+                    </Tooltip>
+                  )}
 
                   <Tooltip>
                     <TooltipTrigger asChild>

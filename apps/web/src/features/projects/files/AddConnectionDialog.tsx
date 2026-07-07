@@ -28,7 +28,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useConnectionStore } from '@/stores/connection-store'
+import { isServerMode } from '@/lib/api-client'
 import type { DatabaseEngine } from '@/types'
+
+// Default engine matches the workspace Databases dialog: Postgres in server mode
+// (external DBs are the common case), DuckDB in front-only (Postgres isn't offered).
+const DEFAULT_ENGINE: DatabaseEngine = isServerMode() ? 'postgresql' : 'duckdb'
 
 interface AddConnectionDialogProps {
   open: boolean
@@ -52,7 +57,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
 
   // Form state
   const [name, setName] = useState('')
-  const [engine, setEngine] = useState<DatabaseEngine>('duckdb')
+  const [engine, setEngine] = useState<DatabaseEngine>(DEFAULT_ENGINE)
   const [importMode, setImportMode] = useState<'duckdb' | 'parquet'>('duckdb')
   const [uploading, setUploading] = useState(false)
 
@@ -74,7 +79,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
 
   const reset = () => {
     setName('')
-    setEngine('duckdb')
+    setEngine(DEFAULT_ENGINE)
     setImportMode('duckdb')
     setUploading(false)
     setUploadedFiles([])
@@ -202,12 +207,18 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
               <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
+              {/* Same engines/order as the workspace Databases page: network DBs
+                  first (server mode only), then file engines. SQL Server/Oracle
+                  aren't offered (no working DuckDB extension yet). */}
               <SelectContent>
+                {isServerMode() && (
+                  <>
+                    <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                    <SelectItem value="mysql">MySQL</SelectItem>
+                  </>
+                )}
                 <SelectItem value="duckdb">DuckDB</SelectItem>
                 <SelectItem value="sqlite">SQLite</SelectItem>
-                <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                <SelectItem value="mysql">MySQL</SelectItem>
-                <SelectItem value="sqlserver">SQL Server</SelectItem>
               </SelectContent>
             </Select>
           </div>
