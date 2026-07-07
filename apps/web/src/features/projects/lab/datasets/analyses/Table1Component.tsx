@@ -259,10 +259,16 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   )
   const [serverTable, setServerTable] = useState<Table1Data | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  // Stable string keys so the effect only re-fetches when inputs semantically
+  // change — not on every render (arrays like columns/selectedColumns/metrics get
+  // new references each render, which would loop the fetch forever).
+  const code = server && datasetFileId && columns.length > 0
+    ? buildTable1Code(columns, selectedColumns, groupByColumn, metrics)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
   useEffect(() => {
-    if (!server || !datasetFileId || columns.length === 0) return
+    if (!server || !datasetFileId || !code) return
     let cancelled = false
-    const code = buildTable1Code(columns, selectedColumns, groupByColumn, metrics)
     executeOnServer('python', code, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
@@ -272,7 +278,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
       })
       .catch((e) => { if (!cancelled) setServerError(String(e)) })
     return () => { cancelled = true }
-  }, [server, datasetFileId, JSON.stringify(datasetFilters), columns, selectedColumns, groupByColumn, metrics]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, datasetFileId, code, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const table = server ? serverTable : localTable
 

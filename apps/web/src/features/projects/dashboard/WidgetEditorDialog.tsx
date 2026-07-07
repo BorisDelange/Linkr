@@ -50,7 +50,12 @@ interface WidgetEditorDialogProps {
 }
 
 export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth, widgetSpacing }: WidgetEditorDialogProps) {
-  if (!widget) return null
+  // Read the live widget from the store so dataset/config edits made in the editor
+  // (e.g. picking a dataset) immediately reach the preview — the `widget` prop is a
+  // snapshot and would otherwise leave the preview provider with a stale datasetFileId.
+  const liveWidget = useDashboardStore((s) => s.widgets.find((w) => w.id === widget?.id))
+  const current = liveWidget ?? widget
+  if (!current) return null
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -58,8 +63,8 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
         showCloseButton={false}
         className="w-[calc(100vw-16rem)] max-w-none sm:max-w-none p-0 gap-0"
       >
-        <DashboardDataProvider datasetFileId={widget.datasetFileId ?? null}>
-          <WidgetEditorContent widget={widget} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} widgetSpacing={widgetSpacing} />
+        <DashboardDataProvider datasetFileId={current.datasetFileId ?? null}>
+          <WidgetEditorContent widget={current} onClose={() => onOpenChange(false)} projectUid={projectUid} gridWidth={gridWidth} widgetSpacing={widgetSpacing} />
         </DashboardDataProvider>
       </SheetContent>
     </Sheet>

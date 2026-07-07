@@ -9,7 +9,8 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { measureFitRows } from './dashboard-grid'
 import { getLabPlugins } from '@/lib/plugins/registry'
-import { getComponent } from '@/lib/plugins/component-registry'
+import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
+import { isServerMode } from '@/lib/api-client'
 import type { Plugin } from '@/types/plugin'
 import type { PluginConfigField } from '@/types/plugin'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
@@ -370,8 +371,17 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
               {/* Right: live preview */}
               <Allotment.Pane minSize={200}>
                 <div className="h-full overflow-auto border-l bg-muted/30">
-                  {PreviewComponent ? (
-                    <PreviewComponent config={debouncedConfig} columns={columns} rows={rows} />
+                  {PreviewComponent && isServerMode() && configPlugin.componentId && !componentSupportsServer(configPlugin.componentId) ? (
+                    <div className="flex h-full items-center justify-center p-3 text-center text-xs text-muted-foreground">
+                      {t('datasets.component_server_unavailable')}
+                    </div>
+                  ) : PreviewComponent ? (
+                    <PreviewComponent
+                      config={debouncedConfig}
+                      columns={columns}
+                      rows={rows}
+                      datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+                    />
                   ) : (
                     <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
                       {t('dashboard.preview_not_available')}
