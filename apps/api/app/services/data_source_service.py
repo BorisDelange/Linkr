@@ -175,6 +175,15 @@ async def introspect(source: DataSource) -> list[dict]:
     return await asyncio.to_thread(db_connect.introspect_postgres, config, password)
 
 
+async def test_connection_stored(
+    source: DataSource,
+) -> tuple[bool, str | None, list[dict]]:
+    """Re-test a stored source using its decrypted password (no client secret)."""
+    config = dict(source.connection_config or {})
+    config["password"] = connection_password(source)
+    return await test_connection(config)
+
+
 async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
     """Open a live connection using the (unpersisted) password in `config`,
     introspect the schema, and return (ok, error, tables)."""

@@ -115,6 +115,23 @@ async def test_update_without_password_keeps_secret(client, db):
     assert connection_password(row) == "keep"
 
 
+async def test_retest_uses_stored_credentials(client):
+    # Unreachable host → retest reports ok=False without the client sending a
+    # password (it uses the stored, encrypted one).
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {
+            "engine": "postgresql", "host": "127.0.0.1", "port": 59999,
+            "database": "x", "username": "u", "password": "p",
+        },
+    })).json()
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["ok"] is False and r.json()["error"]
+
+
 async def test_query_unsupported_engine_is_400(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

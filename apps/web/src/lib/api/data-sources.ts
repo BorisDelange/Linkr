@@ -50,6 +50,18 @@ export async function queryDataSourceOnServer(
 }
 
 /**
+ * Re-validate a stored external source using its saved (encrypted) credentials —
+ * no password sent from the browser. Returns ok + introspected tables.
+ */
+export function retestConnectionOnServer(
+  dataSourceId: string,
+): Promise<TestConnectionResult> {
+  return apiRequest<TestConnectionResult>(`/data-sources/${dataSourceId}/retest`, {
+    method: 'POST',
+  })
+}
+
+/**
  * Introspect a stored external source's schema (tables + columns) server-side.
  * Uses the dedicated introspection path (native Postgres catalog), not the
  * generic SQL executor — so it returns the source's real tables.

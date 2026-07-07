@@ -102,7 +102,7 @@ export function AddDatabaseDialog({
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
-  const { addDataSource, updateDataSource, removeDataSource, dataSources } = useDataSourceStore()
+  const { addDataSource, updateDataSource, removeDataSource, retestDataSource, dataSources } = useDataSourceStore()
   const [step, setStep] = useState<1 | 2>(1)
   const [dbTab, setDbTab] = useState<'general' | 'connection'>('general')
   const [selectedType, setSelectedType] = useState<DataSourceType | null>(null)
@@ -269,13 +269,39 @@ export function AddDatabaseDialog({
             if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
           }
         } else {
-          // No new files — update metadata only
-          updateDataSource(editingSource.id, {
+          // No new files — update metadata. Include the connection config for
+          // non-file engines so host/port/credentials edits are actually saved.
+          const changes: Partial<DataSource> = {
             name: name.trim(),
             alias: alias.trim() || editingSource.alias,
             description: description.trim(),
             schemaMapping: mapping,
-          })
+          }
+          const isExternal =
+            selectedType === 'database' && dbEngine !== 'duckdb' && dbEngine !== 'sqlite'
+          if (isExternal) {
+            const connectionConfig: DatabaseConnectionConfig = {
+              engine: dbEngine,
+              host: dbHost,
+              port: dbPort ? Number(dbPort) : undefined,
+              database: dbDatabase,
+              schema: dbSchema || undefined,
+              username: dbUsername || undefined,
+              // Only send a password when the user typed one — an empty field
+              // leaves the stored (encrypted) credential untouched server-side.
+              ...(dbPassword ? { password: dbPassword } : {}),
+            }
+            changes.connectionConfig = connectionConfig
+          }
+          updateDataSource(editingSource.id, changes)
+
+          // Re-validate the connection so a corrected host/credential updates
+          // status + stats instead of keeping the stale "connected" state. The
+          // re-test runs server-side against the freshly-saved config (using the
+          // stored encrypted password when the field was left blank).
+          if (isExternal && isServerMode()) {
+            await retestDataSource(editingSource.id)
+          }
         }
 
         handleClose(false)

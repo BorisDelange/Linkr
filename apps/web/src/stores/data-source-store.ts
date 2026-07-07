@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { testConnectionOnServer } from '@/lib/api/data-sources'
+import { retestConnectionOnServer, testConnectionOnServer } from '@/lib/api/data-sources'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
@@ -69,6 +69,9 @@ interface DataSourceState {
   }) => Promise<string>
 
   updateDataSource: (id: string, changes: Partial<DataSource>) => void
+  /** Re-validate a server-mode external source (Postgres) using its stored
+   *  credentials, refreshing status + stats. No-op in front-only mode. */
+  retestDataSource: (id: string) => Promise<void>
   removeDataSource: (id: string) => Promise<void>
   testConnection: (id: string) => Promise<void>
   /** Unmount a data source from DuckDB and set status to 'disconnected'. */
@@ -387,6 +390,31 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ),
     }))
 
+  },
+
+  retestDataSource: async (id) => {
+    if (!isServerMode()) return
+    const ds = get().dataSources.find((d) => d.id === id)
+    if (!ds) return
+    set((s) => ({
+      dataSources: s.dataSources.map((d) =>
+        d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
+      ),
+    }))
+    const result = await retestConnectionOnServer(id)
+    let updated: Partial<DataSource>
+    if (result.ok) {
+      const stats = await engine
+        .computeStats(id, ds.schemaMapping)
+        .catch(() => ({ tableCount: result.tables.length }))
+      updated = { status: 'connected', errorMessage: undefined, stats }
+    } else {
+      updated = { status: 'error', errorMessage: result.error ?? 'Connection failed' }
+    }
+    await getStorage().dataSources.update(id, updated)
+    set((s) => ({
+      dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, ...updated } : d)),
+    }))
   },
 
   removeDataSource: async (id) => {

@@ -195,6 +195,20 @@ async def query_data_source(
     return QueryResult(rows=rows)
 
 
+@router.post("/{source_id}/retest", response_model=TestConnectionResult)
+async def retest_data_source(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-validate a stored external source using its saved (encrypted)
+    credentials — no password from the client. Returns ok + introspected tables
+    so the UI can refresh status and stats."""
+    source = await _load_source(db, source_id, user, "editor")
+    ok, error, tables = await data_source_service.test_connection_stored(source)
+    return TestConnectionResult(ok=ok, error=error, tables=tables)
+
+
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
 async def get_data_source_schema(
     source_id: str,
