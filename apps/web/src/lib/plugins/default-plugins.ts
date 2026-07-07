@@ -44,7 +44,7 @@ export function buildPlugin(
 export function registerDefaultPlugins() {
   // Component-based lab plugins
   registerComponent('table1', Table1Component, { supportsServer: true })
-  registerComponent('key-indicator', KeyIndicatorComponent)
+  registerComponent('key-indicator', KeyIndicatorComponent, { supportsServer: true })
   registerComponent('plot-builder', PlotBuilderComponent)
   registerPlugin({
     manifest: normaliseManifest(table1Manifest as unknown as Record<string, unknown>),

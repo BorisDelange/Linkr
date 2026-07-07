@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useRef, useState } from 'react'
+import { useMemo, useCallback, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ResponsiveContainer,
@@ -16,7 +16,10 @@ import type { ValueType, NameType } from 'recharts/types/component/DefaultToolti
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildKeyIndicatorCode } from './key-indicator-server'
 
 // ---------------------------------------------------------------------------
 // Aggregate functions
@@ -180,9 +183,29 @@ function buildHistogramData(values: number[], bins: number, startAtZero = false,
 // Component
 // ---------------------------------------------------------------------------
 
-export function KeyIndicatorComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+interface KpiChart {
+  type: string
+  data: { label?: string; count?: number; name?: string; value?: number }[]
+}
+
+interface KpiServerData {
+  error?: string
+  isProportion: boolean
+  result: number | null
+  n?: number
+  matchCount?: number
+  resolvedTarget?: string
+  allStats?: Record<string, number | null>
+  nonNull?: number
+  targetMatches?: number
+  target?: string
+  chart?: KpiChart | null
+}
+
+export function KeyIndicatorComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
+  const server = isServerMode()
 
   const columnId = config.column as string | undefined
   const uniquePerId = config.uniquePer as string | undefined
@@ -235,6 +258,29 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // Mini-chart palette: "none" = a single color (the main color); otherwise the chosen palette.
   const chartPalette = chartPaletteName === 'none' ? [color.hex] : resolvePalette(chartPaletteName, chartCustomPalette)
 
+  // Server mode: the backend computes the aggregate + stats + already-binned chart
+  // data on the Parquet (rows never leave the server). Stable string keys so the
+  // effect only re-fetches when inputs semantically change — never every render.
+  const serverCode = server && datasetFileId && column
+    ? buildKeyIndicatorCode(columns, config)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverData, setServerData] = useState<KpiServerData | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerError(out.stderr); return }
+        try { setServerData(JSON.parse(out.stdout.trim()) as KpiServerData); setServerError(null) }
+        catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Aggregate rows per entity if uniquePer is set
   const sourceRows = useMemo(() => {
     if (!uniquePerId) return rows
@@ -250,6 +296,15 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
   // For proportion mode: compute proportion of target value
   const proportionResult = useMemo(() => {
     if (!isProportion || !column) return null
+    if (server) {
+      if (!serverData || serverData.error || !serverData.isProportion) return null
+      return {
+        result: serverData.result ?? 0,
+        n: serverData.n ?? 0,
+        matchCount: serverData.matchCount ?? 0,
+        resolvedTarget: serverData.resolvedTarget ?? '',
+      }
+    }
     const rawValues: unknown[] = []
     for (const row of metricRows) {
       const raw = row[column.id]
@@ -273,11 +328,22 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     const pct = (matchCount / total) * 100
 
     return { result: pct, n: total, matchCount, resolvedTarget }
-  }, [isProportion, column, metricRows, targetValue])
+  }, [isProportion, column, metricRows, targetValue, server, serverData])
 
   // For numeric mode: compute numeric aggregate + all stats
   const numericResult = useMemo(() => {
     if (isProportion || !column) return null
+    if (server) {
+      if (!serverData || serverData.error || serverData.isProportion) return null
+      return {
+        values: [] as number[],
+        result: serverData.result,
+        allStats: serverData.allStats ?? {},
+        nonNull: serverData.nonNull ?? 0,
+        targetMatches: serverData.targetMatches ?? 0,
+        target: serverData.target ?? '',
+      }
+    }
     const vals: number[] = []
     let nonNull = 0
     let targetMatches = 0
@@ -307,7 +373,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
       iqr: computeAggregate(vals, 'iqr'),
     }
     return { values: vals, result: res, allStats: stats, nonNull, targetMatches, target }
-  }, [isProportion, column, metricRows, aggregate, targetValue, excludeNA])
+  }, [isProportion, column, metricRows, aggregate, targetValue, excludeNA, server, serverData])
 
   // Unified result
   const result = isProportion ? proportionResult?.result ?? null : numericResult?.result ?? null
@@ -365,7 +431,17 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     )
   }
 
-  if (result === null && !isNoneStat) {
+  if (server && serverError) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground whitespace-pre-wrap">
+        {serverError}
+      </div>
+    )
+  }
+
+  // In server mode, wait for the aggregate before deciding there is no data —
+  // serverData null means the fetch is still in flight, not an empty result.
+  if (result === null && !isNoneStat && !(server && !serverData)) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
         {t('datasets.no_data_available')}
@@ -373,12 +449,16 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
     )
   }
 
-  // Histogram needs numeric values; bar/pie build frequency counts from raw rows, so they
-  // only need rows (works for categorical columns and when the main stat is "None").
+  // Chart data source: server mode uses the already-aggregated payload; front-only
+  // derives it in MiniChart from values/rows. Histogram needs numeric values; bar/pie
+  // build frequency counts from raw rows (works for categorical + "None" stat).
+  const serverChart = server ? serverData?.chart ?? null : null
   const hasChart = chartType !== 'none' && (
-    chartType === 'histogram'
-      ? values.length > 0
-      : metricRows.length > 0
+    server
+      ? !!serverChart && serverChart.data.length > 0
+      : chartType === 'histogram'
+        ? values.length > 0
+        : metricRows.length > 0
   )
   const isSideChart = hasChart && chartPosition === 'side'
 
@@ -446,6 +526,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
             palette={chartPalette}
             column={column}
             rows={metricRows}
+            serverChart={serverChart}
           />
         </div>
       )}
@@ -468,6 +549,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact }: Compon
           palette={chartPalette}
           column={column}
           rows={metricRows}
+          serverChart={serverChart}
         />
       </div>
     </div>
@@ -517,15 +599,19 @@ interface MiniChartProps {
   palette?: string[]
   column: { id: string; name: string; type: string }
   rows: Record<string, unknown>[]
+  /** Server mode: already-aggregated chart payload (histogram bins or freq counts). */
+  serverChart?: KpiChart | null
 }
 
 const DEFAULT_MINI_PALETTE = ['#4e79a7', '#f28e2b', '#e15759', '#76b7b2', '#59a14f', '#edc949', '#af7aa1', '#ff9da7', '#9c755f', '#bab0ab']
 
-function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, palette = DEFAULT_MINI_PALETTE, column, rows }: MiniChartProps) {
+function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLen = 11, xAxisStartZero, decimals = 1, palette = DEFAULT_MINI_PALETTE, column, rows, serverChart }: MiniChartProps) {
   // A single-color palette ("None") tints every bar/slice with the main color; pie slices
   // then get a graduated opacity so they stay distinguishable.
   const singleColor = palette.length === 1
   const data = useMemo(() => {
+    // Server mode: the backend already binned/counted; render it verbatim.
+    if (serverChart) return serverChart.data as { label?: string; count?: number; name?: string; value?: number }[]
     if (chartType === 'histogram') {
       return buildHistogramData(values, bins, xAxisStartZero, decimals)
     }
@@ -544,13 +630,15 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
         .map(([name, value]) => ({ name, value }))
     }
     return []
-  }, [values, chartType, bins, xAxisStartZero, decimals, column.id, rows])
+  }, [serverChart, values, chartType, bins, xAxisStartZero, decimals, column.id, rows])
 
-  // Total count for proportion calculation in tooltips
+  // Total count for proportion calculation in tooltips. Histogram front-only uses the
+  // raw value count; server mode (values empty) sums the bin counts instead.
   const totalCount = useMemo(() => {
-    if (chartType === 'histogram') return values.length
+    if (chartType === 'histogram' && !serverChart) return values.length
+    if (chartType === 'histogram') return (data as { count?: number }[]).reduce((s, d) => s + (d.count ?? 0), 0)
     return (data as { value?: number }[]).reduce((s, d) => s + (d.value ?? 0), 0)
-  }, [data, values.length, chartType])
+  }, [data, values.length, chartType, serverChart])
 
   // Custom tooltip content for clean display
   // recharts' ContentType is broader than our narrowed payload shape; the
