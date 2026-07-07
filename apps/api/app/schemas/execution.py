@@ -12,6 +12,8 @@ class ExecuteRequest(CamelModel):
     # When set, the dataset's Parquet is loaded into the kernel as a `dataset`
     # DataFrame before the code runs (data stays server-side).
     dataset_file_id: str | None = None
+    # When set, sql_query() in the code runs against this data source (its id).
+    connection_id: str | None = None
 
 
 class RestartKernelRequest(CamelModel):

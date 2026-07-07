@@ -149,6 +149,43 @@ async def test_execute_dataset_not_found_is_404(client):
     assert r.status_code == 404
 
 
+async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
+    headers = await _admin_headers(client)
+    # Stub the data-source layer so no real DB is needed: any connection_id
+    # resolves to a fake source, and query() returns canned rows.
+    from app.services import data_source_service
+
+    async def fake_get(db, source_id):
+        return object()
+
+    async def fake_query(source, sql):
+        assert "person" in sql
+        return [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
+
+    monkeypatch.setattr(data_source_service, "get", fake_get)
+    monkeypatch.setattr(data_source_service, "query", fake_query)
+
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python",
+        "code": "df = sql_query('SELECT * FROM person')\nprint(df['name'].tolist())",
+        "projectUid": "sqlp", "connectionId": "conn-1",
+    })
+    assert r.status_code == 200
+    assert "alice" in r.json()["stdout"] and "bob" in r.json()["stdout"]
+
+
+async def test_sql_query_without_connection_errors_in_kernel(client):
+    headers = await _admin_headers(client)
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python",
+        "code": "sql_query('SELECT 1')",
+        "projectUid": "sqlp2",
+    })
+    # No connection -> the RPC resolver returns an error the kernel raises -> stderr.
+    assert r.status_code == 200
+    assert "connection" in r.json()["stderr"].lower()
+
+
 async def test_list_kernels_reports_live_sessions(client):
     headers = await _admin_headers(client)
     # No kernels yet for this project.

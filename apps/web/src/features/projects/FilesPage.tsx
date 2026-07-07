@@ -524,7 +524,10 @@ export function FilesPage() {
         // Server mode: run on the backend (data stays server-side). The active
         // connection / dataset injection is a later step (e4) — MVP runs free code.
         const result = isServerMode()
-          ? await executeOnServer(language, code, { projectUid: activeProjectUid ?? undefined })
+          ? await executeOnServer(language, code, {
+              projectUid: activeProjectUid ?? undefined,
+              connectionId: activeConnectionId ?? undefined,
+            })
           : language === 'python'
             ? await executePython(code, activeConnectionId, controller.signal)
             : await executeR(code, activeConnectionId, controller.signal)

@@ -10,7 +10,7 @@ import type { RuntimeLanguage, RuntimeOutput } from '@/lib/runtimes/types'
 export function executeOnServer(
   language: RuntimeLanguage,
   code: string,
-  opts?: { projectUid?: string; envId?: string; datasetFileId?: string },
+  opts?: { projectUid?: string; envId?: string; datasetFileId?: string; connectionId?: string },
 ): Promise<RuntimeOutput> {
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
@@ -20,6 +20,7 @@ export function executeOnServer(
       projectUid: opts?.projectUid ?? null,
       envId: opts?.envId ?? 'default',
       datasetFileId: opts?.datasetFileId ?? null,
+      connectionId: opts?.connectionId ?? null,
     }),
   })
 }

@@ -10,7 +10,7 @@ from app.schemas.execution import (
     RestartKernelRequest,
     RuntimeFigureResponse,
 )
-from app.services import dataset_service
+from app.services import data_source_service, dataset_service
 from app.services.execution import injection, kernel, runtime
 
 router = APIRouter(prefix="/execute", tags=["execution"])
@@ -42,12 +42,24 @@ async def execute_code(
     if body.dataset_file_id and body.language in ("python", "r"):
         preamble = await _dataset_preamble(db, body.dataset_file_id, body.language)
         code = preamble + "\n" + code
+
+    # sql_query() in the kernel routes back here; the host runs the SQL against the
+    # connection's source so the connection config never reaches the kernel.
+    resolver = None
+    if body.connection_id:
+        source = await data_source_service.get(db, body.connection_id)
+        if source is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+
+        async def resolver(sql: str):
+            return await data_source_service.query(source, sql)
+
     try:
         # With a project context, reuse a persistent kernel so variables survive
         # between runs (§07). Context-less runs stay stateless one-shots.
         if body.language in ("python", "r") and body.project_uid:
             k = await kernel.manager.get(body.project_uid, body.language, body.env_id)
-            out = await k.execute(code)
+            out = await k.execute(code, query_resolver=resolver)
         elif body.language == "python":
             out = await runtime.run_python(code)
         elif body.language == "r":

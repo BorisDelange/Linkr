@@ -26,7 +26,27 @@ from app.services.execution.runtime import RuntimeOutput, ExecutionError
 _PY_KERNEL_LOOP = r'''
 import sys, io, json, base64, traceback
 
-_ns = {"__name__": "__main__"}
+
+def _linkr_sql_query(sql):
+    """Ask the host to run SQL against the active connection; return rows (list of
+    dicts). The host holds the connection config — the kernel never sees it."""
+    sys.__stdout__.write(json.dumps({"__linkr_rpc__": "query", "sql": sql}) + "\n")
+    sys.__stdout__.flush()
+    line = sys.stdin.readline()
+    resp = json.loads(line)
+    if resp.get("error"):
+        raise RuntimeError(resp["error"])
+    return resp.get("rows", [])
+
+
+def sql_query(sql):
+    """Query the active database connection and return a pandas DataFrame."""
+    import pandas as pd
+    rows = _linkr_sql_query(sql)
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+_ns = {"__name__": "__main__", "sql_query": sql_query}
 try:
     import matplotlib
     matplotlib.use("Agg")
@@ -72,7 +92,12 @@ def _run(code):
             "figures": figures, "table": table, "html": None}
 
 
-for line in sys.stdin:
+# Explicit readline (not `for line in sys.stdin`) so sql_query can do its own
+# readline() for RPC responses without fighting the iterator's read-ahead buffer.
+while True:
+    line = sys.stdin.readline()
+    if not line:
+        break
     line = line.strip()
     if not line:
         continue
@@ -133,6 +158,16 @@ repeat {
 '''
 
 
+async def _resolve_query(query_resolver, sql: str) -> dict:
+    """Run a kernel SQL RPC via the resolver; return {rows} or {error}."""
+    if query_resolver is None:
+        return {"error": "No active database connection for sql_query()."}
+    try:
+        return {"rows": await query_resolver(sql)}
+    except Exception as e:  # noqa: BLE001 — surface any query failure to the kernel
+        return {"error": str(e)}
+
+
 class Kernel:
     """One persistent interpreter process. Serialises requests (one at a time)."""
 
@@ -159,19 +194,18 @@ class Kernel:
     def alive(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
 
-    async def execute(self, code: str) -> RuntimeOutput:
+    async def execute(self, code: str, query_resolver=None) -> RuntimeOutput:
+        """Run code and return its output. While running, the kernel may emit SQL
+        RPC requests (from sql_query); each is fulfilled by `query_resolver(sql)`
+        (an async callable returning rows) and the result is fed back over stdin."""
         async with self._lock:
             proc = await self._ensure_started()
             assert proc.stdin is not None and proc.stdout is not None
             self.busy = True
             try:
-                payload = base64.b64encode(code.encode("utf-8")) + b"\n"
-                proc.stdin.write(payload)
+                proc.stdin.write(base64.b64encode(code.encode("utf-8")) + b"\n")
                 await proc.stdin.drain()
-                line = await asyncio.wait_for(
-                    proc.stdout.readline(),
-                    timeout=settings.execution_timeout_seconds,
-                )
+                line = await self._read_result(proc, query_resolver)
             except asyncio.TimeoutError as e:
                 # A hung run poisons the namespace — kill so the next call restarts clean.
                 await self.shutdown()
@@ -192,6 +226,26 @@ class Kernel:
                 table=data.get("table"),
                 html=data.get("html"),
             )
+
+    async def _read_result(self, proc, query_resolver) -> bytes:
+        """Read stdout until the final result line, servicing SQL RPC requests
+        emitted mid-run. Each read is bounded by the execution timeout."""
+        while True:
+            line = await asyncio.wait_for(
+                proc.stdout.readline(), timeout=settings.execution_timeout_seconds
+            )
+            if not line:
+                return line
+            try:
+                msg = json.loads(line.decode("utf-8"))
+            except ValueError:
+                continue  # not JSON — ignore stray output
+            if msg.get("__linkr_rpc__") == "query":
+                resp = await _resolve_query(query_resolver, msg.get("sql", ""))
+                proc.stdin.write((json.dumps(resp) + "\n").encode("utf-8"))
+                await proc.stdin.drain()
+                continue
+            return line
 
     async def shutdown(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
