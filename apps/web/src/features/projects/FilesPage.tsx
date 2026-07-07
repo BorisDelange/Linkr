@@ -524,7 +524,7 @@ export function FilesPage() {
         // Server mode: run on the backend (data stays server-side). The active
         // connection / dataset injection is a later step (e4) — MVP runs free code.
         const result = isServerMode()
-          ? await executeOnServer(language, code)
+          ? await executeOnServer(language, code, { projectUid: activeProjectUid ?? undefined })
           : language === 'python'
             ? await executePython(code, activeConnectionId, controller.signal)
             : await executeR(code, activeConnectionId, controller.signal)
@@ -572,7 +572,7 @@ export function FilesPage() {
         finishExecution()
       }
     },
-    [activeConnectionId, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
+    [activeConnectionId, activeProjectUid, t, startExecution, finishExecution, addExecutionResult, updateExecutionResult, addOutputTab, setActiveOutputTab]
   )
 
   const isMarkdown = selectedLanguage === 'markdown' || selectedNode?.name.endsWith('.md')

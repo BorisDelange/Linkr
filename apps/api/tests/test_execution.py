@@ -77,6 +77,43 @@ async def test_execute_r_error_goes_to_stderr(client):
     assert "boom R" in r.json()["stderr"]
 
 
+async def test_persistent_kernel_keeps_variables_between_runs(client):
+    headers = await _admin_headers(client)
+    body1 = {"language": "python", "code": "a = 40\na = a + 2", "projectUid": "p1"}
+    assert (await client.post(f"{API}/execute", headers=headers, json=body1)).status_code == 200
+    # A second run in the same project/env sees `a` from the first.
+    body2 = {"language": "python", "code": "print(a)", "projectUid": "p1"}
+    r = await client.post(f"{API}/execute", headers=headers, json=body2)
+    assert r.json()["stdout"].strip() == "42"
+
+
+async def test_kernels_isolated_per_env(client):
+    headers = await _admin_headers(client)
+    await client.post(f"{API}/execute", headers=headers,
+                      json={"language": "python", "code": "x = 1", "projectUid": "p1", "envId": "e1"})
+    r = await client.post(f"{API}/execute", headers=headers,
+                          json={"language": "python", "code": "print(x)", "projectUid": "p1", "envId": "e2"})
+    assert "NameError" in r.json()["stderr"]
+
+
+async def test_restart_clears_kernel_state(client):
+    headers = await _admin_headers(client)
+    await client.post(f"{API}/execute", headers=headers,
+                      json={"language": "python", "code": "z = 99", "projectUid": "p2"})
+    assert (await client.post(f"{API}/execute/restart", headers=headers,
+            json={"language": "python", "projectUid": "p2"})).status_code == 204
+    r = await client.post(f"{API}/execute", headers=headers,
+                          json={"language": "python", "code": "print(z)", "projectUid": "p2"})
+    assert "NameError" in r.json()["stderr"]
+
+
+async def test_stateless_run_without_project_does_not_persist(client):
+    headers = await _admin_headers(client)
+    await _run(client, headers, "b = 7")  # no projectUid -> stateless one-shot
+    r = await _run(client, headers, "print(b)")
+    assert "NameError" in r.json()["stderr"]
+
+
 async def test_execute_unsupported_language_is_400(client):
     headers = await _admin_headers(client)
     r = await _run(client, headers, "1", language="julia")

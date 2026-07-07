@@ -23,6 +23,16 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     settings.__dict__.pop("data_path", None)
 
 
+@pytest_asyncio.fixture(autouse=True)
+async def _shutdown_kernels():
+    """Kill any persistent execution kernels a test started (they're a module-level
+    singleton, so they'd otherwise leak subprocesses across tests)."""
+    yield
+    from app.services.execution.kernel import manager
+
+    await manager.shutdown_all()
+
+
 @pytest_asyncio.fixture
 async def engine():
     # Single shared in-memory connection so the schema persists across sessions.

@@ -4,6 +4,17 @@ from app.schemas.base import CamelModel
 class ExecuteRequest(CamelModel):
     language: str  # 'python' | 'r'
     code: str
+    # Persistent-kernel routing. When project_uid is given, the run reuses a
+    # long-lived kernel for (project, language, env) so variables persist between
+    # runs. Without it, a stateless one-shot run is used.
+    project_uid: str | None = None
+    env_id: str = "default"
+
+
+class RestartKernelRequest(CamelModel):
+    language: str
+    project_uid: str
+    env_id: str = "default"
 
 
 class RuntimeFigureResponse(CamelModel):

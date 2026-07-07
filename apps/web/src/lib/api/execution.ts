@@ -10,9 +10,27 @@ import type { RuntimeLanguage, RuntimeOutput } from '@/lib/runtimes/types'
 export function executeOnServer(
   language: RuntimeLanguage,
   code: string,
+  opts?: { projectUid?: string; envId?: string },
 ): Promise<RuntimeOutput> {
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
-    body: JSON.stringify({ language, code }),
+    body: JSON.stringify({
+      language,
+      code,
+      projectUid: opts?.projectUid ?? null,
+      envId: opts?.envId ?? 'default',
+    }),
+  })
+}
+
+/** Kill the persistent kernel for (project, language, env) — next run starts fresh. */
+export function restartServerKernel(
+  language: RuntimeLanguage,
+  projectUid: string,
+  envId = 'default',
+): Promise<void> {
+  return apiRequest<void>('/execute/restart', {
+    method: 'POST',
+    body: JSON.stringify({ language, projectUid, envId }),
   })
 }

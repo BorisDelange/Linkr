@@ -410,7 +410,33 @@
     <strong>À trancher le moment venu.</strong> R et Python : deux runners séparés, ou un orchestrateur commun (mêmes endpoints <code>POST /execute</code>, param <code>language</code>) ? &nbsp; Process direct vs conteneur par exécution (isolation forte mais lourde) ? &nbsp; Réutilisation d'un kernel chaud entre exécutions (perf notebooks) vs cold-start propre à chaque run ? Aucune de ces questions ne bloque le stockage (étape a).
   </div>
 
-  <h2><span class="n">07</span>Décisions à trancher avant de coder</h2>
+  <h2><span class="n">07</span>Environnements &amp; sessions kernel (IDE)</h2>
+  <p class="sub">Le MVP §06 est <em>stateless</em> : chaque « Run » = un sous-process neuf, jeté à la fin. Donc <code>a = 4</code> puis, dans un run suivant, <code>print(a)</code> → <code>a</code> n'existe plus. Un IDE attend l'inverse : une <strong>session vivante</strong> où les variables s'accumulent entre les runs (modèle kernel Jupyter / console RStudio). C'est le socle dont dépendent aussi le footer (« Environments / Memory / Ready / System monitor ») et le terminal.</p>
+
+  <div class="q">
+    <strong>Deux sens de « environnement » à ne pas confondre.</strong> (1) <b>Paquets installés</b> — pip/CRAN ; c'est ce que gère le dialog « Environments » actuel. (2) <b>État des variables</b> — la mémoire d'un process vivant (<code>a = 4</code>). La demande « faire persister <code>a</code> » relève de (2), le <u>kernel</u>, qui n'existe pas encore côté serveur.
+  </div>
+
+  <ol class="decisions">
+    <li>
+      <b>Kernels persistants en mémoire (acté).</b>
+      <span>Un process R/Python <em>vivant</em> par environnement, gardé en RAM côté serveur (modèle Jupyter/RStudio). Les variables persistent entre les runs et pendant une navigation. <b>Perdues au redémarrage serveur ou à l'expiration d'inactivité</b> — pas de snapshot disque au départ (sérialiser des objets R/Python arbitraires — connexions, handles — est fragile et rarement fait). Côté client, Pyodide/WebR étaient déjà des singletons vivants par onglet ; on reproduit ça côté serveur, en mieux (par projet, pas par onglet).</span>
+    </li>
+    <li>
+      <b>Mapping projet → environnements.</b>
+      <span>Par défaut <b>1 kernel Python + 1 kernel R par projet</b> dans l'IDE. Possibilité d'en créer d'autres par projet. Un environnement = { langage, id, projet, paquets installés, process vivant }. L'onglet/fichier de l'IDE cible un environnement ; le « Run » l'exécute dans ce kernel.</span>
+    </li>
+    <li>
+      <b>Cycle de vie &amp; limites.</b>
+      <span>Kernel démarré à la 1ʳᵉ exécution (lazy) ; expiration après inactivité (<code>session_timeout_minutes</code>, déjà en config) ; plafond par utilisateur (<code>max_sessions_per_user</code>, déjà en config). « Restart kernel » = tuer + relancer (vide les variables volontairement). Le footer reflète l'état : <em>Ready</em> (idle) / <em>Busy</em> (executing) / <em>Memory</em> (RSS du process).</span>
+    </li>
+    <li>
+      <b>Ce que ça débloque, dans l'ordre.</b>
+      <span><b>a —</b> kernel Python persistant par projet (les variables persistent). <b>b —</b> kernel R. <b>c —</b> multi-environnements + UI footer (créer/lister/basculer/restart, monitoring). <b>d —</b> terminal serveur = REPL interactif sur un kernel (streaming) — le plus complexe, en dernier. <em>Persistance des variables au redémarrage serveur : hors périmètre (snapshot), à rediscuter si besoin réel.</em></span>
+    </li>
+  </ol>
+
+  <h2><span class="n">08</span>Décisions à trancher avant de coder</h2>
   <ol class="decisions">
     <li>
       <b>Fichiers : source de vérité ou export ?</b>
