@@ -28,6 +28,9 @@ import {
 interface KeyboardShortcutsDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** When set, only these actions are shown (and groups with none are hidden).
+   *  Used by non-IDE editors (e.g. SQL scripts) to show only relevant shortcuts. */
+  actionIds?: ShortcutActionId[]
 }
 
 const isMac = navigator.platform.toUpperCase().includes('MAC')
@@ -103,7 +106,9 @@ function ComboDisplay({ combo }: { combo: KeyCombo }) {
 export function KeyboardShortcutsDialog({
   open,
   onOpenChange,
+  actionIds,
 }: KeyboardShortcutsDialogProps) {
+  const allowed = actionIds ? new Set(actionIds) : null
   const { t } = useTranslation()
   const { shortcuts, setBinding, resetBinding, resetAll, findConflict, isCustomized, applyPreset, getActivePreset } =
     useShortcutStore()
@@ -185,7 +190,13 @@ export function KeyboardShortcutsDialog({
 
         <TooltipProvider delayDuration={300}>
           <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
-            {SHORTCUT_GROUPS.map((group) => {
+            {SHORTCUT_GROUPS
+              .map((group) => ({
+                ...group,
+                actions: allowed ? group.actions.filter((a) => allowed.has(a)) : group.actions,
+              }))
+              .filter((group) => group.actions.length > 0)
+              .map((group) => {
               const prefix = group.presetGroup
               const activePreset = prefix ? getActivePreset(prefix) : null
 

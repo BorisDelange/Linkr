@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -62,7 +62,21 @@ import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
 import { SchemaInspectorDialog } from '@/features/warehouse/databases/SchemaInspectorDialog'
+import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
+import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
+import type { ShortcutActionId } from '@/types/shortcuts'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+
+/** Shortcut actions surfaced in the SQL editor (subset of the IDE's set). */
+const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
+  'toggle_sidebar',
+  'save_file',
+  'run_selection_or_line',
+  'run_file',
+  'toggle_comment',
+  'find',
+  'replace',
+]
 import type { SqlScriptFile } from '@/types'
 
 interface Props {
@@ -304,7 +318,15 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     setCloseConfirmFileId(null)
   }, [closeConfirmFileId, revertFile, closeFile])
 
-  // Keyboard shortcut: Cmd+Shift+Enter = Run All
+  // Global shortcuts shared with the IDE (via the shortcut store). Editor-scoped
+  // actions (save/run/find/replace/comment) are handled by Monaco in CodeEditor.
+  const globalShortcutHandlers = useMemo<ShortcutHandlers>(
+    () => ({ toggle_sidebar: () => setExplorerVisible((v) => !v) }),
+    [],
+  )
+  useGlobalShortcuts(globalShortcutHandlers)
+
+  // Cmd+Shift+Enter = Run All (SQL-specific, not part of the IDE action set).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
@@ -829,8 +851,13 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
         />
       )}
 
-      {/* Keyboard shortcuts dialog */}
-      <SqlShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+      {/* Keyboard shortcuts dialog — same customizable dialog as the IDE,
+          filtered to the actions relevant in the SQL editor. */}
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onOpenChange={setShortcutsOpen}
+        actionIds={SQL_EDITOR_SHORTCUT_ACTIONS}
+      />
     </TooltipProvider>
   )
 }
@@ -976,66 +1003,5 @@ function SqlResultCard({ result }: { result: SqlExecutionResult }) {
       </div>
       <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">{displayText}</pre>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// SqlShortcutsDialog
-// ---------------------------------------------------------------------------
-
-const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC')
-
-const SQL_SHORTCUTS = [
-  { labelKey: 'sql_scripts.shortcut_save', keys: isMac ? ['⌘', 'S'] : ['Ctrl', 'S'] },
-  { labelKey: 'sql_scripts.shortcut_run_file', keys: ['⇧', '↵'] },
-  { labelKey: 'sql_scripts.shortcut_run_all', keys: isMac ? ['⌘', '⇧', '↵'] : ['Ctrl', '⇧', '↵'] },
-  { labelKey: 'sql_scripts.shortcut_find', keys: isMac ? ['⌘', 'F'] : ['Ctrl', 'F'] },
-  { labelKey: 'sql_scripts.shortcut_replace', keys: isMac ? ['⌘', 'H'] : ['Ctrl', 'H'] },
-  { labelKey: 'sql_scripts.shortcut_comment', keys: isMac ? ['⌘', '/'] : ['Ctrl', '/'] },
-]
-
-function Kbd({ children }: { children: string }) {
-  return (
-    <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border bg-muted px-1.5 text-[10px] font-medium text-muted-foreground">
-      {children}
-    </kbd>
-  )
-}
-
-function SqlShortcutsDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>{t('files.shortcuts')}</DialogTitle>
-        </DialogHeader>
-        <div className="space-y-1">
-          {SQL_SHORTCUTS.map((shortcut) => (
-            <div
-              key={shortcut.labelKey}
-              className="flex items-center justify-between rounded-md px-2 py-1.5"
-            >
-              <span className="text-sm">{t(shortcut.labelKey)}</span>
-              <div className="flex items-center gap-0.5">
-                {shortcut.keys.map((key, i) => (
-                  <span key={i} className="flex items-center gap-0.5">
-                    {i > 0 && <span className="text-[10px] text-muted-foreground">+</span>}
-                    <Kbd>{key}</Kbd>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
   )
 }
