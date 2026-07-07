@@ -168,8 +168,7 @@ function EtlFileTreeItem({
   useEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus()
-      const len = inputRef.current.value.length
-      inputRef.current.setSelectionRange(len, len)
+      inputRef.current.select()  // select all so typing replaces the name outright
     }
   }, [editing])
 

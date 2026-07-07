@@ -187,8 +187,7 @@ function TreeItem({ node, depth, activePageId, onSelect, onCreateChild, onChange
         const el = renameRef.current
         if (el) {
           el.focus()
-          const len = el.value.length
-          el.setSelectionRange(len, len)
+          el.select()  // select all so typing replaces the name outright
         }
       })
       return () => cancelAnimationFrame(raf)

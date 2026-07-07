@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useFileStore } from '@/stores/file-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
@@ -39,7 +39,6 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { RenameDialog } from './RenameDialog'
 
 interface FileTreeItemProps {
   node: TreeNode
@@ -119,11 +118,14 @@ export function FileTreeItem({
   selectedFileId,
 }: FileTreeItemProps) {
   const { t } = useTranslation()
-  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode } = useFileStore()
+  const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode } = useFileStore()
   const datasetStore = useDatasetStore()
-  const [renameOpen, setRenameOpen] = useState(false)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
+  // Inline rename (in the sidebar) — replaces the old modal.
+  const [renaming, setRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState(node.name)
+  const renameRef = useRef<HTMLInputElement>(null)
 
   const isBridge = 'datasetBridge' in node && (node as DatasetBridgeNode).datasetBridge === true
   const bridgeDatasetFileId = isBridge ? (node as DatasetBridgeNode).datasetFileId : undefined
@@ -140,6 +142,31 @@ export function FileTreeItem({
       selectFile(node.id)
     }
   }
+
+  const startRename = () => {
+    setRenameValue(node.name)
+    setRenaming(true)
+  }
+
+  const submitRename = () => {
+    const trimmed = renameValue.trim()
+    if (trimmed && trimmed !== node.name) {
+      if (isBridge && bridgeDatasetFileId) datasetStore.renameNode(bridgeDatasetFileId, trimmed)
+      else renameNode(node.id, trimmed)
+    }
+    setRenaming(false)
+  }
+
+  useEffect(() => {
+    if (renaming && renameRef.current) {
+      const el = renameRef.current
+      el.focus()
+      // Select the base name (before the extension) for files, all for folders.
+      const dot = node.name.lastIndexOf('.')
+      if (!isFolder && dot > 0) el.setSelectionRange(0, dot)
+      else el.select()
+    }
+  }, [renaming, node.name, isFolder])
 
   const handleDragStart = (e: React.DragEvent) => {
     if (isVirtual && !isBridge) { e.preventDefault(); return }
@@ -233,7 +260,23 @@ export function FileTreeItem({
             )}
             {!isFolder && <span className="w-3 shrink-0" />}
             {getFileIcon(node.name, node.type, isExpanded, 'content' in node ? (node as { content?: string }).content : undefined)}
-            <span className="truncate">{node.name}</span>
+            {renaming ? (
+              <input
+                ref={renameRef}
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={submitRename}
+                onKeyDown={(e) => {
+                  e.stopPropagation()
+                  if (e.key === 'Enter') submitRename()
+                  else if (e.key === 'Escape') setRenaming(false)
+                }}
+                className="min-w-0 flex-1 rounded border border-primary bg-background px-1 py-0 text-xs outline-none"
+              />
+            ) : (
+              <span className="truncate">{node.name}</span>
+            )}
             {isVirtual && !isBridge && !isFolder && (
               <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
             )}
@@ -260,7 +303,7 @@ export function FileTreeItem({
             </>
           ) : (
             <>
-              <ContextMenuItem onClick={() => setRenameOpen(true)}>
+              <ContextMenuItem onClick={startRename}>
                 <Pencil size={14} />
                 {t('files.rename')}
               </ContextMenuItem>
@@ -338,19 +381,6 @@ export function FileTreeItem({
             selectedFileId={selectedFileId}
           />
         ))}
-
-      {(!isVirtual || isBridge) && (
-        <RenameDialog
-          open={renameOpen}
-          onOpenChange={setRenameOpen}
-          nodeId={node.id}
-          currentName={node.name}
-          onRename={isBridge && bridgeDatasetFileId
-            ? (newName: string) => datasetStore.renameNode(bridgeDatasetFileId, newName)
-            : undefined
-          }
-        />
-      )}
 
       {/* Delete confirmation dialog */}
       <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>

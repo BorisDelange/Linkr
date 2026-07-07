@@ -104,7 +104,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderMode, setCreateFolderMode] = useState(false)
   const [newFileName, setNewFileName] = useState('')
-  const [createFileError, setCreateFileError] = useState<string | null>(null)
   // Re-entrancy guard: Enter-in-input + button-click could both fire the handler.
   const creatingFile = useRef(false)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
@@ -147,22 +146,23 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     testConnection(activeDbId)
   }, [activeDbId])
 
+  // The final name (files get a .sql suffix) and whether it collides with an
+  // existing top-level sibling — computed live so the dialog can react as you type.
+  const effectiveNewName = (() => {
+    const n = newFileName.trim()
+    if (!n) return ''
+    return !createFolderMode && !n.includes('.') ? `${n}.sql` : n
+  })()
+  const newNameClashes =
+    !!effectiveNewName &&
+    files.some((f) => f.parentId === null && f.name.toLowerCase() === effectiveNewName.toLowerCase())
+
   // Create new file
   const handleCreateFile = async () => {
     // Guard against a double trigger (Enter key + button click) creating two rows.
     if (creatingFile.current) return
-    let name = newFileName.trim()
-    if (!name) return
-    if (!createFolderMode && !name.includes('.')) name = `${name}.sql`
-
-    // Reject a name that already exists among top-level siblings (same parent).
-    const clash = files.some(
-      (f) => f.parentId === null && f.name.toLowerCase() === name.toLowerCase(),
-    )
-    if (clash) {
-      setCreateFileError(t('sql_scripts.name_exists', { name }))
-      return
-    }
+    if (!effectiveNewName || newNameClashes) return
+    const name = effectiveNewName
 
     creatingFile.current = true
     try {
@@ -183,7 +183,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       }
       setCreateFileOpen(false)
       setNewFileName('')
-      setCreateFileError(null)
       setCreateFolderMode(false)
     } finally {
       creatingFile.current = false
@@ -751,7 +750,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       </div>
 
       {/* Create file/folder dialog */}
-      <Dialog open={createFileOpen} onOpenChange={(open) => { setCreateFileOpen(open); if (!open) { setNewFileName(''); setCreateFileError(null) } }}>
+      <Dialog open={createFileOpen} onOpenChange={(open) => { setCreateFileOpen(open); if (!open) setNewFileName('') }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{createFolderMode ? t('common.new_folder') : t('sql_scripts.new_file')}</DialogTitle>
@@ -761,15 +760,17 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
               <Label>{createFolderMode ? t('common.name') : t('sql_scripts.file_name')}</Label>
               <Input
                 value={newFileName}
-                onChange={(e) => { setNewFileName(e.target.value); setCreateFileError(null) }}
+                onChange={(e) => setNewFileName(e.target.value)}
                 placeholder={createFolderMode ? 'measurement' : 'urine_output.sql'}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateFile()
                 }}
                 autoFocus
               />
-              {createFileError && (
-                <p className="text-xs text-destructive">{createFileError}</p>
+              {newNameClashes && (
+                <p className="text-xs text-destructive">
+                  {t('sql_scripts.name_exists', { name: effectiveNewName })}
+                </p>
               )}
             </div>
           </div>
@@ -777,7 +778,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
             <Button variant="outline" onClick={() => setCreateFileOpen(false)}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={handleCreateFile} disabled={!newFileName.trim()}>
+            <Button onClick={handleCreateFile} disabled={!newFileName.trim() || newNameClashes}>
               {t('common.create')}
             </Button>
           </DialogFooter>
