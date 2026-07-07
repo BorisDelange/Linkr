@@ -7,7 +7,10 @@ import { Workflow, Table as TableIcon, ChevronUp, ChevronDown, ChevronsUpDown } 
 import { cn } from '@/lib/utils'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildSankeyCode } from './sankey-server'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -150,12 +153,20 @@ interface GraphLink { source: number; target: number; value: number }
 type LaidOutNode = SankeyNode<GraphNode, GraphLink>
 type LaidOutLink = SankeyLink<GraphNode, GraphLink>
 
+interface SankeyServerData {
+  nodes: GraphNode[]
+  links: GraphLink[]
+  total: number
+  error: null | 'missing'
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function SankeyComponent({ config, rows, compact }: ComponentPluginProps) {
+export function SankeyComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
+  const server = isServerMode()
 
   const sourceMode = (config.sourceMode as string) ?? 'long'
   const displayMode = (config.displayMode as string) ?? 'diagram'
@@ -176,8 +187,30 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
   const linkColorMode = (config.linkColorMode as string) ?? 'source'
   const palette = resolvePalette((config.colorPalette as string) ?? 'default', (config.customPalette as string) ?? '')
 
+  // Server mode: the backend reconstructs flows + counts links on the Parquet. Stable
+  // string keys so the effect only re-fetches on a semantic change.
+  const serverCode = server && datasetFileId
+    ? buildSankeyCode(columns, config)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverData, setServerData] = useState<SankeyServerData | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerData({ nodes: [], links: [], total: 0, error: null }); return }
+        try { setServerData(JSON.parse(out.stdout.trim()) as SankeyServerData) }
+        catch { setServerData({ nodes: [], links: [], total: 0, error: null }) }
+      })
+      .catch(() => { if (!cancelled) setServerData({ nodes: [], links: [], total: 0, error: null }) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // --- Build flows then link counts ---
   const { nodes, links, total, error } = useMemo(() => {
+    if (server) return serverData ?? { nodes: [] as GraphNode[], links: [] as GraphLink[], total: 0, error: null as null | 'missing' }
     let flows: string[][] = []
     if (sourceMode === 'long') {
       const entityCol = config.entityColumn as string
@@ -228,7 +261,7 @@ export function SankeyComponent({ config, rows, compact }: ComponentPluginProps)
     }
 
     return { nodes: nodeList, links: linkList, total, error: null as null | 'missing' }
-  }, [config, rows, sourceMode, collapseRepeats, excludeNA, endNode, minLinkValue, maxLinkValue, alignEndStates])
+  }, [server, serverData, config, rows, sourceMode, collapseRepeats, excludeNA, endNode, minLinkValue, maxLinkValue, alignEndStates])
 
   // --- Responsive sizing ---
   // The chart container only mounts once the config is valid (the placeholder branch has no SVG host).

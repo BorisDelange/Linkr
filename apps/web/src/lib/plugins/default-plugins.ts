@@ -449,7 +449,7 @@ export function registerDefaultPlugins() {
     componentId: 'correlation-matrix',
   })
 
-  registerComponent('sankey', SankeyComponent)
+  registerComponent('sankey', SankeyComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(sankeyManifest as unknown as Record<string, unknown>),
     templates: null,
