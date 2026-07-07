@@ -76,6 +76,7 @@ import { useProjectTree } from '@/hooks/use-project-tree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
+import { queryDatasetRows } from '@/lib/api/datasets'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { FileTree } from './files/FileTree'
@@ -294,24 +295,29 @@ export function FilesPage() {
     // Close the file tab that was auto-opened by selectFile
     closeFile(selectedFileId)
 
-    // Load data then open as output tab
+    // Load data then open as output tab.
     const outputTabId = `dataset:${dsFileId}`
-    loadFileData(dsFileId).then(() => {
-      const rows = getFileRows(dsFileId)
-      const columns = dsFile.columns ?? []
-      const headers = columns.map((c) => c.name)
-      const tableRows = rows.map((row) =>
-        columns.map((c) => (row[c.id] != null ? String(row[c.id]) : ''))
-      )
-      addOutputTab({
-        id: outputTabId,
-        label: dsFile.name,
-        type: 'table',
-        content: { headers, rows: tableRows },
-      })
+    const columns = dsFile.columns ?? []
+    const headers = columns.map((c) => c.name)
+    const toTable = (rows: Record<string, unknown>[]) => ({
+      headers,
+      rows: rows.map((row) => columns.map((c) => (row[c.id] != null ? String(row[c.id]) : ''))),
+    })
+    const open = (content: { headers: string[]; rows: string[][] }) => {
+      addOutputTab({ id: outputTabId, label: dsFile.name, type: 'table', content })
       setOutputVisible(true)
       setEditorVisible(false)
-    })
+    }
+
+    if (isServerMode()) {
+      // Rows live in a server-side Parquet; fetch a bounded preview page instead
+      // of getFileRows (which is empty in server mode).
+      queryDatasetRows(dsFileId, { offset: 0, limit: 1000 })
+        .then((page) => open(toTable(page.rows)))
+        .catch(() => open({ headers, rows: [] }))
+    } else {
+      loadFileData(dsFileId).then(() => open(toTable(getFileRows(dsFileId))))
+    }
   }, [selectedFileId, nodes, datasetFiles, closeFile, loadFileData, getFileRows, addOutputTab, setOutputVisible, setEditorVisible])
 
   // When a CSV/TSV IDE file is selected, open it as a table in the output panel
