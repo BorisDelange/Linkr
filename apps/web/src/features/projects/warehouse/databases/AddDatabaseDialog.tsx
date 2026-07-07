@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
@@ -293,7 +294,7 @@ export function AddDatabaseDialog({
             }
             changes.connectionConfig = connectionConfig
           }
-          updateDataSource(editingSource.id, changes)
+          await updateDataSource(editingSource.id, changes)
 
           // Re-validate the connection so a corrected host/credential updates
           // status + stats instead of keeping the stale "connected" state. The
@@ -666,7 +667,7 @@ export function AddDatabaseDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_password')}</Label>
-                      <Input type="password" value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
+                      <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
                   </div>
                 )}

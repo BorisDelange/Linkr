@@ -68,7 +68,7 @@ interface DataSourceState {
     alias?: string
   }) => Promise<string>
 
-  updateDataSource: (id: string, changes: Partial<DataSource>) => void
+  updateDataSource: (id: string, changes: Partial<DataSource>) => Promise<void>
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
   retestDataSource: (id: string) => Promise<void>
@@ -380,8 +380,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     return id
   },
 
-  updateDataSource: (id, changes) => {
-    getStorage().dataSources.update(id, changes)
+  updateDataSource: async (id, changes) => {
+    // Await persistence: a follow-up retest reads the stored (encrypted)
+    // password server-side, so the write must land before it runs.
+    await getStorage().dataSources.update(id, changes)
     set((s) => ({
       dataSources: s.dataSources.map((d) =>
         d.id === id
