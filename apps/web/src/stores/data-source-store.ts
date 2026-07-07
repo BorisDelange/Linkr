@@ -326,7 +326,11 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     if (isServerMode() && isExternalEngine) {
       const result = await testConnectionOnServer(connectionConfig)
       const updated: Partial<DataSource> = result.ok
-        ? { status: 'connected', errorMessage: undefined }
+        ? {
+            status: 'connected',
+            errorMessage: undefined,
+            stats: { ...newSource.stats, tableCount: result.tables.length },
+          }
         : { status: 'error', errorMessage: result.error ?? 'Connection failed' }
       await getStorage().dataSources.update(id, updated)
       set((s) => ({
