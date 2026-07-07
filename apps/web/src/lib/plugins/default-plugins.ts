@@ -43,7 +43,7 @@ export function buildPlugin(
 
 export function registerDefaultPlugins() {
   // Component-based lab plugins
-  registerComponent('table1', Table1Component)
+  registerComponent('table1', Table1Component, { supportsServer: true })
   registerComponent('key-indicator', KeyIndicatorComponent)
   registerComponent('plot-builder', PlotBuilderComponent)
   registerPlugin({

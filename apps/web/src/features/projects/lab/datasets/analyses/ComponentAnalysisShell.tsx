@@ -12,7 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
-import { getComponent } from '@/lib/plugins/component-registry'
+import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import type { DatasetAnalysis } from '@/types'
 
 interface ComponentAnalysisShellProps {
@@ -100,16 +100,20 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           {/* Right: Live component */}
           <Allotment.Pane minSize={200}>
             <div className="h-full overflow-auto">
-              {server ? (
-                // These components compute in-browser from all rows. In server mode
-                // that would pull raw patient data to the client, so they're gated
-                // until each gets a server-side aggregation endpoint.
+              {server && !componentSupportsServer(componentId) ? (
+                // Components that compute in-browser from all rows are gated in
+                // server mode (would pull raw data client-side) until migrated.
                 <div className="flex items-center justify-center p-8 text-center text-xs text-muted-foreground">
                   {t('datasets.component_server_unavailable')}
                 </div>
               ) : Component ? (
                 // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
-                <Component config={config} columns={columns} rows={rows} />
+                <Component
+                  config={config}
+                  columns={columns}
+                  rows={rows}
+                  datasetFileId={server ? analysis.datasetFileId : undefined}
+                />
               ) : (
                 <div className="flex items-center justify-center p-8 text-xs text-muted-foreground">
                   Component not found: {componentId}

@@ -3,7 +3,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
-import { getComponent } from '@/lib/plugins/component-registry'
+import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
 import { useDashboardData } from '../DashboardDataProvider'
 import { resolveServerFilters } from '../resolve-server-filters'
 import { useWidgetExecution } from './use-widget-execution'
@@ -117,7 +117,7 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
 
 function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidget; componentId: string }) {
   const { t } = useTranslation()
-  const { filteredRows, columns } = useDashboardData()
+  const { filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
 
   const Component = getComponent(componentId)
@@ -140,8 +140,8 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
   }
 
   // Built-in viz components compute in-browser from all rows; gated in server mode
-  // until each has a server-side aggregation endpoint (same as analysis viz).
-  if (isServerMode()) {
+  // unless the component supports server-side aggregation (via datasetFileId).
+  if (isServerMode() && !componentSupportsServer(componentId)) {
     return (
       <div className="flex h-full items-center justify-center p-3 text-center text-xs text-muted-foreground">
         {t('datasets.component_server_unavailable')}
@@ -152,7 +152,14 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
   return (
     <div className="h-full overflow-auto">
       {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-      <Component config={source.config} columns={columns} rows={filteredRows} compact />
+      <Component
+        config={source.config}
+        columns={columns}
+        rows={filteredRows}
+        compact
+        datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+        datasetFilters={isServerMode() && datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+      />
     </div>
   )
 }

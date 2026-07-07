@@ -1,8 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TableIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildTable1Code } from './table1-server'
 
 // ---------------------------------------------------------------------------
 // Math helpers
@@ -234,9 +237,10 @@ function computeTable1(
 // Component
 // ---------------------------------------------------------------------------
 
-export function Table1Component({ config, columns, rows, compact }: ComponentPluginProps) {
+export function Table1Component({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const server = isServerMode()
 
   const rawSelectedColumns = config.selectedColumns as string[] | undefined
   const groupByColumn = (config.groupByColumn as string) ?? null
@@ -247,10 +251,30 @@ export function Table1Component({ config, columns, rows, compact }: ComponentPlu
   const selectedColumns = rawSelectedColumns?.length ? rawSelectedColumns : columns.map((c) => c.id)
   const metrics = rawMetrics?.length ? rawMetrics : allMetricIds
 
-  const table = useMemo(
-    () => computeTable1(rows, columns, selectedColumns, groupByColumn, metrics),
-    [rows, columns, selectedColumns, groupByColumn, metrics],
+  // Front-only: compute from the in-memory rows. Server mode: the backend computes
+  // the same Table1Data on the Parquet (rows never leave the server).
+  const localTable = useMemo(
+    () => (server ? null : computeTable1(rows, columns, selectedColumns, groupByColumn, metrics)),
+    [server, rows, columns, selectedColumns, groupByColumn, metrics],
   )
+  const [serverTable, setServerTable] = useState<Table1Data | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || columns.length === 0) return
+    let cancelled = false
+    const code = buildTable1Code(columns, selectedColumns, groupByColumn, metrics)
+    executeOnServer('python', code, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerError(out.stderr); return }
+        try { setServerTable(JSON.parse(out.stdout.trim()) as Table1Data); setServerError(null) }
+        catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, JSON.stringify(datasetFilters), columns, selectedColumns, groupByColumn, metrics]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const table = server ? serverTable : localTable
 
   if (columns.length === 0) {
     return (
@@ -261,7 +285,16 @@ export function Table1Component({ config, columns, rows, compact }: ComponentPlu
     )
   }
 
-  if (rows.length === 0) {
+  if (server && serverError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <TableIcon size={24} className="opacity-40" />
+        <p className="text-xs whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
+
+  if (!table) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TableIcon size={24} className="opacity-40" />
