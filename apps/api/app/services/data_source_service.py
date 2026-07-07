@@ -20,13 +20,24 @@ _EXTERNAL_ENGINES = ("postgresql", "mysql")
 _FILE_ENGINES = ("duckdb", "sqlite")
 
 
-async def _file_path(db: AsyncSession, source: DataSource) -> str | None:
-    """Absolute path of the source's backing database file in the blob store,
-    or None if it has no file yet."""
+async def _source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, str]]:
+    """(file_name, blob_path) for each file backing the source, in insertion order."""
     files = await list_files(db, source.id)
-    if not files:
-        return None
-    return str(blob_store.path_for(files[0].content_hash))
+    return [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
+
+
+def _known_tables(source: DataSource) -> list[str]:
+    mapping = source.schema_mapping or {}
+    known = mapping.get("knownTables")
+    return [str(t) for t in known] if isinstance(known, list) else []
+
+
+def _is_parquet_folder(config: dict, files: list[tuple[str, str]]) -> bool:
+    """Multiple files (or a Parquet-typed import) → a folder of Parquet tables
+    rather than one attachable DuckDB/SQLite database file."""
+    if len(files) > 1:
+        return True
+    return bool(files) and files[0][0].lower().endswith((".parquet", ".pq"))
 
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
@@ -175,10 +186,13 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
         password = connection_password(source)
         return await asyncio.to_thread(db_connect.query_external, config, password, sql)
     if engine in _FILE_ENGINES:
-        path = await _file_path(db, source)
-        if path is None:
+        files = await _source_files(db, source)
+        if not files:
             raise ValueError("no database file uploaded for this source")
-        return await asyncio.to_thread(db_connect.query_file, engine, path, sql)
+        if _is_parquet_folder(config, files):
+            known = _known_tables(source)
+            return await asyncio.to_thread(db_connect.query_parquet_folder, files, known, sql)
+        return await asyncio.to_thread(db_connect.query_file, engine, files[0][1], sql)
     raise ValueError(f"queries not supported for engine: {engine}")
 
 
@@ -191,10 +205,13 @@ async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
         password = connection_password(source)
         return await asyncio.to_thread(db_connect.introspect_external, config, password)
     if engine in _FILE_ENGINES:
-        path = await _file_path(db, source)
-        if path is None:
+        files = await _source_files(db, source)
+        if not files:
             return []
-        return await asyncio.to_thread(db_connect.introspect_file, engine, path)
+        if _is_parquet_folder(config, files):
+            known = _known_tables(source)
+            return await asyncio.to_thread(db_connect.introspect_parquet_folder, files, known)
+        return await asyncio.to_thread(db_connect.introspect_file, engine, files[0][1])
     return []
 
 

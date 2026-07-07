@@ -381,7 +381,10 @@ export function AddDatabaseDialog({
 
   const totalFileSize = uploadedFiles.reduce((s, f) => s + f.size, 0)
   const hasFileHandles = fsHandles.length > 0
-  const isSizeBlocked = totalFileSize > SIZE_DANGER_THRESHOLD && !hasFileHandles
+  // Browser-storage size limits only apply in front-only mode. In server mode
+  // files stream to the backend in chunks — no IndexedDB, no size ceiling.
+  const isSizeBlocked =
+    !isServerMode() && totalFileSize > SIZE_DANGER_THRESHOLD && !hasFileHandles
 
   // In edit mode, files are optional (keeps existing if none uploaded)
   const hasExistingFiles = isEditMode && editingSource?.sourceType === 'database' && (() => {
@@ -638,11 +641,16 @@ export function AddDatabaseDialog({
                         onFilesSelected={handleFilesSelected}
                         onFolderEntries={(entries) => {
                           setUploadedFiles(entries.map((e) => e.file))
-                          setFsHandles(entries.map((e) => ({
-                            fileName: e.relativePath,
-                            handle: e.handle,
-                            fileSize: e.file.size,
-                          })))
+                          // FS Access zero-copy handles are a front-only optimization
+                          // (data stays in the browser). In server mode the bytes are
+                          // uploaded, so we don't keep handles.
+                          if (!isServerMode()) {
+                            setFsHandles(entries.map((e) => ({
+                              fileName: e.relativePath,
+                              handle: e.handle,
+                              fileSize: e.file.size,
+                            })))
+                          }
                         }}
                         onClear={() => { setUploadedFiles([]); setFsHandles([]) }}
                         t={t}
@@ -922,7 +930,10 @@ function FolderUploadArea({
   onClear: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
-  const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function'
+  // In server mode the FS Access picker gives us nothing useful (bytes are
+  // uploaded, not kept as handles) and it shows a scary "send all files"
+  // permission prompt — so use the plain folder input to read real File bytes.
+  const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function' && !isServerMode()
 
   const handlePickFolder = async () => {
     if (supportsDirectoryPicker) {
@@ -936,7 +947,7 @@ function FolderUploadArea({
         // User cancelled the picker
       }
     } else {
-      // Fallback to webkitdirectory input
+      // Fallback to webkitdirectory input (also the server-mode path)
       inputRef.current?.click()
     }
   }
@@ -1016,6 +1027,10 @@ function FileSizeWarning({
   hasHandles: boolean
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
+  // Server mode uploads to the backend in chunks — no browser-storage limit,
+  // so the size warning doesn't apply.
+  if (isServerMode()) return null
+
   if (totalBytes < SIZE_WARNING_THRESHOLD) return null
 
   // With FS Access handles, large files are fine — show a green info instead

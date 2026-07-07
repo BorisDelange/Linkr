@@ -173,6 +173,92 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
+def _table_of(file_name: str, known: list[str]) -> str:
+    """Table name for a Parquet file, mirroring the frontend's extractTableName:
+    prefer a known-table segment, else the parent dir, else the file stem."""
+    parts = [p for p in file_name.replace("\\", "/").split("/") if p]
+    known_set = {k.lower() for k in known}
+    if known_set:
+        for seg in reversed(parts):
+            stem = re.sub(r"\.[^.]+$", "", seg).lower()
+            if stem in known_set:
+                return stem
+    if len(parts) >= 2:
+        return parts[-2].lower()
+    return re.sub(r"\.[^.]+$", "", parts[-1]).lower()
+
+
+def _group_parquet(files: list[tuple[str, str]], known: list[str]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {}
+    for file_name, path in files:
+        if not file_name.lower().endswith((".parquet", ".pq")):
+            continue
+        groups.setdefault(_table_of(file_name, known), []).append(path)
+    return groups
+
+
+def _reader(paths: list[str]) -> str:
+    if len(paths) == 1:
+        return f"read_parquet('{paths[0]}')"
+    lst = ", ".join(f"'{p}'" for p in paths)
+    return f"read_parquet([{lst}])"
+
+
+def _attach_parquet_views(
+    con: duckdb.DuckDBPyConnection, groups: dict[str, list[str]]
+) -> None:
+    con.execute(f"CREATE SCHEMA IF NOT EXISTS {_ATTACH_ALIAS}")
+    for table, paths in groups.items():
+        con.execute(
+            f'CREATE VIEW {_ATTACH_ALIAS}."{table}" AS SELECT * FROM {_reader(paths)}'
+        )
+
+
+def query_parquet_folder(
+    files: list[tuple[str, str]], known: list[str], sql: str
+) -> list[dict]:
+    """Run read-only SQL against a folder of Parquet files exposed as views, one
+    per table (mirrors the browser mountFileFolder path)."""
+    groups = _group_parquet(files, known)
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        _attach_parquet_views(con, groups)
+        con.execute(f"SET search_path TO {_ATTACH_ALIAS}")
+        rel = con.execute(sql)
+        if rel.description is None:
+            return []
+        names = [d[0] for d in rel.description]
+        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+    finally:
+        con.close()
+
+
+def introspect_parquet_folder(
+    files: list[tuple[str, str]], known: list[str]
+) -> list[dict]:
+    """Tables + columns for a folder of Parquet files (one table per group)."""
+    groups = _group_parquet(files, known)
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    result: list[dict] = []
+    try:
+        for table, paths in groups.items():
+            cols = con.execute(f"DESCRIBE SELECT * FROM {_reader(paths)}").fetchall()
+            result.append(
+                {
+                    "name": table,
+                    "columns": [
+                        {"name": str(c[0]), "type": str(c[1]), "nullable": True}
+                        for c in cols
+                    ],
+                }
+            )
+    finally:
+        con.close()
+    return result
+
+
 def introspect_external(config: dict, password: str | None) -> list[dict]:
     """ATTACH the source read-only and return its tables + columns.
 
