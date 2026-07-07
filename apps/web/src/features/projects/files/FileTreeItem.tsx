@@ -21,6 +21,8 @@ import {
   Clipboard,
   Lock,
   Notebook,
+  Check,
+  X,
 } from 'lucide-react'
 import {
   ContextMenu,
@@ -148,27 +150,45 @@ export function FileTreeItem({
     setRenaming(true)
   }
 
+  const trimmedRename = renameValue.trim()
+  // Reject a name already used by a sibling (same parent), case-insensitive.
+  const renameClashes =
+    !!trimmedRename &&
+    trimmedRename.toLowerCase() !== node.name.toLowerCase() &&
+    files.some(
+      (f) => f.parentId === node.parentId && f.id !== node.id && f.name.toLowerCase() === trimmedRename.toLowerCase(),
+    )
+
   const submitRename = () => {
-    const trimmed = renameValue.trim()
-    if (trimmed && trimmed !== node.name) {
-      if (isBridge && bridgeDatasetFileId) datasetStore.renameNode(bridgeDatasetFileId, trimmed)
-      else renameNode(node.id, trimmed)
+    if (!trimmedRename || renameClashes) return
+    if (trimmedRename !== node.name) {
+      if (isBridge && bridgeDatasetFileId) datasetStore.renameNode(bridgeDatasetFileId, trimmedRename)
+      else renameNode(node.id, trimmedRename)
     }
     setRenaming(false)
   }
 
   useEffect(() => {
     if (!renaming) return
-    // Defer past the context menu releasing focus, else the selection is cleared.
-    const raf = requestAnimationFrame(() => {
+    // The context menu closes and restores focus a frame or two later; poll a few
+    // frames so we focus + select once focus settles on the input.
+    let tries = 0
+    let raf = 0
+    const tick = () => {
       const el = renameRef.current
-      if (!el) return
-      el.focus()
-      // Select the base name (before the extension) for files, all for folders.
-      const dot = node.name.lastIndexOf('.')
-      if (!isFolder && dot > 0) el.setSelectionRange(0, dot)
-      else el.select()
-    })
+      if (el) {
+        if (document.activeElement !== el) el.focus()
+        if (document.activeElement === el) {
+          // Base name (before extension) for files, all for folders.
+          const dot = node.name.lastIndexOf('.')
+          if (!isFolder && dot > 0) el.setSelectionRange(0, dot)
+          else el.select()
+          return
+        }
+      }
+      if (tries++ < 10) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
   }, [renaming, node.name, isFolder])
 
@@ -235,6 +255,82 @@ export function FileTreeItem({
     setDeleteConfirmOpen(false)
   }
 
+  const rowIcon = (
+    <>
+      {isFolder && (
+        <span className="shrink-0">
+          {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        </span>
+      )}
+      {!isFolder && <span className="w-3 shrink-0" />}
+      {getFileIcon(node.name, node.type, isExpanded, 'content' in node ? (node as { content?: string }).content : undefined)}
+    </>
+  )
+
+  // Editing renders a plain row (no <button>/ContextMenuTrigger): an <input>
+  // nested in a <button> is invalid HTML and made the button steal focus/keys
+  // (selection cleared, Escape leaked to the page). A div keeps the input local.
+  if (renaming) {
+    return (
+      <>
+        <div
+          className="flex w-full min-w-0 items-center gap-1 px-2 py-1 text-xs"
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        >
+          {rowIcon}
+          <span className={cn(
+            '-ml-0.5 flex min-w-0 flex-1 items-center rounded border bg-background',
+            renameClashes ? 'border-destructive' : 'border-primary',
+          )}>
+            <input
+              ref={renameRef}
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              title={renameClashes ? t('files.name_exists', { name: trimmedRename }) : undefined}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') submitRename()
+                else if (e.key === 'Escape') { e.preventDefault(); setRenaming(false) }
+              }}
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={t('common.cancel')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setRenaming(false)}
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+            >
+              <X size={12} />
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={renameClashes || !trimmedRename}
+              aria-label={t('common.save')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={submitRename}
+              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Check size={12} />
+            </button>
+          </span>
+        </div>
+        {isFolder && isExpanded && children.map((child) => (
+          <FileTreeItem
+            key={child.id}
+            node={child}
+            depth={depth + 1}
+            getChildren={getChildren}
+            expandedFolders={expandedFolders}
+            selectedFileId={selectedFileId}
+          />
+        ))}
+      </>
+    )
+  }
+
   return (
     <>
       <ContextMenu>
@@ -253,34 +349,8 @@ export function FileTreeItem({
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
-            {isFolder && (
-              <span className="shrink-0">
-                {isExpanded ? (
-                  <ChevronDown size={12} />
-                ) : (
-                  <ChevronRight size={12} />
-                )}
-              </span>
-            )}
-            {!isFolder && <span className="w-3 shrink-0" />}
-            {getFileIcon(node.name, node.type, isExpanded, 'content' in node ? (node as { content?: string }).content : undefined)}
-            {renaming ? (
-              <input
-                ref={renameRef}
-                value={renameValue}
-                onChange={(e) => setRenameValue(e.target.value)}
-                onClick={(e) => e.stopPropagation()}
-                onBlur={submitRename}
-                onKeyDown={(e) => {
-                  e.stopPropagation()
-                  if (e.key === 'Enter') submitRename()
-                  else if (e.key === 'Escape') setRenaming(false)
-                }}
-                className="min-w-0 flex-1 rounded border border-primary bg-background px-1 py-0 text-xs outline-none"
-              />
-            ) : (
-              <span className="truncate">{node.name}</span>
-            )}
+            {rowIcon}
+            <span className="truncate">{node.name}</span>
             {isVirtual && !isBridge && !isFolder && (
               <Lock size={10} className="ml-auto shrink-0 text-muted-foreground/50" />
             )}

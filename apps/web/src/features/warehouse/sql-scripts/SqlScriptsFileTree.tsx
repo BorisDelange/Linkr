@@ -64,6 +64,11 @@ export function SqlScriptsFileTree() {
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
     files.filter((f) => f.parentId === parentId).sort((a, b) => a.order - b.order)
+  // True if another node under the same parent already has this name (rename guard).
+  const nameExists = (parentId: string | null, name: string, exceptId: string) =>
+    files.some(
+      (f) => f.parentId === parentId && f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase(),
+    )
 
   if (files.length === 0) {
     return (
@@ -90,6 +95,7 @@ export function SqlScriptsFileTree() {
               onSelect={selectFile}
               onDelete={handleDeleteRequest}
               onRename={(id, name) => updateFile(id, { name })}
+              nameExists={nameExists}
               getChildren={getChildren}
               expandedFolders={expandedFolders}
               selectedFileId={selectedFileId}
@@ -130,6 +136,7 @@ function SqlScriptsFileTreeItem({
   onSelect,
   onDelete,
   onRename,
+  nameExists,
   getChildren,
   expandedFolders,
   selectedFileId,
@@ -143,6 +150,7 @@ function SqlScriptsFileTreeItem({
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, name: string) => void
+  nameExists: (parentId: string | null, name: string, exceptId: string) => boolean
   getChildren: (parentId: string) => SqlScriptFile[]
   expandedFolders: Set<string>
   selectedFileId: string | null
@@ -151,25 +159,22 @@ function SqlScriptsFileTreeItem({
   const [editing, setEditing] = useState(false)
   const [editName, setEditName] = useState(file.name)
   const inputRef = useRef<HTMLInputElement>(null)
-  // True until the first selection is applied — prevents re-selecting on every
-  // later focus (e.g. clicking into the field to place the cursor).
-  const needsSelectRef = useRef(false)
 
   useEffect(() => {
     if (!editing) return
-    needsSelectRef.current = true
-    // The context menu closes a frame or two after rename starts and restores
-    // focus to its trigger; poll focus across a few frames so we win the race
-    // and select once it finally lands on the input.
+    // The context menu closes and restores focus a frame or two after rename
+    // starts; poll a few frames so we focus + select once it settles on the input.
     let tries = 0
     let raf = 0
     const tick = () => {
       const el = inputRef.current
-      if (el && needsSelectRef.current) {
+      if (el) {
         if (document.activeElement !== el) el.focus()
         if (document.activeElement === el) {
-          el.select()
-          needsSelectRef.current = false
+          // Select the base name (before the extension) for files, all for folders.
+          const dot = file.name.lastIndexOf('.')
+          if (!isFolder && dot > 0) el.setSelectionRange(0, dot)
+          else el.select()
           return
         }
       }
@@ -177,20 +182,118 @@ function SqlScriptsFileTreeItem({
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [editing])
+  }, [editing, isFolder, file.name])
+
+  const trimmedNewName = editName.trim()
+  const renameClashes =
+    !!trimmedNewName &&
+    trimmedNewName.toLowerCase() !== file.name.toLowerCase() &&
+    nameExists(file.parentId, trimmedNewName, file.id)
 
   const handleRenameSubmit = () => {
-    const trimmed = editName.trim()
-    if (trimmed && trimmed !== file.name) {
-      onRename(file.id, trimmed)
+    if (!trimmedNewName || renameClashes) return
+    if (trimmedNewName !== file.name) {
+      onRename(file.id, trimmedNewName)
     }
     setEditing(false)
   }
 
   const handleStartRename = () => {
     setEditName(file.name)
-    needsSelectRef.current = true  // set now so onCloseAutoFocus sees it synchronously
     setEditing(true)
+  }
+
+  const childItems =
+    isFolder && isExpanded
+      ? getChildren(file.id).map((child) => (
+          <SqlScriptsFileTreeItem
+            key={child.id}
+            file={child}
+            depth={depth + 1}
+            isActive={child.id === selectedFileId}
+            isFolder={child.type === 'folder'}
+            isExpanded={expandedFolders.has(child.id)}
+            onToggleFolder={onToggleFolder}
+            onSelect={onSelect}
+            onDelete={onDelete}
+            onRename={onRename}
+            nameExists={nameExists}
+            getChildren={getChildren}
+            expandedFolders={expandedFolders}
+            selectedFileId={selectedFileId}
+          />
+        ))
+      : null
+
+  const icon = isFolder ? (
+    <>
+      {isExpanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+      {isExpanded ? (
+        <FolderOpen size={14} className="shrink-0 text-blue-400" />
+      ) : (
+        <Folder size={14} className="shrink-0 text-blue-400" />
+      )}
+    </>
+  ) : (
+    <>
+      <span className="w-3 shrink-0" />
+      <FileCode size={14} className="shrink-0 text-blue-500" />
+    </>
+  )
+
+  // Editing renders a plain row (no <button>/ContextMenuTrigger): an <input>
+  // nested in a <button> is invalid HTML and made the button steal focus/keys
+  // (selection cleared, Escape leaked). A div keeps the input fully in control.
+  if (editing) {
+    return (
+      <div>
+        <div
+          className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-xs"
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        >
+          {icon}
+          <span className={cn(
+            '-ml-1 flex min-w-0 flex-1 items-center rounded border bg-background',
+            renameClashes ? 'border-destructive' : 'border-primary',
+          )}>
+            <input
+              ref={inputRef}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              title={renameClashes ? t('sql_scripts.name_exists', { name: trimmedNewName }) : undefined}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') handleRenameSubmit()
+                else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+              }}
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={t('common.cancel')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setEditing(false)}
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+            >
+              <X size={12} />
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={renameClashes || !trimmedNewName}
+              aria-label={t('common.save')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleRenameSubmit}
+              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Check size={12} />
+            </button>
+          </span>
+        </div>
+        {childItems}
+      </div>
+    )
   }
 
   return (
@@ -208,73 +311,11 @@ function SqlScriptsFileTreeItem({
             )}
             style={{ paddingLeft: `${depth * 16 + 8}px` }}
           >
-            {isFolder ? (
-              <>
-                {isExpanded ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
-                {isExpanded ? (
-                  <FolderOpen size={14} className="shrink-0 text-blue-400" />
-                ) : (
-                  <Folder size={14} className="shrink-0 text-blue-400" />
-                )}
-              </>
-            ) : (
-              <>
-                <span className="w-3 shrink-0" />
-                <FileCode size={14} className="shrink-0 text-blue-500" />
-              </>
-            )}
-            {editing ? (
-              // -ml-1 offsets the border+padding so the text sits at the same x
-              // as the static name (no jump between view/edit). min-w-0 lets the
-              // whole field shrink with the sidebar instead of clipping.
-              <span
-                className="-ml-1 flex min-w-0 flex-1 items-center rounded border border-primary bg-background"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <input
-                  ref={inputRef}
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  onKeyDown={(e) => {
-                    // Keep rename keys local — Escape must not bubble to the page
-                    // (it would exit fullscreen), nor Enter to any global handler.
-                    e.stopPropagation()
-                    if (e.key === 'Enter') handleRenameSubmit()
-                    else if (e.key === 'Escape') setEditing(false)
-                  }}
-                  className="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
-                />
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={t('common.cancel')}
-                  onClick={(e) => { e.stopPropagation(); setEditing(false) }}
-                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
-                >
-                  <X size={12} />
-                </span>
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={t('common.save')}
-                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit() }}
-                  className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600"
-                >
-                  <Check size={12} />
-                </span>
-              </span>
-            ) : (
-              <span className="truncate">{file.name}</span>
-            )}
+            {icon}
+            <span className="truncate">{file.name}</span>
           </button>
         </ContextMenuTrigger>
-        <ContextMenuContent
-          onCloseAutoFocus={(e) => {
-            // When closing to start a rename, don't let Radix return focus to the
-            // trigger — that blur would clear the input's initial text selection.
-            if (needsSelectRef.current) e.preventDefault()
-          }}
-        >
+        <ContextMenuContent>
           <ContextMenuItem onClick={handleStartRename}>
             <Pencil size={14} />
             {t('sql_scripts.rename')}
@@ -290,23 +331,7 @@ function SqlScriptsFileTreeItem({
         </ContextMenuContent>
       </ContextMenu>
 
-      {isFolder && isExpanded && getChildren(file.id).map((child) => (
-        <SqlScriptsFileTreeItem
-          key={child.id}
-          file={child}
-          depth={depth + 1}
-          isActive={child.id === selectedFileId}
-          isFolder={child.type === 'folder'}
-          isExpanded={expandedFolders.has(child.id)}
-          onToggleFolder={onToggleFolder}
-          onSelect={onSelect}
-          onDelete={onDelete}
-          onRename={onRename}
-          getChildren={getChildren}
-          expandedFolders={expandedFolders}
-          selectedFileId={selectedFileId}
-        />
-      ))}
+      {childItems}
     </div>
   )
 }

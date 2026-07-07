@@ -1230,6 +1230,7 @@
     "create_file_description": "Choisissez un type de fichier et un nom.",
     "file_type": "Type de fichier",
     "file_name": "Nom du fichier",
+    "name_exists": "« {{name}} » existe déjà ici.",
     "file_name_placeholder": "ex. script",
     "name_already_exists": "Un fichier ou dossier avec ce nom existe déjà ici",
     "name_reserved": "Ce nom est réservé par le système et ne peut pas être utilisé",
