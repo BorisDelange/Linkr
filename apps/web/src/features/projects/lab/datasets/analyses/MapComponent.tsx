@@ -1,11 +1,29 @@
-import { useMemo, useEffect, type CSSProperties } from 'react'
+import { useMemo, useEffect, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
 import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
 import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildMapCode } from './map-server'
+
+interface MapServerRow {
+  lat: number
+  lon: number
+  colorCat: string | null
+  sizeVal: number | null
+  label: string | null
+  popup: { key: string; value: string }[] | null
+}
+interface MapServerData {
+  rows: MapServerRow[]
+  colorCats: string[]
+  sizeMin: number | null
+  sizeMax: number | null
+}
 
 const TILE_LAYERS: Record<string, { url: string; attribution: string }> = {
   osm: {
@@ -68,8 +86,9 @@ function ResizeHandler() {
 // Component
 // ---------------------------------------------------------------------------
 
-export function MapComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function MapComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
+  const server = isServerMode()
 
   const title = (config.title as string) ?? ''
   const centerTitle = (config.centerTitle as boolean) ?? true
@@ -99,28 +118,75 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
 
   const colById = useMemo(() => new Map(columns.map(c => [c.id, c])), [columns])
 
+  // Server mode: the backend extracts the per-row plotting fields (valid coords +
+  // popup values) + category/size metadata. Palette + radius resolution stay here.
+  const serverCode = server && datasetFileId && latCol && lonCol
+    ? buildMapCode(columns, config)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverData, setServerData] = useState<MapServerData | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }); return }
+        try { setServerData(JSON.parse(out.stdout.trim()) as MapServerData) }
+        catch { setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }) }
+      })
+      .catch(() => { if (!cancelled) setServerData({ rows: [], colorCats: [], sizeMin: null, sizeMax: null }) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Map each distinct category value to a palette color
   const colorScale = useMemo(() => {
     if (!colorCol) return null
-    const cats = Array.from(new Set(rows.map(r => String(r[colorCol] ?? '')).filter(v => v !== ''))).sort()
+    const cats = server
+      ? (serverData?.colorCats ?? [])
+      : Array.from(new Set(rows.map(r => String(r[colorCol] ?? '')).filter(v => v !== ''))).sort()
     const map = new Map<string, string>()
     cats.forEach((c, i) => map.set(c, palette[i % palette.length]))
     return map
-  }, [colorCol, rows, palette])
+  }, [server, serverData, colorCol, rows, palette])
 
   // Scale numeric size column into a pixel radius range
   const sizeScale = useMemo(() => {
     if (!sizeCol) return null
+    if (server) {
+      if (serverData?.sizeMin == null || serverData?.sizeMax == null) return null
+      return { min: serverData.sizeMin, max: serverData.sizeMax }
+    }
     const vals = rows.map(r => toNumeric(r[sizeCol])).filter(v => !isNaN(v))
     if (vals.length === 0) return null
     const min = Math.min(...vals)
     const max = Math.max(...vals)
     return { min, max }
-  }, [sizeCol, rows])
+  }, [server, serverData, sizeCol, rows])
 
   const points = useMemo<MapPoint[]>(() => {
     if (!latCol || !lonCol) return []
     const out: MapPoint[] = []
+    const defColor = markerColorName === 'none' ? DEFAULT_COLOR.hex : baseColor.hex
+    const radiusFor = (v: number | null): number => {
+      if (v != null && !isNaN(v) && sizeScale && sizeScale.max > sizeScale.min) {
+        const norm = (v - sizeScale.min) / (sizeScale.max - sizeScale.min)
+        return pointSize + norm * pointSize * 2.5
+      }
+      return pointSize
+    }
+    // Server mode: iterate the prepared rows; the client still resolves color + radius.
+    if (server) {
+      for (const r of serverData?.rows ?? []) {
+        const color = colorScale ? colorScale.get(r.colorCat ?? '') ?? defColor : defColor
+        out.push({
+          lat: r.lat, lon: r.lon, color, radius: radiusFor(r.sizeVal),
+          label: r.label ?? undefined,
+          popup: r.popup ?? undefined,
+        })
+      }
+      return out
+    }
     for (const r of rows) {
       const lat = toNumeric(r[latCol])
       const lon = toNumeric(r[lonCol])
@@ -128,17 +194,10 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
       if (lat < -90 || lat > 90 || lon < -180 || lon > 180) continue
 
       // resolveColor maps 'none'/unknown names to a neutral hex; fall back to the design-system default.
-      let color = markerColorName === 'none' ? DEFAULT_COLOR.hex : baseColor.hex
+      let color = defColor
       if (colorScale) color = colorScale.get(String(r[colorCol!] ?? '')) ?? color
 
-      let radius = pointSize
-      if (sizeScale && sizeCol) {
-        const v = toNumeric(r[sizeCol])
-        if (!isNaN(v) && sizeScale.max > sizeScale.min) {
-          const norm = (v - sizeScale.min) / (sizeScale.max - sizeScale.min)
-          radius = pointSize + norm * pointSize * 2.5
-        }
-      }
+      const radius = radiusFor(sizeCol ? toNumeric(r[sizeCol]) : null)
 
       const popup = popupCols.length > 0
         ? popupCols.map(cid => ({ key: colById.get(cid)?.name ?? cid, value: String(r[cid] ?? '') }))
@@ -151,7 +210,7 @@ export function MapComponent({ config, columns, rows, compact }: ComponentPlugin
       })
     }
     return out
-  }, [latCol, lonCol, rows, baseColor, markerColorName, colorScale, colorCol, sizeScale, sizeCol, pointSize, labelCol, popupCols, colById])
+  }, [server, serverData, latCol, lonCol, rows, baseColor, markerColorName, colorScale, colorCol, sizeScale, sizeCol, pointSize, labelCol, popupCols, colById])
 
   const bounds = useMemo<LatLngBoundsExpression | null>(() => {
     if (points.length === 0) return null

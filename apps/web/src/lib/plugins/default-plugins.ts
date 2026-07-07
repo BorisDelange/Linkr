@@ -414,7 +414,7 @@ export function registerDefaultPlugins() {
     componentId: 'plot-builder',
   })
 
-  registerComponent('map', MapComponent)
+  registerComponent('map', MapComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(mapManifest as unknown as Record<string, unknown>),
     templates: null,
