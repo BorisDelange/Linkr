@@ -8,6 +8,8 @@ import {
   ChevronDown,
   Trash2,
   Pencil,
+  Check,
+  X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -151,10 +153,16 @@ function SqlScriptsFileTreeItem({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()  // select all so typing replaces the name outright
-    }
+    if (!editing) return
+    // Defer to the next frame: the context menu that triggered rename is still
+    // releasing focus, which would otherwise clear the selection we set here.
+    const raf = requestAnimationFrame(() => {
+      const el = inputRef.current
+      if (!el) return
+      el.focus()
+      el.select()  // select all so typing replaces the name outright
+    })
+    return () => cancelAnimationFrame(raf)
   }, [editing])
 
   const handleRenameSubmit = () => {
@@ -201,18 +209,39 @@ function SqlScriptsFileTreeItem({
               </>
             )}
             {editing ? (
-              <input
-                ref={inputRef}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleRenameSubmit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRenameSubmit()
-                  if (e.key === 'Escape') setEditing(false)
-                }}
-                className="ml-0.5 flex-1 bg-transparent text-xs outline-none border-b border-primary"
+              <span
+                className="ml-0.5 flex flex-1 items-center gap-0.5 rounded border border-primary bg-background pl-1"
                 onClick={(e) => e.stopPropagation()}
-              />
+              >
+                <input
+                  ref={inputRef}
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRenameSubmit()
+                    if (e.key === 'Escape') setEditing(false)
+                  }}
+                  className="min-w-0 flex-1 bg-transparent py-0.5 text-xs outline-none"
+                />
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={t('common.save')}
+                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit() }}
+                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600"
+                >
+                  <Check size={12} />
+                </span>
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={t('common.cancel')}
+                  onClick={(e) => { e.stopPropagation(); setEditing(false) }}
+                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+                >
+                  <X size={12} />
+                </span>
+              </span>
             ) : (
               <span className="truncate">{file.name}</span>
             )}

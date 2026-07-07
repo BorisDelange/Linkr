@@ -525,6 +525,7 @@
     "current_files_hint": "Upload new files below to replace, or leave empty to keep current files.",
     "storage_link": "Direct link",
     "storage_copy": "Browser copy",
+    "storage_server": "Server storage",
     "edit": "Edit",
     "remove": "Remove",
     "remove_confirm_title": "Remove database",

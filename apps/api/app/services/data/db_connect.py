@@ -17,6 +17,10 @@ from app.config import settings
 
 _ATTACH_ALIAS = "ext"
 
+# Safety cap on rows returned to the browser. The UI paginates/displays far less;
+# an uncapped SELECT * on a huge table would otherwise overwhelm the response.
+MAX_QUERY_ROWS = 10_000
+
 # Per-engine wiring: the DuckDB extension, the ATTACH TYPE, and the passthrough
 # query function used to read the source's own information_schema.
 _ENGINES = {
@@ -149,7 +153,11 @@ def _run_statements(
     if result is None or result.description is None:
         return []
     names = [d[0] for d in result.description]
-    return [_row_to_json(dict(zip(names, row))) for row in result.fetchall()]
+    # Cap the payload: a `SELECT *` on a billion-row table would otherwise stream
+    # everything back and blow up the response. Fetch one more than the cap so
+    # callers could detect truncation if needed; we just cut to MAX_QUERY_ROWS.
+    rows = result.fetchmany(MAX_QUERY_ROWS)
+    return [_row_to_json(dict(zip(names, row))) for row in rows]
 
 
 def query_external(config: dict, password: str | None, sql: str) -> list[dict]:

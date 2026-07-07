@@ -525,6 +525,7 @@
     "current_files_hint": "Importez de nouveaux fichiers ci-dessous pour remplacer, ou laissez vide pour garder les fichiers actuels.",
     "storage_link": "Lien direct",
     "storage_copy": "Copie navigateur",
+    "storage_server": "Stockage serveur",
     "edit": "Modifier",
     "remove": "Supprimer",
     "remove_confirm_title": "Supprimer la base de données",

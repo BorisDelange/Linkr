@@ -800,11 +800,17 @@ function CurrentFilesInfo({
           {t('databases.current_files', { count: fileCount })}
         </span>
         <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
-          isZeroCopy
-            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+          isServerMode()
+            ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400'
+            : isZeroCopy
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+              : 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
         }`}>
-          {isZeroCopy ? t('databases.storage_link') : t('databases.storage_copy')}
+          {isServerMode()
+            ? t('databases.storage_server')
+            : isZeroCopy
+              ? t('databases.storage_link')
+              : t('databases.storage_copy')}
         </span>
       </div>
       {config.fileNames && config.fileNames.length > 0 && (

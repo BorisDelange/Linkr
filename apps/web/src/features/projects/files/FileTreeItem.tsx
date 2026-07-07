@@ -158,14 +158,18 @@ export function FileTreeItem({
   }
 
   useEffect(() => {
-    if (renaming && renameRef.current) {
+    if (!renaming) return
+    // Defer past the context menu releasing focus, else the selection is cleared.
+    const raf = requestAnimationFrame(() => {
       const el = renameRef.current
+      if (!el) return
       el.focus()
       // Select the base name (before the extension) for files, all for folders.
       const dot = node.name.lastIndexOf('.')
       if (!isFolder && dot > 0) el.setSelectionRange(0, dot)
       else el.select()
-    }
+    })
+    return () => cancelAnimationFrame(raf)
   }, [renaming, node.name, isFolder])
 
   const handleDragStart = (e: React.DragEvent) => {
