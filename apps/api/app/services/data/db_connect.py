@@ -47,6 +47,57 @@ def _pg_dsn(config: dict, password: str | None) -> str:
     return " ".join(parts)
 
 
+def _validate_schema(schema: str) -> str:
+    # `schema` is interpolated into SQL below; reject anything that isn't a
+    # plain identifier so it can't break out of a quoted string.
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
+        raise ValueError(f"invalid schema name: {schema!r}")
+    return schema
+
+
+def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
+    dsn = _pg_dsn(config, password)
+    con.execute(f"ATTACH '{dsn}' AS {_ATTACH_ALIAS} (TYPE postgres, READ_ONLY)")
+
+
+def query_postgres(
+    config: dict, password: str | None, sql: str
+) -> list[dict]:
+    """Run read-only SQL against the attached Postgres and return rows as dicts.
+
+    The search_path is set to the attached catalog + schema so the caller's SQL
+    can use bare table names (``FROM patients``), matching the DuckDB-WASM path.
+    Date/time values are returned as ISO strings for JSON transport.
+    """
+    schema = _validate_schema(config.get("schema") or "public")
+    con = _connect()
+    try:
+        _attach(con, config, password)
+        con.execute(f'SET search_path TO {_ATTACH_ALIAS}.{schema}')
+        rel = con.execute(sql)
+        if rel.description is None:
+            return []
+        names = [d[0] for d in rel.description]
+        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+    finally:
+        con.close()
+
+
+def _row_to_json(row: dict) -> dict:
+    import datetime
+    from decimal import Decimal
+
+    out: dict = {}
+    for k, v in row.items():
+        if isinstance(v, (datetime.date, datetime.datetime)):
+            out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            out[k] = float(v)
+        else:
+            out[k] = v
+    return out
+
+
 def introspect_postgres(config: dict, password: str | None) -> list[dict]:
     """ATTACH the Postgres database read-only and return its tables + columns.
 
@@ -54,15 +105,10 @@ def introspect_postgres(config: dict, password: str | None) -> list[dict]:
         [{ "name": str, "columns": [{ "name", "type", "nullable" }] }]
     Raises on connection/permission failure — the caller turns it into a result.
     """
-    schema = config.get("schema") or "public"
-    # `schema` is interpolated into a nested SQL literal below; reject anything
-    # that isn't a plain identifier so it can't break out of the quoted string.
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
-        raise ValueError(f"invalid schema name: {schema!r}")
-    dsn = _pg_dsn(config, password)
+    schema = _validate_schema(config.get("schema") or "public")
     con = _connect()
     try:
-        con.execute(f"ATTACH '{dsn}' AS {_ATTACH_ALIAS} (TYPE postgres, READ_ONLY)")
+        _attach(con, config, password)
         # Passthrough to Postgres' own information_schema (via postgres_query) so
         # column types come back as native Postgres names (integer, text, date)
         # rather than DuckDB-normalized ones. Single-quotes are doubled for the

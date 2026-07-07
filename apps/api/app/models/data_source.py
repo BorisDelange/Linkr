@@ -23,6 +23,9 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     description: Mapped[str] = mapped_column(Text, default="", server_default="")
     source_type: Mapped[str] = mapped_column(String(20))  # 'database' | 'fhir'
     connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    # Encrypted external-DB password (Fernet). Never returned by the API; only
+    # decrypted server-side to open a connection. NULL for file/no-auth sources.
+    connection_secret: Mapped[str | None] = mapped_column(Text)
     schema_mapping: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="configuring")
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

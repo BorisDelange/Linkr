@@ -3,6 +3,7 @@ import asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import crypto
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.user import User
 from app.schemas.data_source import (
@@ -13,8 +14,8 @@ from app.schemas.data_source import (
 from app.services import blob_store
 from app.services.data import db_connect
 
-# Connection-config keys that must never be persisted. The password/token is
-# supplied per-request for a live test and discarded after.
+# Connection-config keys holding a secret credential. Pulled out of the JSON
+# config (which the API returns) and stored encrypted in `connection_secret`.
 _SECRET_KEYS = ("password", "token")
 
 
@@ -23,6 +24,21 @@ def strip_secrets(config: dict | None) -> dict:
     if not config:
         return {}
     return {k: v for k, v in config.items() if k not in _SECRET_KEYS}
+
+
+def _extract_secret(config: dict | None) -> str | None:
+    """The first secret credential present in the config (password or token)."""
+    if not config:
+        return None
+    for key in _SECRET_KEYS:
+        if config.get(key):
+            return str(config[key])
+    return None
+
+
+def connection_password(source: DataSource) -> str | None:
+    """Decrypt the stored external-DB password for opening a connection."""
+    return crypto.decrypt(source.connection_secret) if source.connection_secret else None
 
 
 # --- Data sources ----------------------------------------------------------
@@ -45,8 +61,14 @@ async def get(db: AsyncSession, source_id: str) -> DataSource | None:
 
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
-    payload["connection_config"] = strip_secrets(payload.get("connection_config"))
-    source = DataSource(**payload, owner_id=owner.id)
+    config = payload.get("connection_config")
+    secret = _extract_secret(config)
+    payload["connection_config"] = strip_secrets(config)
+    source = DataSource(
+        **payload,
+        owner_id=owner.id,
+        connection_secret=crypto.encrypt(secret) if secret else None,
+    )
     db.add(source)
     await db.commit()
     await db.refresh(source)
@@ -58,6 +80,11 @@ async def update(
 ) -> DataSource:
     changes = data.model_dump(exclude_unset=True)
     if "connection_config" in changes:
+        # A password present in the update re-encrypts; its absence leaves the
+        # stored secret untouched (editing other fields won't wipe credentials).
+        secret = _extract_secret(changes["connection_config"])
+        if secret is not None:
+            source.connection_secret = crypto.encrypt(secret)
         changes["connection_config"] = strip_secrets(changes["connection_config"])
     for key, value in changes.items():
         setattr(source, key, value)
@@ -124,6 +151,19 @@ async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
 
 
 # --- Live connection test (external databases) -----------------------------
+
+async def query(source: DataSource, sql: str) -> list[dict]:
+    """Run read-only SQL against an external source, decrypting its stored
+    password to open the connection. Rows come back as JSON-ready dicts."""
+    config = dict(source.connection_config or {})
+    engine = config.get("engine")
+    if engine != "postgresql":
+        raise ValueError(f"queries not supported for engine: {engine}")
+    password = connection_password(source)
+    return await asyncio.to_thread(
+        db_connect.query_postgres, config, password, sql
+    )
+
 
 async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
     """Open a live connection using the (unpersisted) password in `config`,

@@ -13,6 +13,8 @@ from app.schemas.data_source import (
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
+    QueryRequest,
+    QueryResult,
     TestConnectionRequest,
     TestConnectionResult,
 )
@@ -170,6 +172,26 @@ async def delete_data_source(
 ):
     source = await _load_source(db, source_id, user, "editor")
     await data_source_service.delete(db, source)
+
+
+@router.post("/{source_id}/query", response_model=QueryResult)
+async def query_data_source(
+    source_id: str,
+    body: QueryRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run read-only SQL server-side against an external source (Postgres) and
+    return the result rows. The server-mode counterpart to the browser's
+    queryDataSource — the raw tables never reach the client, only results."""
+    source = await _load_source(db, source_id, user, "viewer")
+    try:
+        rows = await data_source_service.query(source, body.sql)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return QueryResult(rows=rows)
 
 
 @router.get("/{source_id}/files", response_model=list[DataSourceFileResponse])

@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import pytest
@@ -5,7 +6,9 @@ import pytest
 from app.core.security import hash_password
 from app.models.user import User
 from app.services import blob_store
+from app.services import data_source_service
 from app.services.data_source_service import (
+    connection_password,
     strip_secrets,
     test_connection as run_test_connection,
 )
@@ -80,6 +83,48 @@ async def test_create_strips_password(client):
 
     fetched = (await client.get(f"{API}/data-sources/{ds['id']}", headers=headers)).json()
     assert "password" not in fetched["connectionConfig"]
+
+
+async def test_password_encrypted_at_rest_and_recoverable(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {"engine": "postgresql", "host": "h", "password": "s3cr3t"},
+    })).json()
+
+    row = await data_source_service.get(db, ds["id"])
+    # Stored ciphertext is neither empty nor the plaintext.
+    assert row.connection_secret and "s3cr3t" not in row.connection_secret
+    # And it decrypts back for opening a connection server-side.
+    assert connection_password(row) == "s3cr3t"
+
+
+async def test_update_without_password_keeps_secret(client, db):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {"engine": "postgresql", "host": "h", "password": "keep"},
+    })).json()
+    # Editing another field (no password in the config) must not wipe the secret.
+    await client.patch(f"{API}/data-sources/{ds['id']}", headers=headers, json={
+        "connectionConfig": {"engine": "postgresql", "host": "h2"},
+    })
+    row = await data_source_service.get(db, ds["id"])
+    assert connection_password(row) == "keep"
+
+
+async def test_query_unsupported_engine_is_400(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "d", "name": "D", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()
+    r = await client.post(f"{API}/data-sources/{ds['id']}/query", headers=headers,
+                          json={"sql": "SELECT 1"})
+    assert r.status_code == 400
 
 
 async def test_update_strips_password(client):
@@ -219,3 +264,19 @@ async def test_live_postgres_introspection():
     assert isinstance(tables, list)
     for t in tables:
         assert "name" in t and isinstance(t["columns"], list)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("LINKR_TEST_PG_DSN"),
+    reason="set LINKR_TEST_PG_DSN to run the live Postgres query test",
+)
+async def test_live_postgres_query():
+    import json
+
+    from app.services.data import db_connect
+
+    config = json.loads(os.environ["LINKR_TEST_PG_DSN"])
+    rows = await asyncio.to_thread(
+        db_connect.query_postgres, config, config.get("password"), "SELECT 1 AS one"
+    )
+    assert rows == [{"one": 1}]

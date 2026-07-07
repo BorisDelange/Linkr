@@ -94,3 +94,11 @@ class TestConnectionResult(CamelModel):
     ok: bool
     error: str | None = None
     tables: list[IntrospectedTable] = []
+
+
+class QueryRequest(CamelModel):
+    sql: str
+
+
+class QueryResult(CamelModel):
+    rows: list[dict]
