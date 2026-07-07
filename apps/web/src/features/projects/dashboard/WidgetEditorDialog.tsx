@@ -29,6 +29,9 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
+import { resolveServerFilters } from './resolve-server-filters'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import { widgetPixelSize, DASHBOARD_GRID, colWidthFor } from './dashboard-grid'
 import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -70,7 +73,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
 function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpacing }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number; widgetSpacing?: number }) {
   const { t, i18n } = useTranslation()
   const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
-  const { filteredRows, columns } = useDashboardData()
+  const { filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const { files: datasetFiles } = useDatasetStore()
 
   const projectDatasetFiles = datasetFiles.filter(
@@ -200,15 +203,26 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
     setStatusMessage(null)
 
     try {
-      if (isPlugin && plugin) {
-        const newlyInstalled = await ensurePluginDependencies(plugin.manifest.id, language, (msg) => setStatusMessage(msg))
-        setInstalledDeps(newlyInstalled)
-        setStatusMessage(null)
+      let output
+      if (isServerMode()) {
+        // Server mode: backend injects the dataset Parquet as `dataset` (with the
+        // dashboard filters), so the preview runs on real data — not filteredRows,
+        // which is empty server-side.
+        output = await executeOnServer(language, code ?? currentCode, {
+          projectUid,
+          datasetFileId: datasetFileId ?? undefined,
+          datasetFilters: datasetFileId ? resolveServerFilters(filters, columns) : undefined,
+        })
+      } else {
+        if (isPlugin && plugin) {
+          const newlyInstalled = await ensurePluginDependencies(plugin.manifest.id, language, (msg) => setStatusMessage(msg))
+          setInstalledDeps(newlyInstalled)
+          setStatusMessage(null)
+        }
+        const executor = await import('@/features/projects/lab/datasets/analysis-executor')
+        const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
+        output = await exec(code ?? currentCode, filteredRows, columns)
       }
-
-      const executor = await import('@/features/projects/lab/datasets/analysis-executor')
-      const exec = language === 'r' ? executor.executeAnalysisCodeR : executor.executeAnalysisCode
-      const output = await exec(code ?? currentCode, filteredRows, columns)
       setResult(output)
     } catch (err) {
       setResult({
@@ -223,7 +237,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, filteredRows, columns, language, isPlugin, plugin])
+  }, [currentCode, filteredRows, columns, language, isPlugin, plugin, datasetFileId, filters, projectUid])
 
   // Cmd/Ctrl+Shift+Enter: run the whole file.
   const handleRunFile = useCallback(() => { void handleRun() }, [handleRun])
