@@ -442,7 +442,7 @@ export function registerDefaultPlugins() {
     componentId: 'kaplan-meier',
   })
 
-  registerComponent('correlation-matrix', CorrelationMatrixComponent)
+  registerComponent('correlation-matrix', CorrelationMatrixComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(correlationMatrixManifest as unknown as Record<string, unknown>),
     templates: null,

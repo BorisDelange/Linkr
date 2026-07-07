@@ -2,7 +2,10 @@ import { useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Grid3X3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildCorrelationMatrixCode } from './correlation-matrix-server'
 
 // ===========================================================================
 // Types
@@ -17,6 +20,7 @@ interface CorrelationCell {
 interface CorrelationResult {
   names: string[]
   matrix: CorrelationCell[][]
+  totalN?: number
 }
 
 // ===========================================================================
@@ -243,9 +247,10 @@ function pStars(p: number): string {
 // Component
 // ===========================================================================
 
-export function CorrelationMatrixComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function CorrelationMatrixComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const server = isServerMode()
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 })
@@ -272,13 +277,46 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact }: C
   const numericCols = columns.filter(c => c.type === 'number')
   const selectedColumns = rawSelectedColumns?.length ? rawSelectedColumns : numericCols.map(c => c.id)
 
-  const result = useMemo(
-    () => computeCorrelationMatrix(rows, columns, selectedColumns, method),
-    [rows, columns, selectedColumns, method],
+  const localResult = useMemo(
+    () => (server ? null : computeCorrelationMatrix(rows, columns, selectedColumns, method)),
+    [server, rows, columns, selectedColumns, method],
   )
+  // Stable string keys so the effect only re-fetches on a semantic change.
+  const serverCode = server && datasetFileId
+    ? buildCorrelationMatrixCode(columns, selectedColumns, method)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverResult, setServerResult] = useState<CorrelationResult | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerError(out.stderr); return }
+        try { setServerResult(JSON.parse(out.stdout.trim()) as CorrelationResult); setServerError(null) }
+        catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Empty states
-  if (columns.length === 0 || rows.length === 0) {
+  const result = server ? serverResult : localResult
+  const totalN = result?.totalN ?? rows.length
+
+  if (server && serverError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <Grid3X3 size={24} className="opacity-40" />
+        <p className="text-xs whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
+
+  // Empty states. In server mode rows are empty, so gate on numeric columns + the
+  // server result instead of rows.length.
+  if (columns.length === 0 || (!server && rows.length === 0)) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Grid3X3 size={24} className="opacity-40" />
@@ -296,6 +334,15 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact }: C
             ? 'Au moins 2 variables numériques sont nécessaires.'
             : 'At least 2 numeric variables are required.'}
         </p>
+      </div>
+    )
+  }
+
+  // Server mode: hold the frame until the matrix arrives.
+  if (!result) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <Grid3X3 size={24} className="opacity-40" />
       </div>
     )
   }
@@ -349,7 +396,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact }: C
           {method === 'pearson' ? 'Pearson' : 'Spearman'}
         </span>
         {' '}{lang === 'fr' ? 'corrélation' : 'correlation'}
-        {' '}(n = {rows.length})
+        {' '}(n = {totalN})
       </div>
 
       {/* Heatmap SVG — fills remaining space */}
