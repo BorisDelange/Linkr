@@ -129,8 +129,8 @@ export function RunButton({
       {isSql && connections.length > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="xs" className="gap-1 max-w-[160px]">
-              <Database size={12} className="shrink-0" />
+            <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-[11px]">
+              <Database size={11} className="shrink-0" />
               <span className="truncate">
                 {activeConn?.name ?? t('connections.select')}
               </span>
@@ -194,10 +194,10 @@ function ConnectionMenuItem({
       : 'bg-gray-400'
 
   return (
-    <DropdownMenuItem onClick={onSelect} className="gap-2" title={entry.name}>
+    <DropdownMenuItem onClick={onSelect} className="gap-2 py-1 text-xs" title={entry.name}>
       <span className={`size-1.5 shrink-0 rounded-full ${statusColor}`} />
       <span className="truncate">{entry.name}</span>
-      {isActive && <span className="ml-auto text-xs text-primary">✓</span>}
+      {isActive && <span className="ml-auto text-primary">✓</span>}
     </DropdownMenuItem>
   )
 }

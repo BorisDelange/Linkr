@@ -30,7 +30,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -442,8 +441,8 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   <div className="mx-1 h-4 w-px bg-border" />
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="xs" className="gap-1 max-w-[160px]">
-                        <Database size={12} className="shrink-0" />
+                      <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-[11px]">
+                        <Database size={11} className="shrink-0" />
                         <span className="truncate">
                           {activeDb?.name ?? t('sql_scripts.select_database')}
                         </span>
@@ -451,23 +450,16 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="start" className="w-[200px]">
-                      <DropdownMenuItem
-                        onClick={() => updateCollection(collectionId, { defaultDataSourceId: undefined })}
-                        className="gap-2 text-muted-foreground"
-                      >
-                        — {t('sql_scripts.select_database')}
-                      </DropdownMenuItem>
-                      {dbSources.length > 0 && <DropdownMenuSeparator />}
                       {dbSources.map((ds) => (
                         <DropdownMenuItem
                           key={ds.id}
                           onClick={() => updateCollection(collectionId, { defaultDataSourceId: ds.id })}
-                          className="gap-2"
+                          className="gap-2 py-1 text-xs"
                           title={ds.name}
                         >
-                          <Database size={13} className="shrink-0 text-amber-500" />
+                          <Database size={12} className="shrink-0 text-amber-500" />
                           <span className="truncate">{ds.name}</span>
-                          {activeDbId === ds.id && <Check size={13} className="ml-auto shrink-0" />}
+                          {activeDbId === ds.id && <Check size={12} className="ml-auto shrink-0" />}
                         </DropdownMenuItem>
                       ))}
                     </DropdownMenuContent>
