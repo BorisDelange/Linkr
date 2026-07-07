@@ -32,7 +32,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
 import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
 
-const MAX_RECENT = 3
+const MAX_RECENT = 2
 
 export function WorkspaceHomePage() {
   const { t } = useTranslation()
@@ -70,7 +70,7 @@ export function WorkspaceHomePage() {
 
   const recentMappingProjects = [...wsMappingProjects]
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 3)
+    .slice(0, MAX_RECENT)
 
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
@@ -247,9 +247,9 @@ function OverviewTab({
   const { t } = useTranslation()
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 pt-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
       {/* Readme + Recent entities — top half */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid min-h-0 basis-1/2 grid-cols-1 gap-4 lg:grid-cols-2">
         <ReadmePreview readme={readme} onViewFull={onViewReadme} />
         <RecentEntitiesCard
           recentProjects={recentProjects}
@@ -265,9 +265,8 @@ function OverviewTab({
         />
       </div>
 
-      {/* Stat cards — bottom half */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto">
-        <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* Stat cards — fixed-height bottom row */}
+      <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
             icon={<FolderOpen size={18} />}
             iconBg="bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300"
@@ -300,7 +299,6 @@ function OverviewTab({
             to={wikiPath}
             sub={counts.wikiPages > 0 ? t('workspaces.stat_wiki_pages_sub') : t('workspaces.stat_wiki_pages_empty')}
           />
-        </div>
       </div>
     </div>
   )
@@ -320,16 +318,13 @@ function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () 
           <ArrowUpRight size={12} />
         </Button>
       </div>
-      <div className="relative mt-3 min-h-0 flex-1 overflow-hidden">
+      <div className="mt-3 min-h-0 flex-1 overflow-auto">
         {readme.trim() ? (
-          <>
-            <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
-              <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
-                {readme}
-              </ReactMarkdown>
-            </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />
-          </>
+          <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
+            <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
+              {readme}
+            </ReactMarkdown>
+          </div>
         ) : (
           <p className="text-xs text-muted-foreground">{t('workspaces.readme_empty')}</p>
         )}
@@ -365,8 +360,8 @@ function RecentEntitiesCard({
   return (
     <div className="flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border bg-card p-5 shadow-sm">
       {/* Recent projects */}
-      <section className="flex min-h-0 flex-col">
-        <div className="flex shrink-0 items-center justify-between">
+      <section className="shrink-0">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <FolderOpen size={14} className="text-muted-foreground" />
             <h3 className="text-sm font-semibold">{t('home.recent_projects')}</h3>
@@ -407,8 +402,8 @@ function RecentEntitiesCard({
       </section>
 
       {/* Recent mapping projects */}
-      <section className="flex min-h-0 flex-col">
-        <div className="flex shrink-0 items-center justify-between">
+      <section className="shrink-0">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <ArrowRightLeft size={14} className="text-muted-foreground" />
             <h3 className="text-sm font-semibold">{t('workspaces.recent_mapping_projects')}</h3>

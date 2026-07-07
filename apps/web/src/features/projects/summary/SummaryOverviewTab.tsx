@@ -31,6 +31,11 @@ interface SummaryOverviewTabProps {
   onNavigateTab: (tab: string) => void
 }
 
+const MAX_LIST_ITEMS = 2
+
+const byUpdatedDesc = <T extends { updatedAt?: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => new Date(b.updatedAt ?? 0).getTime() - new Date(a.updatedAt ?? 0).getTime())
+
 export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabProps) {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
@@ -113,9 +118,9 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   const readme = localized(project?.readme, language)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 pt-4">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
       {/* Readme + To-do previews — top half */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className="grid min-h-0 basis-1/2 grid-cols-1 gap-4 lg:grid-cols-2">
         <ReadmePreview readme={readme} onViewFull={() => onNavigateTab('readme')} />
         <TodoPreview
           todos={stats.todos}
@@ -126,7 +131,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
       </div>
 
       {/* Stat cards + section details — bottom half */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto">
+      <div className="flex min-h-0 basis-1/2 flex-col gap-4 overflow-hidden">
         {/* Stat Cards */}
         <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
@@ -180,15 +185,15 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
         </div>
 
         {/* Section details */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
           {/* Data Warehouse */}
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
+          <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 shadow-sm">
+            <div className="flex shrink-0 items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-teal-500" />
               <h3 className="text-sm font-semibold">{t('summary.data_warehouse_section')}</h3>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-auto">
               {/* Databases list */}
               <SectionList
                 title={t('summary.databases')}
@@ -196,7 +201,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
                 viewAllTo={paths.databases(wsUid ?? '', uid)}
                 emptyHint={t('summary.no_databases_hint')}
               >
-                {dataSources.map((ds) => (
+                {byUpdatedDesc(dataSources).slice(0, MAX_LIST_ITEMS).map((ds) => (
                   <ListItem key={ds.id} to={paths.databases(wsUid ?? '', uid)}>
                     <StatusDot status={ds.status} />
                     <span className="flex-1 truncate text-xs">{ds.name}</span>
@@ -212,7 +217,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
                 viewAllTo={paths.cohorts(wsUid ?? '', uid)}
                 emptyHint={t('summary.no_cohorts_hint')}
               >
-                {cohorts.map((c) => (
+                {byUpdatedDesc(cohorts).slice(0, MAX_LIST_ITEMS).map((c) => (
                   <ListItem key={c.id} to={paths.cohort(wsUid ?? '', uid, c.id, cohortIds)}>
                     <span className="flex-1 truncate text-xs">{c.name}</span>
                     {c.resultCount != null && (
@@ -227,13 +232,13 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
           </div>
 
           {/* Lab */}
-          <div className="rounded-xl border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
+          <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 shadow-sm">
+            <div className="flex shrink-0 items-center gap-2">
               <div className="h-1.5 w-1.5 rounded-full bg-rose-500" />
               <h3 className="text-sm font-semibold">{t('summary.lab_section')}</h3>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-auto">
               {/* Datasets */}
               <SectionList
                 title={t('summary.datasets')}
@@ -243,6 +248,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
               >
                 {stats.nodes
                   .filter((n) => n.data.type === 'dataset')
+                  .slice(0, MAX_LIST_ITEMS)
                   .map((n) => (
                     <ListItem key={n.id} to={paths.datasets(wsUid ?? '', uid)}>
                       <PipelineStatusIcon status={n.data.status} />
@@ -265,7 +271,7 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
                 viewAllTo={paths.dashboards(wsUid ?? '', uid)}
                 emptyHint={t('summary.no_dashboards_hint')}
               >
-                {dashboards.map((dash) => (
+                {byUpdatedDesc(dashboards).slice(0, MAX_LIST_ITEMS).map((dash) => (
                   <ListItem key={dash.id} to={paths.dashboard(wsUid ?? '', uid, dash.id, dashboardIds)}>
                     <span className="flex-1 truncate text-xs">{localized(dash.name, language)}</span>
                     <span className="text-[10px] tabular-nums text-muted-foreground">
