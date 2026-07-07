@@ -30,6 +30,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { isServerMode } from '@/lib/api-client'
 import { getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebRStatus } from '@/lib/runtimes/webr-engine'
 import {
@@ -77,6 +78,7 @@ function summarizeInstallError(raw: string, t: (k: string) => string): string {
 
 export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogProps) {
   const { t } = useTranslation()
+  const server = isServerMode()
   const [langTab, setLangTab] = useState<'python' | 'r'>('python')
   const [newPkgName, setNewPkgName] = useState('')
   const [installing, setInstalling] = useState(false)
@@ -420,10 +422,18 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
         <DialogHeader>
           <DialogTitle>{t('environments.title')}</DialogTitle>
           <DialogDescription>
-            {t('environments.description')}
+            {server ? t('environments.description_server') : t('environments.description')}
           </DialogDescription>
         </DialogHeader>
 
+        {server ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+            <Package size={24} className="text-muted-foreground/50" />
+            <p className="text-xs text-muted-foreground max-w-sm">
+              {t('environments.server_package_mgmt_soon')}
+            </p>
+          </div>
+        ) : (
         <Tabs value={langTab} onValueChange={(v) => {
           setLangTab(v as 'python' | 'r')
           setNewPkgName('')
@@ -457,6 +467,7 @@ export function EnvironmentsDialog({ open, onOpenChange }: EnvironmentsDialogPro
             {renderPackageList('r')}
           </TabsContent>
         </Tabs>
+        )}
       </DialogContent>
     </Dialog>
   )

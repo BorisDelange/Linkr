@@ -610,20 +610,7 @@
     "database_name": "Database name",
     "database_name_placeholder": "e.g. OMOP CDM (empty)",
     "created_from_preset": "Created from {{preset}} preset (empty)",
-    "download_data": "Download data",
-    "download_data_title": "Download database",
-    "download_data_description": "Download \"{{name}}\" as a file.",
-    "download_data_format_parquet": "Parquet files (ZIP)",
-    "download_data_format_parquet_desc": "Each table as an individual Parquet file, bundled in a ZIP archive. Best for interoperability.",
-    "download_data_format_duckdb": "DuckDB file",
-    "download_data_format_duckdb_desc": "Single DuckDB database file with all tables. Best for re-importing into DuckDB or Linkr.",
-    "download_data_start": "Download",
-    "download_data_discovering": "Discovering tables...",
-    "download_data_table_progress": "Downloading table {{current}} / {{total}}: {{table}}",
-    "download_data_packaging": "Packaging file...",
-    "download_data_success": "Download completed successfully!",
-    "download_data_error": "Download failed",
-    "download_data_retry": "Retry"
+    "coming_soon": "coming soon"
   },
   "reports": {
     "title": "Reports",
@@ -2071,6 +2058,8 @@
   "environments": {
     "title": "Environments",
     "description": "Install and manage Python and R packages for your WASM runtimes.",
+    "description_server": "Python and R run on the server in full-stack mode.",
+    "server_package_mgmt_soon": "Package management for server-side environments isn't available yet — it will be added in a future update. Server kernels currently use the packages installed on the server.",
     "package_placeholder": "Package name...",
     "install": "Install",
     "installing": "Installing...",

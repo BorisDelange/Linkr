@@ -599,6 +599,10 @@ export const useFileStore = create<FileState>((set, get) => ({
     if (_loadingProjectUid === projectUid) return
     _loadingProjectUid = projectUid
 
+    // Switching projects: the console/output belongs to the previous project.
+    // Clear it so results and tabs don't bleed across projects.
+    set({ outputTabs: [], activeOutputTab: null, executionResults: [] })
+
     try {
       const storage = getStorage()
       const stored = await storage.ideFiles.getByProject(projectUid)

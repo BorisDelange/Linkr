@@ -610,20 +610,7 @@
     "database_name": "Nom de la base",
     "database_name_placeholder": "ex. OMOP CDM (vide)",
     "created_from_preset": "Créée depuis le preset {{preset}} (vide)",
-    "download_data": "Télécharger les données",
-    "download_data_title": "Télécharger la base",
-    "download_data_description": "Télécharger « {{name}} » sous forme de fichier.",
-    "download_data_format_parquet": "Fichiers Parquet (ZIP)",
-    "download_data_format_parquet_desc": "Chaque table en fichier Parquet individuel, regroupés dans une archive ZIP. Meilleur pour l'interopérabilité.",
-    "download_data_format_duckdb": "Fichier DuckDB",
-    "download_data_format_duckdb_desc": "Fichier DuckDB unique avec toutes les tables. Idéal pour réimporter dans DuckDB ou Linkr.",
-    "download_data_start": "Télécharger",
-    "download_data_discovering": "Découverte des tables...",
-    "download_data_table_progress": "Téléchargement de la table {{current}} / {{total}} : {{table}}",
-    "download_data_packaging": "Préparation du fichier...",
-    "download_data_success": "Téléchargement terminé avec succès !",
-    "download_data_error": "Le téléchargement a échoué",
-    "download_data_retry": "Réessayer"
+    "coming_soon": "bientôt disponible"
   },
   "reports": {
     "title": "Rapports",
@@ -2071,6 +2058,8 @@
   "environments": {
     "title": "Environnements",
     "description": "Installer et gérer les packages Python et R pour les runtimes WASM.",
+    "description_server": "Python et R s'exécutent sur le serveur en mode full-stack.",
+    "server_package_mgmt_soon": "La gestion des packages pour les environnements serveur n'est pas encore disponible — elle sera ajoutée dans une prochaine mise à jour. Les kernels serveur utilisent actuellement les packages installés sur le serveur.",
     "package_placeholder": "Nom du package...",
     "install": "Installer",
     "installing": "Installation...",
