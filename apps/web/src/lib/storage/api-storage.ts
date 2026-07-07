@@ -9,6 +9,7 @@ import { apiOrganizationStorage } from '@/lib/api/organizations'
 import { apiProjectStorage } from '@/lib/api/projects'
 import { apiRoleStorage } from '@/lib/api/roles'
 import { apiSchemaPresetStorage } from '@/lib/api/schema-presets'
+import { apiSqlScriptCollectionStorage, apiSqlScriptFileStorage } from '@/lib/api/sql-scripts'
 import { apiUserStorage } from '@/lib/api/users'
 import { apiWikiPageStorage } from '@/lib/api/wiki-pages'
 import { apiWorkspaceStorage } from '@/lib/api/workspaces'
@@ -33,6 +34,8 @@ export function createAPIStorage(): Storage {
     dataSources: apiDataSourceStorage,
     files: apiFileStorage,
     schemaPresets: apiSchemaPresetStorage,
+    sqlScriptCollections: apiSqlScriptCollectionStorage,
+    sqlScriptFiles: apiSqlScriptFileStorage,
     wikiPages: apiWikiPageStorage,
     datasetFiles: apiDatasetFileStorage,
     datasetData: apiDatasetDataStorage,

@@ -22,6 +22,7 @@ from app.api.v1.routes.projects import router as projects_router
 from app.api.v1.routes.roles import router as roles_router
 from app.api.v1.routes.schema_presets import router as schema_presets_router
 from app.api.v1.routes.setup import router as setup_router
+from app.api.v1.routes.sql_scripts import router as sql_scripts_router
 from app.api.v1.routes.uploads import router as uploads_router
 from app.api.v1.routes.users import router as users_router
 from app.api.v1.routes.wiki_pages import router as wiki_pages_router
@@ -91,6 +92,7 @@ app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
 app.include_router(organizations_router, prefix="/api/v1")
 app.include_router(schema_presets_router, prefix="/api/v1")
+app.include_router(sql_scripts_router, prefix="/api/v1")
 app.include_router(wiki_pages_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(roles_router, prefix="/api/v1")
