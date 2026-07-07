@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.project import Project
+from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.plugin import Plugin
 from app.models.workspace import Workspace
@@ -12,6 +13,8 @@ from app.models.role import Role
 __all__ = [
     "User",
     "Project",
+    "DataSource",
+    "DataSourceFile",
     "DatasetFile",
     "DatasetAnalysis",
     "Plugin",
