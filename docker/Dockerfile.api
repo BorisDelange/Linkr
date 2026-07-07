@@ -12,7 +12,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-arrow \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps (with server-side execution extras: pandas, matplotlib)
+# Install Python deps (with server-side execution extras: pandas, matplotlib,
+# pyarrow, scipy, statsmodels, lifelines — needed by the server-side viz components)
 COPY pyproject.toml .
 RUN pip install --no-cache-dir -e ".[execution]"
 
