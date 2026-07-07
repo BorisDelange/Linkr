@@ -325,13 +325,17 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         connectionConfig.engine === 'oracle')
     if (isServerMode() && isExternalEngine) {
       const result = await testConnectionOnServer(connectionConfig)
-      const updated: Partial<DataSource> = result.ok
-        ? {
-            status: 'connected',
-            errorMessage: undefined,
-            stats: { ...newSource.stats, tableCount: result.tables.length },
-          }
-        : { status: 'error', errorMessage: result.error ?? 'Connection failed' }
+      let updated: Partial<DataSource>
+      if (result.ok) {
+        // Connection is live; counts come from the server (patient/visit counts
+        // only once a schema mapping names those tables).
+        const stats = await engine
+          .computeStats(id, source.schemaMapping)
+          .catch(() => ({ tableCount: result.tables.length }))
+        updated = { status: 'connected', errorMessage: undefined, stats }
+      } else {
+        updated = { status: 'error', errorMessage: result.error ?? 'Connection failed' }
+      }
       await getStorage().dataSources.update(id, updated)
       set((s) => ({
         dataSources: s.dataSources.map((ds) =>

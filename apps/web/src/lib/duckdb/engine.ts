@@ -381,6 +381,20 @@ export async function computeStats(
   dataSourceId: string,
   schemaMapping?: SchemaMapping,
 ): Promise<DataSourceStats> {
+  // Server mode: compute counts via server-side queries (external DB / server
+  // files). Table count comes from the introspected schema; patient/visit
+  // counts from COUNT(*) on the mapped tables — all without loading raw data.
+  if (isServerMode()) {
+    const tables = await fetchDataSourceSchema(dataSourceId)
+    const stats: DataSourceStats = { tableCount: tables.length }
+    if (schemaMapping?.patientTable) {
+      stats.patientCount = await serverCount(dataSourceId, schemaMapping.patientTable.table)
+      if (schemaMapping.visitTable) {
+        stats.visitCount = await serverCount(dataSourceId, schemaMapping.visitTable.table)
+      }
+    }
+    return stats
+  }
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -514,6 +528,19 @@ async function safeDropSchema(
     } catch {
       // Ignore — schema may not exist yet
     }
+  }
+}
+
+/** COUNT(*) on a mapped table via the server query path (server mode). */
+async function serverCount(dataSourceId: string, table: string): Promise<number> {
+  try {
+    const rows = await queryDataSource(
+      dataSourceId,
+      `SELECT COUNT(*) AS cnt FROM "${table.replace(/"/g, '""')}"`,
+    )
+    return Number(rows[0]?.cnt ?? 0)
+  } catch {
+    return 0
   }
 }
 
