@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, RotateCcw, Server } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -9,6 +9,10 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { useBrowserMetrics } from '@/hooks/use-browser-metrics'
+import { useServerKernels } from '@/hooks/use-server-kernels'
+import { isServerMode } from '@/lib/api-client'
+import { restartServerKernel } from '@/lib/api/execution'
+import { useAppStore } from '@/stores/app-store'
 import { APP_VERSION } from '@/lib/version'
 import { EnvironmentsDialog } from '@/features/projects/files/EnvironmentsDialog'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
@@ -59,9 +63,20 @@ export function StatusBar() {
   const { t } = useTranslation()
   const metrics = useBrowserMetrics()
   const [environmentsOpen, setEnvironmentsOpen] = useState(false)
+  const server = isServerMode()
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
+  const { kernels, refresh } = useServerKernels(activeProjectUid)
 
-  const memPct = metrics.memory.pct
-  const storagePct = metrics.storage?.pct ?? null
+  const handleRestartKernel = async (language: 'python' | 'r', envId: string) => {
+    if (!activeProjectUid) return
+    await restartServerKernel(language, activeProjectUid, envId)
+    refresh()
+  }
+
+  // Browser JS-heap / WASM metrics only make sense in front-only mode; in server
+  // mode compute runs server-side, so we surface kernels instead.
+  const memPct = server ? null : metrics.memory.pct
+  const storagePct = server ? null : (metrics.storage?.pct ?? null)
 
   return (
     <footer className="flex h-6 shrink-0 items-center justify-between border-t bg-background px-3 text-[11px] text-muted-foreground">
@@ -93,11 +108,21 @@ export function StatusBar() {
         <Popover>
           <PopoverTrigger asChild>
             <button className="flex items-center gap-2 rounded px-1.5 py-0.5 hover:bg-accent/50 transition-colors">
-              <MemoryStick size={11} />
-              {memPct !== null ? (
-                <span>{formatMB(metrics.memory.usedMB)}{metrics.memory.totalMB ? ` / ${formatMB(metrics.memory.totalMB)}` : ''}</span>
+              {server ? (
+                <>
+                  <Server size={11} />
+                  <span>{t('server.kernel_count', { count: kernels.length })}</span>
+                </>
+              ) : memPct !== null ? (
+                <>
+                  <MemoryStick size={11} />
+                  <span>{formatMB(metrics.memory.usedMB)}{metrics.memory.totalMB ? ` / ${formatMB(metrics.memory.totalMB)}` : ''}</span>
+                </>
               ) : (
-                <span className="opacity-60">{t('server.memory_unavailable_short')}</span>
+                <>
+                  <MemoryStick size={11} />
+                  <span className="opacity-60">{t('server.memory_unavailable_short')}</span>
+                </>
               )}
               {storagePct !== null && (
                 <>
@@ -113,6 +138,8 @@ export function StatusBar() {
               <p className="text-xs font-medium">{t('server.title')}</p>
               <Separator />
 
+              {/* Browser metrics — only meaningful in front-only (WASM) mode. */}
+              {!server && (<>
               {/* JS Heap Memory */}
               {memPct !== null ? (
                 <>
@@ -180,26 +207,54 @@ export function StatusBar() {
               )}
 
               <Separator />
+              </>)}
 
-              {/* WASM Runtimes */}
+              {/* Runtimes — server kernels in server mode, browser WASM otherwise */}
               <div className="space-y-2">
                 <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                  {t('server.runtimes')}
+                  {server ? t('server.kernels') : t('server.runtimes')}
                 </p>
-                <div className="flex items-center justify-between text-xs">
-                  <span>Python (Pyodide)</span>
-                  <div className="flex items-center gap-1.5">
-                    <Circle size={6} className={cn('fill-current', runtimeStatusColor(metrics.runtimes.pyodide).replace('bg-', 'text-').replace(' animate-pulse', ''))} />
-                    <span className="text-muted-foreground">{runtimeStatusLabel(metrics.runtimes.pyodide, t)}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between text-xs">
-                  <span>R (webR)</span>
-                  <div className="flex items-center gap-1.5">
-                    <Circle size={6} className={cn('fill-current', runtimeStatusColor(metrics.runtimes.webR).replace('bg-', 'text-').replace(' animate-pulse', ''))} />
-                    <span className="text-muted-foreground">{runtimeStatusLabel(metrics.runtimes.webR, t)}</span>
-                  </div>
-                </div>
+                {server ? (
+                  kernels.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground italic">{t('server.no_kernels')}</p>
+                  ) : (
+                    kernels.map((k) => (
+                      <div key={`${k.language}-${k.envId}`} className="flex items-center justify-between text-xs">
+                        <span>{k.language === 'python' ? 'Python' : 'R'}{k.envId !== 'default' ? ` · ${k.envId}` : ''}</span>
+                        <div className="flex items-center gap-1.5">
+                          <Circle size={6} className={cn('fill-current', k.busy ? 'text-blue-500' : k.alive ? 'text-emerald-500' : 'text-muted-foreground/30')} />
+                          <span className="text-muted-foreground">
+                            {k.busy ? t('server.runtime_executing') : t('server.runtime_ready')}
+                          </span>
+                          <button
+                            onClick={() => handleRestartKernel(k.language, k.envId)}
+                            className="rounded p-0.5 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                            title={t('server.restart_kernel')}
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between text-xs">
+                      <span>Python (Pyodide)</span>
+                      <div className="flex items-center gap-1.5">
+                        <Circle size={6} className={cn('fill-current', runtimeStatusColor(metrics.runtimes.pyodide).replace('bg-', 'text-').replace(' animate-pulse', ''))} />
+                        <span className="text-muted-foreground">{runtimeStatusLabel(metrics.runtimes.pyodide, t)}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span>R (webR)</span>
+                      <div className="flex items-center gap-1.5">
+                        <Circle size={6} className={cn('fill-current', runtimeStatusColor(metrics.runtimes.webR).replace('bg-', 'text-').replace(' animate-pulse', ''))} />
+                        <span className="text-muted-foreground">{runtimeStatusLabel(metrics.runtimes.webR, t)}</span>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
 
               <Separator />
@@ -208,7 +263,7 @@ export function StatusBar() {
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-muted-foreground">{t('server.mode')}</span>
-                  <span>{t('server.local_mode')}</span>
+                  <span>{server ? t('server.server_mode') : t('server.local_mode')}</span>
                 </div>
                 <div className="flex items-center justify-between text-[10px]">
                   <span className="text-muted-foreground">{t('server.session')}</span>
@@ -224,15 +279,17 @@ export function StatusBar() {
         <div className="flex items-center gap-1.5">
           <span className={cn(
             'inline-block h-1.5 w-1.5 rounded-full',
-            metrics.runtimes.pyodide === 'error' || metrics.runtimes.webR === 'error'
-              ? 'bg-red-500'
-              : metrics.runtimes.pyodide === 'loading' || metrics.runtimes.webR === 'loading'
-                ? 'bg-yellow-500 animate-pulse'
-                : metrics.runtimes.pyodide === 'executing' || metrics.runtimes.webR === 'executing'
-                  ? 'bg-blue-500 animate-pulse'
-                  : 'bg-emerald-500'
+            server
+              ? (kernels.some((k) => k.busy) ? 'bg-blue-500 animate-pulse' : 'bg-emerald-500')
+              : metrics.runtimes.pyodide === 'error' || metrics.runtimes.webR === 'error'
+                ? 'bg-red-500'
+                : metrics.runtimes.pyodide === 'loading' || metrics.runtimes.webR === 'loading'
+                  ? 'bg-yellow-500 animate-pulse'
+                  : metrics.runtimes.pyodide === 'executing' || metrics.runtimes.webR === 'executing'
+                    ? 'bg-blue-500 animate-pulse'
+                    : 'bg-emerald-500'
           )} />
-          <span>{t('server.ready')}</span>
+          <span>{server && kernels.some((k) => k.busy) ? t('server.runtime_executing') : t('server.ready')}</span>
         </div>
       </div>
     </footer>

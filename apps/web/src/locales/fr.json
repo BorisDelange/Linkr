@@ -2109,6 +2109,12 @@
     "runtime_error": "Erreur",
     "mode": "Mode",
     "local_mode": "Local (WASM)",
+    "server_mode": "Serveur",
+    "kernels": "Kernels serveur",
+    "no_kernels": "Aucun kernel actif",
+    "kernel_count_one": "{{count}} kernel",
+    "kernel_count_other": "{{count}} kernels",
+    "restart_kernel": "Redémarrer le kernel",
     "session": "Session",
     "uptime": "Uptime",
     "ready": "Prêt"
