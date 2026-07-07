@@ -50,6 +50,9 @@ def _run(code):
     out, err, figures, table = io.StringIO(), io.StringIO(), [], None
     real_out, real_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = out, err
+    # Drop any `result` left by a previous run so we only surface a table when
+    # THIS run defines one (the namespace persists between runs).
+    _ns.pop("result", None)
     try:
         exec(compile(code, "<analysis>", "exec"), _ns)
         table = _capture_table(_ns.get("result"))

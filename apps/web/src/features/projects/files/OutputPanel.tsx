@@ -307,7 +307,7 @@ export function OutputPanel({ onClose, hideTabBar }: OutputPanelProps) {
         {!showExecContent && activeTab?.type === 'figure' && (
           <div className="flex h-full items-center justify-center p-4 bg-white dark:invert dark:hue-rotate-180">
             {typeof activeTab.content === 'string' &&
-            activeTab.content.startsWith('<svg') ? (
+            /^\s*(<\?xml|<svg)/.test(activeTab.content) ? (
               <div
                 className="max-w-full max-h-full"
                 dangerouslySetInnerHTML={{ __html: sanitizeHtml(activeTab.content) }}
