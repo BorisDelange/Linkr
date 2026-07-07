@@ -117,6 +117,20 @@ async def test_persistent_r_kernel_keeps_variables(client):
     assert "42" in r.json()["stdout"]
 
 
+async def test_list_kernels_reports_live_sessions(client):
+    headers = await _admin_headers(client)
+    # No kernels yet for this project.
+    r = await client.get(f"{API}/execute/kernels?projectUid=kp", headers=headers)
+    assert r.json() == []
+    # Running code spins one up; it then shows as alive.
+    await client.post(f"{API}/execute", headers=headers,
+                      json={"language": "python", "code": "1", "projectUid": "kp"})
+    r = await client.get(f"{API}/execute/kernels?projectUid=kp", headers=headers)
+    kernels = r.json()
+    assert len(kernels) == 1
+    assert kernels[0]["language"] == "python" and kernels[0]["alive"] is True
+
+
 async def test_stateless_run_without_project_does_not_persist(client):
     headers = await _admin_headers(client)
     await _run(client, headers, "b = 7")  # no projectUid -> stateless one-shot

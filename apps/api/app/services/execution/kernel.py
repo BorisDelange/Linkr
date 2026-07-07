@@ -155,6 +155,10 @@ class Kernel:
         )
         return self._proc
 
+    @property
+    def alive(self) -> bool:
+        return self._proc is not None and self._proc.returncode is None
+
     async def execute(self, code: str) -> RuntimeOutput:
         async with self._lock:
             proc = await self._ensure_started()
@@ -229,6 +233,19 @@ class KernelManager:
             self._kernels.clear()
         for k in kernels:
             await k.shutdown()
+
+    def list_for_project(self, project_uid: str) -> list[dict]:
+        """Live kernels for a project: their language, env, and running/busy state."""
+        return [
+            {
+                "language": lang,
+                "envId": env,
+                "alive": kernel.alive,
+                "busy": kernel.busy,
+            }
+            for (proj, lang, env), kernel in self._kernels.items()
+            if proj == project_uid
+        ]
 
     def _make(self, language: str) -> Kernel:
         if language == "python":

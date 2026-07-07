@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.deps import get_current_user
 from app.models.user import User
@@ -50,6 +50,15 @@ async def execute_code(
         table=out.table,
         html=out.html,
     )
+
+
+@router.get("/kernels")
+async def list_kernels(
+    project_uid: str = Query(alias="projectUid"),
+    user: User = Depends(get_current_user),
+):
+    """Live kernels for a project (language, env, alive, busy) — feeds the IDE footer."""
+    return kernel.manager.list_for_project(project_uid)
 
 
 @router.post("/restart", status_code=status.HTTP_204_NO_CONTENT)
