@@ -103,7 +103,7 @@ def r_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:
     )
     filter_code = _r_filter_code(filters or [])
     return f"""
-suppressMessages(library(arrow))
+suppressWarnings(suppressMessages(library(arrow)))
 dataset <- {read}
 {filter_code}
 .rename <- c({rename_pairs})
