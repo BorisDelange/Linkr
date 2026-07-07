@@ -34,6 +34,8 @@ import { PluginTestPanel } from './PluginTestPanel'
 import { bumpVersion, type BumpType } from '@/lib/semver'
 import { resolveTemplate } from '@/lib/plugins/template-resolver'
 import { executeAnalysisCode, executeAnalysisCodeR } from '@/features/projects/lab/datasets/analysis-executor'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import { listPythonPackages, installPythonPackage } from '@/lib/runtimes/pyodide-engine'
 import { listRPackages, installRPackage } from '@/lib/runtimes/webr-engine'
 import { getStorage } from '@/lib/storage'
@@ -333,13 +335,22 @@ export function PluginEditor() {
         const dsFile = await storage.datasetFiles.getById(testDatasetFileId!)
         const cols = dsFile?.columns ?? []
         setTestColumns(cols)
-        const datasetData = await storage.datasetData.get(testDatasetFileId!)
-        const rows = datasetData?.rows ?? []
 
         const code = resolveTemplate(template, testConfig, cols, parsedSchema, testLanguage)
-        const exec = testLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
-        const output = await exec(code, rows, cols)
-        setTestResult(output)
+        if (isServerMode()) {
+          // Server mode: backend injects the dataset Parquet as `dataset`; no rows shipped.
+          const output = await executeOnServer(testLanguage, code, {
+            projectUid: dsFile?.projectUid,
+            datasetFileId: testDatasetFileId!,
+          })
+          setTestResult(output)
+        } else {
+          const datasetData = await storage.datasetData.get(testDatasetFileId!)
+          const rows = datasetData?.rows ?? []
+          const exec = testLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+          const output = await exec(code, rows, cols)
+          setTestResult(output)
+        }
       }
     } catch (err) {
       setTestResult({
