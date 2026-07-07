@@ -317,27 +317,27 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().dataSources.create(newSource)
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
 
-    // Server mode, external engine (Postgres): the connection is opened and the
-    // schema read on the server — no WASM mount. The password travels for the
-    // test only; the API stripped it before persistence.
-    const isExternalEngine =
-      source.sourceType === 'database' &&
-      (connectionConfig.engine === 'postgresql' ||
-        connectionConfig.engine === 'mysql' ||
-        connectionConfig.engine === 'sqlserver' ||
-        connectionConfig.engine === 'oracle')
-    if (isServerMode() && isExternalEngine) {
-      const result = await testConnectionOnServer(connectionConfig)
+    // Server mode: the source lives on the server — no browser WASM mount.
+    // External DBs (Postgres/MySQL) open a live connection; file DBs
+    // (DuckDB/SQLite) were just uploaded to the blob store above. Either way the
+    // schema + counts are read server-side.
+    if (isServerMode() && source.sourceType === 'database') {
+      const isExternalEngine =
+        connectionConfig.engine === 'postgresql' || connectionConfig.engine === 'mysql'
       let updated: Partial<DataSource>
-      if (result.ok) {
-        // Connection is live; counts come from the server (patient/visit counts
-        // only once a schema mapping names those tables).
-        const stats = await engine
-          .computeStats(id, source.schemaMapping)
-          .catch(() => ({ tableCount: result.tables.length }))
+      try {
+        if (isExternalEngine) {
+          const result = await testConnectionOnServer(connectionConfig)
+          if (!result.ok) throw new Error(result.error ?? 'Connection failed')
+        }
+        // computeStats introspects server-side (tables) + counts mapped tables.
+        const stats = await engine.computeStats(id, source.schemaMapping)
         updated = { status: 'connected', errorMessage: undefined, stats }
-      } else {
-        updated = { status: 'error', errorMessage: result.error ?? 'Connection failed' }
+      } catch (err) {
+        updated = {
+          status: 'error',
+          errorMessage: err instanceof Error ? err.message : String(err),
+        }
       }
       await getStorage().dataSources.update(id, updated)
       set((s) => ({
@@ -702,6 +702,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   ensureMounted: async (id) => {
+    // Server mode: nothing is mounted in the browser — the server holds the data
+    // and runs queries. Callers (e.g. stats) proceed straight to server queries.
+    if (isServerMode()) return
     if (mountedSources.has(id)) return
     // Deduplicate concurrent mount calls for the same source
     const existing = mountingPromises.get(id)

@@ -187,7 +187,7 @@ async def query_data_source(
     queryDataSource — the raw tables never reach the client, only results."""
     source = await _load_source(db, source_id, user, "viewer")
     try:
-        rows = await data_source_service.query(source, body.sql)
+        rows = await data_source_service.query(db, source, body.sql)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
@@ -218,7 +218,7 @@ async def get_data_source_schema(
     """Introspected tables + columns of an external source, for the schema
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "viewer")
-    return await data_source_service.introspect(source)
+    return await data_source_service.introspect(db, source)
 
 
 @router.get("/{source_id}/files", response_model=list[DataSourceFileResponse])

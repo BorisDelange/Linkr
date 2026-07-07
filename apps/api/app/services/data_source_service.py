@@ -14,8 +14,19 @@ from app.schemas.data_source import (
 from app.services import blob_store
 from app.services.data import db_connect
 
-# Engines Linkr can reach server-side via DuckDB's ATTACH extensions.
+# External network databases reached via DuckDB's ATTACH extensions.
 _EXTERNAL_ENGINES = ("postgresql", "mysql")
+# File databases uploaded to the blob store and attached from disk server-side.
+_FILE_ENGINES = ("duckdb", "sqlite")
+
+
+async def _file_path(db: AsyncSession, source: DataSource) -> str | None:
+    """Absolute path of the source's backing database file in the blob store,
+    or None if it has no file yet."""
+    files = await list_files(db, source.id)
+    if not files:
+        return None
+    return str(blob_store.path_for(files[0].content_hash))
 
 # Connection-config keys holding a secret credential. Pulled out of the JSON
 # config (which the API returns) and stored encrypted in `connection_secret`.
@@ -155,27 +166,36 @@ async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
 
 # --- Live connection test (external databases) -----------------------------
 
-async def query(source: DataSource, sql: str) -> list[dict]:
-    """Run read-only SQL against an external source, decrypting its stored
-    password to open the connection. Rows come back as JSON-ready dicts."""
+async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
+    """Run read-only SQL server-side: ATTACH a network DB (decrypting its stored
+    password) or a local DuckDB/SQLite file from the blob store. JSON-ready rows."""
     config = dict(source.connection_config or {})
     engine = config.get("engine")
-    if engine not in _EXTERNAL_ENGINES:
-        raise ValueError(f"queries not supported for engine: {engine}")
-    password = connection_password(source)
-    return await asyncio.to_thread(
-        db_connect.query_external, config, password, sql
-    )
+    if engine in _EXTERNAL_ENGINES:
+        password = connection_password(source)
+        return await asyncio.to_thread(db_connect.query_external, config, password, sql)
+    if engine in _FILE_ENGINES:
+        path = await _file_path(db, source)
+        if path is None:
+            raise ValueError("no database file uploaded for this source")
+        return await asyncio.to_thread(db_connect.query_file, engine, path, sql)
+    raise ValueError(f"queries not supported for engine: {engine}")
 
 
-async def introspect(source: DataSource) -> list[dict]:
-    """Introspect a stored external source's schema (tables + columns), using its
-    decrypted password. Returns the IntrospectedTable[] shape."""
+async def introspect(db: AsyncSession, source: DataSource) -> list[dict]:
+    """Introspect a stored source's schema (tables + columns) server-side — for
+    network DBs via their password, for file DBs via the uploaded blob."""
     config = dict(source.connection_config or {})
-    if config.get("engine") not in _EXTERNAL_ENGINES:
-        return []
-    password = connection_password(source)
-    return await asyncio.to_thread(db_connect.introspect_external, config, password)
+    engine = config.get("engine")
+    if engine in _EXTERNAL_ENGINES:
+        password = connection_password(source)
+        return await asyncio.to_thread(db_connect.introspect_external, config, password)
+    if engine in _FILE_ENGINES:
+        path = await _file_path(db, source)
+        if path is None:
+            return []
+        return await asyncio.to_thread(db_connect.introspect_file, engine, path)
+    return []
 
 
 async def test_connection_stored(

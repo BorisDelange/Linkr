@@ -118,6 +118,61 @@ def query_external(config: dict, password: str | None, sql: str) -> list[dict]:
         con.close()
 
 
+def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
+    """ATTACH a local database file read-only. DuckDB files attach natively;
+    SQLite needs the sqlite extension."""
+    if engine == "sqlite":
+        con.execute("INSTALL sqlite")
+        con.execute("LOAD sqlite")
+        con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (TYPE sqlite, READ_ONLY)")
+    else:  # duckdb
+        con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (READ_ONLY)")
+
+
+def query_file(engine: str, path: str, sql: str) -> list[dict]:
+    """Run read-only SQL against a local DuckDB/SQLite file (server-side)."""
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        _attach_file(con, engine, path)
+        con.execute(f"SET search_path TO {_ATTACH_ALIAS}")
+        rel = con.execute(sql)
+        if rel.description is None:
+            return []
+        names = [d[0] for d in rel.description]
+        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+    finally:
+        con.close()
+
+
+def introspect_file(engine: str, path: str) -> list[dict]:
+    """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
+    (the file has no separate native catalog to passthrough to)."""
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        _attach_file(con, engine, path)
+        rows = con.execute(
+            "SELECT table_name, column_name, data_type, is_nullable "
+            "FROM information_schema.columns "
+            f"WHERE table_catalog = '{_ATTACH_ALIAS}' "
+            "ORDER BY table_name, ordinal_position"
+        ).fetchall()
+    finally:
+        con.close()
+
+    tables: dict[str, list[dict]] = {}
+    for table_name, column_name, data_type, is_nullable in rows:
+        tables.setdefault(str(table_name), []).append(
+            {
+                "name": str(column_name),
+                "type": str(data_type),
+                "nullable": str(is_nullable).upper() == "YES",
+            }
+        )
+    return [{"name": name, "columns": cols} for name, cols in tables.items()]
+
+
 def introspect_external(config: dict, password: str | None) -> list[dict]:
     """ATTACH the source read-only and return its tables + columns.
 
