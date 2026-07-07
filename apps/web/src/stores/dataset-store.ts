@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
-import { duplicateDataset } from '@/lib/api/datasets'
+import { duplicateDataset, reimportDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
 
 export interface UndoAction {
@@ -556,6 +556,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   updateCell: (fileId, rowIndex, columnId, value) => {
+    if (isServerMode()) return  // imported datasets are read-only server-side (rows live in Parquet)
     const rows = _loadedData.get(fileId)
     if (!rows || rowIndex < 0 || rowIndex >= rows.length) return
     rows[rowIndex][columnId] = value
@@ -572,6 +573,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   addRow: (fileId) => {
+    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
     const rows = _loadedData.get(fileId) ?? []
@@ -597,6 +599,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   removeRow: (fileId, rowIndex) => {
+    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
     const rows = _loadedData.get(fileId)
     if (!rows || rowIndex < 0 || rowIndex >= rows.length) return
     rows.splice(rowIndex, 1)
@@ -617,6 +620,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   addColumn: (fileId, name, type) => {
+    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
     const columns = file.columns ?? []
@@ -636,6 +640,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   removeColumn: (fileId, columnId) => {
+    if (isServerMode()) return  // read-only server-side (rows live in Parquet)
     const file = get().files.find((f) => f.id === fileId)
     if (!file || file.type !== 'file') return
     const columns = file.columns ?? []
@@ -677,6 +682,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   importData: (fileId, columns, rows) => {
+    // Server mode uses POST /datasets/import (chunked upload + server parse), not
+    // this in-memory path — guard so an imported dataset's Parquet is never clobbered.
+    if (isServerMode()) return
     const storage = getStorage()
     _loadedData.set(fileId, rows)
     const snapshot = JSON.stringify(rows)
@@ -748,6 +756,17 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   },
 
   reimportData: async (fileId, columns, rows, parseOptions) => {
+    // Server mode: re-parse the stored raw blob server-side (DuckDB) and take the
+    // recomputed columns/rowCount from the response. The client-parsed rows aren't
+    // sent — the browser never round-trips the data.
+    if (isServerMode()) {
+      const updated = await reimportDataset(fileId, parseOptions)
+      set((s) => ({
+        files: s.files.map((f) => f.id === fileId ? { ...f, ...updated } : f),
+        _dirtyVersion: s._dirtyVersion + 1,
+      }))
+      return
+    }
     const storage = getStorage()
     _loadedData.set(fileId, rows)
     const snapshot = JSON.stringify(rows)

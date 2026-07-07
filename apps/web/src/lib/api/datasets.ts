@@ -81,6 +81,18 @@ export function queryDatasetRows(
   })
 }
 
+/** Re-parse a dataset's stored raw file with new options, server-side. Returns
+ *  the updated file (columns/rowCount recomputed by DuckDB, parity with import). */
+export function reimportDataset(
+  datasetFileId: string,
+  parseOptions?: DatasetParseOptions,
+): Promise<DatasetFile> {
+  return apiRequest<DatasetFile>(`/datasets/${datasetFileId}/reimport`, {
+    method: 'POST',
+    body: JSON.stringify({ parseOptions: parseOptions ?? null }),
+  })
+}
+
 /** Duplicate a dataset file server-side. The blob store is content-addressed, so
  *  the copy re-points the same rows/raw blobs — no bytes are copied. Returns the
  *  created file (with fresh id) to insert into the store. */
