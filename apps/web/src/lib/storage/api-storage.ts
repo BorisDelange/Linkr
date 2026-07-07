@@ -4,6 +4,7 @@ import {
   apiDatasetFileStorage,
   apiDatasetRawFileStorage,
 } from '@/lib/api/datasets'
+import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
 import { apiOrganizationStorage } from '@/lib/api/organizations'
 import { apiProjectStorage } from '@/lib/api/projects'
 import { apiRoleStorage } from '@/lib/api/roles'
@@ -29,6 +30,8 @@ export function createAPIStorage(): Storage {
     roles: apiRoleStorage,
     projects: apiProjectStorage,
     organizations: apiOrganizationStorage,
+    dataSources: apiDataSourceStorage,
+    files: apiFileStorage,
     schemaPresets: apiSchemaPresetStorage,
     wikiPages: apiWikiPageStorage,
     datasetFiles: apiDatasetFileStorage,
