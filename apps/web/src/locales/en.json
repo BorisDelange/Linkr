@@ -611,7 +611,10 @@
     "database_name": "Database name",
     "database_name_placeholder": "e.g. OMOP CDM (empty)",
     "created_from_preset": "Created from {{preset}} preset (empty)",
-    "coming_soon": "coming soon"
+    "coming_soon": "coming soon",
+    "load_statistics": "Load statistics",
+    "load_statistics_hint": "Statistics run COUNT queries on the database.",
+    "load_statistics_hint_2": "On large databases this can be slow, so they are only computed on request."
   },
   "reports": {
     "title": "Reports",

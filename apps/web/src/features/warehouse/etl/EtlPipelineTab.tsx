@@ -84,6 +84,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
+import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import type { EtlFile, DatabaseStatsCache } from '@/types'
 
@@ -508,6 +509,11 @@ function DatabaseSidebarDetail({
       setStats(null)
       return
     }
+    // Server mode: never auto-run COUNT(*) — the source may be a huge database.
+    if (isServerMode()) {
+      setStats(null)
+      return
+    }
     let cancelled = false
     setLoading(true)
     computeDatabaseStats(ds.id, ds.schemaMapping).then((result) => {
@@ -776,6 +782,13 @@ function ComparisonView({ pipeline, sourceDs, targetDs, mappingProjectId, onMapp
 
   // Load stats for both databases
   useEffect(() => {
+    // Server mode: never auto-run COUNT(*) on potentially huge databases.
+    if (isServerMode()) {
+      setSourceStats(null)
+      setTargetStats(null)
+      setLoading(false)
+      return
+    }
     let cancelled = false
     setLoading(true)
 

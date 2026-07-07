@@ -206,7 +206,11 @@ export function AddDatabaseDialog({
     setFhirBaseUrl('')
   }
 
-  const handleClose = (open: boolean) => {
+  const handleClose = (open: boolean, force = false) => {
+    // Block user-initiated closes mid-import (X / Escape / overlay): an upload in
+    // flight has no resume, and closing would lose track of where it was. The
+    // programmatic close on success/error passes force to bypass this.
+    if (!open && uploading && !force) return
     if (!open) reset()
     onOpenChange(open)
   }
@@ -310,7 +314,7 @@ export function AddDatabaseDialog({
           }
         }
 
-        handleClose(false)
+        handleClose(false, true)
         return
       }
 
@@ -358,7 +362,9 @@ export function AddDatabaseDialog({
         if (projectUid) useAppStore.getState().linkDataSource(projectUid, newId)
       }
 
-      handleClose(false)
+      // force close: the guard would otherwise still see uploading=true (the
+      // state update above hasn't flushed into this closure yet).
+      handleClose(false, true)
     } finally {
       setUploading(false)
     }
@@ -430,7 +436,13 @@ export function AddDatabaseDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-lg"
+        showCloseButton={!uploading}
+        onEscapeKeyDown={(e) => { if (uploading) e.preventDefault() }}
+        onPointerDownOutside={(e) => { if (uploading) e.preventDefault() }}
+        onInteractOutside={(e) => { if (uploading) e.preventDefault() }}
+      >
         <DialogHeader>
           <DialogTitle>
             {isEditMode ? t('databases.edit_dialog_title') : t('databases.add_dialog_title')}

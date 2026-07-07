@@ -225,6 +225,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // --- Path A: File System Access handles (zero-copy) ---
     const storedHandles: StoredFileHandle[] = []
     const storedFiles: StoredFile[] = []
+    // Server mode: files streamed to the server *after* the source row is created.
+    let serverFilesToUpload: File[] | null = null
 
     if (useFileHandles && source.fileHandles) {
       for (const fh of source.fileHandles) {
@@ -253,23 +255,17 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
 
       if (isServerMode()) {
-        // Stream each File straight to the server in chunks — never read it into
-        // an ArrayBuffer (which caps at 2 GB and would hold the whole file in RAM).
-        const fileIds: string[] = []
-        const fileNames: string[] = []
-        for (const file of source.files) {
-          const fileName = fileNameOf(file)
-          const fileId = crypto.randomUUID()
-          await uploadDataSourceFile(id, file, fileName)
-          fileIds.push(fileId)
-          fileNames.push(fileName)
+        // Server mode: the actual upload happens AFTER the source row exists on
+        // the server (see below) — /files/import 404s otherwise. Here we only
+        // set the config markers (single file vs folder), computable up front.
+        const names = source.files.map(fileNameOf)
+        if (names.length === 1 && source.sourceType === 'database') {
+          connectionConfig.fileId = crypto.randomUUID()
+        } else if (names.length > 0) {
+          connectionConfig.fileIds = names.map(() => crypto.randomUUID())
+          connectionConfig.fileNames = names
         }
-        if (fileIds.length === 1 && source.sourceType === 'database') {
-          connectionConfig.fileId = fileIds[0]
-        } else if (fileIds.length > 0) {
-          connectionConfig.fileIds = fileIds
-          connectionConfig.fileNames = fileNames
-        }
+        serverFilesToUpload = source.files
       } else {
         for (const file of source.files) {
           const data = await file.arrayBuffer()
@@ -340,9 +336,18 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     await getStorage().dataSources.create(newSource)
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
 
+    // Now that the source row exists on the server, stream its files up. Doing
+    // this before creation would 404 (the import endpoint loads the source).
+    if (serverFilesToUpload) {
+      for (const file of serverFilesToUpload) {
+        const fileName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+        await uploadDataSourceFile(id, file, fileName)
+      }
+    }
+
     // Server mode: the source lives on the server — no browser WASM mount.
     // External DBs (Postgres/MySQL) open a live connection; file DBs
-    // (DuckDB/SQLite) were just uploaded to the blob store above. Either way the
+    // (DuckDB/SQLite) were uploaded to the blob store above. Either way the
     // schema + counts are read server-side.
     if (isServerMode() && source.sourceType === 'database') {
       const isExternalEngine =
@@ -353,8 +358,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           const result = await testConnectionOnServer(connectionConfig)
           if (!result.ok) throw new Error(result.error ?? 'Connection failed')
         }
-        // computeStats introspects server-side (tables) + counts mapped tables.
-        const stats = await engine.computeStats(id, source.schemaMapping)
+        // Only the (free) table count from the schema — no COUNT(*) on connect,
+        // so huge databases aren't scanned. Row counts wait for "Load statistics".
+        const stats = await engine.computeStats(id, source.schemaMapping, false)
         updated = { status: 'connected', errorMessage: undefined, stats }
       } catch (err) {
         updated = {
@@ -429,8 +435,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     const result = await retestConnectionOnServer(id)
     let updated: Partial<DataSource>
     if (result.ok) {
+      // No COUNT(*) on re-test either — just the free table count from the schema.
       const stats = await engine
-        .computeStats(id, ds.schemaMapping)
+        .computeStats(id, ds.schemaMapping, false)
         .catch(() => ({ tableCount: result.tables.length }))
       updated = { status: 'connected', errorMessage: undefined, stats }
     } else {

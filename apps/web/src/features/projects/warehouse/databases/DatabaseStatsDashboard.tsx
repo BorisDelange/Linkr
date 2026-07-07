@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-stats'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type {
@@ -92,9 +93,11 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     }
   }, [dataSourceId, schemaMapping, ensureMounted])
 
-  // Auto-compute if no cache or cache is from an older schema (missing genderDistribution)
-  // Wait until the source is connected and cache has been loaded from IDB
+  // Auto-compute stats only in front-only mode. In server mode the source may be
+  // a database of billions of rows, so we never run COUNT(*) automatically — the
+  // user triggers computation explicitly via refresh() ("Load statistics").
   useEffect(() => {
+    if (isServerMode()) return
     if (!cacheLoaded || isLoading || autoRefreshed.current) return
     if (sourceStatus && sourceStatus !== 'connected') return
     if (!cache || !cache.genderDistribution) {

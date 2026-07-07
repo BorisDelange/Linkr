@@ -611,7 +611,10 @@
     "database_name": "Nom de la base",
     "database_name_placeholder": "ex. OMOP CDM (vide)",
     "created_from_preset": "Créée depuis le preset {{preset}} (vide)",
-    "coming_soon": "bientôt disponible"
+    "coming_soon": "bientôt disponible",
+    "load_statistics": "Charger les statistiques",
+    "load_statistics_hint": "Les statistiques exécutent des requêtes COUNT sur la base.",
+    "load_statistics_hint_2": "Sur de grosses bases cela peut être lent : elles ne sont donc calculées qu'à la demande."
   },
   "reports": {
     "title": "Rapports",

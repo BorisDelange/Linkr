@@ -1,6 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import type { DataSource, DatabaseConnectionConfig, TableRowCount } from '@/types'
-import { Users, Table, Activity, BedDouble } from 'lucide-react'
+import { Users, Table, Activity, BedDouble, BarChart3 } from 'lucide-react'
+import { isServerMode } from '@/lib/api-client'
+import { Button } from '@/components/ui/button'
 import {
   Sheet,
   SheetContent,
@@ -212,7 +214,13 @@ function OverviewTab({
 /** Summary count cards using cached database stats. */
 function MappedSummaryCounts({ dataSourceId, schemaMapping, sourceStatus }: { dataSourceId: string; schemaMapping: import('@/types').SchemaMapping; sourceStatus?: string }) {
   const { t } = useTranslation()
-  const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+  const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+
+  // Server mode never auto-runs COUNT(*): offer an explicit trigger instead of
+  // showing empty cards, so a billion-row database is only scanned on request.
+  if (isServerMode() && !cache && !isLoading) {
+    return <LoadStatisticsPrompt onLoad={refresh} t={t} />
+  }
 
   return (
     <div className="grid grid-cols-2 gap-3">
@@ -249,6 +257,10 @@ function TableCountsSection({ dataSourceId, schemaMapping, sourceStatus }: { dat
   const { t } = useTranslation()
   const { cache, isLoading } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
+  // In server mode this section stays empty until stats are loaded (the prompt
+  // lives in the summary section above, which shares the same computation).
+  if (isServerMode() && !cache && !isLoading) return null
+
   return (
     <div>
       <h3 className="mb-3 text-sm font-medium">{t('databases.stats_table_overview')}</h3>
@@ -262,6 +274,31 @@ function TableCountsSection({ dataSourceId, schemaMapping, sourceStatus }: { dat
         <TableCountsList data={cache.tableCounts} />
       ) : null}
       <Separator className="mt-6" />
+    </div>
+  )
+}
+
+/** Explicit "run the stats now" prompt shown for server sources before any
+ *  COUNT(*) has been executed. */
+function LoadStatisticsPrompt({
+  onLoad,
+  t,
+}: {
+  onLoad: () => void
+  t: (key: string, opts?: Record<string, unknown>) => string
+}) {
+  return (
+    <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed px-4 py-6 text-center">
+      <BarChart3 size={20} className="text-muted-foreground" />
+      <p className="text-xs text-muted-foreground">
+        {t('databases.load_statistics_hint')}
+        <br />
+        {t('databases.load_statistics_hint_2')}
+      </p>
+      <Button size="sm" variant="outline" onClick={onLoad} className="gap-1.5">
+        <BarChart3 size={14} />
+        {t('databases.load_statistics')}
+      </Button>
     </div>
   )
 }

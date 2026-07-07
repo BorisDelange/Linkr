@@ -380,14 +380,16 @@ export async function discoverFullSchema(dataSourceId: string): Promise<Introspe
 export async function computeStats(
   dataSourceId: string,
   schemaMapping?: SchemaMapping,
+  countRows = true,
 ): Promise<DataSourceStats> {
-  // Server mode: compute counts via server-side queries (external DB / server
-  // files). Table count comes from the introspected schema; patient/visit
-  // counts from COUNT(*) on the mapped tables — all without loading raw data.
+  // Server mode: table count comes from the introspected schema (free — no scan).
+  // Row counts (patient/visit COUNT) are deliberately skipped unless countRows
+  // is set, so connecting to a billion-row database runs zero COUNT(*) queries;
+  // the user triggers those explicitly via "Load statistics".
   if (isServerMode()) {
     const tables = await fetchDataSourceSchema(dataSourceId)
     const stats: DataSourceStats = { tableCount: tables.length }
-    if (schemaMapping?.patientTable) {
+    if (countRows && schemaMapping?.patientTable) {
       stats.patientCount = await serverCount(dataSourceId, schemaMapping.patientTable.table)
       if (schemaMapping.visitTable) {
         stats.visitCount = await serverCount(dataSourceId, schemaMapping.visitTable.table)
