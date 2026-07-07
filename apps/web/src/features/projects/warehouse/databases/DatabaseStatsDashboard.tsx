@@ -21,6 +21,11 @@ interface DatabaseStatsDashboardProps {
   sourceStatus?: string
 }
 
+// Shared across hook instances: the sheet mounts useDatabaseStats twice (summary
+// cards + table list). Without this, both would launch the full recompute at
+// once for the same source. Keyed by dataSourceId → the in-flight refresh promise.
+const _inFlight = new Map<string, Promise<void>>()
+
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -42,26 +47,44 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   const refresh = useCallback(async () => {
     setIsLoading(true)
     try {
-      await ensureMounted(dataSourceId)
-      // Fast block first (patients/visits/age/gender/timeline) — renders in a
-      // few seconds. Per-table counts stream in afterwards, batch by batch.
-      const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
-      setCache(stats)
-
-      const tableCounts = await streamTableCounts(dataSourceId, schemaMapping, (batch) => {
-        setCache((prev) => {
-          if (!prev) return prev
-          const merged = [...prev.tableCounts, ...batch].sort((a, b) => b.rowCount - a.rowCount)
-          return { ...prev, tableCounts: merged }
-        })
-      })
-
-      const finalStats = {
-        ...stats,
-        tableCounts: tableCounts.sort((a, b) => b.rowCount - a.rowCount),
+      // Dedupe across the sheet's two hook instances: only one compute runs per
+      // source. The owner streams live updates into its own state; a concurrent
+      // instance awaits the shared promise, then loads the final cache from IDB.
+      const existing = _inFlight.get(dataSourceId)
+      if (existing) {
+        await existing
+        const cached = await getStorage().databaseStatsCache.get(dataSourceId)
+        if (cached) setCache(cached)
+        return
       }
-      await getStorage().databaseStatsCache.save(finalStats)
-      setCache(finalStats)
+
+      const run = (async () => {
+        await ensureMounted(dataSourceId)
+        // Fast block first (patients/visits/age/gender/timeline) — renders in a
+        // few seconds. Persist it right away so switching tabs (which unmounts
+        // this panel) reloads from cache instead of recomputing from zero.
+        const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
+        setCache(stats)
+        await getStorage().databaseStatsCache.save(stats)
+
+        // Per-table counts stream in afterwards, batch by batch, persisting after
+        // each batch so a mid-stream tab switch keeps the counts gathered so far.
+        let running = stats
+        await streamTableCounts(dataSourceId, schemaMapping, (batch) => {
+          running = {
+            ...running,
+            tableCounts: [...running.tableCounts, ...batch].sort((a, b) => b.rowCount - a.rowCount),
+          }
+          setCache(running)
+          getStorage().databaseStatsCache.save(running).catch(() => {})
+        })
+      })()
+      _inFlight.set(dataSourceId, run)
+      try {
+        await run
+      } finally {
+        _inFlight.delete(dataSourceId)
+      }
     } catch (err) {
       console.error('Failed to compute database stats:', err)
     } finally {
