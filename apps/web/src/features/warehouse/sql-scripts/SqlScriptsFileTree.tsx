@@ -108,7 +108,7 @@ export function SqlScriptsFileTree() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogAction onClick={handleDeleteConfirm} className="bg-destructive text-white hover:bg-destructive/90">
               {t('sql_scripts.delete_file')}
             </AlertDialogAction>
           </AlertDialogFooter>

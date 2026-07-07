@@ -104,6 +104,9 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [createFolderMode, setCreateFolderMode] = useState(false)
   const [newFileName, setNewFileName] = useState('')
+  const [createFileError, setCreateFileError] = useState<string | null>(null)
+  // Re-entrancy guard: Enter-in-input + button-click could both fire the handler.
+  const creatingFile = useRef(false)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [schemaDialogOpen, setSchemaDialogOpen] = useState(false)
@@ -146,40 +149,45 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
   // Create new file
   const handleCreateFile = async () => {
+    // Guard against a double trigger (Enter key + button click) creating two rows.
+    if (creatingFile.current) return
     let name = newFileName.trim()
     if (!name) return
+    if (!createFolderMode && !name.includes('.')) name = `${name}.sql`
 
-    if (createFolderMode) {
-      const now = new Date().toISOString()
-      const folder: SqlScriptFile = {
-        id: crypto.randomUUID(),
-        collectionId,
-        name,
-        type: 'folder',
-        parentId: null,
-        order: files.length,
-        createdAt: now,
-      }
-      await createFile(folder)
-    } else {
-      if (!name.includes('.')) name = `${name}.sql`
-      const now = new Date().toISOString()
-      const file: SqlScriptFile = {
-        id: crypto.randomUUID(),
-        collectionId,
-        name,
-        type: 'file',
-        parentId: null,
-        content: '',
-        order: files.length,
-        createdAt: now,
-      }
-      await createFile(file)
-      selectFile(file.id)
+    // Reject a name that already exists among top-level siblings (same parent).
+    const clash = files.some(
+      (f) => f.parentId === null && f.name.toLowerCase() === name.toLowerCase(),
+    )
+    if (clash) {
+      setCreateFileError(t('sql_scripts.name_exists', { name }))
+      return
     }
-    setCreateFileOpen(false)
-    setNewFileName('')
-    setCreateFolderMode(false)
+
+    creatingFile.current = true
+    try {
+      const now = new Date().toISOString()
+      if (createFolderMode) {
+        const folder: SqlScriptFile = {
+          id: crypto.randomUUID(), collectionId, name, type: 'folder',
+          parentId: null, order: files.length, createdAt: now,
+        }
+        await createFile(folder)
+      } else {
+        const file: SqlScriptFile = {
+          id: crypto.randomUUID(), collectionId, name, type: 'file',
+          parentId: null, content: '', order: files.length, createdAt: now,
+        }
+        await createFile(file)
+        selectFile(file.id)
+      }
+      setCreateFileOpen(false)
+      setNewFileName('')
+      setCreateFileError(null)
+      setCreateFolderMode(false)
+    } finally {
+      creatingFile.current = false
+    }
   }
 
   // Execute SQL
@@ -743,7 +751,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       </div>
 
       {/* Create file/folder dialog */}
-      <Dialog open={createFileOpen} onOpenChange={setCreateFileOpen}>
+      <Dialog open={createFileOpen} onOpenChange={(open) => { setCreateFileOpen(open); if (!open) { setNewFileName(''); setCreateFileError(null) } }}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>{createFolderMode ? t('common.new_folder') : t('sql_scripts.new_file')}</DialogTitle>
@@ -753,13 +761,16 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
               <Label>{createFolderMode ? t('common.name') : t('sql_scripts.file_name')}</Label>
               <Input
                 value={newFileName}
-                onChange={(e) => setNewFileName(e.target.value)}
+                onChange={(e) => { setNewFileName(e.target.value); setCreateFileError(null) }}
                 placeholder={createFolderMode ? 'measurement' : 'urine_output.sql'}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') handleCreateFile()
                 }}
                 autoFocus
               />
+              {createFileError && (
+                <p className="text-xs text-destructive">{createFileError}</p>
+              )}
             </div>
           </div>
           <DialogFooter>

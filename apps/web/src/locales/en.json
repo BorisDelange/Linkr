@@ -2527,6 +2527,7 @@
     "back_to_list": "Back to collections",
     "new_file": "New script",
     "file_name": "File name",
+    "name_exists": "\"{{name}}\" already exists in this collection.",
     "rename": "Rename",
     "delete_file": "Delete",
     "no_files": "No scripts yet. Click + to create one.",
