@@ -49,4 +49,7 @@ execution = [
     "pandas>=2.0",
     "matplotlib>=3.7",
     "pyarrow>=15",  # pandas.read_parquet for server-side dataset injection
+    "scipy>=1.11",  # statistical-tests, regression p-values, correlation
+    "statsmodels>=0.14",  # regression (OLS/logit) server-side
+    "lifelines>=0.27",  # kaplan-meier survival server-side
 ]

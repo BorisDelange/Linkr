@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ResponsiveContainer,
@@ -20,7 +20,21 @@ import { cn } from '@/lib/utils'
 import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
 import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildPlotBuilderCode } from './plot-builder-server'
+
+// Server-computed chart payloads (parity with each sub-plot's front-only useMemo shape).
+interface PlotScatterSeries { name: string; data: { x: number; y: number }[] }
+interface PlotServerData {
+  plotType: string
+  groupNames: string[] | null
+  series?: PlotScatterSeries[] | string[]
+  data?: Record<string, unknown>[]
+  isCategorical?: boolean
+  colorByCategory?: boolean
+}
 
 
 // ---------------------------------------------------------------------------
@@ -428,8 +442,9 @@ function buildLegendProps(position: string, fontSize = 11): Record<string, unkno
 // Main component
 // ---------------------------------------------------------------------------
 
-export function PlotBuilderComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function PlotBuilderComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
+  const server = isServerMode()
 
   // Config
   const cardIcon = (config.cardIcon as string) ?? '__none__'
@@ -522,6 +537,29 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
     return Array.from(set).sort()
   }, [groupCol, columns, sourceRows])
 
+  // Server mode: the backend computes the chart data (aggregates for bar/histogram/box,
+  // raw points for scatter/line) on the Parquet. Stable string keys so the effect only
+  // re-fetches on a semantic change, never every render.
+  const serverCode = server && datasetFileId
+    ? buildPlotBuilderCode(columns, config)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverData, setServerData] = useState<PlotServerData | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerError(out.stderr); return }
+        try { setServerData(JSON.parse(out.stdout.trim()) as PlotServerData); setServerError(null) }
+        catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Validate
   const xColumn = columns.find(c => c.id === xCol)
   const yColumn = columns.find(c => c.id === yCol)
@@ -608,6 +646,19 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
   const xIsDate = xColumn?.type === 'date'
   const yIsDate = yColumn?.type === 'date'
 
+  if (server && serverError) {
+    return (
+      <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground whitespace-pre-wrap">
+        {serverError}
+      </div>
+    )
+  }
+  // Server mode: hold the frame until the aggregate arrives (empty rows would render "No data").
+  if (server && !serverData) {
+    return <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">{t('common.loading', 'Loading…')}</div>
+  }
+  const sd = server ? serverData : null
+
   // --- Build the chart body (without title) ---
   const chartBody = (
     <>
@@ -632,6 +683,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           xAxisStartZero={xAxisStartZero}
           yAxisStartZero={yAxisStartZero}
           decimals={decimals}
+          serverData={sd}
         />
       )}
       {plotType === 'line' && (
@@ -654,6 +706,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           xAxisStartZero={xAxisStartZero}
           yAxisStartZero={yAxisStartZero}
           decimals={decimals}
+          serverData={sd}
         />
       )}
       {plotType === 'bar' && (
@@ -674,6 +727,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           decimals={decimals}
           xLabelMaxLen={xLabelMaxLen}
           barSize={barSize}
+          serverData={sd}
         />
       )}
       {plotType === 'histogram' && (
@@ -700,6 +754,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           xLabelMaxLen={xLabelMaxLen}
           yLabelMaxLen={yLabelMaxLen}
           barSize={barSize}
+          serverData={sd}
         />
       )}
       {plotType === 'boxplot' && (
@@ -714,6 +769,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           violin={false}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
+          serverData={sd}
         />
       )}
       {plotType === 'violin' && (
@@ -728,6 +784,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
           violin={true}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
+          serverData={sd}
         />
       )}
     </>
@@ -806,14 +863,15 @@ export function PlotBuilderComponent({ config, columns, rows, compact }: Compone
 // ---------------------------------------------------------------------------
 
 function ScatterPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, xIsDate, yIsDate, xAxisStartZero, yAxisStartZero, decimals = 1,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, xIsDate, yIsDate, xAxisStartZero, yAxisStartZero, decimals = 1, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; legendFontSize?: number; xIsDate?: boolean; yIsDate?: boolean; xAxisStartZero?: boolean; yAxisStartZero?: boolean; decimals?: number
+  legendPosition: string; legendFontSize?: number; xIsDate?: boolean; yIsDate?: boolean; xAxisStartZero?: boolean; yAxisStartZero?: boolean; decimals?: number; serverData?: PlotServerData | null
 }) {
   const legendProps = buildLegendProps(legendPosition, legendFontSize)
   const data = useMemo(() => {
+    if (serverData) return (serverData.series as PlotScatterSeries[]) ?? []
     if (!groupNames || !groupCol) {
       return [{
         name: 'all',
@@ -829,7 +887,7 @@ function ScatterPlot({
         .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
         .filter(d => !isNaN(d.x) && !isNaN(d.y)),
     }))
-  }, [rows, xCol, yCol, groupCol, groupNames])
+  }, [serverData, rows, xCol, yCol, groupCol, groupNames])
 
   // Nice rounded domains/ticks for numeric (non-date) axes.
   const xScale = useMemo(() => xIsDate ? null : niceTicks(data.flatMap(s => s.data.map(d => d.x)), xAxisStartZero), [data, xIsDate, xAxisStartZero])
@@ -872,14 +930,30 @@ function ScatterPlot({
 // ---------------------------------------------------------------------------
 
 function LinePlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, xIsDate, xAxisStartZero, yAxisStartZero, decimals = 1,
+  rows, xCol, yCol, groupCol, groupNames, colors, pointSize, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, xIsDate, xAxisStartZero, yAxisStartZero, decimals = 1, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; pointSize: number; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; legendFontSize?: number; xIsDate?: boolean; xAxisStartZero?: boolean; yAxisStartZero?: boolean; decimals?: number
+  legendPosition: string; legendFontSize?: number; xIsDate?: boolean; xAxisStartZero?: boolean; yAxisStartZero?: boolean; decimals?: number; serverData?: PlotServerData | null
 }) {
   const legendProps = buildLegendProps(legendPosition, legendFontSize)
   const { merged, series } = useMemo(() => {
+    // Server sends per-series {x,y} points; merge into the wide {x, seriesA, seriesB} shape recharts needs.
+    if (serverData) {
+      const srv = (serverData.series as PlotScatterSeries[]) ?? []
+      if (srv.length === 1 && srv[0].name === 'all') {
+        return { merged: srv[0].data.map(d => ({ x: d.x, all: d.y })), series: ['all'] }
+      }
+      const map = new Map<number, Record<string, unknown>>()
+      for (const s of srv) {
+        for (const p of s.data) {
+          if (!map.has(p.x)) map.set(p.x, { x: p.x })
+          map.get(p.x)![s.name] = p.y
+        }
+      }
+      const sorted = Array.from(map.values()).sort((a, b) => (a.x as number) - (b.x as number))
+      return { merged: sorted, series: srv.map(s => s.name) }
+    }
     if (!groupNames || !groupCol) {
       const sorted = rows
         .map(r => ({ x: toNumeric(r[xCol]), y: toNumeric(r[yCol]) }))
@@ -899,7 +973,7 @@ function LinePlot({
     }
     const sorted = Array.from(map.values()).sort((a, b) => (a.x as number) - (b.x as number))
     return { merged: sorted, series: groupNames }
-  }, [rows, xCol, yCol, groupCol, groupNames])
+  }, [serverData, rows, xCol, yCol, groupCol, groupNames])
 
   const xScale = useMemo(() => xIsDate ? null : niceTicks(merged.map(d => d.x as number), xAxisStartZero), [merged, xIsDate, xAxisStartZero])
   const yScale = useMemo(() => {
@@ -944,11 +1018,11 @@ function LinePlot({
 // ---------------------------------------------------------------------------
 
 function BarPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, decimals = 1, xLabelMaxLen = 20, barSize = 0,
+  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, decimals = 1, xLabelMaxLen = 20, barSize = 0, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; legendFontSize?: number; decimals?: number; xLabelMaxLen?: number; barSize?: number
+  legendPosition: string; legendFontSize?: number; decimals?: number; xLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
 }) {
   const legendProps = buildLegendProps(legendPosition, legendFontSize)
   const isCountMode = !yCol
@@ -957,11 +1031,12 @@ function BarPlot({
   // Filling by the X variable itself yields one non-zero series per category, which recharts
   // draws in offset sub-slots. Treat it as a single series with one bar per category, coloured
   // individually — bars stay centred on their ticks.
-  const colorByCategory = !!groupCol && groupCol === xCol
+  const colorByCategory = serverData ? !!serverData.colorByCategory : (!!groupCol && groupCol === xCol)
   const effGroupCol = colorByCategory ? undefined : groupCol
   const effGroupNames = colorByCategory ? null : groupNames
 
   const { data, series } = useMemo(() => {
+    if (serverData) return { data: (serverData.data ?? []) as Record<string, unknown>[], series: (serverData.series as string[]) ?? [] }
     if (yCol) {
       if (!effGroupNames || !effGroupCol) {
         const map = new Map<string, { sum: number; count: number }>()
@@ -1031,7 +1106,7 @@ function BarPlot({
         return entry
       })
     return { data, series: effGroupNames }
-  }, [rows, xCol, yCol, effGroupCol, effGroupNames])
+  }, [serverData, rows, xCol, yCol, effGroupCol, effGroupNames])
 
   // Nice Y ticks starting at 0 — bar values are naturally anchored at the baseline.
   const yScale = useMemo(() => {
@@ -1074,21 +1149,25 @@ function BarPlot({
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0,
+  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string; yLabel: string
-  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number
+  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
 }) {
-  const isCategorical = useMemo(() => isCategoricalColumn(rows, xCol), [rows, xCol])
+  const isCategorical = useMemo(() => (serverData ? !!serverData.isCategorical : isCategoricalColumn(rows, xCol)), [serverData, rows, xCol])
 
   // Grouping by the histogram variable itself produces offset sub-slot bars; render a single
   // series instead, with one bar per category coloured individually (kept centred on its tick).
-  const colorByCategory = !!groupCol && groupCol === xCol
+  const colorByCategory = serverData ? !!serverData.colorByCategory : (!!groupCol && groupCol === xCol)
   const effGroupCol = colorByCategory ? undefined : groupCol
   const effGroupNames = colorByCategory ? null : groupNames
 
   const { data, series, effectiveBins } = useMemo(() => {
+    if (serverData) {
+      const d = (serverData.data ?? []) as Record<string, unknown>[]
+      return { data: d, series: (serverData.series as string[]) ?? ['count'], effectiveBins: d.length }
+    }
     if (isCategorical) {
       if (!effGroupNames || !effGroupCol) {
         const d = buildCategoricalData(rows, xCol)
@@ -1104,7 +1183,7 @@ function HistogramPlot({
     }
     const d = buildHistogramGrouped(rows, xCol, effGroupCol, binMode, binsConfig, binWidthConfig, effGroupNames, xAxisStartZero, decimals)
     return { data: d, series: effGroupNames, effectiveBins: d.length }
-  }, [isCategorical, rows, xCol, effGroupCol, effGroupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals])
+  }, [serverData, isCategorical, rows, xCol, effGroupCol, effGroupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals])
 
   const hasGroups = effGroupNames != null && effGroupNames.length > 1
   const isOverlay = barMode === 'overlay' && hasGroups
@@ -1245,12 +1324,13 @@ function HistogramPlot({
 // ---------------------------------------------------------------------------
 
 function BoxViolinPlot({
-  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12,
+  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string
-  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number
+  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; serverData?: PlotServerData | null
 }) {
   const data = useMemo<BoxplotData[]>(() => {
+    if (serverData) return (serverData.data ?? []) as unknown as BoxplotData[]
     const valCol = yCol ?? xCol
     const catCol = yCol ? xCol : null
 
@@ -1276,7 +1356,7 @@ function BoxViolinPlot({
       if (stats) result.push({ name, stats, values })
     }
     return result
-  }, [rows, xCol, yCol])
+  }, [serverData, rows, xCol, yCol])
 
   return (
     <div className="w-full h-full">
