@@ -24,6 +24,8 @@ async def execute_code(
     try:
         if body.language == "python":
             out = await runtime.run_python(body.code)
+        elif body.language == "r":
+            out = await runtime.run_r(body.code)
         else:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST,

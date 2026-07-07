@@ -25,6 +25,8 @@ from app.config import settings
 _OUTPUT_FILE = "_linkr_output.json"
 _USER_FILE = "_linkr_user_code.py"
 _HARNESS_FILE = "_linkr_harness.py"
+_R_USER_FILE = "_linkr_user_code.R"
+_R_HARNESS_FILE = "_linkr_harness.R"
 
 
 @dataclass
@@ -106,6 +108,32 @@ with open("''' + _OUTPUT_FILE + '''", "w", encoding="utf-8") as fh:
 '''
 
 
+# The R harness opens an SVG graphics device writing one file per plot page,
+# sources the user file (Rscript autoprints to stdout, mirroring WebR's
+# withAutoprint), then closes the device. Prefer svglite (standalone, the same
+# writer WebR uses) and fall back to the base cairo svg() device — svglite avoids
+# the X11/cairo shared-library dependency that the built-in device needs. User
+# errors surface on stderr via message().
+_R_HARNESS = '''\
+.linkr_dev_open <- function() {
+  if (requireNamespace("svglite", quietly = TRUE)) {
+    svglite::svglite(filename = "_linkr_plot_%03d.svg", width = 8, height = 6)
+    return(TRUE)
+  }
+  tryCatch({
+    grDevices::svg("_linkr_plot_%03d.svg", onefile = FALSE, width = 8, height = 6)
+    TRUE
+  }, error = function(e) FALSE)
+}
+.linkr_have_dev <- .linkr_dev_open()
+tryCatch(
+  source("''' + _R_USER_FILE + '''", echo = FALSE, print.eval = TRUE),
+  error = function(e) message(conditionMessage(e))
+)
+if (.linkr_have_dev) invisible(grDevices::dev.off())
+'''
+
+
 async def run_python(code: str) -> RuntimeOutput:
     if not settings.enable_code_execution:
         raise ExecutionError("Code execution is disabled on this server.")
@@ -114,25 +142,55 @@ async def run_python(code: str) -> RuntimeOutput:
     try:
         (workdir / _USER_FILE).write_text(code, encoding="utf-8")
         (workdir / _HARNESS_FILE).write_text(_PY_HARNESS, encoding="utf-8")
-        await _run_subprocess([sys_executable(), _HARNESS_FILE], workdir)
+        _, stderr = await _run_subprocess([sys_executable(), _HARNESS_FILE], workdir)
+        # The harness always writes _OUTPUT_FILE, even on user error (traps
+        # exceptions into stderr). No output means the harness itself crashed.
+        if not (workdir / _OUTPUT_FILE).exists():
+            raise ExecutionError(stderr or "Execution failed.")
         return _read_output(workdir)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
-async def _run_subprocess(cmd: list[str], workdir: Path) -> None:
+async def run_r(code: str) -> RuntimeOutput:
+    if not settings.enable_code_execution:
+        raise ExecutionError("Code execution is disabled on this server.")
+
+    workdir = Path(tempfile.mkdtemp(prefix="linkr-exec-"))
+    try:
+        (workdir / _R_USER_FILE).write_text(code, encoding="utf-8")
+        (workdir / _R_HARNESS_FILE).write_text(_R_HARNESS, encoding="utf-8")
+        stdout, stderr = await _run_subprocess(
+            ["Rscript", "--vanilla", _R_HARNESS_FILE], workdir
+        )
+        # Rscript autoprints to stdout; figures are the SVG files the harness
+        # opened. Skip blank pages (an unused device can leave an empty file).
+        figures = []
+        for p in sorted(workdir.glob("_linkr_plot_*.svg")):
+            svg = p.read_text(encoding="utf-8")
+            if "<svg" in svg:
+                figures.append(
+                    {"type": "svg", "data": svg, "label": f"Plot {len(figures) + 1}"}
+                )
+        return RuntimeOutput(stdout=stdout, stderr=stderr, figures=figures)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
+async def _run_subprocess(cmd: list[str], workdir: Path) -> tuple[str, str]:
+    """Run cmd in workdir with a wall-clock timeout; return (stdout, stderr)."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
             cwd=str(workdir),
-            stdout=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError as e:
         raise ExecutionError(f"Interpreter not found: {cmd[0]}") from e
 
     try:
-        _, stderr = await asyncio.wait_for(
+        stdout, stderr = await asyncio.wait_for(
             proc.communicate(), timeout=settings.execution_timeout_seconds
         )
     except asyncio.TimeoutError as e:
@@ -142,13 +200,10 @@ async def _run_subprocess(cmd: list[str], workdir: Path) -> None:
             f"Execution exceeded the {settings.execution_timeout_seconds}s time limit."
         ) from e
 
-    # The harness always writes _OUTPUT_FILE, even on user error (it traps
-    # exceptions into stderr). A non-zero exit with no output means the harness
-    # itself crashed — surface its stderr.
-    if proc.returncode != 0 and not (workdir / _OUTPUT_FILE).exists():
-        raise ExecutionError(
-            (stderr or b"").decode("utf-8", "replace") or "Execution failed."
-        )
+    return (
+        (stdout or b"").decode("utf-8", "replace"),
+        (stderr or b"").decode("utf-8", "replace"),
+    )
 
 
 def _read_output(workdir: Path) -> RuntimeOutput:

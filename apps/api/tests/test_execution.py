@@ -1,6 +1,13 @@
-"""Server-side Python execution endpoint (POST /execute)."""
+"""Server-side R/Python execution endpoint (POST /execute)."""
+
+import shutil
+
+import pytest
 
 API = "/api/v1"
+
+_HAS_R = shutil.which("Rscript") is not None
+requires_r = pytest.mark.skipif(not _HAS_R, reason="Rscript not installed")
 
 
 async def _admin_headers(client) -> dict:
@@ -44,6 +51,30 @@ async def test_execute_matplotlib_figure_captured_as_svg(client):
     r = await _run(client, headers, "import matplotlib.pyplot as plt\nplt.plot([1,2],[3,4])")
     figs = r.json()["figures"]
     assert len(figs) == 1 and figs[0]["type"] == "svg" and figs[0]["id"] == "fig-0"
+
+
+@requires_r
+async def test_execute_r_captures_stdout(client):
+    headers = await _admin_headers(client)
+    r = await _run(client, headers, "cat('hello R\\n')", language="r")
+    assert r.status_code == 200
+    assert "hello R" in r.json()["stdout"]
+
+
+@requires_r
+async def test_execute_r_plot_captured_as_svg(client):
+    headers = await _admin_headers(client)
+    r = await _run(client, headers, "plot(1:10)", language="r")
+    figs = r.json()["figures"]
+    assert len(figs) == 1 and figs[0]["type"] == "svg" and "<svg" in figs[0]["data"]
+
+
+@requires_r
+async def test_execute_r_error_goes_to_stderr(client):
+    headers = await _admin_headers(client)
+    r = await _run(client, headers, "stop('boom R')", language="r")
+    assert r.status_code == 200
+    assert "boom R" in r.json()["stderr"]
 
 
 async def test_execute_unsupported_language_is_400(client):
