@@ -1,7 +1,14 @@
+import os
+
+import pytest
+
 from app.core.security import hash_password
 from app.models.user import User
 from app.services import blob_store
-from app.services.data_source_service import strip_secrets
+from app.services.data_source_service import (
+    strip_secrets,
+    test_connection as run_test_connection,
+)
 
 API = "/api/v1"
 
@@ -194,3 +201,21 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.delete(f"{API}/data-sources/{ds['id']}", headers=other)).status_code == 403
     # A workspace-filtered list they can't see returns 403; unfiltered omits it.
     assert (await client.get(f"{API}/data-sources", headers=other)).json() == []
+
+
+# Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig, e.g.
+#   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
+#                       "database":"linkr","username":"me","password":"pw"}'
+@pytest.mark.skipif(
+    not os.environ.get("LINKR_TEST_PG_DSN"),
+    reason="set LINKR_TEST_PG_DSN to run the live Postgres introspection test",
+)
+async def test_live_postgres_introspection():
+    import json
+
+    config = json.loads(os.environ["LINKR_TEST_PG_DSN"])
+    ok, error, tables = await run_test_connection(config)
+    assert ok, error
+    assert isinstance(tables, list)
+    for t in tables:
+        assert "name" in t and isinstance(t["columns"], list)

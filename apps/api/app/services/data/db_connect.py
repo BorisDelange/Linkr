@@ -6,6 +6,8 @@ hard dependency (DuckDB is already required). The password is passed in per call
 and never stored: it lives only for the duration of the connection.
 """
 
+import re
+
 import duckdb
 
 from app.config import settings
@@ -53,20 +55,26 @@ def introspect_postgres(config: dict, password: str | None) -> list[dict]:
     Raises on connection/permission failure — the caller turns it into a result.
     """
     schema = config.get("schema") or "public"
+    # `schema` is interpolated into a nested SQL literal below; reject anything
+    # that isn't a plain identifier so it can't break out of the quoted string.
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", schema):
+        raise ValueError(f"invalid schema name: {schema!r}")
     dsn = _pg_dsn(config, password)
     con = _connect()
     try:
-        con.execute(
-            f"ATTACH '{dsn}' AS {_ATTACH_ALIAS} (TYPE postgres, READ_ONLY, SCHEMA '{schema}')"
+        con.execute(f"ATTACH '{dsn}' AS {_ATTACH_ALIAS} (TYPE postgres, READ_ONLY)")
+        # Passthrough to Postgres' own information_schema (via postgres_query) so
+        # column types come back as native Postgres names (integer, text, date)
+        # rather than DuckDB-normalized ones. Single-quotes are doubled for the
+        # nested SQL literal; `schema` is a validated identifier from config.
+        inner = (
+            "SELECT table_name, column_name, data_type, is_nullable, ordinal_position "
+            "FROM information_schema.columns "
+            f"WHERE table_schema = ''{schema}'' "
+            "ORDER BY table_name, ordinal_position"
         )
         rows = con.execute(
-            f"""
-            SELECT table_name, column_name, data_type, is_nullable, ordinal_position
-            FROM {_ATTACH_ALIAS}.information_schema.columns
-            WHERE table_schema = ?
-            ORDER BY table_name, ordinal_position
-            """,
-            [schema],
+            f"SELECT * FROM postgres_query('{_ATTACH_ALIAS}', '{inner}')"
         ).fetchall()
     finally:
         con.close()
