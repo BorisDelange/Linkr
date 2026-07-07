@@ -9,6 +9,9 @@ class ExecuteRequest(CamelModel):
     # runs. Without it, a stateless one-shot run is used.
     project_uid: str | None = None
     env_id: str = "default"
+    # When set, the dataset's Parquet is loaded into the kernel as a `dataset`
+    # DataFrame before the code runs (data stays server-side).
+    dataset_file_id: str | None = None
 
 
 class RestartKernelRequest(CamelModel):

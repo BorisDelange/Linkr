@@ -23,6 +23,9 @@ import {
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useAppStore } from '@/stores/app-store'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import { executeAnalysisCode, executeAnalysisCodeR } from '../analysis-executor'
 import { ensurePluginDependencies } from '@/lib/plugins/registry'
 import { PluginOutputRenderer } from './PluginOutputRenderer'
@@ -39,6 +42,7 @@ interface AnalysisShellProps {
 export function AnalysisShell({ analysis, configPanel, generatedCode, language = 'python' }: AnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis, isAnalysisDirty, _dirtyVersion } = useDatasetStore()
+  const activeProjectUid = useAppStore((s) => s.activeProjectUid)
 
   const autoRun = (analysis.config.autoRun as boolean) ?? false
 
@@ -103,14 +107,24 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
     setStatusMessage(null)
     setRightVisible(true)
     try {
-      // Auto-install declared plugin dependencies (only checks once per session)
-      const newlyInstalled = await ensurePluginDependencies(analysis.type, language, (msg) => setStatusMessage(msg))
-      setInstalledDeps(newlyInstalled)
-      setStatusMessage(null)
+      let output
+      if (isServerMode()) {
+        // Server mode: the backend loads the dataset's Parquet into the kernel as
+        // `dataset` and runs the code there — no rows are shipped to the browser.
+        output = await executeOnServer(language, currentCode, {
+          projectUid: activeProjectUid ?? undefined,
+          datasetFileId: analysis.datasetFileId,
+        })
+      } else {
+        // Auto-install declared plugin dependencies (only checks once per session)
+        const newlyInstalled = await ensurePluginDependencies(analysis.type, language, (msg) => setStatusMessage(msg))
+        setInstalledDeps(newlyInstalled)
+        setStatusMessage(null)
 
-      const rows = getFileRows(analysis.datasetFileId)
-      const exec = language === 'r' ? executeAnalysisCodeR : executeAnalysisCode
-      const output = await exec(currentCode, rows, columns)
+        const rows = getFileRows(analysis.datasetFileId)
+        const exec = language === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+        output = await exec(currentCode, rows, columns)
+      }
       setResult(output)
     } catch (err) {
       setResult({
@@ -125,7 +139,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
       setIsExecuting(false)
       setStatusMessage(null)
     }
-  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language])
+  }, [currentCode, analysis.type, analysis.datasetFileId, columns, getFileRows, language, activeProjectUid])
 
   // Auto-run on mount (once)
   useEffect(() => {

@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-svglite \
     r-cran-jsonlite \
     r-cran-base64enc \
+    r-cran-arrow \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps (with server-side execution extras: pandas, matplotlib)

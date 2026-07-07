@@ -117,6 +117,38 @@ async def test_persistent_r_kernel_keeps_variables(client):
     assert "42" in r.json()["stdout"]
 
 
+async def _import_dataset(client, headers) -> tuple[str, str]:
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    up = await client.post(f"{API}/uploads", headers=headers, json={"fileName": "d.csv", "totalChunks": 1})
+    upid = up.json()["uploadId"]
+    await client.put(f"{API}/uploads/{upid}/chunk?index=0", headers=headers, content=b"age,grp\n30,a\n40,b\n")
+    sha = (await client.post(f"{API}/uploads/{upid}/complete", headers=headers)).json()["sha"]
+    ds = (await client.post(f"{API}/datasets/import", headers=headers,
+          json={"projectUid": uid, "name": "d", "sha": sha, "fileName": "d.csv"})).json()
+    return uid, ds["id"]
+
+
+async def test_execute_injects_dataset_python(client):
+    headers = await _admin_headers(client)
+    project_uid, ds_id = await _import_dataset(client, headers)
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python", "code": "print(list(dataset.columns)); print(float(dataset['age'].mean()))",
+        "projectUid": project_uid, "datasetFileId": ds_id,
+    })
+    assert r.status_code == 200
+    out = r.json()["stdout"]
+    assert "age" in out and "grp" in out and "35" in out
+
+
+async def test_execute_dataset_not_found_is_404(client):
+    headers = await _admin_headers(client)
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python", "code": "1", "datasetFileId": "nope",
+    })
+    assert r.status_code == 404
+
+
 async def test_list_kernels_reports_live_sessions(client):
     headers = await _admin_headers(client)
     # No kernels yet for this project.
