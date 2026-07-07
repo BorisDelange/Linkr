@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
+import { testConnectionOnServer } from '@/lib/api/data-sources'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
 import { useAppStore, stampAuthored } from '@/stores/app-store'
@@ -311,6 +313,29 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     await getStorage().dataSources.create(newSource)
     set((s) => ({ dataSources: [...s.dataSources, newSource] }))
+
+    // Server mode, external engine (Postgres): the connection is opened and the
+    // schema read on the server — no WASM mount. The password travels for the
+    // test only; the API stripped it before persistence.
+    const isExternalEngine =
+      source.sourceType === 'database' &&
+      (connectionConfig.engine === 'postgresql' ||
+        connectionConfig.engine === 'mysql' ||
+        connectionConfig.engine === 'sqlserver' ||
+        connectionConfig.engine === 'oracle')
+    if (isServerMode() && isExternalEngine) {
+      const result = await testConnectionOnServer(connectionConfig)
+      const updated: Partial<DataSource> = result.ok
+        ? { status: 'connected', errorMessage: undefined }
+        : { status: 'error', errorMessage: result.error ?? 'Connection failed' }
+      await getStorage().dataSources.update(id, updated)
+      set((s) => ({
+        dataSources: s.dataSources.map((ds) =>
+          ds.id === id ? { ...ds, ...updated } : ds,
+        ),
+      }))
+      return id
+    }
 
     // Mount in DuckDB and compute stats
     try {

@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { extractTableName, generateAlias } from '@/lib/duckdb/engine'
@@ -46,9 +47,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -517,38 +516,13 @@ export function AddDatabaseDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectGroup>
-                        <SelectLabel>{t('databases.engine_group_local')}</SelectLabel>
-                        <SelectItem value="duckdb">DuckDB</SelectItem>
-                        <SelectItem value="sqlite">SQLite</SelectItem>
-                      </SelectGroup>
-                      <SelectGroup>
-                        <SelectLabel>{t('databases.engine_group_server')}</SelectLabel>
-                        <SelectItem value="postgresql" disabled>
-                          <span className="flex items-center gap-2">
-                            PostgreSQL
-                            <span className="text-[10px] text-muted-foreground">{t('databases.engine_requires_server')}</span>
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="mysql" disabled>
-                          <span className="flex items-center gap-2">
-                            MySQL
-                            <span className="text-[10px] text-muted-foreground">{t('databases.engine_requires_server')}</span>
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="sqlserver" disabled>
-                          <span className="flex items-center gap-2">
-                            SQL Server
-                            <span className="text-[10px] text-muted-foreground">{t('databases.engine_via_odbc')}</span>
-                          </span>
-                        </SelectItem>
-                        <SelectItem value="oracle" disabled>
-                          <span className="flex items-center gap-2">
-                            Oracle
-                            <span className="text-[10px] text-muted-foreground">{t('databases.engine_via_odbc')}</span>
-                          </span>
-                        </SelectItem>
-                      </SelectGroup>
+                      {/* Only engines the current deployment mode can actually run:
+                          front-only (WASM) → file engines; server → + external DBs. */}
+                      <SelectItem value="duckdb">DuckDB</SelectItem>
+                      <SelectItem value="sqlite">SQLite</SelectItem>
+                      {isServerMode() && (
+                        <SelectItem value="postgresql">PostgreSQL</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
