@@ -43,6 +43,56 @@ export async function importDatasetOnServer(params: {
   })
 }
 
+/** One column filter in a server row query — mirrors ColumnFilterInput's shapes. */
+export interface ServerRowFilter {
+  colId: string
+  value?: string
+  min?: number
+  max?: number
+  from?: string
+  to?: string
+}
+
+export interface ServerRowsQuery {
+  offset: number
+  limit: number
+  sort?: { colId: string; dir: 'asc' | 'desc' }
+  filters?: ServerRowFilter[]
+  na?: { colId: string; mode: 'exclude' | 'only' }[]
+}
+
+export interface ServerRowsPage {
+  rows: Record<string, unknown>[]
+  total: number
+}
+
+/**
+ * Fetch one filtered/sorted/paginated page of dataset rows, computed server-side
+ * on the Parquet. The server-mode counterpart to DatasetTable's in-memory work —
+ * the browser never holds the whole dataset.
+ */
+export function queryDatasetRows(
+  datasetFileId: string,
+  query: ServerRowsQuery,
+): Promise<ServerRowsPage> {
+  return apiRequest<ServerRowsPage>(`/datasets/${datasetFileId}/rows/query`, {
+    method: 'POST',
+    body: JSON.stringify(query),
+  })
+}
+
+/** Aggregate stats for one column: completeness + distinct, plus a shape-specific
+ *  payload (numeric quartiles/histogram, date min/max/timeline, or category counts).
+ *  All binning happens server-side; the browser gets ~15 bins, never raw values. */
+export function fetchColumnStats(
+  datasetFileId: string,
+  colId: string,
+): Promise<Record<string, unknown>> {
+  return apiRequest<Record<string, unknown>>(
+    `/datasets/${datasetFileId}/columns/${encodeURIComponent(colId)}/stats`,
+  )
+}
+
 /**
  * Server-mode dataset storage. Metadata (DatasetFile, DatasetAnalysis) is CRUD
  * against the API; heavy content (rows, raw file) is blob-backed on the server.

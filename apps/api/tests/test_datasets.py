@@ -168,11 +168,17 @@ async def test_column_stats(client):
 
     r = await client.get(f"{API}/datasets/{ds['id']}/columns/{v_col}/stats", headers=headers)
     s = r.json()
+    assert s["kind"] == "numeric"
     assert s["count"] == 3 and s["min"] == 1 and s["max"] == 3 and s["mean"] == 2
+    assert s["q1"] is not None and s["q3"] is not None
+    assert sum(b["count"] for b in s["histogram"]) == 3  # every non-null value binned
 
     r = await client.get(f"{API}/datasets/{ds['id']}/columns/{g_col}/stats", headers=headers)
-    top = {tv["value"]: tv["count"] for tv in r.json()["topValues"]}
+    s = r.json()
+    assert s["kind"] == "category"
+    top = {tv["value"]: tv["count"] for tv in s["items"]}
     assert top == {"x": 2, "y": 1}
+    assert s["totalCategories"] == 2 and s["truncated"] is False
 
 
 async def test_non_member_cannot_access(client, db):

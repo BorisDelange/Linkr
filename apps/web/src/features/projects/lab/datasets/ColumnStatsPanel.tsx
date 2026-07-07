@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { isServerMode } from '@/lib/api-client'
+import { fetchColumnStats } from '@/lib/api/datasets'
 import { BarChart3 } from 'lucide-react'
 import { TypeBadge } from './TypeBadge'
 
@@ -160,19 +162,102 @@ function StatRow({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+// --- Server stats adapter ---
+
+type PanelStats = ReturnType<typeof buildStatsFromServer>
+
+/** Map the server's column_stats payload into the shape the render consumes,
+ *  so the JSX below is identical for server and front-only modes. */
+function buildStatsFromServer(s: Record<string, unknown>, locale: string) {
+  const total = Number(s.count ?? 0)
+  const nonNull = Number(s.nonNull ?? 0)
+  const base = {
+    total,
+    nonNull,
+    nullCount: Number(s.nullCount ?? total - nonNull),
+    uniqueCount: Number(s.distinct ?? 0),
+    isNumeric: false,
+    numeric: null as null | Record<string, number>,
+    histogram: [] as { label: string; count: number; pct: number }[],
+    isDate: false,
+    dateStats: null as null | { earliest: string; latest: string; span: string },
+    dateHistogram: [] as { label: string; count: number; pct: number }[],
+    categories: null as null | {
+      items: { value: string; count: number; pct: number }[]
+      truncated: boolean
+      totalCategories: number
+    },
+  }
+
+  if (s.kind === 'numeric') {
+    base.isNumeric = true
+    base.numeric = {
+      min: Number(s.min), max: Number(s.max), mean: Number(s.mean),
+      median: Number(s.median), std: Number(s.std ?? 0),
+      q1: Number(s.q1), q3: Number(s.q3), iqr: Number(s.iqr ?? 0),
+    }
+    const bins = (s.histogram as { lo: number; count: number | null }[] | undefined) ?? []
+    base.histogram = bins
+      .filter((b) => b.count != null)
+      .map((b) => ({ label: String(b.lo), count: Number(b.count), pct: total ? (Number(b.count) / total) * 100 : 0 }))
+  } else if (s.kind === 'date') {
+    const min = s.min ? Date.parse(String(s.min)) : NaN
+    const max = s.max ? Date.parse(String(s.max)) : NaN
+    if (!isNaN(min)) {
+      base.isDate = true
+      base.dateStats = {
+        earliest: formatDateFull(min, locale),
+        latest: formatDateFull(max, locale),
+        span: computeDateSpan(min, max),
+      }
+      const bins = (s.timeline as { lo: string; count: number }[] | undefined) ?? []
+      base.dateHistogram = bins.map((b) => {
+        const ts = Date.parse(b.lo)
+        return { label: formatDateLabel(ts, locale), count: b.count, pct: nonNull ? (b.count / nonNull) * 100 : 0 }
+      })
+    }
+  } else if (s.kind === 'category') {
+    const items = (s.items as { value: string; count: number }[] | undefined) ?? []
+    base.categories = {
+      items: items.map((it) => ({
+        value: it.value,
+        count: it.count,
+        pct: nonNull ? (it.count / nonNull) * 100 : 0,
+      })),
+      truncated: Boolean(s.truncated),
+      totalCategories: Number(s.totalCategories ?? items.length),
+    }
+  }
+  return base
+}
+
 // --- Component ---
 
 export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
   const { t, i18n } = useTranslation()
   const { files, getFileRows, _dirtyVersion } = useDatasetStore()
   const locale = i18n.language
+  const server = isServerMode()
 
   const file = fileId ? files.find((f) => f.id === fileId) : null
   const column = file?.columns?.find((c) => c.id === columnId)
-  const rows = fileId && _dirtyVersion >= 0 ? getFileRows(fileId) : []
+  const rows = !server && fileId && _dirtyVersion >= 0 ? getFileRows(fileId) : []
 
-  const stats = useMemo(() => {
-    if (!column || !columnId) return null
+  // Server mode: fetch aggregated stats for the selected column. Tag the result
+  // with its column so we never render a previous column's stats while loading.
+  const [serverStats, setServerStats] = useState<{ key: string; stats: PanelStats | null } | null>(null)
+  useEffect(() => {
+    if (!server || !fileId || !columnId) return
+    let cancelled = false
+    const key = `${fileId}:${columnId}`
+    fetchColumnStats(fileId, columnId)
+      .then((s) => { if (!cancelled) setServerStats({ key, stats: buildStatsFromServer(s, locale) }) })
+      .catch(() => { if (!cancelled) setServerStats({ key, stats: null }) })
+    return () => { cancelled = true }
+  }, [server, fileId, columnId, locale])
+
+  const localStats = useMemo(() => {
+    if (server || !column || !columnId) return null
 
     const allValues = rows.map((r) => r[columnId])
     const nonNullValues = allValues.filter((v) => v != null && v !== '')
@@ -232,7 +317,11 @@ export function ColumnStatsPanel({ fileId, columnId }: ColumnStatsPanelProps) {
     }
 
     return { total, nonNull, nullCount, uniqueCount, isNumeric, numeric, histogram, isDate, dateStats, dateHistogram, categories }
-  }, [column, columnId, rows, _dirtyVersion, locale]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [server, column, columnId, rows, _dirtyVersion, locale]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stats = server
+    ? (serverStats?.key === `${fileId}:${columnId}` ? serverStats.stats : null)
+    : localStats
 
   if (!fileId || !columnId || !column) {
     return (

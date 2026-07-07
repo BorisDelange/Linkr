@@ -199,39 +199,124 @@ def query_page(
         con.close()
 
 
+_HISTOGRAM_BINS = 15
+_MAX_CATEGORIES = 20
+
+
+def _numeric_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str) -> dict:
+    row = con.execute(
+        f"SELECT min({ident}), max({ident}), avg({ident}), median({ident}), "
+        f"stddev_samp({ident}), quantile_cont({ident}, 0.25), "
+        f"quantile_cont({ident}, 0.75) FROM {src} WHERE {ident} IS NOT NULL"
+    ).fetchone()
+    if row is None or row[0] is None:
+        return {"kind": "numeric"}
+    lo, hi, mean, median, std, q1, q3 = row
+    out = {
+        "kind": "numeric",
+        "min": lo, "max": hi, "mean": mean, "median": median,
+        "std": std, "q1": q1, "q3": q3, "iqr": (q3 - q1) if q1 is not None else None,
+    }
+    # Equal-width bins computed in SQL so only the counts cross the wire.
+    if hi > lo:
+        width = (hi - lo) / _HISTOGRAM_BINS
+        rows = con.execute(
+            f"SELECT least(floor(({ident} - {lo}) / {width}), {_HISTOGRAM_BINS - 1}) AS b, "
+            f"count(*) AS n FROM {src} WHERE {ident} IS NOT NULL GROUP BY b ORDER BY b"
+        ).fetchall()
+        counts = {int(b): int(n) for b, n in rows}
+        out["histogram"] = [
+            {"lo": lo + i * width, "hi": lo + (i + 1) * width, "count": counts.get(i, 0)}
+            for i in range(_HISTOGRAM_BINS)
+        ]
+    else:
+        out["histogram"] = [{"lo": lo, "hi": hi, "count": None}]
+    return out
+
+
+def _date_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str) -> dict:
+    # Dates are stored as VARCHAR; cast to TIMESTAMP for min/max/bucketing.
+    ts = f"try_cast({ident} AS TIMESTAMP)"
+    row = con.execute(
+        f"SELECT min({ts}), max({ts}), count({ts}) FROM {src}"
+    ).fetchone()
+    lo, hi, n = row
+    out: dict[str, Any] = {"kind": "date", "min": None, "max": None, "timeline": []}
+    if lo is None or n == 0:
+        return out
+    out["min"] = str(lo)
+    out["max"] = str(hi)
+    if hi > lo:
+        span_us = (hi - lo).total_seconds() * 1_000_000
+        width = span_us / _HISTOGRAM_BINS
+        rows = con.execute(
+            f"SELECT least(floor((epoch_us({ts}) - epoch_us(TIMESTAMP '{lo}')) / {width}), "
+            f"{_HISTOGRAM_BINS - 1}) AS b, count(*) AS n FROM {src} "
+            f"WHERE {ts} IS NOT NULL GROUP BY b ORDER BY b"
+        ).fetchall()
+        counts = {int(b): int(n) for b, n in rows}
+        out["timeline"] = [
+            {
+                "lo": str(lo + _us_delta(i * width)),
+                "count": counts.get(i, 0),
+            }
+            for i in range(_HISTOGRAM_BINS)
+        ]
+    else:
+        out["timeline"] = [{"lo": str(lo), "count": int(n)}]
+    return out
+
+
+def _us_delta(microseconds: float):
+    from datetime import timedelta
+
+    return timedelta(microseconds=microseconds)
+
+
+def _category_stats(con: duckdb.DuckDBPyConnection, src: str, ident: str) -> dict:
+    distinct = int(
+        con.execute(
+            f"SELECT count(DISTINCT {ident}) FROM {src} WHERE {ident} IS NOT NULL"
+        ).fetchone()[0]
+    )
+    rows = con.execute(
+        f"SELECT CAST({ident} AS VARCHAR) AS v, count(*) AS n FROM {src} "
+        f"WHERE {ident} IS NOT NULL GROUP BY v ORDER BY n DESC LIMIT {_MAX_CATEGORIES}"
+    ).fetchall()
+    return {
+        "kind": "category",
+        "items": [{"value": v, "count": int(n)} for v, n in rows],
+        "totalCategories": distinct,
+        "truncated": distinct > _MAX_CATEGORIES,
+    }
+
+
 def column_stats(path: Path, col_id: str, col_type: str) -> dict:
-    """Aggregate stats for one column (server counterpart to ColumnStatsPanel)."""
+    """Aggregate stats for one column (server counterpart to ColumnStatsPanel).
+
+    All binning/quantiles happen in DuckDB so the browser receives only summary
+    scalars + ~15 histogram bins, never the raw values."""
     if not col_id:
         return {}
     ident = _quote_ident(col_id)
     src = f"read_parquet('{path.as_posix()}')"
     con = duckdb.connect()
     try:
-        total, non_null = con.execute(
-            f"SELECT count(*), count({ident}) FROM {src}"
+        total, non_null, distinct = con.execute(
+            f"SELECT count(*), count({ident}), count(DISTINCT {ident}) FROM {src}"
         ).fetchone()
         stats: dict[str, Any] = {
             "count": int(total),
             "nonNull": int(non_null),
             "nullCount": int(total) - int(non_null),
-            "distinct": int(
-                con.execute(f"SELECT count(DISTINCT {ident}) FROM {src}").fetchone()[0]
-            ),
+            "distinct": int(distinct),
         }
         if col_type == "number":
-            row = con.execute(
-                f"SELECT min({ident}), max({ident}), avg({ident}), "
-                f"median({ident}), stddev_samp({ident}) FROM {src}"
-            ).fetchone()
-            stats.update(
-                min=row[0], max=row[1], mean=row[2], median=row[3], std=row[4]
-            )
+            stats.update(_numeric_stats(con, src, ident))
+        elif col_type == "date":
+            stats.update(_date_stats(con, src, ident))
         else:
-            top = con.execute(
-                f"SELECT CAST({ident} AS VARCHAR) AS v, count(*) AS n FROM {src} "
-                f"WHERE {ident} IS NOT NULL GROUP BY v ORDER BY n DESC LIMIT 10"
-            ).fetchall()
-            stats["topValues"] = [{"value": v, "count": int(n)} for v, n in top]
+            stats.update(_category_stats(con, src, ident))
         return stats
     finally:
         con.close()

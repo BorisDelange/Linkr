@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { stampAuthored } from '@/stores/app-store'
 
 export interface UndoAction {
@@ -502,6 +503,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     })),
 
   loadFileData: async (fileId) => {
+    // Server mode never pulls the whole dataset into the browser — the table
+    // fetches pages on demand (useServerDatasetRows). Analyses/stats query the
+    // server too. So skip the full-rows download entirely.
+    if (isServerMode()) return
     // Skip load if data is already in memory (e.g. just imported)
     if (_loadedData.has(fileId)) return
     try {

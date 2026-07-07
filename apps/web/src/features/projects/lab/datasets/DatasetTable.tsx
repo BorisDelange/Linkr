@@ -22,6 +22,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { isServerMode } from '@/lib/api-client'
+import { useServerDatasetRows } from './use-server-dataset-rows'
 import { cn } from '@/lib/utils'
 import {
   DropdownMenu,
@@ -59,8 +61,10 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
 
   const file = files.find((f) => f.id === fileId)
   const columns = file?.columns ?? []
-  // Subscribe to _dirtyVersion to re-render when data changes
-  const rows = _dirtyVersion >= 0 ? getFileRows(fileId) : []
+  const server = isServerMode()
+  // Front-only mode holds all rows in memory (subscribe to _dirtyVersion to
+  // re-render on change). Server mode fetches one page at a time (see below).
+  const rows = !server && _dirtyVersion >= 0 ? getFileRows(fileId) : []
 
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(100)
@@ -102,7 +106,18 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     return map
   }, [columns, rows])
 
-  // Filter rows client-side (value filters + NA filters)
+  // --- Server mode: one page fetched on demand (never the whole dataset) ---
+  const serverState = useServerDatasetRows({
+    fileId,
+    page,
+    pageSize,
+    sort,
+    columnFilters,
+    naFilters,
+    columns,
+  })
+
+  // Filter rows client-side (value filters + NA filters) — front-only mode only
   const filteredRows = useMemo(() => {
     const activeFilters = Object.entries(columnFilters).filter(([, v]) => v != null)
     const activeNa = Object.entries(naFilters)
@@ -148,15 +163,17 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
     return copy
   }, [filteredRows, sort, columns])
 
-  // Pagination
-  const totalCount = sortedRows.length
+  // Pagination — server mode uses the fetched page + server total; front-only
+  // slices the in-memory filtered/sorted rows.
+  const totalCount = server ? serverState.total : sortedRows.length
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
   const clampedPage = Math.min(page, totalPages - 1)
 
-  const pageRows = useMemo(
+  const localPageRows = useMemo(
     () => sortedRows.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize),
     [sortedRows, clampedPage, pageSize],
   )
+  const pageRows = server ? serverState.rows : localPageRows
 
   // Row number offset for the current page
   const rowOffset = clampedPage * pageSize
@@ -500,7 +517,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground">
             {t('files.table_total', { count: totalCount })}
-            {hasActiveFilters && ` / ${rows.length}`}
+            {!server && hasActiveFilters && ` / ${rows.length}`}
           </span>
           {onHiddenColumnsChange && (
             <ColumnVisibilityMenu
