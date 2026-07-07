@@ -428,7 +428,7 @@ export function registerDefaultPlugins() {
     componentId: 'statistical-tests',
   })
 
-  registerComponent('regression', RegressionComponent)
+  registerComponent('regression', RegressionComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(regressionManifest as unknown as Record<string, unknown>),
     templates: null,

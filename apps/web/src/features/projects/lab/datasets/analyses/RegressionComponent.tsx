@@ -1,8 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildRegressionCode } from './regression-server'
 
 // ===========================================================================
 // Types
@@ -853,9 +856,10 @@ function ForestPlot({ coefficients, isLogistic, compact, alpha }: ForestPlotProp
 // Component
 // ===========================================================================
 
-export function RegressionComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function RegressionComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const server = isServerMode()
 
   const outcomeId = (config.outcomeColumn as string) ?? ''
   const predictorIds = (config.predictorColumns as string[]) ?? []
@@ -870,16 +874,51 @@ export function RegressionComponent({ config, columns, rows, compact }: Componen
   const allColIds = ['estimate', 'se', 'ci', 'statistic', 'p']
   const visCols = visibleColumns.length > 0 ? visibleColumns : allColIds
 
-  const result = useMemo(
+  const localResult = useMemo(
     () => {
-      if (!outcomeId || predictorIds.length === 0) return null
+      if (server || !outcomeId || predictorIds.length === 0) return null
       return runRegression(rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel)
     },
-    [rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel],
+    [server, rows, columns, outcomeId, predictorIds, regressionType, confidenceLevel],
   )
+  // Stable string keys so the effect only re-fetches on a semantic change.
+  const serverCode = server && datasetFileId && outcomeId && predictorIds.length > 0
+    ? buildRegressionCode(columns, outcomeId, predictorIds, regressionType, confidenceLevel)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverResult, setServerResult] = useState<RegressionResult | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [serverLoaded, setServerLoaded] = useState(false)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        setServerLoaded(true)
+        if (out.stderr) { setServerError(out.stderr); return }
+        try {
+          const parsed = out.stdout.trim() === 'null' ? null : (JSON.parse(out.stdout.trim()) as RegressionResult)
+          setServerResult(parsed); setServerError(null)
+        } catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) { setServerLoaded(true); setServerError(String(e)) } })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const result = server ? serverResult : localResult
+
+  if (server && serverError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <AlertTriangle size={24} className="opacity-40" />
+        <p className="text-xs whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
 
   // Empty states
-  if (columns.length === 0 || rows.length === 0) {
+  if (columns.length === 0 || (!server && rows.length === 0)) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <TrendingUp size={24} className="opacity-40" />
@@ -908,6 +947,15 @@ export function RegressionComponent({ config, columns, rows, compact }: Componen
         <p className="text-xs">
           {lang === 'fr' ? 'Sélectionnez au moins un prédicteur (X).' : 'Select at least one predictor (X).'}
         </p>
+      </div>
+    )
+  }
+
+  // Server mode: hold the frame until the fit returns (null before load = still computing).
+  if (server && !serverLoaded) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <TrendingUp size={24} className="opacity-40" />
       </div>
     )
   }
