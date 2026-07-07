@@ -1,8 +1,11 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Activity, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildKaplanMeierCode } from './kaplan-meier-server'
 
 // ===========================================================================
 // Types
@@ -716,9 +719,10 @@ function niceInterval(maxVal: number, targetTicks: number): number {
 // Component
 // ===========================================================================
 
-export function KaplanMeierComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function KaplanMeierComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const server = isServerMode()
 
   const timeId = (config.timeColumn as string) ?? ''
   const eventId = (config.eventColumn as string) ?? ''
@@ -730,16 +734,51 @@ export function KaplanMeierComponent({ config, columns, rows, compact }: Compone
   const showCensor = (config.showCensor as boolean) ?? true
   const timeLabel = (config.timeLabel as string) ?? ''
 
-  const result = useMemo(
+  const localResult = useMemo(
     () => {
-      if (!timeId || !eventId) return null
+      if (server || !timeId || !eventId) return null
       return computeKMResult(rows, columns, timeId, eventId, groupId, confidenceLevel)
     },
-    [rows, columns, timeId, eventId, groupId, confidenceLevel],
+    [server, rows, columns, timeId, eventId, groupId, confidenceLevel],
   )
+  // Stable string keys so the effect only re-fetches on a semantic change.
+  const serverCode = server && datasetFileId && timeId && eventId
+    ? buildKaplanMeierCode(columns, timeId, eventId, groupId, confidenceLevel)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverResult, setServerResult] = useState<KMResult | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  const [serverLoaded, setServerLoaded] = useState(false)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        setServerLoaded(true)
+        if (out.stderr) { setServerError(out.stderr); return }
+        try {
+          const parsed = out.stdout.trim() === 'null' ? null : (JSON.parse(out.stdout.trim()) as KMResult)
+          setServerResult(parsed); setServerError(null)
+        } catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) { setServerLoaded(true); setServerError(String(e)) } })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const result = server ? serverResult : localResult
+
+  if (server && serverError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <AlertTriangle size={24} className="opacity-40" />
+        <p className="text-xs whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
 
   // Empty states
-  if (columns.length === 0 || rows.length === 0) {
+  if (columns.length === 0 || (!server && rows.length === 0)) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <Activity size={24} className="opacity-40" />
@@ -757,6 +796,15 @@ export function KaplanMeierComponent({ config, columns, rows, compact }: Compone
             ? 'Sélectionnez les variables de temps et d\u2019événement.'
             : 'Select the time and event variables.'}
         </p>
+      </div>
+    )
+  }
+
+  // Server mode: hold the frame until the fit returns.
+  if (server && !serverLoaded) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <Activity size={24} className="opacity-40" />
       </div>
     )
   }

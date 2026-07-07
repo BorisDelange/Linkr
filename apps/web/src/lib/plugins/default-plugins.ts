@@ -435,7 +435,7 @@ export function registerDefaultPlugins() {
     componentId: 'regression',
   })
 
-  registerComponent('kaplan-meier', KaplanMeierComponent)
+  registerComponent('kaplan-meier', KaplanMeierComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(kaplanMeierManifest as unknown as Record<string, unknown>),
     templates: null,
