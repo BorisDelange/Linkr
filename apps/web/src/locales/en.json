@@ -870,6 +870,7 @@
   "datasets": {
     "title": "Datasets",
     "description": "Manage analysis-ready datasets.",
+    "component_server_unavailable": "This visualization isn't available in server mode yet — it will run server-side in a future update.",
     "new_dataset": "New dataset",
     "new_dataset_description": "Create an empty dataset file.",
     "new_folder": "New folder",

@@ -870,6 +870,7 @@
   "datasets": {
     "title": "Jeux de données",
     "description": "Gérer les jeux de données prêts pour l'analyse.",
+    "component_server_unavailable": "Cette visualisation n'est pas encore disponible en mode serveur — elle s'exécutera côté serveur dans une prochaine mise à jour.",
     "new_dataset": "Nouveau jeu de données",
     "new_dataset_description": "Créer un fichier de jeu de données vide.",
     "new_folder": "Nouveau dossier",

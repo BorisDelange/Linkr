@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { isServerMode } from '@/lib/api-client'
 import { getComponent } from '@/lib/plugins/component-registry'
 import type { DatasetAnalysis } from '@/types'
 
@@ -26,6 +27,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
 
   const [configVisible, setConfigVisible] = useState(true)
 
+  const server = isServerMode()
   const config = analysis.config
   const file = files.find((f) => f.id === analysis.datasetFileId)
   const columns = file?.columns ?? []
@@ -98,7 +100,14 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           {/* Right: Live component */}
           <Allotment.Pane minSize={200}>
             <div className="h-full overflow-auto">
-              {Component ? (
+              {server ? (
+                // These components compute in-browser from all rows. In server mode
+                // that would pull raw patient data to the client, so they're gated
+                // until each gets a server-side aggregation endpoint.
+                <div className="flex items-center justify-center p-8 text-center text-xs text-muted-foreground">
+                  {t('datasets.component_server_unavailable')}
+                </div>
+              ) : Component ? (
                 // eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data
                 <Component config={config} columns={columns} rows={rows} />
               ) : (
