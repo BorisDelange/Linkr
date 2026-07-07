@@ -8,6 +8,7 @@ import {
   FileCode,
   FileJson,
   FileText,
+  FileSpreadsheet,
   Folder,
   FolderOpen,
   ChevronRight,
@@ -77,6 +78,13 @@ function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, _co
       return <FileText size={14} className="shrink-0 text-muted-foreground" />
     case 'sh':
       return <FileCode size={14} className="shrink-0 text-green-500" />
+    // Dataset files — match the Datasets page (FileSpreadsheet, emerald).
+    case 'csv':
+    case 'tsv':
+    case 'xlsx':
+    case 'xls':
+    case 'parquet':
+      return <FileSpreadsheet size={14} className="shrink-0 text-emerald-500" />
     default:
       return <File size={14} className="shrink-0 text-muted-foreground" />
   }
