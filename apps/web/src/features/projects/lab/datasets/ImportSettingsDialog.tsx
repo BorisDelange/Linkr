@@ -243,6 +243,11 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
         }
         setLoading(false)
       })()
+    } else {
+      // Unknown extension (e.g. a raw file whose name couldn't be recovered) —
+      // don't leave the spinner running forever.
+      setError(t('datasets.upload_parse_error'))
+      setLoading(false)
     }
   }, [rawBlob, rawFileName, delimiter, skipRows, encoding, hasHeader, selectedSheet, isCSVLike, isExcel, isParquet, t])
 

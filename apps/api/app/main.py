@@ -73,6 +73,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # x-file-name carries the original filename on raw-file downloads; custom
+    # response headers are invisible to JS unless explicitly exposed.
+    expose_headers=["x-file-name"],
 )
 
 # Routes

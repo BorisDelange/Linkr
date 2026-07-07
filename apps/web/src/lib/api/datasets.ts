@@ -192,8 +192,9 @@ export const apiDatasetRawFileStorage: DatasetRawFileStorage = {
       const res = await apiFetch(`/api/v1/datasets/${datasetFileId}/raw`)
       if (!res.ok) return undefined
       const blob = await res.blob()
-      const fileName =
-        res.headers.get('x-file-name') ?? `${datasetFileId}.data`
+      // Empty (not a fake "<id>.data") when the header is unavailable, so callers
+      // can fall back to the dataset's own name instead of a broken filename.
+      const fileName = res.headers.get('x-file-name') ?? ''
       return { datasetFileId, blob, fileName }
     } catch {
       return undefined
