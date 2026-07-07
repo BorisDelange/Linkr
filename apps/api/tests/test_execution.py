@@ -107,6 +107,16 @@ async def test_restart_clears_kernel_state(client):
     assert "NameError" in r.json()["stderr"]
 
 
+@requires_r
+async def test_persistent_r_kernel_keeps_variables(client):
+    headers = await _admin_headers(client)
+    await client.post(f"{API}/execute", headers=headers,
+                      json={"language": "r", "code": "y <- 41; y <- y + 1", "projectUid": "rp1"})
+    r = await client.post(f"{API}/execute", headers=headers,
+                          json={"language": "r", "code": "print(y)", "projectUid": "rp1"})
+    assert "42" in r.json()["stdout"]
+
+
 async def test_stateless_run_without_project_does_not_persist(client):
     headers = await _admin_headers(client)
     await _run(client, headers, "b = 7")  # no projectUid -> stateless one-shot

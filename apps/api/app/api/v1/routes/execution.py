@@ -23,10 +23,10 @@ async def execute_code(
     Only the rendered result crosses the wire (stdout/stderr/figures/table) —
     never the underlying data (see storage plan §03/§06)."""
     try:
-        # With a project context, Python reuses a persistent kernel so variables
-        # survive between runs (§07). R and context-less runs stay stateless for now.
-        if body.language == "python" and body.project_uid:
-            k = await kernel.manager.get(body.project_uid, "python", body.env_id)
+        # With a project context, reuse a persistent kernel so variables survive
+        # between runs (§07). Context-less runs stay stateless one-shots.
+        if body.language in ("python", "r") and body.project_uid:
+            k = await kernel.manager.get(body.project_uid, body.language, body.env_id)
             out = await k.execute(body.code)
         elif body.language == "python":
             out = await runtime.run_python(body.code)

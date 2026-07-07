@@ -84,11 +84,58 @@ for line in sys.stdin:
 '''
 
 
+# The R kernel loop: same wire protocol as Python (one base64 code request per
+# stdin line -> one JSON result line). eval() runs in globalenv() so variables
+# persist; capture.output collects stdout, handlers route warnings/messages/errors
+# to stderr, and an svglite device per run yields SVG figures.
+_R_KERNEL_LOOP = r'''
+suppressMessages({
+  .has_svglite <- requireNamespace("svglite", quietly = TRUE)
+  library(jsonlite); library(base64enc)
+})
+.con <- file("stdin", "r")
+.run_n <- 0
+repeat {
+  .line <- readLines(.con, n = 1, warn = FALSE)
+  if (length(.line) == 0) break
+  .line <- trimws(.line)
+  if (nchar(.line) == 0) next
+  .run_n <- .run_n + 1
+  .code <- rawToChar(base64decode(.line))
+  .pat <- sprintf("_linkr_p_%03d_%%03d.svg", .run_n)
+  if (.has_svglite) svglite::svglite(filename = .pat, width = 8, height = 6)
+  .err <- character(0)
+  .out <- tryCatch(
+    withCallingHandlers(
+      utils::capture.output(eval(parse(text = .code), envir = globalenv())),
+      warning = function(w) { .err <<- c(.err, conditionMessage(w)); invokeRestart("muffleWarning") },
+      message = function(m) { .err <<- c(.err, conditionMessage(m)); invokeRestart("muffleMessage") }
+    ),
+    error = function(e) { .err <<- c(.err, conditionMessage(e)); character(0) }
+  )
+  if (.has_svglite) invisible(grDevices::dev.off())
+  .figs <- list()
+  for (.f in list.files(".", pattern = sprintf("^_linkr_p_%03d_.*svg$", .run_n))) {
+    .svg <- paste(readLines(.f, warn = FALSE), collapse = "\n")
+    if (grepl("<svg", .svg, fixed = TRUE))
+      .figs[[length(.figs) + 1]] <- list(type = "svg", data = .svg, label = paste("Plot", length(.figs) + 1))
+    file.remove(.f)
+  }
+  .result <- list(stdout = paste(.out, collapse = "\n"),
+                  stderr = paste(.err, collapse = "\n"),
+                  figures = .figs, table = NULL, html = NULL)
+  cat(toJSON(.result, auto_unbox = TRUE, null = "null"), "\n", sep = "")
+  flush(stdout())
+}
+'''
+
+
 class Kernel:
     """One persistent interpreter process. Serialises requests (one at a time)."""
 
-    def __init__(self, cmd: list[str]):
+    def __init__(self, cmd: list[str], cwd: str | None = None):
         self._cmd = cmd
+        self._cwd = cwd
         self._proc: asyncio.subprocess.Process | None = None
         self._lock = asyncio.Lock()
         self.busy = False
@@ -98,6 +145,7 @@ class Kernel:
             return self._proc
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
+            cwd=self._cwd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
@@ -143,6 +191,10 @@ class Kernel:
             self._proc.kill()
             await self._proc.wait()
         self._proc = None
+        if self._cwd:
+            import shutil
+
+            shutil.rmtree(self._cwd, ignore_errors=True)
 
 
 class KernelManager:
@@ -180,6 +232,12 @@ class KernelManager:
             import sys
 
             return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP])
+        if language == "r":
+            import tempfile
+
+            # R writes SVG plot files to cwd; give the kernel its own dir.
+            workdir = tempfile.mkdtemp(prefix="linkr-rkernel-")
+            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=workdir)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 
