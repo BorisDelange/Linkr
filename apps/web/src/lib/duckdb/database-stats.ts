@@ -9,19 +9,23 @@ import type {
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 
-/** Compute full database statistics for a data source using its schema mapping. */
+/**
+ * Compute the "fast" database statistics — everything except per-table row
+ * counts. These 5 blocks run in parallel and return in a few seconds even on a
+ * large warehouse; the slow per-table counts are streamed separately (see
+ * streamTableCounts) so the panel can render before they finish.
+ */
 export async function computeDatabaseStats(
   dataSourceId: string,
   mapping: SchemaMapping,
 ): Promise<DatabaseStatsCache> {
-  const [summary, genderDistribution, agePyramid, admissionTimeline, descriptiveStats, tableCounts] =
+  const [summary, genderDistribution, agePyramid, admissionTimeline, descriptiveStats] =
     await Promise.all([
       computeSummary(dataSourceId, mapping),
       computeGenderDistribution(dataSourceId, mapping),
       computeAgePyramid(dataSourceId, mapping),
       computeAdmissionTimeline(dataSourceId, mapping),
       computeDescriptiveStats(dataSourceId, mapping),
-      computeTableCounts(dataSourceId),
     ])
 
   return {
@@ -32,7 +36,7 @@ export async function computeDatabaseStats(
     agePyramid,
     admissionTimeline,
     descriptiveStats,
-    tableCounts,
+    tableCounts: [],
   }
 }
 
@@ -330,12 +334,46 @@ async function computeDescriptiveStats(
   return stats
 }
 
-async function computeTableCounts(dsId: string): Promise<TableRowCount[]> {
-  const tables = await discoverTables(dsId)
-  const counts: TableRowCount[] = []
-  for (const table of tables) {
-    const rowCount = await safeQueryCount(dsId, table)
-    counts.push({ tableName: table, rowCount })
+/** The tables named by the schema mapping, in priority order — these are the
+ *  ones the user most likely cares about, so they get counted first. */
+function mappedTableNames(mapping: SchemaMapping): string[] {
+  const names = [
+    mapping.patientTable?.table,
+    mapping.visitTable?.table,
+    mapping.visitDetailTable?.table,
+    ...Object.values(mapping.eventTables ?? {}).map((e) => e.table),
+  ].filter((t): t is string => !!t)
+  return [...new Set(names)]
+}
+
+/**
+ * Count rows for every table, streaming results by batch instead of blocking on
+ * the whole set. Mapped tables are counted first (so the interesting rows show
+ * up first), then the rest; each batch runs its COUNT(*)s concurrently and is
+ * handed to `onBatch` as it completes. Returns the full list at the end.
+ */
+export async function streamTableCounts(
+  dsId: string,
+  mapping: SchemaMapping,
+  onBatch: (counts: TableRowCount[]) => void,
+  batchSize = 6,
+): Promise<TableRowCount[]> {
+  const all = await discoverTables(dsId)
+  const mapped = mappedTableNames(mapping).filter((t) => all.includes(t))
+  const rest = all.filter((t) => !mapped.includes(t)).sort((a, b) => a.localeCompare(b))
+  const ordered = [...mapped, ...rest]
+
+  const results: TableRowCount[] = []
+  for (let i = 0; i < ordered.length; i += batchSize) {
+    const batch = ordered.slice(i, i + batchSize)
+    const counts = await Promise.all(
+      batch.map(async (table) => ({
+        tableName: table,
+        rowCount: await safeQueryCount(dsId, table),
+      })),
+    )
+    results.push(...counts)
+    onBatch(counts)
   }
-  return counts.sort((a, b) => b.rowCount - a.rowCount)
+  return results
 }

@@ -8,7 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
-import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
+import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-stats'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type {
   DatabaseStatsCache, AgePyramidBucket, AdmissionTimelineBucket,
@@ -43,9 +43,25 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     setIsLoading(true)
     try {
       await ensureMounted(dataSourceId)
+      // Fast block first (patients/visits/age/gender/timeline) — renders in a
+      // few seconds. Per-table counts stream in afterwards, batch by batch.
       const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
-      await getStorage().databaseStatsCache.save(stats)
       setCache(stats)
+
+      const tableCounts = await streamTableCounts(dataSourceId, schemaMapping, (batch) => {
+        setCache((prev) => {
+          if (!prev) return prev
+          const merged = [...prev.tableCounts, ...batch].sort((a, b) => b.rowCount - a.rowCount)
+          return { ...prev, tableCounts: merged }
+        })
+      })
+
+      const finalStats = {
+        ...stats,
+        tableCounts: tableCounts.sort((a, b) => b.rowCount - a.rowCount),
+      }
+      await getStorage().databaseStatsCache.save(finalStats)
+      setCache(finalStats)
     } catch (err) {
       console.error('Failed to compute database stats:', err)
     } finally {
