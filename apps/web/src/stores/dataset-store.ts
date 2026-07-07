@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type { DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { duplicateDataset } from '@/lib/api/datasets'
 import { stampAuthored } from '@/stores/app-store'
 
 export interface UndoAction {
@@ -420,6 +421,28 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       newName = `${baseName} (copy ${counter})${ext}`
       counter++
     }
+
+    // Server mode: rows live in a Parquet blob, not in _loadedData. Duplicate
+    // server-side (re-points the content-addressed blobs) and insert the result.
+    if (isServerMode()) {
+      duplicateDataset(id, newName)
+        .then((created) => {
+          set((s) => (s.files.some((f) => f.id === created.id) ? s : { files: [...s.files, created] }))
+          get().pushUndo({
+            id: `undo-${undoCounter++}`,
+            descriptionKey: 'datasets.duplicate',
+            descriptionParams: { name: newName },
+            timestamp: Date.now(),
+            undo: () => {
+              set((s) => ({ files: s.files.filter((f) => f.id !== created.id) }))
+              getStorage().datasetFiles.delete(created.id).catch((e) => console.warn('[dataset-store] persist error:', e))
+            },
+          })
+        })
+        .catch((e) => console.warn('[dataset-store] duplicate error:', e))
+      return
+    }
+
     const node: DatasetFile = {
       ...original,
       id: newId,

@@ -13,7 +13,6 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
 
 from app.config import settings
 from app.core.deps import get_current_user

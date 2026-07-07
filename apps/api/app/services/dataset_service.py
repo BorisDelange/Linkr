@@ -39,6 +39,31 @@ async def create(db: AsyncSession, data: DatasetFileCreate, owner: User) -> Data
     return node
 
 
+async def duplicate(
+    db: AsyncSession, node: DatasetFile, name: str, owner: User
+) -> DatasetFile:
+    """Copy a dataset file. The blob store is content-addressed, so the copy just
+    re-points the same data_sha/raw_sha — no bytes are duplicated on disk."""
+    copy = DatasetFile(
+        project_uid=node.project_uid,
+        name=name,
+        type=node.type,
+        parent_id=node.parent_id,
+        columns=node.columns,
+        row_count=node.row_count,
+        parse_options=node.parse_options,
+        data_sha=node.data_sha,
+        raw_sha=node.raw_sha,
+        raw_file_name=node.raw_file_name,
+        origin=node.origin,
+        owner_id=owner.id,
+    )
+    db.add(copy)
+    await db.commit()
+    await db.refresh(copy)
+    return copy
+
+
 async def update(
     db: AsyncSession, node: DatasetFile, data: DatasetFileUpdate
 ) -> DatasetFile:

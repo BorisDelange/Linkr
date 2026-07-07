@@ -181,6 +181,31 @@ async def test_column_stats(client):
     assert s["totalCategories"] == 2 and s["truncated"] is False
 
 
+async def test_duplicate_shares_blobs_and_rows(client):
+    headers = await _admin_headers(client)
+    _, project_uid = await _project(client, headers)
+    sha, fn = await _upload_csv(client, headers, b"a,b\n1,x\n2,y\n")
+    ds = (await client.post(f"{API}/datasets/import", headers=headers,
+          json={"projectUid": project_uid, "name": "orig.csv", "sha": sha, "fileName": fn})).json()
+
+    r = await client.post(f"{API}/datasets/{ds['id']}/duplicate", headers=headers,
+                          json={"name": "orig (copy).csv"})
+    assert r.status_code == 201
+    copy = r.json()
+    assert copy["id"] != ds["id"]
+    assert copy["name"] == "orig (copy).csv"
+    assert copy["rowCount"] == 2
+
+    # The copy's rows are readable (blob re-pointed, not lost).
+    rows = (await client.get(f"{API}/datasets/{copy['id']}/data", headers=headers)).json()["rows"]
+    assert len(rows) == 2
+
+    # Deleting the copy must not free the original's shared blob.
+    assert (await client.delete(f"{API}/datasets/{copy['id']}", headers=headers)).status_code == 204
+    orig_rows = (await client.get(f"{API}/datasets/{ds['id']}/data", headers=headers)).json()["rows"]
+    assert len(orig_rows) == 2
+
+
 async def test_non_member_cannot_access(client, db):
     admin = await _admin_headers(client)
     _, project_uid = await _project(client, admin)

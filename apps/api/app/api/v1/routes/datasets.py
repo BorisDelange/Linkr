@@ -17,6 +17,7 @@ from app.schemas.dataset import (
     DatasetFileCreate,
     DatasetFileResponse,
     DatasetFileUpdate,
+    DatasetDuplicateRequest,
     DatasetImportRequest,
     DatasetReimportRequest,
     DatasetRowsPage,
@@ -116,6 +117,17 @@ async def delete_dataset(
 ):
     node = await _load_file(db, file_id, user, "editor")
     await dataset_service.delete(db, node)
+
+
+@router.post("/{file_id}/duplicate", response_model=DatasetFileResponse, status_code=status.HTTP_201_CREATED)
+async def duplicate_dataset(
+    file_id: str,
+    body: DatasetDuplicateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    node = await _load_file(db, file_id, user, "editor")
+    return await dataset_service.duplicate(db, node, body.name, user)
 
 
 @router.post("/{file_id}/reimport", response_model=DatasetFileResponse)

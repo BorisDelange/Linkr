@@ -55,6 +55,10 @@ class DatasetReimportRequest(CamelModel):
     parse_options: dict | None = None
 
 
+class DatasetDuplicateRequest(CamelModel):
+    name: str
+
+
 class DatasetDataResponse(CamelModel):
     rows: list[dict]
 

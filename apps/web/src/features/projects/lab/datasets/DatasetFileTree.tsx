@@ -34,6 +34,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
 
@@ -128,10 +129,16 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
   }
 
   const handleDuplicate = () => {
+    const store = useDatasetStore.getState()
+    // Server mode: rows live in a Parquet blob — duplicate server-side (the store
+    // re-points the content-addressed blobs) instead of copying rows in memory.
+    if (isServerMode()) {
+      store.duplicateFile(node.id)
+      return
+    }
     const baseName = node.name.replace(/\.[^.]+$/, '')
     const ext = node.name.includes('.') ? node.name.slice(node.name.lastIndexOf('.')) : ''
     const copyName = `${baseName} (copy)${ext}`
-    const store = useDatasetStore.getState()
     store.createFile(copyName, node.parentId)
     // Copy columns + data from the original file
     const newState = useDatasetStore.getState()
@@ -165,9 +172,15 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
       return
     }
 
-    const rows = useDatasetStore.getState().getFileRows(node.id)
+    // No raw file (e.g. a manually-created dataset): reconstruct a CSV. In server
+    // mode the rows aren't in memory, so fetch them from the server instead.
     const columns = node.columns ?? []
     if (columns.length === 0) return
+    let rows = useDatasetStore.getState().getFileRows(node.id)
+    if (rows.length === 0) {
+      const data = await getStorage().datasetData.get(node.id)
+      rows = data?.rows ?? []
+    }
     const header = columns.map((c) => c.name).join(',')
     const lines = rows.map((row) =>
       columns.map((c) => {

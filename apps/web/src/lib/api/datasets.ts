@@ -81,6 +81,16 @@ export function queryDatasetRows(
   })
 }
 
+/** Duplicate a dataset file server-side. The blob store is content-addressed, so
+ *  the copy re-points the same rows/raw blobs — no bytes are copied. Returns the
+ *  created file (with fresh id) to insert into the store. */
+export function duplicateDataset(datasetFileId: string, name: string): Promise<DatasetFile> {
+  return apiRequest<DatasetFile>(`/datasets/${datasetFileId}/duplicate`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+}
+
 /** Aggregate stats for one column: completeness + distinct, plus a shape-specific
  *  payload (numeric quartiles/histogram, date min/max/timeline, or category counts).
  *  All binning happens server-side; the browser gets ~15 bins, never raw values. */
