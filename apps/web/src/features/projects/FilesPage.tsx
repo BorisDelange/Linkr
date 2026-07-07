@@ -74,6 +74,8 @@ import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useProjectTree } from '@/hooks/use-project-tree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { FileTree } from './files/FileTree'
@@ -519,9 +521,13 @@ export function FilesPage() {
 
       const controller = startExecution()
       try {
-        const result = language === 'python'
-          ? await executePython(code, activeConnectionId, controller.signal)
-          : await executeR(code, activeConnectionId, controller.signal)
+        // Server mode: run on the backend (data stays server-side). The active
+        // connection / dataset injection is a later step (e4) — MVP runs free code.
+        const result = isServerMode()
+          ? await executeOnServer(language, code)
+          : language === 'python'
+            ? await executePython(code, activeConnectionId, controller.signal)
+            : await executeR(code, activeConnectionId, controller.signal)
 
         const duration = Date.now() - start
         const success = !result.stderr
