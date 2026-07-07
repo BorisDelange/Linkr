@@ -101,6 +101,142 @@ def read_parquet(path: Path, offset: int | None = None, limit: int | None = None
         con.close()
 
 
+def _quote_ident(name: str) -> str:
+    """Quote a column id as a DuckDB identifier (ids validated by the caller)."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _build_where(
+    filters: list[dict], na: list[dict], col_types: dict[str, str]
+) -> tuple[str, list[Any]]:
+    """Translate the UI's per-column filters + NA filters into a WHERE clause.
+
+    Mirrors applyColumnFilter in ColumnFilterInput.tsx. Column ids are validated
+    against ``col_types`` (unknown ids are ignored, never interpolated); values
+    are bound as parameters."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    for f in filters:
+        col = f.get("colId")
+        if col not in col_types:
+            continue
+        ident = _quote_ident(col)
+        ctype = col_types[col]
+        if ctype == "number":
+            if f.get("min") is not None:
+                clauses.append(f"{ident} >= ?")
+                params.append(f["min"])
+            if f.get("max") is not None:
+                clauses.append(f"{ident} <= ?")
+                params.append(f["max"])
+        elif ctype == "date":
+            if f.get("from"):
+                clauses.append(f"{ident} >= ?")
+                params.append(f["from"])
+            if f.get("to"):
+                clauses.append(f"{ident} <= ?")
+                params.append(f["to"])
+        elif ctype == "boolean":
+            val = f.get("value")
+            if val in ("true", "false"):
+                clauses.append(f"{ident} = ?")
+                params.append(val == "true")
+        else:  # string / unknown — case-insensitive substring
+            term = f.get("value")
+            if term:
+                clauses.append(f"lower(CAST({ident} AS VARCHAR)) LIKE ?")
+                params.append(f"%{str(term).lower()}%")
+
+    for n in na:
+        col = n.get("colId")
+        if col not in col_types:
+            continue
+        ident = _quote_ident(col)
+        if n.get("mode") == "exclude":
+            clauses.append(f"{ident} IS NOT NULL")
+        elif n.get("mode") == "only":
+            clauses.append(f"{ident} IS NULL")
+
+    if not clauses:
+        return "", []
+    return " WHERE " + " AND ".join(clauses), params
+
+
+def query_page(
+    path: Path,
+    col_types: dict[str, str],
+    *,
+    offset: int = 0,
+    limit: int = 100,
+    sort: dict | None = None,
+    filters: list[dict] | None = None,
+    na: list[dict] | None = None,
+) -> tuple[list[dict], int]:
+    """Return (page_rows, total_count_after_filters) via DuckDB on the Parquet.
+
+    This is the server counterpart to DatasetTable's client-side filter/sort/
+    paginate — the page never materialises the whole dataset in the browser."""
+    where, params = _build_where(filters or [], na or [], col_types)
+    src = f"read_parquet('{path.as_posix()}')"
+    con = duckdb.connect()
+    try:
+        total = con.execute(f"SELECT count(*) FROM {src}{where}", params).fetchone()[0]
+
+        order = ""
+        if sort and sort.get("colId") in col_types:
+            direction = "DESC" if sort.get("dir") == "desc" else "ASC"
+            # NULLs always sink to the bottom, matching the client sort.
+            order = f" ORDER BY {_quote_ident(sort['colId'])} {direction} NULLS LAST"
+
+        res = con.execute(
+            f"SELECT * FROM {src}{where}{order} LIMIT {int(limit)} OFFSET {int(offset)}",
+            params,
+        )
+        names = [d[0] for d in res.description]
+        rows = [_row_to_json(dict(zip(names, r))) for r in res.fetchall()]
+        return rows, int(total)
+    finally:
+        con.close()
+
+
+def column_stats(path: Path, col_id: str, col_type: str) -> dict:
+    """Aggregate stats for one column (server counterpart to ColumnStatsPanel)."""
+    if not col_id:
+        return {}
+    ident = _quote_ident(col_id)
+    src = f"read_parquet('{path.as_posix()}')"
+    con = duckdb.connect()
+    try:
+        total, non_null = con.execute(
+            f"SELECT count(*), count({ident}) FROM {src}"
+        ).fetchone()
+        stats: dict[str, Any] = {
+            "count": int(total),
+            "nonNull": int(non_null),
+            "nullCount": int(total) - int(non_null),
+            "distinct": int(
+                con.execute(f"SELECT count(DISTINCT {ident}) FROM {src}").fetchone()[0]
+            ),
+        }
+        if col_type == "number":
+            row = con.execute(
+                f"SELECT min({ident}), max({ident}), avg({ident}), "
+                f"median({ident}), stddev_samp({ident}) FROM {src}"
+            ).fetchone()
+            stats.update(
+                min=row[0], max=row[1], mean=row[2], median=row[3], std=row[4]
+            )
+        else:
+            top = con.execute(
+                f"SELECT CAST({ident} AS VARCHAR) AS v, count(*) AS n FROM {src} "
+                f"WHERE {ident} IS NOT NULL GROUP BY v ORDER BY n DESC LIMIT 10"
+            ).fetchall()
+            stats["topValues"] = [{"value": v, "count": int(n)} for v, n in top]
+        return stats
+    finally:
+        con.close()
+
+
 def _row_to_json(row: dict[str, Any]) -> dict[str, Any]:
     """Coerce DuckDB scalars to JSON-serialisable values.
 

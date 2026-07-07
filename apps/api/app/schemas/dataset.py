@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from pydantic import Field
+
 from app.schemas.base import CamelModel
 
 
@@ -55,6 +57,42 @@ class DatasetReimportRequest(CamelModel):
 
 class DatasetDataResponse(CamelModel):
     rows: list[dict]
+
+
+class DatasetRowFilter(CamelModel):
+    """One column filter, mirroring ColumnFilterInput's per-type shapes."""
+
+    col_id: str
+    value: str | None = None  # boolean ('true'/'false') or text substring
+    min: float | None = None
+    max: float | None = None
+    from_: str | None = Field(default=None, alias="from")
+    to: str | None = None
+
+
+class DatasetNaFilter(CamelModel):
+    col_id: str
+    mode: str  # 'exclude' | 'only'
+
+
+class DatasetRowSort(CamelModel):
+    col_id: str
+    dir: str = "asc"  # 'asc' | 'desc'
+
+
+class DatasetRowsQuery(CamelModel):
+    """Server-side page request: filter/sort/paginate on the Parquet."""
+
+    offset: int = 0
+    limit: int = 100
+    sort: DatasetRowSort | None = None
+    filters: list[DatasetRowFilter] = []
+    na: list[DatasetNaFilter] = []
+
+
+class DatasetRowsPage(CamelModel):
+    rows: list[dict]
+    total: int
 
 
 class DatasetDataWrite(CamelModel):

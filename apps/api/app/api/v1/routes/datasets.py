@@ -19,6 +19,8 @@ from app.schemas.dataset import (
     DatasetFileUpdate,
     DatasetImportRequest,
     DatasetReimportRequest,
+    DatasetRowsPage,
+    DatasetRowsQuery,
 )
 from app.services import blob_store, dataset_service
 
@@ -144,6 +146,53 @@ async def get_dataset_data(
 ):
     node = await _load_file(db, file_id, user, "viewer")
     return DatasetDataResponse(rows=await dataset_service.read_rows(node))
+
+
+@router.post("/{file_id}/rows/query", response_model=DatasetRowsPage)
+async def query_dataset_rows(
+    file_id: str,
+    body: DatasetRowsQuery,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """A filtered/sorted/paginated page of rows, computed server-side.
+
+    The counterpart to DatasetTable's client-side work — the browser fetches one
+    page instead of the whole dataset."""
+    node = await _load_file(db, file_id, user, "viewer")
+    filters = [
+        {
+            "colId": f.col_id,
+            "value": f.value,
+            "min": f.min,
+            "max": f.max,
+            "from": f.from_,
+            "to": f.to,
+        }
+        for f in body.filters
+    ]
+    na = [{"colId": n.col_id, "mode": n.mode} for n in body.na]
+    sort = {"colId": body.sort.col_id, "dir": body.sort.dir} if body.sort else None
+    rows, total = await dataset_service.query_rows(
+        node,
+        offset=body.offset,
+        limit=body.limit,
+        sort=sort,
+        filters=filters,
+        na=na,
+    )
+    return DatasetRowsPage(rows=rows, total=total)
+
+
+@router.get("/{file_id}/columns/{col_id}/stats")
+async def get_column_stats(
+    file_id: str,
+    col_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    node = await _load_file(db, file_id, user, "viewer")
+    return await dataset_service.column_stats(node, col_id)
 
 
 @router.get("/{file_id}/raw")

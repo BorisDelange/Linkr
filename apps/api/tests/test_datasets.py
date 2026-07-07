@@ -125,6 +125,56 @@ async def test_write_and_read_rows(client):
     assert r.json()["rows"] == rows
 
 
+async def test_query_rows_paginate_filter_sort(client):
+    headers = await _admin_headers(client)
+    _, project_uid = await _project(client, headers)
+    csv = b"name,age\nAlice,30\nbob,45\nCarol,20\ndan,60\n"
+    sha, fn = await _upload_csv(client, headers, csv)
+    ds = (await client.post(f"{API}/datasets/import", headers=headers,
+          json={"projectUid": project_uid, "name": "d", "sha": sha, "fileName": fn})).json()
+    name_col, age_col = ds["columns"][0]["id"], ds["columns"][1]["id"]
+
+    # Page: first 2 rows.
+    r = await client.post(f"{API}/datasets/{ds['id']}/rows/query", headers=headers,
+                          json={"offset": 0, "limit": 2})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 4 and len(body["rows"]) == 2
+
+    # Sort by age desc.
+    r = await client.post(f"{API}/datasets/{ds['id']}/rows/query", headers=headers,
+                          json={"sort": {"colId": age_col, "dir": "desc"}})
+    assert [row[age_col] for row in r.json()["rows"]] == [60, 45, 30, 20]
+
+    # Numeric filter age >= 40.
+    r = await client.post(f"{API}/datasets/{ds['id']}/rows/query", headers=headers,
+                          json={"filters": [{"colId": age_col, "min": 40}]})
+    assert r.json()["total"] == 2
+
+    # Case-insensitive text filter on name.
+    r = await client.post(f"{API}/datasets/{ds['id']}/rows/query", headers=headers,
+                          json={"filters": [{"colId": name_col, "value": "a"}]})
+    names = {row[name_col] for row in r.json()["rows"]}
+    assert names == {"Alice", "Carol", "dan"}
+
+
+async def test_column_stats(client):
+    headers = await _admin_headers(client)
+    _, project_uid = await _project(client, headers)
+    sha, fn = await _upload_csv(client, headers, b"g,v\nx,1\nx,2\ny,3\n")
+    ds = (await client.post(f"{API}/datasets/import", headers=headers,
+          json={"projectUid": project_uid, "name": "d", "sha": sha, "fileName": fn})).json()
+    g_col, v_col = ds["columns"][0]["id"], ds["columns"][1]["id"]
+
+    r = await client.get(f"{API}/datasets/{ds['id']}/columns/{v_col}/stats", headers=headers)
+    s = r.json()
+    assert s["count"] == 3 and s["min"] == 1 and s["max"] == 3 and s["mean"] == 2
+
+    r = await client.get(f"{API}/datasets/{ds['id']}/columns/{g_col}/stats", headers=headers)
+    top = {tv["value"]: tv["count"] for tv in r.json()["topValues"]}
+    assert top == {"x": 2, "y": 1}
+
+
 async def test_non_member_cannot_access(client, db):
     admin = await _admin_headers(client)
     _, project_uid = await _project(client, admin)

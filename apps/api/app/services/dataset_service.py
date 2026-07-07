@@ -164,6 +164,43 @@ async def read_rows(node: DatasetFile) -> list[dict]:
     )
 
 
+def _col_types(node: DatasetFile) -> dict[str, str]:
+    return {c["id"]: c.get("type", "string") for c in (node.columns or [])}
+
+
+async def query_rows(
+    node: DatasetFile,
+    *,
+    offset: int,
+    limit: int,
+    sort: dict | None,
+    filters: list[dict] | None,
+    na: list[dict] | None,
+) -> tuple[list[dict], int]:
+    """A page of rows + total-after-filters, computed server-side on the Parquet."""
+    if not node.data_sha or not blob_store.exists(node.data_sha):
+        return [], 0
+    return await asyncio.to_thread(
+        dataset_rows.query_page,
+        blob_store.path_for(node.data_sha),
+        _col_types(node),
+        offset=offset,
+        limit=limit,
+        sort=sort,
+        filters=filters,
+        na=na,
+    )
+
+
+async def column_stats(node: DatasetFile, col_id: str) -> dict:
+    if not node.data_sha or not blob_store.exists(node.data_sha):
+        return {}
+    col_type = _col_types(node).get(col_id, "string")
+    return await asyncio.to_thread(
+        dataset_rows.column_stats, blob_store.path_for(node.data_sha), col_id, col_type
+    )
+
+
 async def write_rows(db: AsyncSession, node: DatasetFile, rows: list[dict]) -> None:
     old = node.data_sha
     node.data_sha = await _write_rows_blob(rows, node.columns)
