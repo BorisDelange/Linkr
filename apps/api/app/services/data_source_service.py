@@ -165,6 +165,16 @@ async def query(source: DataSource, sql: str) -> list[dict]:
     )
 
 
+async def introspect(source: DataSource) -> list[dict]:
+    """Introspect a stored external source's schema (tables + columns), using its
+    decrypted password. Returns the IntrospectedTable[] shape."""
+    config = dict(source.connection_config or {})
+    if config.get("engine") != "postgresql":
+        return []
+    password = connection_password(source)
+    return await asyncio.to_thread(db_connect.introspect_postgres, config, password)
+
+
 async def test_connection(config: dict) -> tuple[bool, str | None, list[dict]]:
     """Open a live connection using the (unpersisted) password in `config`,
     introspect the schema, and return (ok, error, tables)."""

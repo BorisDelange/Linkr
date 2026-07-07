@@ -13,6 +13,7 @@ from app.schemas.data_source import (
     DataSourceFileResponse,
     DataSourceResponse,
     DataSourceUpdate,
+    IntrospectedTable,
     QueryRequest,
     QueryResult,
     TestConnectionRequest,
@@ -192,6 +193,18 @@ async def query_data_source(
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return QueryResult(rows=rows)
+
+
+@router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
+async def get_data_source_schema(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Introspected tables + columns of an external source, for the schema
+    mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
+    source = await _load_source(db, source_id, user, "viewer")
+    return await data_source_service.introspect(source)
 
 
 @router.get("/{source_id}/files", response_model=list[DataSourceFileResponse])

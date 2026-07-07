@@ -34,6 +34,33 @@ export function testConnectionOnServer(
 }
 
 /**
+ * Run read-only SQL against an external source server-side and return the rows.
+ * The server-mode counterpart to engine.queryDataSource — the raw tables never
+ * reach the browser, only the result rows.
+ */
+export async function queryDataSourceOnServer(
+  dataSourceId: string,
+  sql: string,
+): Promise<Record<string, unknown>[]> {
+  const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
+    `/data-sources/${dataSourceId}/query`,
+    { method: 'POST', body: JSON.stringify({ sql }) },
+  )
+  return res.rows
+}
+
+/**
+ * Introspect a stored external source's schema (tables + columns) server-side.
+ * Uses the dedicated introspection path (native Postgres catalog), not the
+ * generic SQL executor — so it returns the source's real tables.
+ */
+export function fetchDataSourceSchema(
+  dataSourceId: string,
+): Promise<IntrospectedTable[]> {
+  return apiRequest<IntrospectedTable[]>(`/data-sources/${dataSourceId}/schema`)
+}
+
+/**
  * Server-mode data source storage. Metadata is CRUD against the API; the
  * connection password is stripped server-side and never returned.
  */

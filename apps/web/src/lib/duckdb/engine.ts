@@ -1,5 +1,7 @@
 import * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
+import { isServerMode } from '@/lib/api-client'
+import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -310,6 +312,12 @@ export async function mountEmptyFromDDL(
 
 /** Discover table names in a mounted data source. */
 export async function discoverTables(dataSourceId: string): Promise<string[]> {
+  // Server mode: the source's own catalog (not DuckDB's information_schema,
+  // which through the ATTACH would show internal views) — via the schema endpoint.
+  if (isServerMode()) {
+    const tables = await fetchDataSourceSchema(dataSourceId)
+    return tables.map((t) => t.name)
+  }
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -343,6 +351,10 @@ export interface IntrospectedTable {
  * search_path is set correctly for both schema-based and ATTACHed sources.
  */
 export async function discoverFullSchema(dataSourceId: string): Promise<IntrospectedTable[]> {
+  // Server mode: use the native-catalog introspection endpoint (see discoverTables).
+  if (isServerMode()) {
+    return fetchDataSourceSchema(dataSourceId)
+  }
   const rows = await queryDataSource(
     dataSourceId,
     `SELECT table_name, column_name, data_type, is_nullable, ordinal_position
@@ -399,6 +411,12 @@ export async function queryDataSource(
   dataSourceId: string,
   sql: string,
 ): Promise<Record<string, unknown>[]> {
+  // Server mode: the tables live on the server (external DB or server-held
+  // files), so the query runs there — the browser never loads the raw data.
+  // Front-only mode keeps the in-browser DuckDB-WASM path below.
+  if (isServerMode()) {
+    return queryDataSourceOnServer(dataSourceId, sql)
+  }
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
