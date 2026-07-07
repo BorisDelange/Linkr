@@ -209,8 +209,11 @@ function SqlScriptsFileTreeItem({
               </>
             )}
             {editing ? (
+              // -ml-1 offsets the border+padding so the text sits at the same x
+              // as the static name (no jump between view/edit). min-w-0 lets the
+              // whole field shrink with the sidebar instead of clipping.
               <span
-                className="ml-0.5 flex flex-1 items-center gap-0.5 rounded border border-primary bg-background pl-1"
+                className="-ml-1 flex min-w-0 flex-1 items-center rounded border border-primary bg-background"
                 onClick={(e) => e.stopPropagation()}
               >
                 <input
@@ -221,17 +224,8 @@ function SqlScriptsFileTreeItem({
                     if (e.key === 'Enter') handleRenameSubmit()
                     if (e.key === 'Escape') setEditing(false)
                   }}
-                  className="min-w-0 flex-1 bg-transparent py-0.5 text-xs outline-none"
+                  className="min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
                 />
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  aria-label={t('common.save')}
-                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit() }}
-                  className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600"
-                >
-                  <Check size={12} />
-                </span>
                 <span
                   role="button"
                   tabIndex={-1}
@@ -240,6 +234,15 @@ function SqlScriptsFileTreeItem({
                   className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
                 >
                   <X size={12} />
+                </span>
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  aria-label={t('common.save')}
+                  onClick={(e) => { e.stopPropagation(); handleRenameSubmit() }}
+                  className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600"
+                >
+                  <Check size={12} />
                 </span>
               </span>
             ) : (

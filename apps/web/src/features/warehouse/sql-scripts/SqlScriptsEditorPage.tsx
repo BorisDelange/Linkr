@@ -445,8 +445,8 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       })
                     }}
                   >
-                    <SelectTrigger className="h-6 w-auto gap-1.5 border-0 bg-transparent px-1.5 text-[11px] shadow-none hover:bg-accent/50">
-                      <Database size={11} className={activeDbId ? 'text-amber-500' : 'text-muted-foreground'} />
+                    <SelectTrigger className="h-5 w-auto gap-1 border-0 bg-transparent px-1 text-[10px] shadow-none hover:bg-accent/50 [&_svg]:size-2.5">
+                      <Database size={10} className={activeDbId ? 'text-amber-500' : 'text-muted-foreground'} />
                       <SelectValue placeholder={t('sql_scripts.select_database')} />
                     </SelectTrigger>
                     <SelectContent>
@@ -460,6 +460,21 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       ))}
                     </SelectContent>
                   </Select>
+
+                  {/* Browse the database schema — sits right after the DB picker. */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => setSchemaDialogOpen(true)}
+                        disabled={!activeDbId}
+                      >
+                        <Table2 size={13} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('sql_scripts.browse_schema')}</TooltipContent>
+                  </Tooltip>
 
                   {/* Copy schema reference — only meaningful in front-only mode,
                       where tables are addressed as "ds_<alias>".<table>. In server
@@ -491,19 +506,6 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                   )}
 
                   <div className="ml-auto flex items-center gap-1">
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          onClick={() => setSchemaDialogOpen(true)}
-                          disabled={!activeDbId}
-                        >
-                          <Table2 size={14} />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('sql_scripts.browse_schema')}</TooltipContent>
-                    </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button variant="ghost" size="icon-xs" onClick={() => setShortcutsOpen(true)}>
