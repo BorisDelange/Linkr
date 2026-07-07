@@ -58,6 +58,7 @@ import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
+import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -460,7 +461,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     </SelectContent>
                   </Select>
 
-                  {/* Copy schema reference */}
+                  {/* Copy schema reference — only meaningful in front-only mode,
+                      where tables are addressed as "ds_<alias>".<table>. In server
+                      mode the search_path is set server-side, so scripts use bare
+                      table names (FROM patients) and there is no prefix to copy. */}
+                  {!isServerMode() && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -483,6 +488,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                       {copiedRef ? `${t('sql_scripts.copied')}: ${copiedRef}` : t('sql_scripts.copy_schema_ref')}
                     </TooltipContent>
                   </Tooltip>
+                  )}
 
                   <div className="ml-auto flex items-center gap-1">
                     <Tooltip>
