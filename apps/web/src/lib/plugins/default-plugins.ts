@@ -421,7 +421,7 @@ export function registerDefaultPlugins() {
     componentId: 'map',
   })
 
-  registerComponent('statistical-tests', StatisticalTestsComponent)
+  registerComponent('statistical-tests', StatisticalTestsComponent, { supportsServer: true })
   registerPlugin({
     manifest: normaliseManifest(statisticalTestsManifest as unknown as Record<string, unknown>),
     templates: null,

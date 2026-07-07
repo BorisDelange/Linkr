@@ -1,8 +1,11 @@
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FlaskConical, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isServerMode } from '@/lib/api-client'
+import { executeOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import { buildStatisticalTestsCode } from './statistical-tests-server'
 
 // ===========================================================================
 // Types
@@ -1052,9 +1055,10 @@ function fmt(val: number, decimals = 2): string {
 
 const ALL_TABLE_COLUMNS = ['test', 'statistic', 'df', 'p', 'ci', 'effectSize', 'descriptive'] as const
 
-export function StatisticalTestsComponent({ config, columns, rows, compact }: ComponentPluginProps) {
+export function StatisticalTestsComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { i18n } = useTranslation()
   const lang = (i18n.language === 'fr' ? 'fr' : 'en') as 'en' | 'fr'
+  const server = isServerMode()
 
   const groupColumnId = config.groupColumn as string | undefined
   const rawValueColumns = config.valueColumns as string[] | undefined
@@ -1071,10 +1075,32 @@ export function StatisticalTestsComponent({ config, columns, rows, compact }: Co
     ? rawValueColumns
     : columns.filter((c) => c.id !== groupColumnId).map((c) => c.id)
 
-  const results = useMemo(
-    () => computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha),
-    [rows, columns, groupColumnId, valueColumnIds, testPreference, alpha],
+  const localResults = useMemo(
+    () => (server ? null : computeAllTests(rows, columns, groupColumnId, valueColumnIds, testPreference, alpha)),
+    [server, rows, columns, groupColumnId, valueColumnIds, testPreference, alpha],
   )
+  // Stable string keys so the effect only re-fetches on a semantic change.
+  const serverCode = server && datasetFileId && groupColumnId
+    ? buildStatisticalTestsCode(columns, groupColumnId, valueColumnIds, testPreference, alpha)
+    : null
+  const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const [serverResults, setServerResults] = useState<TestResult[] | null>(null)
+  const [serverError, setServerError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!server || !datasetFileId || !serverCode) return
+    let cancelled = false
+    executeOnServer('python', serverCode, { datasetFileId, datasetFilters })
+      .then((out) => {
+        if (cancelled) return
+        if (out.stderr) { setServerError(out.stderr); return }
+        try { setServerResults(JSON.parse(out.stdout.trim()) as TestResult[]); setServerError(null) }
+        catch { setServerError(out.stdout || 'Failed to parse result') }
+      })
+      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+    return () => { cancelled = true }
+  }, [server, datasetFileId, serverCode, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const results = useMemo(() => (server ? serverResults : localResults) ?? [], [server, serverResults, localResults])
 
   // Collect group names for descriptive columns (always computed)
   const allGroupNames = useMemo(() => {
@@ -1102,11 +1128,29 @@ export function StatisticalTestsComponent({ config, columns, rows, compact }: Co
     )
   }
 
-  if (rows.length === 0) {
+  if (server && serverError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <FlaskConical size={24} className="opacity-40" />
+        <p className="text-xs whitespace-pre-wrap">{serverError}</p>
+      </div>
+    )
+  }
+
+  if (!server && rows.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
         <FlaskConical size={24} className="opacity-40" />
         <p className="text-xs">{lang === 'fr' ? 'Aucune donnée disponible.' : 'No data available.'}</p>
+      </div>
+    )
+  }
+
+  // Server mode: hold the frame until results arrive (empty array is a real "no columns" state).
+  if (server && serverResults === null) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-muted-foreground">
+        <FlaskConical size={24} className="opacity-40" />
       </div>
     )
   }
