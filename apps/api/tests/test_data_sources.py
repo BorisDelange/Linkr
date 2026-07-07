@@ -167,6 +167,15 @@ async def test_duckdb_file_source_query_and_schema(client):
     assert r.status_code == 200
     assert r.json()["rows"] == [{"n": 3}]
 
+    # Multi-statement CREATE VIEW + SELECT: the file is read-only, but views land
+    # in the writable `memory` catalog so scripts with intermediate views work.
+    r = await client.post(f"{API}/data-sources/{ds['id']}/query", headers=headers, json={
+        "sql": "CREATE OR REPLACE VIEW males AS SELECT * FROM person WHERE gender='M';"
+               " SELECT COUNT(*) AS n FROM males;",
+    })
+    assert r.status_code == 200
+    assert r.json()["rows"] == [{"n": 2}]
+
 
 async def test_query_unsupported_engine_is_400(client):
     headers = await _admin_headers(client)

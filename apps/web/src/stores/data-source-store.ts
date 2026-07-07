@@ -549,6 +549,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   testConnection: async (id) => {
+    // Server mode: nothing mounts in the browser. The server owns the connection
+    // and runs queries; re-validating goes through retestDataSource, not a WASM
+    // mount. Callers that just want to run SQL don't need to do anything here.
+    if (isServerMode()) return
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds || busySources.has(id)) return
     const config = ds.connectionConfig as DatabaseConnectionConfig
@@ -622,6 +626,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   mountProjectSources: async (projectUid: string) => {
+    // Server mode: sources are queried server-side, nothing is mounted in the
+    // browser (mounting would download the file bytes — the very thing we avoid).
+    if (isServerMode()) return
     const linkedIds = useAppStore.getState().getProjectLinkedDataSourceIds(projectUid)
     const sources = get().dataSources.filter(
       (ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id) && !busySources.has(ds.id),
@@ -680,6 +687,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   reconnectDataSource: async (id) => {
+    // Server mode: no browser-side FS Access handles to re-permission.
+    if (isServerMode()) return
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds || busySources.has(id)) return
     const config = ds.connectionConfig as DatabaseConnectionConfig

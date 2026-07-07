@@ -96,24 +96,76 @@ def _row_to_json(row: dict) -> dict:
     return out
 
 
-def query_external(config: dict, password: str | None, sql: str) -> list[dict]:
-    """Run read-only SQL against the attached source and return rows as dicts.
+def _split_statements(sql: str) -> list[str]:
+    """Split SQL on semicolons, ignoring those inside single-quoted strings and
+    line comments. Mirrors the frontend's splitSqlStatements so multi-statement
+    scripts (CREATE VIEW …; SELECT …;) behave the same server-side."""
+    stmts: list[str] = []
+    current = ""
+    i = 0
+    n = len(sql)
+    while i < n:
+        ch = sql[i]
+        if ch == "'":
+            current += ch
+            i += 1
+            while i < n:
+                if sql[i] == "'" and i + 1 < n and sql[i + 1] == "'":
+                    current += "''"
+                    i += 2
+                elif sql[i] == "'":
+                    current += "'"
+                    i += 1
+                    break
+                else:
+                    current += sql[i]
+                    i += 1
+        elif ch == "-" and i + 1 < n and sql[i + 1] == "-":
+            nl = sql.find("\n", i)
+            i = n if nl == -1 else nl + 1
+        elif ch == ";":
+            if current.strip():
+                stmts.append(current.strip())
+            current = ""
+            i += 1
+        else:
+            current += ch
+            i += 1
+    if current.strip():
+        stmts.append(current.strip())
+    return stmts
 
-    The search_path is set to the attached catalog + scope so the caller's SQL
-    can use bare table names (``FROM patients``), matching the DuckDB-WASM path.
-    Date/time values are returned as ISO strings for JSON transport.
+
+def _run_statements(
+    con: duckdb.DuckDBPyConnection, search_path: str, sql: str
+) -> list[dict]:
+    """Execute each statement in `sql` sequentially, returning the last result's
+    rows. `search_path` puts DuckDB's writable `memory` catalog first (so CREATE
+    VIEW / temp tables land there) then the read-only attached source for reads."""
+    con.execute(f"SET search_path='{search_path}'")
+    result: duckdb.DuckDBPyConnection | None = None
+    for stmt in _split_statements(sql):
+        result = con.execute(stmt)
+    if result is None or result.description is None:
+        return []
+    names = [d[0] for d in result.description]
+    return [_row_to_json(dict(zip(names, row))) for row in result.fetchall()]
+
+
+def query_external(config: dict, password: str | None, sql: str) -> list[dict]:
+    """Run SQL against the attached source and return rows as dicts.
+
+    Bare table names (``FROM patients``) resolve to the source via search_path,
+    matching the DuckDB-WASM path. The source is attached read-only; CREATE VIEW
+    / temp tables land in DuckDB's local `memory` catalog (writable), so
+    multi-statement scripts work. Date/time values come back as ISO strings.
     """
     spec = _engine_spec(config)
     scope = _scope(config)
     con = _connect(spec["extension"])
     try:
         _attach(con, config, password)
-        con.execute(f"SET search_path TO {_ATTACH_ALIAS}.{scope}")
-        rel = con.execute(sql)
-        if rel.description is None:
-            return []
-        names = [d[0] for d in rel.description]
-        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+        return _run_statements(con, f"memory,{_ATTACH_ALIAS}.{scope}", sql)
     finally:
         con.close()
 
@@ -130,17 +182,13 @@ def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None
 
 
 def query_file(engine: str, path: str, sql: str) -> list[dict]:
-    """Run read-only SQL against a local DuckDB/SQLite file (server-side)."""
+    """Run SQL against a local DuckDB/SQLite file (server-side). Read-only file;
+    CREATE VIEW / temp tables land in the writable `memory` catalog."""
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         _attach_file(con, engine, path)
-        con.execute(f"SET search_path TO {_ATTACH_ALIAS}")
-        rel = con.execute(sql)
-        if rel.description is None:
-            return []
-        names = [d[0] for d in rel.description]
-        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+        return _run_statements(con, f"memory,{_ATTACH_ALIAS}", sql)
     finally:
         con.close()
 
@@ -224,12 +272,7 @@ def query_parquet_folder(
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         _attach_parquet_views(con, groups)
-        con.execute(f"SET search_path TO {_ATTACH_ALIAS}")
-        rel = con.execute(sql)
-        if rel.description is None:
-            return []
-        names = [d[0] for d in rel.description]
-        return [_row_to_json(dict(zip(names, row))) for row in rel.fetchall()]
+        return _run_statements(con, f"{_ATTACH_ALIAS},memory", sql)
     finally:
         con.close()
 
