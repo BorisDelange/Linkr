@@ -13,6 +13,7 @@ import {
   Square,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Table2,
   Keyboard,
@@ -25,6 +26,13 @@ import {
   FolderPlus,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   Dialog,
   DialogContent,
@@ -46,13 +54,6 @@ import {
 } from '@/components/ui/context-menu'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -139,6 +140,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   const dbSources = dataSources.filter((ds) => ds.sourceType === 'database' && !ds.isVocabularyReference)
 
   const activeDbId = collection?.defaultDataSourceId ?? null
+  const activeDb = activeDbId ? dbSources.find((ds) => ds.id === activeDbId) : undefined
 
   // Mount the active database
   useEffect(() => {
@@ -435,31 +437,40 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     </>
                   )}
 
-                  {/* Database selector (collection-level, session-only) */}
+                  {/* Database selector — same picker UI as the IDE's RunButton. */}
                   <div className="mx-1 h-4 w-px bg-border" />
-                  <Select
-                    value={activeDbId ?? '__none__'}
-                    onValueChange={(value) => {
-                      updateCollection(collectionId, {
-                        defaultDataSourceId: value === '__none__' ? undefined : value,
-                      })
-                    }}
-                  >
-                    <SelectTrigger className="h-5 w-auto gap-1 border-0 bg-transparent px-1 text-[10px] shadow-none hover:bg-accent/50 [&_svg]:size-2.5">
-                      <Database size={10} className={activeDbId ? 'text-amber-500' : 'text-muted-foreground'} />
-                      <SelectValue placeholder={t('sql_scripts.select_database')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">
-                        <span className="text-muted-foreground">— {t('sql_scripts.select_database')}</span>
-                      </SelectItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="xs" className="gap-1 max-w-[160px]">
+                        <Database size={12} className="shrink-0" />
+                        <span className="truncate">
+                          {activeDb?.name ?? t('sql_scripts.select_database')}
+                        </span>
+                        <ChevronDown size={10} className="shrink-0 opacity-50" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-[200px]">
+                      <DropdownMenuItem
+                        onClick={() => updateCollection(collectionId, { defaultDataSourceId: undefined })}
+                        className="gap-2 text-muted-foreground"
+                      >
+                        — {t('sql_scripts.select_database')}
+                      </DropdownMenuItem>
+                      {dbSources.length > 0 && <DropdownMenuSeparator />}
                       {dbSources.map((ds) => (
-                        <SelectItem key={ds.id} value={ds.id}>
-                          {ds.name}
-                        </SelectItem>
+                        <DropdownMenuItem
+                          key={ds.id}
+                          onClick={() => updateCollection(collectionId, { defaultDataSourceId: ds.id })}
+                          className="gap-2"
+                          title={ds.name}
+                        >
+                          <Database size={13} className="shrink-0 text-amber-500" />
+                          <span className="truncate">{ds.name}</span>
+                          {activeDbId === ds.id && <Check size={13} className="ml-auto shrink-0" />}
+                        </DropdownMenuItem>
                       ))}
-                    </SelectContent>
-                  </Select>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Browse the database schema — sits right after the DB picker. */}
                   <Tooltip>
