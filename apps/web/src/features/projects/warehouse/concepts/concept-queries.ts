@@ -356,21 +356,32 @@ export function buildConceptFullQuery(
   const dicts = mapping.conceptTables
   if (!dicts || dicts.length === 0) return null
 
+  // Alias the id/name columns to concept_id/concept_name (like the list query)
+  // so the detail sidebar reads the same fields. EXCLUDE drops the raw source
+  // columns first, so when idColumn is literally "concept_id" (OMOP) we don't
+  // emit a duplicate column (which DuckDB rejects). SELECT * keeps the rest.
+  const selectExpr = (d: ConceptDictionary): string => {
+    const excluded = [d.idColumn, d.nameColumn].filter(Boolean).map((c) => `"${c}"`)
+    const star = excluded.length ? `c.* EXCLUDE (${excluded.join(', ')})` : 'c.*'
+    return `${star}, c."${d.idColumn}" AS concept_id, c."${d.nameColumn}" AS concept_name`
+  }
+
   // If dictKey provided, query that specific dict
   if (dictKey) {
     const dict = dicts.find((d) => d.key === dictKey)
     if (!dict) return null
-    return `SELECT * FROM "${dict.table}" WHERE "${dict.idColumn}" = ${conceptId}`
+    return `SELECT ${selectExpr(dict)} FROM "${dict.table}" c WHERE c."${dict.idColumn}" = ${conceptId}`
   }
 
   // Otherwise, try each dict (concept_id might not be unique across dicts, but typically is)
   if (dicts.length === 1) {
-    return `SELECT * FROM "${dicts[0].table}" WHERE "${dicts[0].idColumn}" = ${conceptId}`
+    const dict = dicts[0]
+    return `SELECT ${selectExpr(dict)} FROM "${dict.table}" c WHERE c."${dict.idColumn}" = ${conceptId}`
   }
 
   // Multi-dict: UNION ALL with _dict_key, take first match
   const parts = dicts.map(
-    (d) => `SELECT *, '${esc(d.key)}' AS _dict_key FROM "${d.table}" WHERE "${d.idColumn}" = ${conceptId}`,
+    (d) => `SELECT ${selectExpr(d)}, '${esc(d.key)}' AS _dict_key FROM "${d.table}" c WHERE c."${d.idColumn}" = ${conceptId}`,
   )
   return `${parts.join(' UNION ALL ')} LIMIT 1`
 }

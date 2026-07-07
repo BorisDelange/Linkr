@@ -44,7 +44,16 @@ export function ConceptDetail({ concept, availableColumns, stats, statsLoading, 
   }
 
   const conceptName = String(concept.concept_name ?? '')
-  const conceptId = Number(concept.concept_id)
+  // The id column is aliased from the mapping's idColumn; a mis-mapped or text id
+  // yields NaN — don't render "#NaN", just show the raw value (or nothing).
+  const rawId = concept.concept_id
+  const numericId = Number(rawId)
+  const conceptIdLabel =
+    rawId == null || rawId === ''
+      ? null
+      : Number.isFinite(numericId)
+        ? String(numericId)
+        : String(rawId)
   const vocabularyId = concept.vocabulary_id ? String(concept.vocabulary_id) : null
   const dictKey = concept._dict_key ? String(concept._dict_key) : null
 
@@ -53,9 +62,13 @@ export function ConceptDetail({ concept, availableColumns, stats, statsLoading, 
       <div className="space-y-4 p-3">
         {/* Header */}
         <div>
-          <h3 className="break-words text-sm font-semibold leading-tight">{conceptName}</h3>
+          <h3 className="break-words text-sm font-semibold leading-tight">
+            {conceptName || conceptIdLabel || t('concepts.unnamed_concept')}
+          </h3>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <span className="font-mono text-xs text-muted-foreground">#{conceptId}</span>
+            {conceptIdLabel && (
+              <span className="font-mono text-xs text-muted-foreground">#{conceptIdLabel}</span>
+            )}
             {vocabularyId && <Badge variant="outline" className="text-[10px]">{vocabularyId}</Badge>}
             {dictKey && <Badge variant="secondary" className="text-[10px]">{dictKey}</Badge>}
           </div>

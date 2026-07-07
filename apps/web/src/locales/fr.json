@@ -474,6 +474,7 @@
     "pagination_page": "Page {{page}} sur {{total}}",
     "pagination_per_page": "Par page",
     "select_concept": "Sélectionnez un concept pour voir les détails.",
+    "unnamed_concept": "Concept sans nom",
     "standard_s": "Standard",
     "standard_c": "Classification",
     "standard_non": "Non standard"
