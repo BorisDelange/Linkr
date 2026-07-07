@@ -100,6 +100,11 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   const statsCache = useRef<Map<number, ConceptStats>>(cached?.statsCache ?? new Map())
 
+  // The concept whose stats are the ones we currently want shown. A slow load
+  // for a previously-clicked concept must not clobber a newer selection, and a
+  // cached click must render instantly regardless of an in-flight request.
+  const activeStatsConceptId = useRef<number | null>(null)
+
   // Refs to track latest values for the unmount cleanup
   const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions })
   latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions }
@@ -312,9 +317,17 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const loadConceptStats = useCallback(async (conceptId: number, dictKey: string) => {
     if (!dataSourceId || !schemaMapping) return
 
+    // This concept is now the one we want shown. Any older in-flight load that
+    // resolves later will see it's no longer active and skip its state updates.
+    activeStatsConceptId.current = conceptId
+    const isStale = () => activeStatsConceptId.current !== conceptId
+
     const cachedStats = statsCache.current.get(conceptId)
     if (cachedStats) {
+      // Instant: cached clicks render immediately and clear any leftover spinner
+      // from a still-running load for a different concept.
       setConceptStats(cachedStats)
+      setConceptStatsLoading(false)
       return
     }
 
@@ -322,7 +335,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     try {
       const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
       if (!countSql) {
-        setConceptStats(null)
+        if (!isStale()) setConceptStats(null)
         return
       }
 
@@ -353,12 +366,14 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
       const stats: ConceptStats = { rowCount, distribution, histogram }
       statsCache.current.set(conceptId, stats)
-      setConceptStats(stats)
+      // Only apply if this is still the selected concept — a newer click wins.
+      if (!isStale()) setConceptStats(stats)
     } catch (err) {
       console.error('Failed to load concept stats:', err)
-      setConceptStats(null)
+      if (!isStale()) setConceptStats(null)
     } finally {
-      setConceptStatsLoading(false)
+      // Only the latest request controls the shared loading flag.
+      if (!isStale()) setConceptStatsLoading(false)
     }
   }, [dataSourceId, schemaMapping])
 
