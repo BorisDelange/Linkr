@@ -5,7 +5,9 @@ import {
   apiDatasetRawFileStorage,
 } from '@/lib/api/datasets'
 import { apiCohortStorage } from '@/lib/api/cohorts'
+import { apiDataCatalogStorage } from '@/lib/api/catalogs'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
+import { apiDqCustomCheckStorage, apiDqRuleSetStorage } from '@/lib/api/dq'
 import { apiEtlFileStorage, apiEtlPipelineStorage } from '@/lib/api/etl'
 import { apiIdeFileStorage } from '@/lib/api/ide-files'
 import { apiOrganizationStorage } from '@/lib/api/organizations'
@@ -50,5 +52,8 @@ export function createAPIStorage(): Storage {
     etlPipelines: apiEtlPipelineStorage,
     etlFiles: apiEtlFileStorage,
     cohorts: apiCohortStorage,
+    dqRuleSets: apiDqRuleSetStorage,
+    dqCustomChecks: apiDqCustomCheckStorage,
+    dataCatalogs: apiDataCatalogStorage,
   }
 }

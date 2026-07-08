@@ -1,8 +1,10 @@
 from app.models.user import User
 from app.models.project import Project
 from app.models.cohort import Cohort
+from app.models.data_catalog import DataCatalog
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
+from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
 from app.models.etl_pipeline import EtlFile, EtlPipeline
 from app.models.plugin import Plugin
 from app.models.workspace import Workspace
@@ -22,6 +24,9 @@ __all__ = [
     "DatasetFile",
     "DatasetAnalysis",
     "Cohort",
+    "DataCatalog",
+    "DqRuleSet",
+    "DqCustomCheck",
     "EtlPipeline",
     "EtlFile",
     "Plugin",
