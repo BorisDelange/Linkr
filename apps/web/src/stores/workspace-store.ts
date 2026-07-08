@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { deleteProjectData } from '@/lib/entity-io'
+import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { isShellHtml, toLocalized, setLocalized, localized } from '@/lib/localized'
 import type { Workspace, GitRemoteConfig, Language, ProjectBadge, LocalizedString } from '@/types'
 import { useAppStore, registerWorkspaceStore, stampAuthored } from './app-store'
@@ -116,6 +117,21 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
       updatedAt: now,
     }
     await getStorage().workspaces.create(workspace)
+    // Seed the built-in schema presets (OMOP 5.4/5.3, MIMIC-IV/III) so every new
+    // workspace ships with them, in both local and server mode.
+    await Promise.all(
+      BUILTIN_PRESET_IDS.map((presetId) =>
+        getStorage()
+          .schemaPresets.save({
+            presetId,
+            workspaceId: id,
+            mapping: structuredClone(SCHEMA_PRESETS[presetId]),
+            createdAt: now,
+            updatedAt: now,
+          })
+          .catch((e) => console.warn('[workspace-store] preset seed:', presetId, e)),
+      ),
+    )
     set((s) => ({
       _workspacesRaw: [...s._workspacesRaw, workspace],
       workspaces: [...s.workspaces, workspaceToItem(workspace, lang)],
