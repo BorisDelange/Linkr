@@ -1,4 +1,5 @@
 import { apiRequest } from '@/lib/api-client'
+import { useAppStore } from '@/stores/app-store'
 import type { RuntimeLanguage, RuntimeOutput } from '@/lib/runtimes/types'
 
 /**
@@ -18,12 +19,16 @@ export function executeOnServer(
     datasetFilters?: unknown[]
   },
 ): Promise<RuntimeOutput> {
+  // The backend resolves a disk-source dataset (datasetFileId = its path) only
+  // with a project context; analysis components don't pass projectUid, so default
+  // it to the active project. Also scopes the persistent kernel per project.
+  const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
     body: JSON.stringify({
       language,
       code,
-      projectUid: opts?.projectUid ?? null,
+      projectUid,
       envId: opts?.envId ?? 'default',
       datasetFileId: opts?.datasetFileId ?? null,
       connectionId: opts?.connectionId ?? null,
