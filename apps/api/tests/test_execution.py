@@ -1,5 +1,6 @@
 """Server-side R/Python execution endpoint (POST /execute)."""
 
+import asyncio
 import shutil
 
 import pytest
@@ -275,3 +276,128 @@ async def test_execute_unsupported_language_is_400(client):
 async def test_execute_requires_auth(client):
     r = await client.post(f"{API}/execute", json={"language": "python", "code": "print(1)"})
     assert r.status_code == 401
+
+
+# --- Streaming core (execute_stream) -------------------------------------------
+# These exercise the Kernel directly: the terminal (§07d) streams output chunk by
+# chunk, while the batch execute() wrapper (covered by the tests above) proves the
+# legacy one-shot contract still holds on the same code path.
+
+
+def _make_python_kernel(tmp_path):
+    import sys
+
+    from app.services.execution.kernel import Kernel, _PY_KERNEL_LOOP
+
+    return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP], cwd=str(tmp_path))
+
+
+async def test_execute_stream_emits_chunks_before_done(tmp_path):
+    """Output produced incrementally must arrive as separate stdout chunks, in
+    order, before the final RuntimeOutput — not buffered into one blob."""
+    kernel = _make_python_kernel(tmp_path)
+    chunks: list[tuple[str, str]] = []
+    try:
+        out = await kernel.execute_stream(
+            "for i in range(3):\n    print(i)",
+            lambda kind, data: chunks.append((kind, data)),
+        )
+    finally:
+        await kernel.shutdown()
+    stdout_chunks = [c for c in chunks if c[0] == "stdout"]
+    assert len(stdout_chunks) >= 3
+    joined = "".join(d for _, d in stdout_chunks)
+    assert joined.index("0") < joined.index("1") < joined.index("2")
+    # Streamed output is not duplicated in the done payload.
+    assert out.stdout == ""
+
+
+async def test_execute_stream_routes_stderr_separately(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    chunks: list[tuple[str, str]] = []
+    try:
+        await kernel.execute_stream(
+            "import sys\nsys.stderr.write('warn\\n')\nprint('ok')",
+            lambda kind, data: chunks.append((kind, data)),
+        )
+    finally:
+        await kernel.shutdown()
+    assert any(k == "stderr" and "warn" in d for k, d in chunks)
+    assert any(k == "stdout" and "ok" in d for k, d in chunks)
+
+
+async def test_execute_stream_supports_async_chunk_handler(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    chunks: list[str] = []
+
+    async def on_chunk(kind: str, data: str) -> None:
+        chunks.append(data)
+
+    try:
+        await kernel.execute_stream("print('hi')", on_chunk)
+    finally:
+        await kernel.shutdown()
+    assert any("hi" in c for c in chunks)
+
+
+async def test_execute_stream_final_payload_carries_table(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    try:
+        out = await kernel.execute_stream(
+            "import pandas as pd\nresult = pd.DataFrame({'a': [1, 2]})",
+            lambda kind, data: None,
+        )
+    finally:
+        await kernel.shutdown()
+    assert out.table == {"headers": ["a"], "rows": [["1"], ["2"]]}
+
+
+async def test_execute_stream_keeps_variables_between_runs(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    collected: list[str] = []
+    try:
+        await kernel.execute_stream("a = 40", lambda k, d: None)
+        await kernel.execute_stream("print(a + 2)", lambda k, d: collected.append(d))
+    finally:
+        await kernel.shutdown()
+    assert any("42" in c for c in collected)
+
+
+async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
+    """SIGINT (Ctrl+C) breaks a long-running loop and the kernel stays alive for
+    the next command — the terminal interruption contract."""
+    kernel = _make_python_kernel(tmp_path)
+    try:
+        started = asyncio.Event()
+        chunks: list[str] = []
+
+        def on_chunk(kind: str, data: str) -> None:
+            chunks.append(data)
+            if "started" in data:
+                started.set()
+
+        run = asyncio.create_task(
+            kernel.execute_stream(
+                "import time\nprint('started', flush=True)\n"
+                "for _ in range(1000):\n    time.sleep(0.05)",
+                on_chunk,
+            )
+        )
+        await asyncio.wait_for(started.wait(), timeout=10)
+        assert kernel.interrupt() is True
+        await asyncio.wait_for(run, timeout=10)
+        # In stream mode the interrupt notice arrives as a stderr chunk, not in
+        # the done payload (whose stdout/stderr are empty while streaming).
+        assert any("KeyboardInterrupt" in c for c in chunks)
+
+        # Kernel still usable after the interrupt.
+        collected: list[str] = []
+        await kernel.execute_stream("print(7 * 6)", lambda k, d: collected.append(d))
+        assert any("42" in c for c in collected)
+    finally:
+        await kernel.shutdown()
+
+
+async def test_interrupt_no_live_process_returns_false(tmp_path):
+    kernel = _make_python_kernel(tmp_path)
+    assert kernel.interrupt() is False
