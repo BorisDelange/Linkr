@@ -1,5 +1,6 @@
 from app.models.user import User
 from app.models.project import Project
+from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.etl_pipeline import EtlFile, EtlPipeline
@@ -20,6 +21,7 @@ __all__ = [
     "DataSourceFile",
     "DatasetFile",
     "DatasetAnalysis",
+    "Cohort",
     "EtlPipeline",
     "EtlFile",
     "Plugin",

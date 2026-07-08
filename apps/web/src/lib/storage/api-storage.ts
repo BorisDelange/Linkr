@@ -4,6 +4,7 @@ import {
   apiDatasetFileStorage,
   apiDatasetRawFileStorage,
 } from '@/lib/api/datasets'
+import { apiCohortStorage } from '@/lib/api/cohorts'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
 import { apiEtlFileStorage, apiEtlPipelineStorage } from '@/lib/api/etl'
 import { apiIdeFileStorage } from '@/lib/api/ide-files'
@@ -48,5 +49,6 @@ export function createAPIStorage(): Storage {
     ideFiles: apiIdeFileStorage,
     etlPipelines: apiEtlPipelineStorage,
     etlFiles: apiEtlFileStorage,
+    cohorts: apiCohortStorage,
   }
 }
