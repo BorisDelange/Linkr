@@ -23,8 +23,12 @@ from app.schemas.mapping_project import (
     ServiceMappingResponse,
     ServiceMappingUpdate,
 )
+import asyncio
+
 from app.services import blob_store
 from app.services import mapping_project_service as svc
+from app.services.data import db_connect
+from app.services.data.file_source import build_source_concepts_select
 
 router = APIRouter(tags=["mapping-projects"])
 
@@ -146,6 +150,33 @@ async def set_raw_file(
         db, project,
         MappingProjectUpdate(raw_file_sha=body.sha, raw_file_name=body.file_name),
     )
+
+
+class FileSourceQuery(CamelModel):
+    sql: str
+
+
+@router.post(_PROJ + "/{project_id}/query")
+async def query_file_source(
+    project_id: str,
+    body: FileSourceQuery,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run the frontend's SQL over a file-source project's CSV (server-side
+    DuckDB). The CSV is projected to the `source_concepts` view via the project's
+    columnMapping, mirroring the browser's DuckDB-WASM mount."""
+    project = await _load_project(db, project_id, user, "viewer")
+    if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
+    column_mapping = (project.file_source_data or {}).get("columnMapping", {})
+    select_sql = build_source_concepts_select(column_mapping)
+    path = str(blob_store.path_for(project.raw_file_sha))
+    try:
+        rows = await asyncio.to_thread(db_connect.query_csv, path, select_sql, body.sql)
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Query failed: {e}")
+    return rows
 
 
 @router.get(_PROJ + "/{project_id}/raw-file")

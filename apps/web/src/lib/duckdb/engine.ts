@@ -2,6 +2,7 @@ import * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
+import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -431,6 +432,11 @@ export async function queryDataSource(
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.
   if (isServerMode()) {
+    // A mapping project's file source (`filesrc_<projectId>`) is not a real data
+    // source row — its CSV is queried by the mapping-projects endpoint instead.
+    if (dataSourceId.startsWith('filesrc_')) {
+      return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
+    }
     return queryDataSourceOnServer(dataSourceId, sql)
   }
   const db = await getDuckDB()

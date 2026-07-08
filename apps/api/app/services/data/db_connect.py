@@ -201,6 +201,26 @@ def query_file(engine: str, path: str, sql: str) -> list[dict]:
         con.close()
 
 
+def query_csv(path: str, select_sql: str, sql: str) -> list[dict]:
+    """Run SQL over a CSV blob for a mapping project's file source.
+
+    `select_sql` is the column-normalizing projection (built from the project's
+    columnMapping, mirroring the DuckDB-WASM mount) that becomes the view
+    ``source_concepts`` — the table name the frontend's SQL references. The CSV
+    is read with ``read_csv_auto(..., nullstr='NA')`` to match the browser path.
+    """
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        con.execute(
+            f"CREATE VIEW source_concepts AS SELECT {select_sql} "
+            f"FROM read_csv_auto('{path}', nullstr='NA')"
+        )
+        return _run_statements(con, "memory", sql)
+    finally:
+        con.close()
+
+
 def introspect_file(engine: str, path: str) -> list[dict]:
     """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
     (the file has no separate native catalog to passthrough to)."""

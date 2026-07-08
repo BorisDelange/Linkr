@@ -109,6 +109,39 @@ async def test_raw_file_blob_round_trip(client):
     assert blob.headers["x-file-name"] == "source.csv"
 
 
+async def test_file_source_query(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    # File-source project with a columnMapping matching the CSV headers.
+    p = (await client.post(f"{API}/mapping-projects", headers=headers, json={
+        "id": "mpf", "workspaceId": ws, "name": {"en": "F"}, "description": {},
+        "sourceType": "file", "conceptSetIds": [],
+        "fileSourceData": {
+            "fileName": "src.csv", "columns": ["code", "label", "vocab"], "rows": [],
+            "columnMapping": {
+                "conceptCodeColumn": "code",
+                "conceptNameColumn": "label",
+                "terminologyColumn": "vocab",
+            },
+        },
+    })).json()
+
+    csv = b"code,label,vocab\n1234-5,Glucose,LOINC\n6789-0,Sodium,LOINC\n"
+    sha, _ = await blob_store.store_bytes(csv)
+    await client.post(f"{API}/mapping-projects/{p['id']}/raw-file", headers=headers,
+                      json={"sha": sha, "fileName": "src.csv"})
+
+    # The frontend issues SQL against the normalized `source_concepts` view.
+    r = await client.post(f"{API}/mapping-projects/{p['id']}/query", headers=headers, json={
+        "sql": "SELECT concept_code, concept_name, vocabulary_id FROM source_concepts ORDER BY concept_code",
+    })
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 2
+    assert rows[0]["concept_code"] == "1234-5" and rows[0]["concept_name"] == "Glucose"
+    assert rows[0]["vocabulary_id"] == "LOINC"
+
+
 async def test_service_mapping_crud(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

@@ -11,6 +11,19 @@ const PROJ = '/mapping-projects'
 const MAP = '/concept-mappings'
 const SVC = '/service-mappings'
 
+/** Run SQL over a file-source project's CSV server-side (DuckDB reads the blob).
+ * The SQL references the `source_concepts` view, built server-side from the
+ * project's columnMapping — mirroring the DuckDB-WASM mount. */
+export function queryFileSourceOnServer(
+  projectId: string,
+  sql: string,
+): Promise<Record<string, unknown>[]> {
+  return apiRequest<Record<string, unknown>[]>(`${PROJ}/${projectId}/query`, {
+    method: 'POST',
+    body: JSON.stringify({ sql }),
+  })
+}
+
 /**
  * Strip the heavy raw CSV bytes out of a project before it goes over JSON: they
  * live in the content-addressed blob store, referenced by sha. If a project
