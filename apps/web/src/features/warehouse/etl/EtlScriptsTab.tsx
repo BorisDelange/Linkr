@@ -511,19 +511,24 @@ export function EtlScriptsTab({ pipelineId }: Props) {
                       </DropdownMenuContent>
                     </DropdownMenu>
 
-                    {/* Browse the source schema — sits right after the DB picker. */}
+                    {/* Browse the schema of the database picked in the dropdown just
+                        before (per-file override, else the pipeline target). */}
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => setSchemaDialogOpen(true)}
-                          disabled={!pipeline?.sourceDataSourceId}
+                          disabled={!resolveFileDataSourceId(selectedFile)}
                         >
                           <Table2 size={13} />
                         </Button>
                       </TooltipTrigger>
-                      <TooltipContent>{t('etl.browse_schema')}</TooltipContent>
+                      <TooltipContent>
+                        {resolveFileDataSourceId(selectedFile)
+                          ? t('etl.browse_schema')
+                          : t('etl.browse_schema_no_target')}
+                      </TooltipContent>
                     </Tooltip>
                   </>
                 )}
@@ -881,12 +886,13 @@ export function EtlScriptsTab({ pipelineId }: Props) {
         </DialogContent>
       </Dialog>
 
-      {/* Database schema browser — shared with SQL scripts, the IDE and ETL profiling. */}
-      {pipeline?.sourceDataSourceId && (
+      {/* Database schema browser — shared with SQL scripts, the IDE and ETL profiling.
+          Opens the database picked in the toolbar dropdown (per-file override, else target). */}
+      {resolveFileDataSourceId(selectedFile) && (
         <SchemaBrowserDialog
           open={schemaDialogOpen}
           onOpenChange={setSchemaDialogOpen}
-          dataSourceId={pipeline.sourceDataSourceId}
+          dataSourceId={resolveFileDataSourceId(selectedFile)!}
         />
       )}
 

@@ -10,6 +10,7 @@ import {
   Search,
   Copy,
   Check,
+  RefreshCw,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -22,6 +23,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -75,6 +77,32 @@ interface ColumnStats {
   topValues: { value: string; count: number; pct: number }[]
 }
 
+// --- Shared table-inspection cache ---
+//
+// Module-level (survives component unmount) so the three views — SQL scripts,
+// ETL and profiling — share one cache per (dataSource, table): opening a table
+// already inspected elsewhere is instant, no re-count. Keyed by dataSourceId +
+// table name. The Refresh button invalidates one entry and recomputes it.
+
+type NullCounts = Map<string, { nullCount: number; total: number; distinct: number }>
+
+interface TableCacheEntry {
+  columns: ColumnInfo[]
+  hasStats: boolean
+  rowCount: number | null
+  nullCounts: NullCounts
+  loadedAt: number
+}
+
+const tableCache = new Map<string, TableCacheEntry>()
+const tableCacheKey = (dataSourceId: string, table: string) => `${dataSourceId}::${table}`
+
+// Detailed per-column stats (distribution/top-values) are cached too, keyed by
+// dataSource + table + column, so re-clicking a column doesn't re-scan.
+const columnStatsCache = new Map<string, ColumnStats>()
+const columnStatsKey = (dataSourceId: string, table: string, col: string) =>
+  `${dataSourceId}::${table}::${col}`
+
 // --- Shared schema browser ---
 //
 // One component for the three schema views: the SQL-scripts / IDE "browse
@@ -86,7 +114,7 @@ interface Props {
 }
 
 export function SchemaBrowser({ dataSourceId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
   const [selectedTable, setSelectedTable] = useState<string | null>(null)
@@ -99,9 +127,12 @@ export function SchemaBrowser({ dataSourceId }: Props) {
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)
   const [columnNullCounts, setColumnNullCounts] = useState<Map<string, { nullCount: number; total: number; distinct: number }>>(new Map())
-  const [tableRowCounts, setTableRowCounts] = useState<Map<string, number>>(new Map())
   const [tableSearch, setTableSearch] = useState('')
   const [copied, setCopied] = useState(false)
+  // Stats are opt-in and computed lazily: on a source with billions of rows the
+  // COUNT/DISTINCT scans are expensive, so nothing runs until the user asks.
+  const [statsEnabled, setStatsEnabled] = useState(true)
+  const [loadedAt, setLoadedAt] = useState<number | null>(null)
 
   // Ensure source is mounted
   useEffect(() => {
@@ -109,7 +140,8 @@ export function SchemaBrowser({ dataSourceId }: Props) {
     testConnection(dataSourceId)
   }, [dataSourceId])
 
-  // Load tables
+  // Load the table list (names only — no per-table COUNT, which would scan every
+  // table up front). No auto-selection: the user picks a table to trigger work.
   useEffect(() => {
     let cancelled = false
     async function loadTables() {
@@ -118,21 +150,6 @@ export function SchemaBrowser({ dataSourceId }: Props) {
         const result = await duckdbEngine.discoverTables(dataSourceId)
         if (cancelled) return
         setTables(result)
-        setSelectedTable((prev) => prev ?? result[0] ?? null)
-
-        // Row counts per table for the sidebar (optional).
-        if (result.length > 0) {
-          try {
-            const countParts = result.map((tbl) => `SELECT '${tbl}' as tbl, COUNT(*) as cnt FROM "${tbl}"`)
-            const countRows = await duckdbEngine.queryDataSource(dataSourceId, countParts.join(' UNION ALL '))
-            if (cancelled) return
-            const map = new Map<string, number>()
-            for (const row of countRows) map.set(String(row.tbl), Number(row.cnt))
-            setTableRowCounts(map)
-          } catch {
-            // Row count is optional
-          }
-        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -141,73 +158,111 @@ export function SchemaBrowser({ dataSourceId }: Props) {
     return () => { cancelled = true }
   }, [dataSourceId])
 
-  // Load columns + basic stats when table changes
+  const applyEntry = useCallback((entry: TableCacheEntry) => {
+    setColumns(entry.columns)
+    setRowCount(entry.rowCount)
+    setColumnNullCounts(entry.nullCounts)
+    setLoadedAt(entry.loadedAt)
+  }, [])
+
+  // Load a table's columns (+ per-column null/distinct only when stats are on).
+  // Served from the shared cache unless `force` (the Refresh button) or the
+  // cached entry lacks the stats the caller now wants.
+  const loadTable = useCallback(async (table: string, withStats: boolean, force = false) => {
+    const key = tableCacheKey(dataSourceId, table)
+    const cached = tableCache.get(key)
+    if (!force && cached && (cached.hasStats || !withStats)) {
+      applyEntry(cached)
+      setSelectedColumn(null)
+      setColumnStats(null)
+      return
+    }
+
+    setLoading(true)
+    setSelectedColumn(null)
+    setColumnStats(null)
+    try {
+      const colRows = await duckdbEngine.queryDataSource(
+        dataSourceId,
+        `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${table}' ORDER BY ordinal_position`,
+      )
+      const cols: ColumnInfo[] = colRows.map((r) => ({
+        column_name: String(r.column_name),
+        data_type: String(r.data_type),
+        ordinal_position: Number(r.ordinal_position),
+      }))
+
+      let total: number | null = null
+      const map: NullCounts = new Map()
+      if (withStats) {
+        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM "${table}"`)
+        total = Number(countRows[0]?.cnt ?? 0)
+
+        // Null + distinct counts per column, in one batched round-trip.
+        if (cols.length > 0 && total > 0) {
+          const parts = cols.map((c) =>
+            `SELECT '${c.column_name}' as col, COUNT(*) - COUNT("${c.column_name}") as null_count, COUNT(DISTINCT "${c.column_name}") as distinct_count FROM "${table}"`
+          )
+          const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '))
+          for (const row of batchRows) {
+            map.set(String(row.col), {
+              nullCount: Number(row.null_count),
+              total: total!,
+              distinct: Number(row.distinct_count),
+            })
+          }
+        }
+      }
+
+      // A forced refresh drops any stale per-column stats for this table.
+      if (force) {
+        for (const c of cols) columnStatsCache.delete(columnStatsKey(dataSourceId, table, c.column_name))
+      }
+
+      const entry: TableCacheEntry = {
+        columns: cols,
+        hasStats: withStats,
+        rowCount: total,
+        nullCounts: map,
+        loadedAt: Date.now(),
+      }
+      tableCache.set(key, entry)
+      applyEntry(entry)
+    } finally {
+      setLoading(false)
+    }
+  }, [dataSourceId, applyEntry])
+
+  // (Re)load whenever the selected table or the stats toggle changes.
   useEffect(() => {
     if (!selectedTable) {
       setColumns([])
       setRowCount(null)
       setColumnNullCounts(new Map())
+      setLoadedAt(null)
       return
     }
-    let cancelled = false
+    loadTable(selectedTable, statsEnabled)
+  }, [selectedTable, statsEnabled, loadTable])
 
-    async function load() {
-      setLoading(true)
-      setSelectedColumn(null)
-      setColumnStats(null)
-      try {
-        const colRows = await duckdbEngine.queryDataSource(
-          dataSourceId,
-          `SELECT column_name, data_type, ordinal_position FROM information_schema.columns WHERE table_name = '${selectedTable}' ORDER BY ordinal_position`,
-        )
-        if (cancelled) return
-        const cols: ColumnInfo[] = colRows.map((r) => ({
-          column_name: String(r.column_name),
-          data_type: String(r.data_type),
-          ordinal_position: Number(r.ordinal_position),
-        }))
-        setColumns(cols)
-
-        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM "${selectedTable}"`)
-        if (cancelled) return
-        const total = Number(countRows[0]?.cnt ?? 0)
-        setRowCount(total)
-
-        // Null + distinct counts per column, in one batched round-trip.
-        if (cols.length > 0 && total > 0) {
-          const parts = cols.map((c) =>
-            `SELECT '${c.column_name}' as col, COUNT(*) - COUNT("${c.column_name}") as null_count, COUNT(DISTINCT "${c.column_name}") as distinct_count FROM "${selectedTable}"`
-          )
-          const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '))
-          if (cancelled) return
-          const map = new Map<string, { nullCount: number; total: number; distinct: number }>()
-          for (const row of batchRows) {
-            map.set(String(row.col), {
-              nullCount: Number(row.null_count),
-              total,
-              distinct: Number(row.distinct_count),
-            })
-          }
-          setColumnNullCounts(map)
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    load()
-    return () => { cancelled = true }
-  }, [dataSourceId, selectedTable])
-
-  // Load detailed stats for the selected column
+  // Load detailed stats for the selected column (only when stats are enabled).
   useEffect(() => {
-    if (!selectedTable || !selectedColumn) {
+    if (!selectedTable || !selectedColumn || !statsEnabled) {
       setColumnStats(null)
       return
     }
     let cancelled = false
     const col = columns.find((c) => c.column_name === selectedColumn)
     if (!col) return
+
+    // Serve detailed column stats from the shared cache when available.
+    const statsKey = columnStatsKey(dataSourceId, selectedTable, selectedColumn)
+    const cachedStats = columnStatsCache.get(statsKey)
+    if (cachedStats) {
+      setColumnStats(cachedStats)
+      setStatsLoading(false)
+      return
+    }
 
     async function loadStats() {
       setStatsLoading(true)
@@ -282,7 +337,7 @@ export function SchemaBrowser({ dataSourceId }: Props) {
         } catch { /* top values optional */ }
 
         if (!cancelled) {
-          setColumnStats({
+          const result: ColumnStats = {
             total,
             nonNull: total - nullCount,
             nullCount,
@@ -292,7 +347,9 @@ export function SchemaBrowser({ dataSourceId }: Props) {
             meanValue,
             histogram,
             topValues,
-          })
+          }
+          columnStatsCache.set(statsKey, result)
+          setColumnStats(result)
         }
       } finally {
         if (!cancelled) setStatsLoading(false)
@@ -301,7 +358,7 @@ export function SchemaBrowser({ dataSourceId }: Props) {
 
     loadStats()
     return () => { cancelled = true }
-  }, [dataSourceId, selectedTable, selectedColumn, columns, rowCount])
+  }, [dataSourceId, selectedTable, selectedColumn, columns, rowCount, statsEnabled])
 
   const handleSelectColumn = useCallback((colName: string) => {
     setSelectedColumn(colName)
@@ -340,13 +397,45 @@ export function SchemaBrowser({ dataSourceId }: Props) {
             <span className="text-xs font-medium">{selectedTable}</span>
           )}
 
-          {rowCount != null && (
+          {statsEnabled && rowCount != null && (
             <span className="text-xs text-muted-foreground">
               {rowCount.toLocaleString()} {t('etl.profiling_rows')} · {columns.length} {t('etl.profiling_columns')}
             </span>
           )}
 
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            {selectedTable && loadedAt != null && (
+              <span className="text-[11px] text-muted-foreground">
+                {t('etl.profiling_last_loaded', {
+                  date: new Date(loadedAt).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }),
+                })}
+              </span>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => { if (selectedTable) loadTable(selectedTable, statsEnabled, true) }}
+                  disabled={!selectedTable || loading}
+                >
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t('etl.profiling_refresh')}</TooltipContent>
+            </Tooltip>
+
+            <div className="mx-0.5 h-4 w-px bg-border" />
+
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+              <Checkbox
+                checked={statsEnabled}
+                onCheckedChange={(v) => setStatsEnabled(v === true)}
+                className="size-3.5"
+              />
+              {t('etl.profiling_compute_stats')}
+            </label>
+
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -400,23 +489,17 @@ export function SchemaBrowser({ dataSourceId }: Props) {
                         )
                       }
                       return sorted.map((table) => {
-                        const count = tableRowCounts.get(table)
                         const isActive = table === selectedTable
                         return (
                           <button
                             key={table}
                             onClick={() => setSelectedTable(table)}
                             className={cn(
-                              'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+                              'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
                               isActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/50',
                             )}
                           >
                             <span className="truncate font-mono">{table}</span>
-                            {count != null && (
-                              <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
-                                {count.toLocaleString()}
-                              </span>
-                            )}
                           </button>
                         )
                       })
@@ -498,7 +581,9 @@ export function SchemaBrowser({ dataSourceId }: Props) {
                               )}
                             </td>
                             <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                              {stats?.distinct?.toLocaleString() ?? (loading ? '—' : '0')}
+                              {!statsEnabled
+                                ? '—'
+                                : stats?.distinct?.toLocaleString() ?? (loading ? '—' : '0')}
                             </td>
                           </tr>
                         )
