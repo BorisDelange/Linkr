@@ -28,6 +28,13 @@ function inferDefaultLanguage(pluginId: string): AnalysisLanguage {
 }
 
 function AnalysisContent({ analysis }: { analysis: DatasetAnalysis }) {
+  // Inline custom code (Python/R/SQL): free-form code stored on the analysis,
+  // no plugin template. Mirrors the dashboard inline-code widget.
+  if (analysis.type === 'inline') {
+    const language = (analysis.config.language as 'python' | 'r' | 'sql' | undefined) ?? 'python'
+    return <InlineAnalysis analysis={analysis} language={language} />
+  }
+
   const plugin = getPlugin(analysis.type)
 
   // Component mode: plugin has runtime=['component'] and a componentId
@@ -128,6 +135,21 @@ function ScriptAnalysis({
       configPanel={renderConfigPanel}
       generatedCode={generatedCode}
       language={language}
+    />
+  )
+}
+
+/** Inline custom-code analysis (Python/R/SQL): edits + runs free-form code stored
+ *  on the analysis config, with no plugin template or config schema. */
+function InlineAnalysis({ analysis, language }: { analysis: DatasetAnalysis; language: 'python' | 'r' | 'sql' }) {
+  const code = (analysis.config.code as string | undefined) ?? ''
+  return (
+    <AnalysisShell
+      analysis={analysis}
+      configPanel={() => null}
+      generatedCode={code}
+      language={language}
+      initialTab="code"
     />
   )
 }

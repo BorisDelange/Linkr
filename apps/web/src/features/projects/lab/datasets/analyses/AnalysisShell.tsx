@@ -36,10 +36,12 @@ interface AnalysisShellProps {
   analysis: DatasetAnalysis
   configPanel: (onConfigChange: (changes: Record<string, unknown>) => void) => React.ReactNode
   generatedCode: string
-  language?: 'python' | 'r'
+  language?: 'python' | 'r' | 'sql'
+  /** Which left tab to open by default (inline-code analyses have no config). */
+  initialTab?: 'config' | 'code'
 }
 
-export function AnalysisShell({ analysis, configPanel, generatedCode, language = 'python' }: AnalysisShellProps) {
+export function AnalysisShell({ analysis, configPanel, generatedCode, language = 'python', initialTab = 'config' }: AnalysisShellProps) {
   const { t } = useTranslation()
   const { files, getFileRows, updateAnalysis, saveAnalysis, isAnalysisDirty, _dirtyVersion } = useDatasetStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
@@ -47,7 +49,7 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
   const autoRun = (analysis.config.autoRun as boolean) ?? false
 
   // null = left pane hidden; 'config' | 'code' = left pane visible with that tab
-  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(autoRun ? null : 'config')
+  const [activeTab, setActiveTab] = useState<'config' | 'code' | null>(autoRun ? null : initialTab)
   const [isExecuting, setIsExecuting] = useState(false)
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [installedDeps, setInstalledDeps] = useState<string[]>([])
@@ -108,21 +110,24 @@ export function AnalysisShell({ analysis, configPanel, generatedCode, language =
     setRightVisible(true)
     try {
       let output
+      // SQL analyses run in the Python kernel where sql_query() is available
+      // (same convention as inline-code dashboard widgets).
+      const execLanguage: 'python' | 'r' = language === 'r' ? 'r' : 'python'
       if (isServerMode()) {
         // Server mode: the backend loads the dataset's Parquet into the kernel as
         // `dataset` and runs the code there — no rows are shipped to the browser.
-        output = await executeOnServer(language, currentCode, {
+        output = await executeOnServer(execLanguage, currentCode, {
           projectUid: activeProjectUid ?? undefined,
           datasetFileId: analysis.datasetFileId,
         })
       } else {
         // Auto-install declared plugin dependencies (only checks once per session)
-        const newlyInstalled = await ensurePluginDependencies(analysis.type, language, (msg) => setStatusMessage(msg))
+        const newlyInstalled = await ensurePluginDependencies(analysis.type, execLanguage, (msg) => setStatusMessage(msg))
         setInstalledDeps(newlyInstalled)
         setStatusMessage(null)
 
         const rows = getFileRows(analysis.datasetFileId)
-        const exec = language === 'r' ? executeAnalysisCodeR : executeAnalysisCode
+        const exec = execLanguage === 'r' ? executeAnalysisCodeR : executeAnalysisCode
         output = await exec(currentCode, rows, columns)
       }
       setResult(output)
