@@ -17,6 +17,14 @@ async def _admin_headers(client) -> dict:
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
+async def _project(client, headers) -> str:
+    """Create a real (workspace-less) project and return its uid. Execution
+    endpoints require the project to exist (access derives from it), so kernel
+    tests can't use a made-up uid."""
+    r = await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}})
+    return r.json()["uid"]
+
+
 async def _run(client, headers, code: str, language: str = "python"):
     return await client.post(
         f"{API}/execute", headers=headers, json={"language": language, "code": code}
@@ -80,10 +88,11 @@ async def test_execute_r_error_goes_to_stderr(client):
 
 async def test_persistent_kernel_keeps_variables_between_runs(client):
     headers = await _admin_headers(client)
-    body1 = {"language": "python", "code": "a = 40\na = a + 2", "projectUid": "p1"}
+    uid = await _project(client, headers)
+    body1 = {"language": "python", "code": "a = 40\na = a + 2", "projectUid": uid}
     assert (await client.post(f"{API}/execute", headers=headers, json=body1)).status_code == 200
     # A second run in the same project/env sees `a` from the first.
-    body2 = {"language": "python", "code": "print(a)", "projectUid": "p1"}
+    body2 = {"language": "python", "code": "print(a)", "projectUid": uid}
     r = await client.post(f"{API}/execute", headers=headers, json=body2)
     assert r.json()["stdout"].strip() == "42"
 
@@ -92,7 +101,8 @@ async def test_execute_large_output_not_truncated_or_500(client):
     """A result line larger than asyncio's default 64 KB StreamReader limit must
     read fully (raised limit), not raise LimitOverrunError → 500."""
     headers = await _admin_headers(client)
-    body = {"language": "python", "code": "print('x' * 200000)", "projectUid": "p-big"}
+    uid = await _project(client, headers)
+    body = {"language": "python", "code": "print('x' * 200000)", "projectUid": uid}
     r = await client.post(f"{API}/execute", headers=headers, json=body)
     assert r.status_code == 200
     assert len(r.json()["stdout"]) >= 200000
@@ -102,11 +112,12 @@ async def test_kernel_recovers_from_dead_subprocess(client):
     """A crashed/killed kernel subprocess must not poison future runs: the next
     execute restarts it (broken-pipe retry) instead of returning a 500."""
     headers = await _admin_headers(client)
-    body = {"language": "python", "code": "print('ok')", "projectUid": "p-recover"}
+    uid = await _project(client, headers)
+    body = {"language": "python", "code": "print('ok')", "projectUid": uid}
     assert (await client.post(f"{API}/execute", headers=headers, json=body)).status_code == 200
     # Kill the live kernel's subprocess out from under it, leaving a dead pipe.
     from app.services.execution.kernel import manager
-    k = await manager.get("p-recover", "python", "default")
+    k = await manager.get(uid, "python", "default")
     if k._proc is not None:  # noqa: SLF001 — test reaches into the kernel to simulate a crash
         k._proc.kill()
         await k._proc.wait()
@@ -118,31 +129,34 @@ async def test_kernel_recovers_from_dead_subprocess(client):
 
 async def test_kernels_isolated_per_env(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     await client.post(f"{API}/execute", headers=headers,
-                      json={"language": "python", "code": "x = 1", "projectUid": "p1", "envId": "e1"})
+                      json={"language": "python", "code": "x = 1", "projectUid": uid, "envId": "e1"})
     r = await client.post(f"{API}/execute", headers=headers,
-                          json={"language": "python", "code": "print(x)", "projectUid": "p1", "envId": "e2"})
+                          json={"language": "python", "code": "print(x)", "projectUid": uid, "envId": "e2"})
     assert "NameError" in r.json()["stderr"]
 
 
 async def test_restart_clears_kernel_state(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     await client.post(f"{API}/execute", headers=headers,
-                      json={"language": "python", "code": "z = 99", "projectUid": "p2"})
+                      json={"language": "python", "code": "z = 99", "projectUid": uid})
     assert (await client.post(f"{API}/execute/restart", headers=headers,
-            json={"language": "python", "projectUid": "p2"})).status_code == 204
+            json={"language": "python", "projectUid": uid})).status_code == 204
     r = await client.post(f"{API}/execute", headers=headers,
-                          json={"language": "python", "code": "print(z)", "projectUid": "p2"})
+                          json={"language": "python", "code": "print(z)", "projectUid": uid})
     assert "NameError" in r.json()["stderr"]
 
 
 @requires_r
 async def test_persistent_r_kernel_keeps_variables(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     await client.post(f"{API}/execute", headers=headers,
-                      json={"language": "r", "code": "y <- 41; y <- y + 1", "projectUid": "rp1"})
+                      json={"language": "r", "code": "y <- 41; y <- y + 1", "projectUid": uid})
     r = await client.post(f"{API}/execute", headers=headers,
-                          json={"language": "r", "code": "print(y)", "projectUid": "rp1"})
+                          json={"language": "r", "code": "print(y)", "projectUid": uid})
     assert "42" in r.json()["stdout"]
 
 
@@ -215,8 +229,13 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     # resolves to a fake source, and query() returns canned rows.
     from app.services import data_source_service
 
+    uid = await _project(client, headers)
+
+    class _FakeSource:
+        workspace_id = None  # workspace-less → access check skipped
+
     async def fake_get(db, source_id):
-        return object()
+        return _FakeSource()
 
     async def fake_query(source, sql):
         assert "person" in sql
@@ -228,7 +247,7 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     r = await client.post(f"{API}/execute", headers=headers, json={
         "language": "python",
         "code": "df = sql_query('SELECT * FROM person')\nprint(df['name'].tolist())",
-        "projectUid": "sqlp", "connectionId": "conn-1",
+        "projectUid": uid, "connectionId": "conn-1",
     })
     assert r.status_code == 200
     assert "alice" in r.json()["stdout"] and "bob" in r.json()["stdout"]
@@ -236,10 +255,11 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
 
 async def test_sql_query_without_connection_errors_in_kernel(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     r = await client.post(f"{API}/execute", headers=headers, json={
         "language": "python",
         "code": "sql_query('SELECT 1')",
-        "projectUid": "sqlp2",
+        "projectUid": uid,
     })
     # No connection -> the RPC resolver returns an error the kernel raises -> stderr.
     assert r.status_code == 200
@@ -248,13 +268,14 @@ async def test_sql_query_without_connection_errors_in_kernel(client):
 
 async def test_list_kernels_reports_live_sessions(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     # No kernels yet for this project.
-    r = await client.get(f"{API}/execute/kernels?projectUid=kp", headers=headers)
+    r = await client.get(f"{API}/execute/kernels?projectUid={uid}", headers=headers)
     assert r.json() == []
     # Running code spins one up; it then shows as alive.
     await client.post(f"{API}/execute", headers=headers,
-                      json={"language": "python", "code": "1", "projectUid": "kp"})
-    r = await client.get(f"{API}/execute/kernels?projectUid=kp", headers=headers)
+                      json={"language": "python", "code": "1", "projectUid": uid})
+    r = await client.get(f"{API}/execute/kernels?projectUid={uid}", headers=headers)
     kernels = r.json()
     assert len(kernels) == 1
     assert kernels[0]["language"] == "python" and kernels[0]["alive"] is True
@@ -276,6 +297,28 @@ async def test_execute_unsupported_language_is_400(client):
 async def test_execute_requires_auth(client):
     r = await client.post(f"{API}/execute", json={"language": "python", "code": "print(1)"})
     assert r.status_code == 401
+
+
+async def test_execute_forbidden_without_project_membership(client):
+    """A user who is not a member of the project's workspace cannot run code in it
+    (nor spin up / list / restart its kernel). Guards cross-project code execution."""
+    admin = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
+    )).json()["uid"]
+
+    await client.post(f"{API}/users", headers=admin,
+                      json={"username": "mallory", "password": "pw", "role": "user"})
+    r = await client.post(f"{API}/auth/login", json={"username": "mallory", "password": "pw"})
+    mallory = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    run = await client.post(f"{API}/execute", headers=mallory,
+                            json={"language": "python", "code": "print(1)", "projectUid": uid})
+    assert run.status_code == 403
+    assert (await client.get(f"{API}/execute/kernels?projectUid={uid}", headers=mallory)).status_code == 403
+    assert (await client.post(f"{API}/execute/restart", headers=mallory,
+            json={"language": "python", "projectUid": uid})).status_code == 403
 
 
 # --- Streaming core (execute_stream) -------------------------------------------
@@ -473,7 +516,6 @@ class _FakeWebSocket:
 
 
 async def test_ws_auth_accepts_valid_access_token(client):
-    from app.core.security import create_access_token
     from app.core.ws_auth import authenticate_ws
 
     # Create a real user via setup, then mint an access token for them.

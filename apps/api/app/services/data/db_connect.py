@@ -53,21 +53,41 @@ def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     return con
 
 
+def _dsn_value(value: str) -> str:
+    """Quote a libpq/MySQL DSN value with DOUBLE quotes, backslash-escaping any
+    embedded double-quote or backslash.
+
+    Two layers of quoting are in play: the DSN itself is later wrapped in a
+    single-quoted SQL literal (``ATTACH '<dsn>' ...``), so DSN values must NOT use
+    single quotes or they'd terminate that literal. libpq/MySQL accept
+    ``key="value"`` with backslash escaping, which stays inert inside the SQL
+    single-quoted string.
+
+    Without this, an attacker-controlled field (e.g. a `username` of
+    ``x password=secret host=evil``) would inject extra DSN keywords and could
+    redirect the connection or smuggle parameters. Quoting keeps each value one
+    opaque token.
+    """
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 def _dsn(config: dict, password: str | None) -> str:
     """Build a key=value DSN. Both the libpq (Postgres) and MySQL ATTACH strings
-    accept host/port/user/password; the database key differs (dbname vs database)."""
+    accept host/port/user/password; the database key differs (dbname vs database).
+    Every client-controlled value is quoted (see _dsn_value)."""
     is_mysql = config.get("engine") == "mysql"
     parts: list[str] = []
     if host := config.get("host"):
-        parts.append(f"host={host}")
+        parts.append(f"host={_dsn_value(host)}")
     if port := config.get("port"):
         parts.append(f"port={int(port)}")
     if database := config.get("database"):
-        parts.append(f"{'database' if is_mysql else 'dbname'}={database}")
+        key = "database" if is_mysql else "dbname"
+        parts.append(f"{key}={_dsn_value(database)}")
     if username := config.get("username"):
-        parts.append(f"user={username}")
+        parts.append(f"user={_dsn_value(username)}")
     if password:
-        parts.append(f"password={password}")
+        parts.append(f"password={_dsn_value(password)}")
     return " ".join(parts)
 
 
@@ -85,7 +105,12 @@ def _scope(config: dict) -> str:
 def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
     spec = _engine_spec(config)
     dsn = _dsn(config, password)
-    con.execute(f"ATTACH '{dsn}' AS {_ATTACH_ALIAS} (TYPE {spec['type']}, READ_ONLY)")
+    # The DSN goes into a single-quoted SQL literal; double any single quote a
+    # value may still legitimately contain (e.g. a password) so it can't close it.
+    dsn_literal = dsn.replace("'", "''")
+    con.execute(
+        f"ATTACH '{dsn_literal}' AS {_ATTACH_ALIAS} (TYPE {spec['type']}, READ_ONLY)"
+    )
 
 
 def _row_to_json(row: dict) -> dict:

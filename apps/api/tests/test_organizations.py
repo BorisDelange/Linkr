@@ -75,3 +75,34 @@ async def test_client_supplied_id_kept(client):
 async def test_requires_auth(client):
     r = await client.get(f"{API}/organizations")
     assert r.status_code in (401, 403)
+
+
+async def test_write_requires_admin(client):
+    """A base (non-admin) user may list/read organizations but never mutate them."""
+    admin = await _admin_headers(client)
+    await client.post(
+        f"{API}/users",
+        headers=admin,
+        json={"username": "bob", "password": "pw", "role": "user"},
+    )
+    r = await client.post(
+        f"{API}/auth/login", json={"username": "bob", "password": "pw"}
+    )
+    bob = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+    org_id = (
+        await client.post(f"{API}/organizations", headers=admin, json={"name": "X"})
+    ).json()["id"]
+
+    assert (await client.get(f"{API}/organizations", headers=bob)).status_code == 200
+    assert (
+        await client.post(f"{API}/organizations", headers=bob, json={"name": "Y"})
+    ).status_code == 403
+    assert (
+        await client.patch(
+            f"{API}/organizations/{org_id}", headers=bob, json={"name": "Z"}
+        )
+    ).status_code == 403
+    assert (
+        await client.delete(f"{API}/organizations/{org_id}", headers=bob)
+    ).status_code == 403

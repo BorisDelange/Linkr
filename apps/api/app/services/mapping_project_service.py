@@ -11,6 +11,22 @@ from app.schemas.mapping_project import (
     ServiceMappingCreate,
     ServiceMappingUpdate,
 )
+from app.services import blob_store
+
+
+async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
+    """Whether any other mapping project still points at this content blob."""
+    q = select(MappingProject.id).where(
+        MappingProject.raw_file_sha == sha
+    ).limit(1)
+    return (await db.execute(q)).first() is not None
+
+
+async def _forget_blob(db: AsyncSession, sha: str | None) -> None:
+    """Delete an orphaned source-CSV blob once no row references it (the store is
+    content-addressed + shared, so a reference check is required before removal)."""
+    if sha and not await _sha_still_referenced(db, sha):
+        await blob_store.delete(sha)
 
 
 # --- Mapping projects ------------------------------------------------------
@@ -42,16 +58,23 @@ async def create(db: AsyncSession, data: MappingProjectCreate) -> MappingProject
 async def update(
     db: AsyncSession, project: MappingProject, data: MappingProjectUpdate
 ) -> MappingProject:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    old_sha = project.raw_file_sha
+    for key, value in changes.items():
         setattr(project, key, value)
     await db.commit()
     await db.refresh(project)
+    # A replaced source CSV leaves the previous blob orphaned — release it.
+    if "raw_file_sha" in changes and old_sha and old_sha != project.raw_file_sha:
+        await _forget_blob(db, old_sha)
     return project
 
 
 async def delete(db: AsyncSession, project: MappingProject) -> None:
+    sha = project.raw_file_sha
     await db.delete(project)  # cascades to concept_mappings via FK
     await db.commit()
+    await _forget_blob(db, sha)
 
 
 # --- Concept mappings (per-project) ----------------------------------------

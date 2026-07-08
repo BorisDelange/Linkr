@@ -34,6 +34,11 @@ export function buildRegressionCode(
 const _REG_PY = String.raw`
 import json as _json
 import math as _math
+# statsmodels/scipy emit ConvergenceWarning/RuntimeWarning to stderr on valid fits
+# (common on small or quasi-separated cohorts); silence them so a non-empty stderr
+# isn't shown to the user as a fatal error when a real result was produced.
+import warnings as _warnings
+_warnings.filterwarnings("ignore")
 
 def _reg_not_missing(v):
     return v is not None and v != "" and str(v).lower() != "null"

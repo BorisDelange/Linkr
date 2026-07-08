@@ -31,6 +31,13 @@ async def save_schema_preset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="presetId in body must match the URL",
         )
+    # save() upserts by preset_id and can re-parent an existing preset. Authorize
+    # BOTH the current workspace (so a stranger can't overwrite/steal an existing
+    # preset via a known id) and the target workspace (so it can't be planted
+    # somewhere the caller lacks rights), mirroring the delete handler.
+    existing = await schema_preset_service.get(db, preset_id)
+    if existing is not None and existing.workspace_id is not None:
+        await check_workspace_role(db, existing.workspace_id, user, "editor")
     if body.workspace_id is not None:
         await check_workspace_role(db, body.workspace_id, user, "editor")
     return await schema_preset_service.save(db, body)

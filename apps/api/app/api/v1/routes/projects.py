@@ -1,11 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import require_project_role, ROLE_ORDER
+from app.core.permissions import check_workspace_role, require_project_role
 from app.models.user import User
-from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
 from app.services import project_service
 
@@ -26,14 +25,9 @@ async def create_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Require editor on the target workspace (admins bypass).
-    if body.workspace_id is not None and user.role != "admin":
-        member = await db.get(WorkspaceMember, (body.workspace_id, user.id))
-        if member is None or ROLE_ORDER[member.role] < ROLE_ORDER["editor"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient workspace permissions",
-            )
+    # Require editor on the target workspace (admins bypass, handled inside).
+    if body.workspace_id is not None:
+        await check_workspace_role(db, body.workspace_id, user, "editor")
     return await project_service.create(db, body, user)
 
 

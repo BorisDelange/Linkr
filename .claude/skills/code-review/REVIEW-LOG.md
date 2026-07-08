@@ -29,6 +29,108 @@ Notes / follow-ups:
 
 ---
 
+## 2026-07-08 — Full-stack backend review (by coherent file groups) — COMPLETE
+
+Reviewed the 170-commit FastAPI backend landing (`eac0095f..22f01a8c`, 346 files, ~27.5k insertions) **by coherent file groups at their final state**, not commit-by-commit (far less redundant on files touched across many commits; judges the code as it is today). Cursor advanced to HEAD at completion (see FINAL SUMMARY below). All fixes went into one grouped commit.
+
+Reminder: `apps/api` is **not in the shipping build** (prod = static WASM). Server-mode findings are real but do not affect the current production build → severity weighted accordingly.
+
+### Group A — Backend socle (`core/`, `config.py`, `main.py`, `alembic/env.py`, auth_providers) — DONE
+
+- Reviewed by: Claude Opus 4.8 (direct single-pass, final-state read + runtime verification of the fix)
+- Verdict: **Fix-then-ship** → 🔴 fixed during review
+- Findings:
+  - 🔴 FIXED — config.py:25 / .env.example — `secret_key` default `"dev-secret-change-in-production"` could boot in production with **no guard**; it signs all JWTs AND derives the Fernet key encrypting external-DB passwords → forgeable admin tokens + decryptable secrets. Fix (main.py lifespan): refuse boot when `secret_key == default and not debug` (verified: rejects in prod, allows in debug). Mirrors the auth-provider RuntimeError pattern.
+  - 🟠 NOT FIXED (documented) — main.py:90-99 — CORS `allow_credentials=True` + free-string `cors_origins`; a misconfigured `*`-ish list in prod would expose credentials. Default is safe. → document explicit origins in .env.example; optionally warn at boot.
+  - 🟡 security.py:19-29 — `role` embedded in JWT payload but authz never trusts it (re-reads from DB every request — good). Stale after a demotion; informational only. → drop from payload or comment.
+- Verified sound ✅: JWT access/refresh `type` enforced (deps + ws_auth); Fernet key rotation returns None cleanly ([[secrets-at-rest]]); ws_auth replicates HTTP checks with private close code 4401; the CORS-phantom-500 middleware fix is correct; SQLite FK pragma present. Permissions model (global super-admin bypass, `is_system` non-deletable, code-owned catalogue) is the coherence yardstick for the route groups B–I.
+
+### Group B — Auth / RBAC / identity (setup, auth, users, roles, workspaces, projects, organizations, schema-presets + services) — DONE
+
+- Reviewed by: Claude Opus 4.8 (direct single-pass, final-state read + service cross-check)
+- Verdict: **Fix-then-ship** (2 authz holes)
+- Findings:
+  - 🔴 FIXED — organizations.py — create/update/**delete** only depended on `get_current_user` (no admin check; service had none either). `organizations` is a GLOBAL resource → any base `user` could delete any organization. Fixed: create/update/delete → `Depends(get_current_admin)`. Added regression test `test_write_requires_admin` (non-admin gets 403 on POST/PATCH/DELETE, 200 on GET) — it fails against the pre-fix code.
+  - 🟠 FIXED — projects.py:30-36 — `create_project` reimplemented the role check with `ROLE_ORDER[member.role]` (direct dict access) → a custom/unknown workspace role raised KeyError → 500. Fixed: reuse `check_workspace_role(db, body.workspace_id, user, "editor")` (DRY + `.get(...,-1)` safe); dropped now-unused WorkspaceMember/ROLE_ORDER/HTTPException imports (ruff clean).
+  - 🟡 NOT YET FIXED — projects.py:45-51 — `update_project` lets an editor change `workspace_id` without checking editor rights on the DESTINATION workspace (require_project_role validates only the current one). Left for a follow-up (needs a destination check in update_project or the service).
+- Verified sound ✅: first-admin setup gated by `count==0` re-checked in-txn; last-active-admin guard on delete/demote/deactivate (user_service); role perms validated against catalogue, is_system non-deletable, refuse-delete-if-in-use; workspace/project/schema-preset membership scoping correct (admin-sees-all vs WorkspaceMember join); workspace create adds owner membership in same txn (flush before insert); schema-preset save/delete gated by `check_workspace_role("editor")` when workspace-scoped, global presets visible to all.
+
+### Group C — Blob store + Datasets (blob_store, uploads, dataset_parser/fs/type_inference, datasets routes) — DONE
+
+- Reviewed by: Claude Opus 4.8 (direct single-pass, final-state read + traversal/SQL-injection verification in-process)
+- Verdict: **Fix-then-ship** (2 real security bugs fixed + tests)
+- Findings:
+  - 🔴 FIXED — blob_store.path_for(sha) built `_files_dir()/sha` with **no validation**, and `sha` is client-supplied (DatasetImportRequest.sha etc. are free `str`, no pattern). `sha="../../../../etc/passwd"` → arbitrary-file read/parse/return (auth'd editor, server mode). The `exists(sha)` guard didn't help (a traversal target can exist). Fixed: `_SHA_RE = ^[0-9a-f]{64}$` enforced in `path_for` (raises ValueError) — covers read_bytes/delete/path_for across datasets, data_sources, mapping_projects, dataset_files at once; `exists()` returns False for a malformed sha so route guards give a clean 400. New tests/test_blob_store.py (traversal/short/upper/non-hex all rejected).
+  - 🟠 FIXED — dataset_parser.py:49 — `sheet` from client parse_options interpolated into the DuckDB `read_xlsx('...', sheet='<sheet>')` string **unescaped** → SQL injection in the DuckDB context (delim was escaped, sheet wasn't). Fixed: single `_sql_str()` helper (doubles embedded quotes) now used for path, sheet AND delim (path too, defense-in-depth). Parser tests + dataset import tests green.
+  - 🟡 NOT FIXED — uploads.py — chunked upload enforces **no size limit** (`file_size` stored in _meta, never checked); an auth'd user can fill the disk. Needs a quota/max-size policy (config), left as follow-up.
+- Verified sound ✅: `project_fs._safe_join` rejects `..`/absolute traversal for datasets/ & scripts/ rel paths; upload `_session_dir` rejects non-alnum upload_id; blob store is content-addressed (sha = sha256(content)) so a stored sha is always well-formed; dataset access gated by `_require_project_access` (workspace membership, editor for writes); xlsx magic-byte check gives a clean error on renamed CSVs. NOTE: `db_connect.py` + `dataset_rows.py` deferred to Group D (external-DB SQL surface).
+
+### Group D — Data sources + external connections (db_connect, dataset_rows, data_source_service, ide_connections) — DONE
+
+- Reviewed by: Claude Opus 4.8 (direct single-pass, final-state read + DuckDB in-process injection verification)
+- Verdict: **Fix-then-ship** (1 real injection fixed + tests)
+- Findings:
+  - 🔴 FIXED — db_connect._dsn — external-DB `connection_config` (host/username/database) is a free client dict, interpolated **unquoted** into the libpq/MySQL DSN `ATTACH '<dsn>' ...`. A `username` like `x password=STOLEN host=evil.internal` injected extra DSN keywords → connection redirection / SSRF to an internal host / credential smuggling (auth'd workspace editor, server mode). Fixed: `_dsn_value()` double-quotes each value (backslash-escaping `"`/`\`) so it stays one opaque libpq token; `_attach` additionally doubles single quotes in the whole DSN before putting it in the SQL literal (a legit `'` in a password no longer breaks the `ATTACH '...'` parse). Verified in-process: injected username stays one quoted token (no dup top-level keys); a `'`-containing password yields IOException, not ParserException. New tests/test_db_connect_dsn.py.
+- Verified sound ✅ (no change needed):
+  - dataset_rows.py is **exemplary**: filter/sort values bound as `?` params, column ids validated against `col_types` before `_quote_ident` (unknown ids ignored, never interpolated), LIMIT/OFFSET `int()`-cast. Stats queries interpolate only validated idents + numeric literals.
+  - db_connect: `_scope` regex-validates schema/db before interpolation; sources ATTACH READ_ONLY (writes land in DuckDB `memory` catalog only); `introspect_external` doubles quotes for the nested information_schema literal on a validated scope; file/parquet paths are server-derived (sha now validated in Group C). Arbitrary `sql` in query_external/query_file is by-design (SQL IDE over a read-only attach) — the read-only ATTACH is the guardrail.
+  - ide_connections reuses data_source's secret pattern verbatim (`_extract_secret`/`strip_secrets`/`crypto.encrypt`; secret never in the returned config) with per-project workspace-membership guards — consistent, matches [[secrets-at-rest]].
+  - data_source_service: password stripped from persisted config + Fernet-encrypted; update leaves the stored secret untouched when absent; blob dedup ref-counting on delete.
+
+### Group E — Execution kernels + terminal (kernel, runtime, pty_kernel, execution route) — DONE
+
+- Reviewed by: Claude Opus 4.8 (direct single-pass, final-state read + full execution test suite re-run)
+- Verdict: **Fix-then-ship** (1 authz 🔴 fixed + regression test; arbitrary code execution itself is by-design)
+- Findings:
+  - 🔴 FIXED — execution.py — POST /execute, GET /execute/kernels, POST /execute/restart AND the /execute/terminal WebSocket only checked `get_current_user` — **no project/workspace membership check** (sibling routes dataset_files/ide_files all have `_require_project_access`). Any authenticated user could run arbitrary R/Python/Bash in ANY project's working dir (reaching its scripts/ + datasets/) and, via `connectionId`, query ANY data source (resolver didn't check source access either). Worse than the Group-B orgs hole: cross-project code execution + data exfiltration. Fixed: added `_require_project_access` (editor for execute/restart/terminal, viewer for kernels) + `_require_connection_access` (viewer on the source's workspace) mirroring the sibling pattern; WS checks explicitly after authenticate_ws (dep system doesn't apply to raw WS). Updated kernel tests to create a real workspace-less project (execution now requires the project row to exist — a made-up uid 404s, which is correct: no row → no workspace → no access control possible). New regression test `test_execute_forbidden_without_project_membership` (non-member → 403 on execute/kernels/restart). Full suite: 194 passed / 2 skipped.
+  - Also removed a pre-existing dead import in tests/test_execution.py (ruff F401) since the file was in scope.
+- Verified sound ✅ (by-design, no change): arbitrary code execution is the feature (RStudio/Jupyter model, documented in runtime.py/pty_kernel.py headers) — isolation is process-level (fresh cwd or per-project dir, hard `execution_timeout_seconds` wall-clock, kill-on-timeout) + application permissions (now enforced). `enable_code_execution` gate honoured on every path. PTY design is careful: `pty.openpty()` + subprocess_exec (only bash fork/exec'd, never the multithreaded uvicorn worker — avoids the classic forkpty asyncio deadlock, well-commented). Kernel: request serialised by a lock, dead-pipe restart-once, 64 MB StreamReader limit for big outputs, SIGINT interrupt keeps the kernel alive, cwd only rmtree'd when owned. `sql_query()` RPC keeps the connection config on the host (kernel never sees credentials). NOTE (accepted, documented in runtime.py): no cpu/mem/seccomp sandbox yet — flagged there as a later hardening pass, not a blocker for the trusted CHU deployment. Terminal WS access guard reuses the HTTP-tested helper; a dedicated WS-level 403 test was not added (would need a live WS harness) — coverage via the HTTP path + authenticate_ws tests.
+- 🟡 follow-up (carried): `max_sessions_per_user` / `session_timeout_minutes` settings exist but aren't enforced (no cap on concurrent kernels/PTYs per user) — pairs with the Group-C upload-size follow-up as resource-exhaustion hardening.
+
+### Groups F–I — DONE (reviewed via 4 parallel Explore sub-agents; all findings re-verified before fixing)
+
+**G — SQL scripts + IDE backend (sql_scripts, ide_files + services/models/schemas):** **Ship it.** No new bug. Verified: ide_files routes all build paths via `project_fs` helpers → `_safe_join` (traversal blocked); sql_scripts every route enforces `check_workspace_role` via `_load_collection`/`_load_file`; sql_script_service is pure ORM (no raw SQL); FKs cascade. NOTE: the `if workspace_id is None → no check` branch grants any authed user access to workspace-less projects — but this is the SAME accepted pattern as the dataset_files calibration file (systemic, pre-existing), not a regression; flagged for intent-confirmation, not fixed here.
+
+**H — Remaining entity persistence (11 routers + services):** **Fix-then-ship.** Access control sound in 10/11 routers (the organizations/execution class of unguarded-router bug does NOT recur). Findings:
+  - 🟠 FIXED — schema_presets PUT (route + service) — `save()` upserts by `preset_id` and re-parents; the route authorized only the TARGET workspace, so an editor of B could overwrite/steal/relocate a preset living in workspace A (or dump it to the global pool) via a known preset id. Fixed: load the existing preset and require editor on its CURRENT workspace too (mirrors the delete handler). New regression test `test_cannot_hijack_existing_preset_by_reparenting` (403 on reparent-to-B and reparent-to-global; A untouched) — fails against pre-fix code.
+  - 🟡 FIXED — mapping_project_service delete/update — `raw_file_sha` blob wasn't released on project delete or source replacement (disk leak), unlike the ref-counted cleanup in data_source/dataset services. Fixed: `_forget_blob` + `_sha_still_referenced` (content-addressed store → reference check required) on delete and on source-CSV replacement in update.
+  - ✅ cohorts/pipelines/dq_rule_sets/data_catalogs/concept_sets/source_concept_ids/wiki_pages/user_plugins/etl_pipelines all guard every CRUD+batch route; concept_sets delete-batch & source_concept_ids save-batch authorize EACH workspace; mapping_projects delete_orphans is admin-only. No path-traversal / client-filename-to-disk surface.
+
+**F — Server-side viz (9 *-server.ts builders + 8 components):** **Fix-then-ship.** Findings:
+  - 🟠 FIXED (real UX bug) — every viz component treats non-empty `out.stderr` as fatal and hides `stdout`, but the generated Python suppressed no warnings → a valid statsmodels/lifelines/scipy fit that emits a ConvergenceWarning/RuntimeWarning (common on small/quasi-separated healthcare cohorts) was shown to the user as an error, hiding the computed result. Fixed at the source: added `warnings.filterwarnings("ignore")` to the generated Python in the 3 stats modules that actually fit models (regression, kaplan-meier, statistical-tests). Front lint+typecheck clean on touched files.
+  - ✅ No injection: all 9 builders embed the spec via `JSON.stringify(JSON.stringify(spec))` + `_json.loads(...)` — column names/config are DATA, never spliced into Python source. Verified explicitly (was a focus). Shape parity server↔client confirmed for all 9; React effects use a `cancelled` flag against out-of-order responses; no state mutation / missing keys.
+  - 🟡 NOT FIXED (carried follow-up, front non-shipping) — Map & Sankey swallow a real server error into an empty result ("No flows/coordinates") indistinguishable from genuinely-empty data (7 other modules keep a serverError state) — consistency fix; NaN-vs-null entity parity in sankey; a comment guarding the `filtersKey`-encodes-all-config invariant.
+
+**I — front lib/api + storage adapters (24 adapters + api-client + getStorage):** **Fix-then-ship.** Layer is coherent — verified: `Authorization: Bearer` set only when a token exists, single-flight 401 refresh + one retry, `apiRequest` throws `ApiError(status, text)` on any non-2xx (never non-2xx-as-success), camelCase boundary uniform (only auth stays snake_case, matching the backend), `/api/v1` auto-prefixed everywhere, no console secret logging, single mode-decision point in main.tsx via `VITE_API_URL`. Findings:
+  - 🟡 FIXED — mapping-projects.ts `deleteOrphans` was the one method with `.catch(() => {})`, swallowing a 500 (all peers propagate) → an orphan-cleanup the server rejected looked successful. Fixed: let it throw (matches IDB impl, which returns a real count and doesn't swallow).
+  - 🟡 NOT FIXED (by-design / efficiency) — schema-presets getById/getByWorkspace refetch the full list (no `/{id}` endpoint); 401 hard-failure redirect lives in AuthGate not the fetch wrapper (intentional).
+
+---
+
+## FINAL SUMMARY — full-stack backend review (Groups A–I), 2026-07-08
+
+- Reviewed by: Claude Opus 4.8 — by coherent file groups at final state (A–E direct single-pass; F–I via 4 parallel Explore sub-agents with every finding re-verified before fixing).
+- Range covered: the 170-commit FastAPI backend landing `eac0095f..22f01a8c` (346 files, ~27.5k insertions).
+- **Last reviewed commit: 22f01a8c271b63bd8ba33860c995120007b04bbf** (cursor advanced now that all groups are done).
+- Reminder: `apps/api` is not in the shipping build (prod = static WASM) — server-mode findings are real but don't affect the current production build.
+- Verdict: **Fix-then-ship → all blocking issues fixed during review, now Ship it.**
+- Tests: backend **195 passed / 2 skipped** (Postgres-only skips); ruff clean on all of `app/`; front lint+typecheck clean on touched files. Fixes staged for ONE grouped commit.
+
+**5 🔴 critical (all fixed + regression-tested where server-testable):**
+1. A — `secret_key` default could boot in prod (signs JWTs + derives Fernet key) → boot guard when `default and not debug`.
+2. B — organizations create/update/delete open to any authed user → admin-only (+test).
+3. C — blob_store `path_for(sha)` unvalidated client sha → arbitrary file read via `../` → 64-hex regex (+test).
+4. D — external-DB DSN built from unquoted client host/username → DSN-injection/SSRF → double-quote each value + escape SQL literal (+test).
+5. E — /execute + kernels + restart + terminal WS had NO project-membership check → arbitrary cross-project code/shell execution + data exfiltration → `_require_project_access`/`_require_connection_access` (+test).
+
+**Plus:** 2 🟠 in B/C (projects role KeyError→500; dataset_parser sheet SQL-injection), 1 🟠 in H (schema_presets reparent hijack, +test), and 🟡 fixes (mapping_projects blob leak, viz warning-as-error, deleteOrphans swallow).
+
+**Carried follow-ups (non-blocking, mostly server-mode-only or systemic):** CORS `*` guard/doc; `role` in JWT informational; `update_project` destination-workspace check; upload size limit + per-user kernel/PTY session caps (resource exhaustion); Map/Sankey error-swallowing + parity nits; the `workspace_id is None → no access check` systemic pattern (shared with dataset_files) — confirm intended policy for orphan projects.
+
+**Files changed (one grouped commit):** main.py, routes/{organizations,projects,execution,schema_presets}.py, services/{blob_store, data/dataset_parser, data/db_connect, mapping_project_service}.py, tests/{test_organizations,test_execution,test_schema_presets,+new test_blob_store,+new test_db_connect_dsn}.py, apps/web/src/features/.../analyses/{regression,kaplan-meier,statistical-tests}-server.ts, apps/web/src/lib/api/mapping-projects.ts.
+
+---
+
 ## 2026-07-05 — Author provenance mixin + suggestion-category filter + review-page redesign + change-password dialog
 
 - Reviewed by: Claude Opus 4.8 (2 parallel adversarial sub-reviews on features/UI diffs + manual verification of the core types/stores/lib diff)

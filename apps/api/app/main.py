@@ -43,10 +43,22 @@ from app.api.v1.routes.workspaces import router as workspaces_router
 logger = structlog.get_logger()
 
 
+_INSECURE_SECRET = "dev-secret-change-in-production"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown events."""
     setup_logging(debug=settings.debug)
+    # The secret_key signs every JWT AND derives the Fernet key that encrypts
+    # external-DB passwords at rest. Booting with the shipped default in a real
+    # deployment would let anyone forge admin tokens and decrypt stored secrets.
+    if settings.secret_key == _INSECURE_SECRET and not settings.debug:
+        raise RuntimeError(
+            "LINKR_SECRET_KEY is still the insecure default. Set a strong secret "
+            "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
+            "or run with LINKR_DEBUG=true for local development."
+        )
     logger.info("starting_linkr", version=settings.app_version, mode=settings.app_mode)
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.

@@ -25,6 +25,15 @@ from app.services.data.type_inference import infer_column_type, parse_boolean
 _EXCEL_EXT = {".xlsx", ".xls"}
 
 
+def _sql_str(value: str) -> str:
+    """A single-quoted DuckDB string literal with embedded quotes doubled.
+
+    `path` is server-derived, but `sheet`/`delimiter` come from client
+    parse_options, so they must be escaped before going into a read_* call.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict):
     ext = Path(name).suffix.lower()
     p = str(path)
@@ -32,7 +41,7 @@ def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict)
     skip = int(opts.get("skipRows") or 0)
 
     if ext == ".parquet":
-        return con.sql(f"SELECT * FROM read_parquet('{p}')")
+        return con.sql(f"SELECT * FROM read_parquet({_sql_str(p)})")
 
     if ext in _EXCEL_EXT:
         # A real .xlsx is a zip starting with "PK". Files renamed from CSV are a
@@ -46,19 +55,18 @@ def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict)
                 )
         con.execute("INSTALL excel; LOAD excel;")
         sheet = opts.get("sheet")
-        sheet_arg = f", sheet='{sheet}'" if sheet else ""
+        sheet_arg = f", sheet={_sql_str(sheet)}" if sheet else ""
         # all_varchar keeps our own type inference authoritative.
         return con.sql(
-            f"SELECT * FROM read_xlsx('{p}'{sheet_arg}, header={str(header).lower()}, "
-            f"all_varchar=true)"
+            f"SELECT * FROM read_xlsx({_sql_str(p)}{sheet_arg}, "
+            f"header={str(header).lower()}, all_varchar=true)"
         )
 
     # CSV / TSV / TXT
-    args = [f"'{p}'", "all_varchar=true", f"header={str(header).lower()}"]
+    args = [_sql_str(p), "all_varchar=true", f"header={str(header).lower()}"]
     delim = opts.get("delimiter")
     if delim:
-        esc = delim.replace("'", "''")
-        args.append(f"delim='{esc}'")
+        args.append(f"delim={_sql_str(delim)}")
     if skip:
         args.append(f"skip={skip}")
     return con.sql(f"SELECT * FROM read_csv({', '.join(args)})")

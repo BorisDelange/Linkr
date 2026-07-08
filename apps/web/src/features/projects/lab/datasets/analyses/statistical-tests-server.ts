@@ -34,6 +34,10 @@ export function buildStatisticalTestsCode(
 const _STAT_PY = String.raw`
 import json as _json
 import math as _math
+# scipy emits RuntimeWarning to stderr on valid computations; silence them so a
+# non-empty stderr isn't shown as a fatal error when a real result was produced.
+import warnings as _warnings
+_warnings.filterwarnings("ignore")
 
 _TEST_LABELS = {
     "welch-t": {"en": "Welch's t-test", "fr": "Test t de Welch"},

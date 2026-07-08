@@ -27,6 +27,10 @@ export function buildKaplanMeierCode(
 const _KM_PY = String.raw`
 import json as _json
 import math as _math
+# lifelines/scipy emit warnings to stderr on valid fits; silence them so a
+# non-empty stderr isn't shown as a fatal error when a real result was produced.
+import warnings as _warnings
+_warnings.filterwarnings("ignore")
 
 def _km_not_missing(v):
     return v is not None and v != "" and str(v).lower() != "null"

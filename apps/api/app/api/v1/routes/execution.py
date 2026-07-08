@@ -8,7 +8,9 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.permissions import check_workspace_role
 from app.core.ws_auth import authenticate_ws
+from app.models.project import Project
 from app.models.user import User
 from app.schemas.execution import (
     ExecuteRequest,
@@ -23,6 +25,31 @@ from app.services.execution import injection, kernel, pty_kernel, runtime
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/execute", tags=["execution"])
+
+
+async def _require_project_access(
+    db: AsyncSession, project_uid: str, user: User, min_role: str
+) -> None:
+    """Running code in a project (or attaching a terminal to it) requires the same
+    workspace membership as reading its files — mirrors dataset_files/ide_files."""
+    project = await db.get(Project, project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    if project.workspace_id is not None:
+        await check_workspace_role(db, project.workspace_id, user, min_role)
+
+
+async def _require_connection_access(
+    db: AsyncSession, connection_id: str, user: User
+):
+    """Load a data source only if the user may read its workspace. Returns the
+    source (guarding sql_query() from reaching an arbitrary connection)."""
+    source = await data_source_service.get(db, connection_id)
+    if source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+    if source.workspace_id is not None:
+        await check_workspace_role(db, source.workspace_id, user, "viewer")
+    return source
 
 
 async def _dataset_preamble(
@@ -69,6 +96,9 @@ async def execute_code(
 
     Only the rendered result crosses the wire (stdout/stderr/figures/table) —
     never the underlying data (see storage plan §03/§06)."""
+    if body.project_uid:
+        await _require_project_access(db, body.project_uid, user, "editor")
+
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
         preamble = await _dataset_preamble(
@@ -80,9 +110,7 @@ async def execute_code(
     # connection's source so the connection config never reaches the kernel.
     resolver = None
     if body.connection_id:
-        source = await data_source_service.get(db, body.connection_id)
-        if source is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Connection not found")
+        source = await _require_connection_access(db, body.connection_id, user)
 
         async def resolver(sql: str):
             return await data_source_service.query(source, sql)
@@ -121,8 +149,10 @@ async def execute_code(
 async def list_kernels(
     project_uid: str = Query(alias="projectUid"),
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Live kernels for a project (language, env, alive, busy) — feeds the IDE footer."""
+    await _require_project_access(db, project_uid, user, "viewer")
     return kernel.manager.list_for_project(project_uid)
 
 
@@ -130,9 +160,11 @@ async def list_kernels(
 async def restart_kernel(
     body: RestartKernelRequest,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Kill the persistent kernel for (project, language, env) so the next run
     starts with a clean namespace."""
+    await _require_project_access(db, body.project_uid, user, "editor")
     await kernel.manager.restart(body.project_uid, body.language, body.env_id)
 
 
@@ -244,6 +276,16 @@ async def terminal_ws(websocket: WebSocket):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
     if not settings.enable_code_execution:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # A terminal opens an arbitrary shell/kernel in the project's working dir, so
+    # it requires the same editor membership as running code over HTTP. The HTTP
+    # dependency system doesn't apply to a raw WebSocket, so check explicitly.
+    try:
+        async with async_session() as db:
+            await _require_project_access(db, project_uid, user, "editor")
+    except HTTPException:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

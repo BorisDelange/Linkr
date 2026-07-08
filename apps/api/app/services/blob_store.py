@@ -10,12 +10,18 @@ still pointing at this sha?", checked by callers before delete).
 
 import asyncio
 import hashlib
+import re
 import shutil
 from pathlib import Path
 
 from app.config import settings
 
 _CHUNK = 1024 * 1024  # 1 MiB streaming buffer
+
+# A blob key is always a SHA-256 hex digest. Callers pass client-supplied shas
+# (e.g. a dataset import references an uploaded blob), so reject anything else to
+# stop `../` path traversal out of the store into arbitrary server files.
+_SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def _files_dir() -> Path:
@@ -26,10 +32,16 @@ def _files_dir() -> Path:
 
 def path_for(sha: str) -> Path:
     """Absolute path of the blob with this content hash (may not exist)."""
+    if not _SHA_RE.match(sha):
+        raise ValueError(f"Invalid blob sha: {sha!r}")
     return _files_dir() / sha
 
 
 def exists(sha: str) -> bool:
+    """True if a blob with this sha is stored. A malformed sha is simply 'not
+    stored' (False) rather than an error, so route guards return a clean 400."""
+    if not _SHA_RE.match(sha):
+        return False
     return path_for(sha).is_file()
 
 

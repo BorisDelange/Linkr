@@ -137,7 +137,7 @@ export const apiConceptMappingStorage: ConceptMappingStorage = {
     await apiRequest(`${MAP}/delete-orphans`, {
       method: 'POST',
       body: JSON.stringify({ validProjectIds: [...validProjectIds] }),
-    }).catch(() => {})
+    })
     return 0
   },
 }

@@ -91,3 +91,43 @@ async def test_workspace_preset_permission(client, db):
 
     r = await client.get(f"{API}/schema-presets", headers=other)
     assert all(p["presetId"] != "wp" for p in r.json())
+
+
+async def test_cannot_hijack_existing_preset_by_reparenting(client, db):
+    """save() upserts by presetId; a caller must not overwrite/re-parent a preset
+    that lives in a workspace they can't access, even if they target their own."""
+    admin = await _admin_headers(client)
+    ws_a = await _make_workspace(client, admin)
+    await client.put(
+        f"{API}/schema-presets/secret",
+        headers=admin,
+        json={"presetId": "secret", "workspaceId": ws_a, "mapping": {"tables": ["a"]}},
+    )
+
+    # bob owns his own workspace B but is not a member of A.
+    bob = await _create_user(db, client, "bob")
+    ws_b = (await client.post(
+        f"{API}/workspaces", headers=bob, json={"name": {"en": "B"}}
+    )).json()["id"]
+
+    # Overwriting A's preset (known id) — even while targeting B — must be refused,
+    # because the caller lacks editor on the preset's CURRENT workspace (A).
+    r = await client.put(
+        f"{API}/schema-presets/secret",
+        headers=bob,
+        json={"presetId": "secret", "workspaceId": ws_b, "mapping": {"tables": ["hacked"]}},
+    )
+    assert r.status_code == 403
+
+    # And to the global pool (workspaceId=null) — same refusal.
+    r = await client.put(
+        f"{API}/schema-presets/secret",
+        headers=bob,
+        json={"presetId": "secret", "mapping": {"tables": ["hacked"]}},
+    )
+    assert r.status_code == 403
+
+    # A's preset is untouched.
+    r = await client.get(f"{API}/schema-presets", headers=admin)
+    secret = next(p for p in r.json() if p["presetId"] == "secret")
+    assert secret["mapping"] == {"tables": ["a"]} and secret["workspaceId"] == ws_a
