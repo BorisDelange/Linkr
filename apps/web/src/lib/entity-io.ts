@@ -120,12 +120,18 @@ export function downloadJson(data: unknown, filename: string): void {
 
 /** Delete all IDB entities associated with a project (datasets, dashboards, etc.) */
 export async function deleteProjectData(storage: Storage, uid: string): Promise<void> {
+  // Called before an import to wipe any stale data for the target uid. In server
+  // mode the sub-entity routes 404 ("Project not found") when the project doesn't
+  // exist yet — expected here, so every read and delete tolerates failure instead
+  // of aborting the import.
+  const safe = <T>(p: Promise<T>, fallback: T): Promise<T> => p.catch(() => fallback)
+
   await storage.ideFiles.deleteByProject(uid).catch(() => {})
   await storage.connections.deleteByProject(uid).catch(() => {})
   await storage.readmeAttachments.deleteByProject(uid).catch(() => {})
 
   // Dataset files, data, raw files, analyses
-  const datasetFiles = await storage.datasetFiles.getByProject(uid)
+  const datasetFiles = await safe(storage.datasetFiles.getByProject(uid), [])
   for (const df of datasetFiles) {
     if (df.type === 'file') {
       await storage.datasetData.delete(df.id).catch(() => {})
@@ -136,19 +142,19 @@ export async function deleteProjectData(storage: Storage, uid: string): Promise<
   await storage.datasetFiles.deleteByProject(uid).catch(() => {})
 
   // Dashboards (+ tabs + widgets)
-  const dashboards = await storage.dashboards.getByProject(uid)
+  const dashboards = await safe(storage.dashboards.getByProject(uid), [])
   for (const d of dashboards) {
-    const tabs = await storage.dashboardTabs.getByDashboard(d.id)
-    for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id)
-    await storage.dashboardTabs.deleteByDashboard(d.id)
-    await storage.dashboards.delete(d.id)
+    const tabs = await safe(storage.dashboardTabs.getByDashboard(d.id), [])
+    for (const tab of tabs) await storage.dashboardWidgets.deleteByTab(tab.id).catch(() => {})
+    await storage.dashboardTabs.deleteByDashboard(d.id).catch(() => {})
+    await storage.dashboards.delete(d.id).catch(() => {})
   }
 
   // Pipelines & cohorts
-  const pipelines = await storage.pipelines.getByProject(uid)
-  for (const pl of pipelines) await storage.pipelines.delete(pl.id)
-  const cohorts = await storage.cohorts.getByProject(uid)
-  for (const c of cohorts) await storage.cohorts.delete(c.id)
+  const pipelines = await safe(storage.pipelines.getByProject(uid), [])
+  for (const pl of pipelines) await storage.pipelines.delete(pl.id).catch(() => {})
+  const cohorts = await safe(storage.cohorts.getByProject(uid), [])
+  for (const c of cohorts) await storage.cohorts.delete(c.id).catch(() => {})
 }
 
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData } from './entity-io'
 import type { DatasetFile } from '@/types'
+import type { Storage } from '@/lib/storage'
 
 // slugify produces filesystem-safe names for ZIP entries and folders.
 // A bad slug means a file overwrites another or fails to write → data loss.
@@ -142,5 +143,19 @@ describe('parseProjectZip — dataset data sidecars', () => {
     // Both datasets' rows are loaded.
     expect(parsed!.datasetData).toHaveLength(2)
     expect(parsed!.datasetData.every((d) => d.rows.length === 2)).toBe(true)
+  })
+})
+
+// Pre-import cleanup runs against a project uid that may not exist on the backend yet.
+// In server mode those sub-entity routes reject with 404 ("Project not found"); the
+// cleanup must swallow that instead of aborting the whole import.
+describe('deleteProjectData — tolerates a missing project (server 404)', () => {
+  it('does not throw when reads and deletes reject', async () => {
+    const reject = () => Promise.reject(new Error('{"detail":"Project not found"}'))
+    const store = new Proxy({}, {
+      get: () => new Proxy({}, { get: () => reject }),
+    }) as unknown as Storage
+
+    await expect(deleteProjectData(store, 'ghost-uid')).resolves.toBeUndefined()
   })
 })
