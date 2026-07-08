@@ -6,6 +6,7 @@ from app.models.plugin import Plugin
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.models.organization import Organization
+from app.models.pipeline import Pipeline
 from app.models.schema_preset import SchemaPreset
 from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 from app.models.wiki_page import WikiPage
@@ -22,6 +23,7 @@ __all__ = [
     "Workspace",
     "WorkspaceMember",
     "Organization",
+    "Pipeline",
     "SchemaPreset",
     "SqlScriptCollection",
     "SqlScriptFile",
