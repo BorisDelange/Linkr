@@ -12,7 +12,7 @@ import {
   Terminal,
   Settings2,
   Keyboard,
-  Undo2,
+  RefreshCw,
   Plug,
   X,
   Lock,
@@ -122,8 +122,7 @@ export function FilesPage() {
     outputVisible,
     setOutputVisible,
     loadProjectFiles,
-    peekUndo,
-    performUndo,
+    reloadFromDisk,
     isFileDirty,
     saveFile,
     revertFile,
@@ -256,7 +255,6 @@ export function FilesPage() {
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
-  const undoAction = peekUndo()
   const selectedLanguage = selectedNode?.language
   const isSql = selectedLanguage === 'sql' || selectedNode?.name.endsWith('.sql')
   const isIpynbFile = selectedNode?.name.endsWith('.ipynb') ?? false
@@ -820,21 +818,14 @@ export function FilesPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={performUndo}
-                        disabled={!undoAction}
+                        onClick={() => { if (activeProjectUid) reloadFromDisk(activeProjectUid) }}
+                        disabled={!activeProjectUid}
                       >
-                        <Undo2 size={14} />
+                        <RefreshCw size={14} />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
-                      {undoAction
-                        ? t('files.undo_action', {
-                            action: t(
-                              undoAction.descriptionKey,
-                              undoAction.descriptionParams
-                            ),
-                          })
-                        : t('files.undo')}
+                      {t('files.refresh_files')}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>

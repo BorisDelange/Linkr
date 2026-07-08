@@ -5,6 +5,7 @@ import {
   apiDatasetRawFileStorage,
 } from '@/lib/api/datasets'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
+import { apiIdeFileStorage } from '@/lib/api/ide-files'
 import { apiOrganizationStorage } from '@/lib/api/organizations'
 import { apiPipelineStorage } from '@/lib/api/pipelines'
 import { apiProjectStorage } from '@/lib/api/projects'
@@ -43,5 +44,6 @@ export function createAPIStorage(): Storage {
     datasetRawFiles: apiDatasetRawFileStorage,
     datasetAnalyses: apiDatasetAnalysisStorage,
     pipelines: apiPipelineStorage,
+    ideFiles: apiIdeFileStorage,
   }
 }

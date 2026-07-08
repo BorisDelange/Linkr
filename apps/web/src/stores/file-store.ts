@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { IdeFile } from '@/types'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
 
 export type FileNode = IdeFile
@@ -48,6 +49,9 @@ interface FileState {
   openFileIds: string[]
 
   loadProjectFiles: (projectUid: string) => Promise<void>
+  /** Server mode: re-scan projects/<uid>/scripts/ from disk (initial load, refresh
+   *  button, and after every mutation so external changes and renames settle). */
+  reloadFromDisk: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null, language: string) => void
   createFolder: (name: string, parentId: string | null) => void
   deleteNode: (id: string) => void
@@ -593,6 +597,36 @@ export const useFileStore = create<FileState>((set, get) => ({
   activeProjectUid: null,
   openFileIds: [],
 
+  reloadFromDisk: async (projectUid) => {
+    const storage = getStorage()
+    const stored = await storage.ideFiles.getByProject(projectUid)
+    // Refresh saved-content snapshots from disk (ids are relative paths in server mode).
+    _savedContent.clear()
+    _contentSaveTimers.forEach((t) => clearTimeout(t))
+    _contentSaveTimers.clear()
+    for (const f of stored) {
+      if (f.type === 'file' && f.content !== undefined) _savedContent.set(f.id, f.content)
+    }
+    const ids = new Set(stored.map((f) => f.id))
+    const prev = get()
+    const keepActive = prev.activeProjectUid === projectUid
+    // Preserve selection/open tabs whose paths still exist after the re-scan.
+    const selectedFileId = keepActive && prev.selectedFileId && ids.has(prev.selectedFileId)
+      ? prev.selectedFileId : null
+    const openFileIds = keepActive ? prev.openFileIds.filter((id) => ids.has(id)) : []
+    const expandedFolders = keepActive
+      ? prev.expandedFolders.filter((id) => ids.has(id))
+      : stored.filter((f) => f.type === 'folder' && f.parentId === null).map((f) => f.id)
+    set({
+      files: stored,
+      activeProjectUid: projectUid,
+      selectedFileId,
+      openFileIds,
+      expandedFolders,
+      _dirtyVersion: 0,
+    })
+  },
+
   loadProjectFiles: async (projectUid) => {
     // Skip if already loaded or currently loading for this project
     if (get().activeProjectUid === projectUid) return
@@ -602,6 +636,17 @@ export const useFileStore = create<FileState>((set, get) => ({
     // Switching projects: the console/output belongs to the previous project.
     // Clear it so results and tabs don't bleed across projects.
     set({ outputTabs: [], activeOutputTab: null, executionResults: [] })
+
+    // Server mode: the disk (projects/<uid>/scripts/) is the single source of
+    // truth — just scan it. None of the IndexedDB/demo-seeding logic below applies.
+    if (isServerMode()) {
+      try {
+        await get().reloadFromDisk(projectUid)
+      } finally {
+        _loadingProjectUid = null
+      }
+      return
+    }
 
     try {
       const storage = getStorage()
@@ -787,8 +832,23 @@ export const useFileStore = create<FileState>((set, get) => ({
       selectedFileId: id,
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
-    // Persist
-    getStorage().ideFiles.create(node).catch((err) => console.error('[file-store] Failed to persist file:', node.id, err))
+    // Persist. Server mode: re-scan disk so the node picks up its real path-derived
+    // id and any externally-added files show up; then re-select the created file.
+    const created = getStorage().ideFiles.create(node)
+    if (isServerMode()) {
+      created
+        .then(() => get().reloadFromDisk(projectUid))
+        .then(() => {
+          const path = parentId ? `${parentId}/${name}` : name
+          set((s) => ({
+            selectedFileId: path,
+            openFileIds: s.openFileIds.includes(path) ? s.openFileIds : [...s.openFileIds, path],
+          }))
+        })
+        .catch((err) => console.error('[file-store] Failed to persist file:', node.id, err))
+      return
+    }
+    created.catch((err) => console.error('[file-store] Failed to persist file:', node.id, err))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -825,7 +885,14 @@ export const useFileStore = create<FileState>((set, get) => ({
       files: [...s.files, node],
       expandedFolders: [...s.expandedFolders, id],
     }))
-    getStorage().ideFiles.create(node).catch((err) => console.error('[file-store] Failed to persist folder:', node.id, err))
+    const createdFolder = getStorage().ideFiles.create(node)
+    if (isServerMode()) {
+      createdFolder
+        .then(() => get().reloadFromDisk(projectUid))
+        .catch((err) => console.error('[file-store] Failed to persist folder:', node.id, err))
+      return
+    }
+    createdFolder.catch((err) => console.error('[file-store] Failed to persist folder:', node.id, err))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -877,6 +944,16 @@ export const useFileStore = create<FileState>((set, get) => ({
     }
     // Persist deletions
     const storage = getStorage()
+    if (isServerMode()) {
+      // The backend removes a folder's descendants server-side; delete the top node
+      // only, then re-scan disk. No undo (the file is gone from disk).
+      const projectUid = state.activeProjectUid ?? ''
+      storage.ideFiles
+        .delete(id)
+        .then(() => get().reloadFromDisk(projectUid))
+        .catch((e) => console.warn('[file-store] persist error:', e))
+      return
+    }
     for (const rid of idsToRemove) {
       storage.ideFiles.delete(rid).catch((e) => console.warn('[file-store] persist error:', e))
     }
@@ -907,26 +984,16 @@ export const useFileStore = create<FileState>((set, get) => ({
       console.warn(`[file-store] Cannot rename to reserved folder name: ${newName}`)
       return
     }
-    const oldName = node.name
+    const projectUid = state.activeProjectUid ?? ''
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName } : f)),
     }))
-    getStorage().ideFiles.update(id, { name: newName }).catch((e) => console.warn('[file-store] persist error:', e))
-
-    get().pushUndo({
-      id: `undo-${undoCounter++}`,
-      descriptionKey: 'files.rename',
-      descriptionParams: { name: oldName },
-      timestamp: Date.now(),
-      undo: () => {
-        set((s) => ({
-          files: s.files.map((f) =>
-            f.id === id ? { ...f, name: oldName } : f
-          ),
-        }))
-        getStorage().ideFiles.update(id, { name: oldName }).catch((e) => console.warn('[file-store] persist error:', e))
-      },
-    })
+    const renamed = getStorage().ideFiles.update(id, { name: newName })
+    if (isServerMode()) {
+      renamed.then(() => get().reloadFromDisk(projectUid)).catch((e) => console.warn('[file-store] persist error:', e))
+      return
+    }
+    renamed.catch((e) => console.warn('[file-store] persist error:', e))
   },
 
   moveNode: (id, newParentId) => {
@@ -935,27 +1002,18 @@ export const useFileStore = create<FileState>((set, get) => ({
     if (!node) return
     const oldParentId = node.parentId
     if (oldParentId === newParentId) return
+    const projectUid = state.activeProjectUid ?? ''
     set((s) => ({
       files: s.files.map((f) =>
         f.id === id ? { ...f, parentId: newParentId } : f
       ),
     }))
-    getStorage().ideFiles.update(id, { parentId: newParentId }).catch((e) => console.warn('[file-store] persist error:', e))
-
-    get().pushUndo({
-      id: `undo-${undoCounter++}`,
-      descriptionKey: 'files.move',
-      descriptionParams: { name: node.name },
-      timestamp: Date.now(),
-      undo: () => {
-        set((s) => ({
-          files: s.files.map((f) =>
-            f.id === id ? { ...f, parentId: oldParentId } : f
-          ),
-        }))
-        getStorage().ideFiles.update(id, { parentId: oldParentId }).catch((e) => console.warn('[file-store] persist error:', e))
-      },
-    })
+    const moved = getStorage().ideFiles.update(id, { parentId: newParentId })
+    if (isServerMode()) {
+      moved.then(() => get().reloadFromDisk(projectUid)).catch((e) => console.warn('[file-store] persist error:', e))
+      return
+    }
+    moved.catch((e) => console.warn('[file-store] persist error:', e))
   },
 
   duplicateFile: (id) => {
