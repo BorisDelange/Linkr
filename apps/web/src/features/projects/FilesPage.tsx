@@ -281,18 +281,25 @@ export function FilesPage() {
     return () => clearInterval(id)
   }, [outlineVisible, isNotebook])
 
-  // When a dataset file is selected, redirect it to an output tab instead of a file tab
+  // When a dataset file is selected, redirect it to an output tab (the dataset
+  // viewer) instead of a file tab showing raw JSON. Matches both the legacy
+  // bridge id and the read-only IDE-tree node id (virtual:datasets/node/<id>).
   useEffect(() => {
-    if (!selectedFileId?.startsWith('ds-bridge:')) return
+    const DS_NODE_PREFIX = 'virtual:datasets/node/'
+    const isBridgeId = selectedFileId?.startsWith('ds-bridge:')
+    const isDsNodeId = selectedFileId?.startsWith(DS_NODE_PREFIX)
+    if (!isBridgeId && !isDsNodeId) return
     const node = nodes.find((n) => n.id === selectedFileId)
     if (!node || node.type !== 'file') return
 
-    const dsFileId = selectedFileId.replace('ds-bridge:', '')
+    const dsFileId = isBridgeId
+      ? selectedFileId!.replace('ds-bridge:', '')
+      : selectedFileId!.slice(DS_NODE_PREFIX.length)
     const dsFile = datasetFiles.find((f) => f.id === dsFileId)
     if (!dsFile) return
 
     // Close the file tab that was auto-opened by selectFile
-    closeFile(selectedFileId)
+    closeFile(selectedFileId!)
 
     // Load data then open as output tab.
     const outputTabId = `dataset:${dsFileId}`
