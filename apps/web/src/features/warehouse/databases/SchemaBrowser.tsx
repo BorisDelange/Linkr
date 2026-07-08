@@ -8,8 +8,6 @@ import {
   PanelLeft,
   Loader2,
   Search,
-  Copy,
-  Check,
   RefreshCw,
 } from 'lucide-react'
 import {
@@ -24,38 +22,11 @@ import {
 } from '@/components/ui/tooltip'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
+import { CopySelectButton } from '@/components/ui/copy-select-button'
+import { TypeBadge } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
-
-// --- Type badge (inline, matching datasets/TypeBadge pattern) ---
-
-const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
-  number:  { icon: '#',  color: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
-  string:  { icon: 'Aa', color: 'bg-green-500/15 text-green-700 dark:text-green-400' },
-  boolean: { icon: '⊘',  color: 'bg-purple-500/15 text-purple-700 dark:text-purple-400' },
-  date:    { icon: '◷',  color: 'bg-orange-500/15 text-orange-700 dark:text-orange-400' },
-  unknown: { icon: '?',  color: 'bg-gray-500/15 text-gray-700 dark:text-gray-400' },
-}
-
-function mapDuckDBType(dtype: string): string {
-  const d = dtype.toLowerCase()
-  if (d.includes('int') || d.includes('float') || d.includes('double') || d.includes('decimal') || d.includes('numeric') || d.includes('real')) return 'number'
-  if (d.includes('bool')) return 'boolean'
-  if (d.includes('date') || d.includes('time') || d.includes('timestamp')) return 'date'
-  if (d.includes('char') || d.includes('text') || d.includes('string') || d.includes('varchar') || d.includes('blob')) return 'string'
-  return 'unknown'
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const mapped = mapDuckDBType(type)
-  const config = TYPE_CONFIG[mapped] ?? TYPE_CONFIG.unknown
-  return (
-    <span className={cn('inline-flex items-center gap-0.5 rounded font-mono font-semibold leading-none shrink-0 px-1 py-0.5 text-[9px]', config.color)}>
-      {config.icon}
-    </span>
-  )
-}
 
 // --- Types ---
 
@@ -128,7 +99,6 @@ export function SchemaBrowser({ dataSourceId }: Props) {
   const [rowCount, setRowCount] = useState<number | null>(null)
   const [columnNullCounts, setColumnNullCounts] = useState<Map<string, { nullCount: number; total: number; distinct: number }>>(new Map())
   const [tableSearch, setTableSearch] = useState('')
-  const [copied, setCopied] = useState(false)
   // Stats are opt-in and computed lazily: on a source with billions of rows the
   // COUNT/DISTINCT scans are expensive, so nothing runs until the user asks.
   const [statsEnabled, setStatsEnabled] = useState(true)
@@ -365,14 +335,10 @@ export function SchemaBrowser({ dataSourceId }: Props) {
     setStatsVisible(true)
   }, [])
 
-  const handleCopySelect = useCallback(() => {
-    if (!selectedTable || columns.length === 0) return
+  const buildSelectSql = useCallback(() => {
+    if (!selectedTable || columns.length === 0) return null
     const cols = columns.map((c) => `  ${c.column_name}`).join(',\n')
-    const sql = `SELECT\n${cols}\nFROM ${selectedTable}\nLIMIT 100;`
-    navigator.clipboard.writeText(sql).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    })
+    return `SELECT\n${cols}\nFROM ${selectedTable}\nLIMIT 100;`
   }, [selectedTable, columns])
 
   return (
@@ -520,18 +486,7 @@ export function SchemaBrowser({ dataSourceId }: Props) {
                 {selectedTable && columns.length > 0 && (
                   <div className="flex items-center justify-between border-b px-3 py-1.5">
                     <span className="text-xs font-medium">{selectedTable}</span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={handleCopySelect}
-                          className="flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        >
-                          {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                          {t('etl.copy_select')}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t('etl.copy_select_tooltip')}</TooltipContent>
-                    </Tooltip>
+                    <CopySelectButton getSql={buildSelectSql} />
                   </div>
                 )}
                 <ScrollArea className="h-full flex-1">

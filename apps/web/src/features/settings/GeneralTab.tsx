@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { AppDatabaseDialog } from '@/features/settings/AppDatabaseDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -236,6 +237,7 @@ export function GeneralTab() {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
   const [browseOpen, setBrowseOpen] = useState(false)
+  const [queryOpen, setQueryOpen] = useState(false)
 
   const updateField = <K extends keyof DbConnectionConfig>(key: K, value: DbConnectionConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
@@ -429,6 +431,10 @@ export function GeneralTab() {
               {testStatus === 'testing' && <Loader2 size={14} className="animate-spin" />}
               {t('settings.general_db_test')}
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setQueryOpen(true)}>
+              <Database size={14} />
+              {t('settings.general_db_query')}
+            </Button>
 
             {/* Test result */}
             {testStatus === 'success' && (
@@ -453,6 +459,9 @@ export function GeneralTab() {
         onOpenChange={setBrowseOpen}
         onSelect={(path) => updateField('sqlitePath', path)}
       />
+
+      {/* Query / browse the app database (admin, server mode) */}
+      <AppDatabaseDialog open={queryOpen} onOpenChange={setQueryOpen} />
     </div>
   )
 }

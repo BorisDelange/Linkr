@@ -1789,7 +1789,19 @@
     "general_db_browse_use_folder": "Use this folder",
     "general_db_browse_select": "Select file",
     "general_db_requires_backend": "Application database requires a backend connection",
-    "general_db_requires_backend_description": "The application database configuration is available when running Linkr with the API server. In local mode, all data is stored in the browser via IndexedDB."
+    "general_db_requires_backend_description": "The application database configuration is available when running Linkr with the API server. In local mode, all data is stored in the browser via IndexedDB.",
+    "general_db_query": "Query database",
+    "db_tab_sql": "SQL",
+    "db_tab_schema": "Schema",
+    "db_run": "Run",
+    "db_run_hint": "Run a read-only SELECT against the application database.",
+    "db_no_rows": "Query returned no rows.",
+    "db_col_name": "Column",
+    "db_col_type": "Type",
+    "db_col_nullable": "Nullable",
+    "db_yes": "Yes",
+    "db_no": "No",
+    "db_no_tables": "No tables."
   },
   "schemas": {
     "title": "Schemas",

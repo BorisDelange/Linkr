@@ -21,6 +21,7 @@ from app.api.v1.routes.mapping_projects import router as mapping_projects_router
 from app.api.v1.routes.source_concept_ids import router as source_concept_ids_router
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
 from app.api.v1.routes.data_sources import router as data_sources_router
+from app.api.v1.routes.database import router as database_router
 from app.api.v1.routes.datasets import router as datasets_router
 from app.api.v1.routes.dq_rule_sets import router as dq_rule_sets_router
 from app.api.v1.routes.etl_pipelines import router as etl_pipelines_router
@@ -124,6 +125,7 @@ app.add_middleware(
 # Routes
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(setup_router, prefix="/api/v1")
+app.include_router(database_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
