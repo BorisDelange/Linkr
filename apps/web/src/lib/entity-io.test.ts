@@ -203,7 +203,7 @@ describe('importProjectContent — server-mode datasets', () => {
   })
 
   const makeStore = () => {
-    const widgetCreate = vi.fn(async (_w: { datasetFileId?: string }) => {})
+    const widgetCreate = vi.fn(async (_w: { datasetFileId?: string; source?: unknown }) => {})
     const datasetFileCreate = vi.fn(async (_f: unknown) => {})
     const store = new Proxy({}, {
       get: (_t, prop) => {
@@ -220,14 +220,24 @@ describe('importProjectContent — server-mode datasets', () => {
     importDatasetOnServer.mockReset()
   })
 
-  it('uploads dataset files and relinks widget datasetFileId to the server id', async () => {
+  it('uploads dataset files, relinks widget datasetFileId and remaps plugin column ids', async () => {
     serverMode.value = true
-    importDatasetOnServer.mockResolvedValue({ id: 'table.csv' })
+    // Server re-parses the CSV → same names/order, fresh column ids.
+    importDatasetOnServer.mockResolvedValue({
+      id: 'table.csv',
+      columns: [{ id: 'srv-0', name: 'age' }, { id: 'srv-1', name: 'sex' }],
+    })
 
     const parsed = emptyParsed({
-      datasetFiles: [{ id: 'zip-uuid', name: 'table.csv', type: 'file', parentId: null, columns: [] } as unknown as DatasetFile],
-      datasetRawFiles: [{ datasetFileId: 'zip-uuid', blob: new Blob(['a\n1']), fileName: 'table.csv' }],
-      dashboardWidgets: [{ id: 'w1', tabId: 't1', datasetFileId: 'zip-uuid' } as unknown as ParsedProjectZip['dashboardWidgets'][number]],
+      datasetFiles: [{
+        id: 'zip-uuid', name: 'table.csv', type: 'file', parentId: null,
+        columns: [{ id: 'zip-0', name: 'age', type: 'number', order: 0 }, { id: 'zip-1', name: 'sex', type: 'string', order: 1 }],
+      } as unknown as DatasetFile],
+      datasetRawFiles: [{ datasetFileId: 'zip-uuid', blob: new Blob(['age,sex\n1,M']), fileName: 'table.csv' }],
+      dashboardWidgets: [{
+        id: 'w1', tabId: 't1', datasetFileId: 'zip-uuid',
+        source: { type: 'plugin', config: { column: 'zip-0', groupColumn: 'zip-1', popupColumns: ['zip-0', 'zip-1'] } },
+      } as unknown as ParsedProjectZip['dashboardWidgets'][number]],
     })
 
     const { store, widgetCreate, datasetFileCreate } = makeStore()
@@ -237,8 +247,11 @@ describe('importProjectContent — server-mode datasets', () => {
     expect(importDatasetOnServer).toHaveBeenCalledOnce()
     expect(datasetFileCreate).not.toHaveBeenCalled()
     // The widget now points at the server's path id, not the ZIP UUID.
-    const createdWidget = widgetCreate.mock.calls[0]?.[0] as { datasetFileId?: string }
+    const createdWidget = widgetCreate.mock.calls[0]?.[0] as { datasetFileId?: string; source?: { config?: Record<string, unknown> } }
     expect(createdWidget.datasetFileId).toBe('table.csv')
+    // Plugin column ids (scalar + array) are remapped to the server's ids so the widget
+    // still resolves its columns instead of showing an empty selection.
+    expect(createdWidget.source?.config).toEqual({ column: 'srv-0', groupColumn: 'srv-1', popupColumns: ['srv-0', 'srv-1'] })
   })
 
   it('front-only mode creates the dataset file via storage (no server upload)', async () => {

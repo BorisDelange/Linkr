@@ -515,8 +515,12 @@ async function importDatasets(
   projectUid: string,
   storage: Storage,
   mapId: (oldId: string) => string,
-): Promise<Map<string, string>> {
+): Promise<{ datasetIdMap: Map<string, string>; colIdMap: Map<string, string> }> {
   const datasetIdMap = new Map<string, string>()
+  // ZIP column id → final column id. Only populated in server mode, where re-parsing the
+  // raw file regenerates column ids: widgets/analyses that store col ids in their config
+  // (plugin xColumn/yColumn/column/uniquePer/…) must be relinked to survive the import.
+  const colIdMap = new Map<string, string>()
   const byId = new Map(parsed.datasetFiles.map(f => [f.id, f]))
 
   if (!isServerMode()) {
@@ -530,7 +534,7 @@ async function importDatasets(
     for (const rf of parsed.datasetRawFiles ?? []) {
       await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
     }
-    return datasetIdMap
+    return { datasetIdMap, colIdMap }
   }
 
   // Server mode: create folders top-down (a child's path needs its parent to exist first),
@@ -566,9 +570,36 @@ async function importDatasets(
     const parentPath = df.parentId ? (datasetIdMap.get(df.parentId) ?? null) : null
     const node = await importDatasetOnServer({ projectUid, name: df.name, parentId: parentPath, file: blob, fileName })
     datasetIdMap.set(df.id, node.id)
+
+    // Map the ZIP's column ids to the server's freshly-parsed ones. Names and order are
+    // preserved by the parser, so match by index, falling back to name.
+    const zipCols = df.columns ?? []
+    const srvCols = node.columns ?? []
+    const srvByName = new Map(srvCols.map(c => [c.name, c.id]))
+    zipCols.forEach((zc, i) => {
+      const srvId = srvCols[i]?.name === zc.name ? srvCols[i].id : srvByName.get(zc.name)
+      if (srvId) colIdMap.set(zc.id, srvId)
+    })
   }
 
-  return datasetIdMap
+  return { datasetIdMap, colIdMap }
+}
+
+/**
+ * Deep-rewrite column ids inside an arbitrary widget/analysis config value. Plugin configs
+ * store column ids as free-form strings (scalars like `column`, arrays like `popupColumns`),
+ * so every string is passed through the map; non-matching strings are returned unchanged.
+ */
+function remapColIds<T>(value: T, colIdMap: Map<string, string>): T {
+  if (colIdMap.size === 0) return value
+  if (typeof value === 'string') return (colIdMap.get(value) ?? value) as T
+  if (Array.isArray(value)) return value.map(v => remapColIds(v, colIdMap)) as T
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) out[k] = remapColIds(v, colIdMap)
+    return out as T
+  }
+  return value
 }
 
 /**
@@ -594,7 +625,7 @@ export async function importProjectContent(
   // on-disk path (not a UUID), so widgets/analyses/filters resolve through datasetIdMap
   // instead of the generic mapId. resolveDatasetId falls back to mapId for the front-only
   // path, where dataset ids are remapped UUIDs like every other entity.
-  const datasetIdMap = await importDatasets(parsed, projectUid, storage, mapId)
+  const { datasetIdMap, colIdMap } = await importDatasets(parsed, projectUid, storage, mapId)
   const resolveDatasetId = (oldId: string): string => datasetIdMap.get(oldId) ?? mapId(oldId)
 
   for (const f of parsed.ideFiles) {
@@ -634,10 +665,16 @@ export async function importProjectContent(
       id: mapId(w.id),
       tabId: mapId(w.tabId),
       datasetFileId: w.datasetFileId ? resolveDatasetId(w.datasetFileId) : w.datasetFileId,
+      source: remapColIds(w.source, colIdMap),
     })
   }
   for (const a of parsed.datasetAnalyses) {
-    await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: resolveDatasetId(a.datasetFileId) })
+    await storage.datasetAnalyses.create({
+      ...a,
+      id: mapId(a.id),
+      datasetFileId: resolveDatasetId(a.datasetFileId),
+      config: remapColIds(a.config, colIdMap),
+    })
   }
   for (const meta of parsed.attachmentsMeta) {
     const blobData = parsed.attachmentBlobs.get(meta.id)
