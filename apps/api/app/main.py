@@ -16,6 +16,7 @@ from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.datasets import router as datasets_router
 from app.api.v1.routes.execution import router as execution_router
+from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.ide_files import router as ide_files_router
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.organizations import router as organizations_router
@@ -102,3 +103,4 @@ app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")
 app.include_router(ide_files_router, prefix="/api/v1")
+app.include_router(dataset_files_router, prefix="/api/v1")

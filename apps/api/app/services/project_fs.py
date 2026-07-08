@@ -57,6 +57,18 @@ def datasets_dir(project_uid: str) -> Path:
     return d
 
 
+def cache_dir(project_uid: str) -> Path:
+    """Hidden per-project cache (never shown in the IDE tree; see _IGNORE)."""
+    d = project_dir(project_uid) / ".cache"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def dataset_path(project_uid: str, rel: str) -> Path:
+    """Absolute on-disk path of a raw dataset file, validated against traversal."""
+    return _safe_join(datasets_dir(project_uid), rel)
+
+
 def _safe_join(root: Path, rel: str) -> Path:
     """Resolve ``rel`` under ``root``, rejecting traversal outside the subtree."""
     root = root.resolve()
