@@ -70,7 +70,7 @@ async def seed_roles(engine):
 
 
 @pytest_asyncio.fixture
-async def client(engine):
+async def client(engine, monkeypatch):
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def _override_get_db():
@@ -78,6 +78,16 @@ async def client(engine):
             yield session
 
     app.dependency_overrides[get_db] = _override_get_db
+    # WebSocket handlers (ws_auth, execution terminal) open a session manually via
+    # `async_session` instead of the get_db dependency, so the override above
+    # doesn't reach them. Point their imported reference at the test maker too, or
+    # they'd hit the real ~/.linkr database and see a different (or empty) dataset.
+    import app.core.ws_auth as ws_auth
+    import app.api.v1.routes.execution as execution_route
+
+    monkeypatch.setattr(ws_auth, "async_session", maker)
+    monkeypatch.setattr(execution_route, "async_session", maker)
+
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
