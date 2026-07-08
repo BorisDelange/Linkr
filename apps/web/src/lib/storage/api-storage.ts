@@ -5,6 +5,7 @@ import {
   apiDatasetRawFileStorage,
 } from '@/lib/api/datasets'
 import { apiCohortStorage } from '@/lib/api/cohorts'
+import { apiConceptSetStorage } from '@/lib/api/concept-sets'
 import { apiDataCatalogStorage } from '@/lib/api/catalogs'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
 import { apiDqCustomCheckStorage, apiDqRuleSetStorage } from '@/lib/api/dq'
@@ -55,5 +56,6 @@ export function createAPIStorage(): Storage {
     dqRuleSets: apiDqRuleSetStorage,
     dqCustomChecks: apiDqCustomCheckStorage,
     dataCatalogs: apiDataCatalogStorage,
+    conceptSets: apiConceptSetStorage,
   }
 }

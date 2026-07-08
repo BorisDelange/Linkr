@@ -14,6 +14,7 @@ from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
+from app.api.v1.routes.concept_sets import router as concept_sets_router
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
 from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.datasets import router as datasets_router
@@ -108,6 +109,7 @@ app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(cohorts_router, prefix="/api/v1")
 app.include_router(dq_rule_sets_router, prefix="/api/v1")
 app.include_router(data_catalogs_router, prefix="/api/v1")
+app.include_router(concept_sets_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")

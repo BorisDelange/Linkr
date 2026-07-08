@@ -1,6 +1,7 @@
 from app.models.user import User
 from app.models.project import Project
 from app.models.cohort import Cohort
+from app.models.concept_set import ConceptSet
 from app.models.data_catalog import DataCatalog
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
@@ -24,6 +25,7 @@ __all__ = [
     "DatasetFile",
     "DatasetAnalysis",
     "Cohort",
+    "ConceptSet",
     "DataCatalog",
     "DqRuleSet",
     "DqCustomCheck",
