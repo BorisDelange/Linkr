@@ -43,7 +43,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   // In dev, prefill admin/admin so first-run setup is one click. Empty in prod builds.
   const devDefault = import.meta.env.DEV ? 'admin' : ''
   const [username, setUsername] = useState(devDefault)
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState(devDefault)
   const [confirmPassword, setConfirmPassword] = useState(devDefault)
   const [creating, setCreating] = useState(false)
@@ -62,7 +61,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username,
-          email: email || null,
           password,
         }),
       })
@@ -157,16 +155,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     autoFocus
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="admin-email">{t('setup.admin_email')}</Label>
-                  <Input
-                    id="admin-email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
                   />
                 </div>
 
