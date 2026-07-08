@@ -368,7 +368,9 @@ export function FileTreeItem({
                 <Clipboard size={14} />
                 {t('files.copy_relative_path')}
               </ContextMenuItem>
-              {!isFolder && (
+              {/* datasets/ files (showInIde) omit Download — it lives on the
+                  Datasets page; the IDE only mirrors them read-only. */}
+              {!isFolder && (node as { showInIde?: true }).showInIde !== true && (
                 <ContextMenuItem onClick={handleDownload}>
                   <Download size={14} />
                   {t('files.download')}
