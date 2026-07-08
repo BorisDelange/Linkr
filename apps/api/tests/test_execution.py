@@ -87,6 +87,24 @@ async def test_persistent_kernel_keeps_variables_between_runs(client):
     assert r.json()["stdout"].strip() == "42"
 
 
+async def test_kernel_recovers_from_dead_subprocess(client):
+    """A crashed/killed kernel subprocess must not poison future runs: the next
+    execute restarts it (broken-pipe retry) instead of returning a 500."""
+    headers = await _admin_headers(client)
+    body = {"language": "python", "code": "print('ok')", "projectUid": "p-recover"}
+    assert (await client.post(f"{API}/execute", headers=headers, json=body)).status_code == 200
+    # Kill the live kernel's subprocess out from under it, leaving a dead pipe.
+    from app.services.execution.kernel import manager
+    k = await manager.get("p-recover", "python", "default")
+    if k._proc is not None:  # noqa: SLF001 — test reaches into the kernel to simulate a crash
+        k._proc.kill()
+        await k._proc.wait()
+    # Next run should transparently restart and succeed, not 500.
+    r = await client.post(f"{API}/execute", headers=headers, json=body)
+    assert r.status_code == 200
+    assert r.json()["stdout"].strip() == "ok"
+
+
 async def test_kernels_isolated_per_env(client):
     headers = await _admin_headers(client)
     await client.post(f"{API}/execute", headers=headers,

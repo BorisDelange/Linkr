@@ -171,9 +171,12 @@ async def _resolve_query(query_resolver, sql: str) -> dict:
 class Kernel:
     """One persistent interpreter process. Serialises requests (one at a time)."""
 
-    def __init__(self, cmd: list[str], cwd: str | None = None):
+    def __init__(self, cmd: list[str], cwd: str | None = None, owns_cwd: bool = False):
         self._cmd = cmd
         self._cwd = cwd
+        # Only remove cwd on shutdown when we created it (a throwaway temp dir).
+        # A per-project working dir is persistent and must never be deleted here.
+        self._owns_cwd = owns_cwd
         self._proc: asyncio.subprocess.Process | None = None
         self._lock = asyncio.Lock()
         self.busy = False
@@ -199,13 +202,16 @@ class Kernel:
         RPC requests (from sql_query); each is fulfilled by `query_resolver(sql)`
         (an async callable returning rows) and the result is fed back over stdin."""
         async with self._lock:
-            proc = await self._ensure_started()
-            assert proc.stdin is not None and proc.stdout is not None
             self.busy = True
             try:
-                proc.stdin.write(base64.b64encode(code.encode("utf-8")) + b"\n")
-                await proc.stdin.drain()
-                line = await self._read_result(proc, query_resolver)
+                # A dead subprocess (crashed on a prior run) leaves a broken stdin
+                # pipe; restart once so a single failure doesn't poison every future
+                # run (which surfaced as a persistent 500).
+                try:
+                    line = await self._run_once(code, query_resolver)
+                except (BrokenPipeError, ConnectionResetError):
+                    await self.shutdown()
+                    line = await self._run_once(code, query_resolver)
             except asyncio.TimeoutError as e:
                 # A hung run poisons the namespace — kill so the next call restarts clean.
                 await self.shutdown()
@@ -226,6 +232,15 @@ class Kernel:
                 table=data.get("table"),
                 html=data.get("html"),
             )
+
+    async def _run_once(self, code: str, query_resolver) -> bytes:
+        """Send `code` to the (started) kernel and read its result line. Raises
+        BrokenPipeError/ConnectionResetError if the subprocess pipe is dead."""
+        proc = await self._ensure_started()
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write(base64.b64encode(code.encode("utf-8")) + b"\n")
+        await proc.stdin.drain()
+        return await self._read_result(proc, query_resolver)
 
     async def _read_result(self, proc, query_resolver) -> bytes:
         """Read stdout until the final result line, servicing SQL RPC requests
@@ -252,7 +267,7 @@ class Kernel:
             self._proc.kill()
             await self._proc.wait()
         self._proc = None
-        if self._cwd:
+        if self._cwd and self._owns_cwd:
             import shutil
 
             shutil.rmtree(self._cwd, ignore_errors=True)
@@ -270,7 +285,7 @@ class KernelManager:
         async with self._lock:
             kernel = self._kernels.get(key)
             if kernel is None:
-                kernel = self._make(language)
+                kernel = self._make(language, project_uid)
                 self._kernels[key] = kernel
             return kernel
 
@@ -301,17 +316,18 @@ class KernelManager:
             if proj == project_uid
         ]
 
-    def _make(self, language: str) -> Kernel:
+    def _make(self, language: str, project_uid: str) -> Kernel:
+        # The kernel runs in the project's real working directory (RStudio/Jupyter
+        # model): scripts/ and datasets/ are reachable by readable relative paths.
+        from app.services import project_fs
+
+        cwd = str(project_fs.project_dir(project_uid))
         if language == "python":
             import sys
 
-            return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP])
+            return Kernel([sys.executable, "-c", _PY_KERNEL_LOOP], cwd=cwd)
         if language == "r":
-            import tempfile
-
-            # R writes SVG plot files to cwd; give the kernel its own dir.
-            workdir = tempfile.mkdtemp(prefix="linkr-rkernel-")
-            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=workdir)
+            return Kernel(["Rscript", "--vanilla", "-e", _R_KERNEL_LOOP], cwd=cwd)
         raise ExecutionError(f"No persistent kernel for language: {language}")
 
 
