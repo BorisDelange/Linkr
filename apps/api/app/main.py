@@ -15,11 +15,13 @@ from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.data_sources import router as data_sources_router
 from app.api.v1.routes.datasets import router as datasets_router
+from app.api.v1.routes.etl_pipelines import router as etl_pipelines_router
 from app.api.v1.routes.execution import router as execution_router
 from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.ide_files import router as ide_files_router
 from app.api.v1.routes.health import router as health_router
 from app.api.v1.routes.organizations import router as organizations_router
+from app.api.v1.routes.pipelines import router as pipelines_router
 from app.api.v1.routes.projects import router as projects_router
 from app.api.v1.routes.roles import router as roles_router
 from app.api.v1.routes.schema_presets import router as schema_presets_router
@@ -101,6 +103,8 @@ app.include_router(roles_router, prefix="/api/v1")
 app.include_router(uploads_router, prefix="/api/v1")
 app.include_router(datasets_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
+app.include_router(pipelines_router, prefix="/api/v1")
+app.include_router(etl_pipelines_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")
 app.include_router(ide_files_router, prefix="/api/v1")
 app.include_router(dataset_files_router, prefix="/api/v1")

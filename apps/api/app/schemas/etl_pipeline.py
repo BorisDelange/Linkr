@@ -1,0 +1,92 @@
+from datetime import datetime
+
+from app.schemas.base import CamelModel
+
+
+class EtlPipelineCreate(CamelModel):
+    id: str
+    workspace_id: str
+    entity_id: str | None = None
+    name: dict = {}
+    description: dict = {}
+    source_data_source_id: str | None = None
+    target_data_source_id: str | None = None
+    mapping_project_id: str | None = None
+    status: str = "draft"
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    git_remote_config: dict | None = None
+    origin: str = "user"
+    created_by: str | None = None
+    created_by_details: dict | None = None
+
+
+class EtlPipelineUpdate(CamelModel):
+    entity_id: str | None = None
+    name: dict | None = None
+    description: dict | None = None
+    source_data_source_id: str | None = None
+    target_data_source_id: str | None = None
+    mapping_project_id: str | None = None
+    status: str | None = None
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    git_remote_config: dict | None = None
+
+
+class EtlPipelineResponse(CamelModel):
+    id: str
+    workspace_id: str
+    entity_id: str | None = None
+    name: dict
+    description: dict
+    source_data_source_id: str | None = None
+    target_data_source_id: str | None = None
+    mapping_project_id: str | None = None
+    status: str
+    last_run_at: str | None = None
+    last_run_duration_ms: int | None = None
+    git_remote_config: dict | None = None
+    origin: str
+    created_by: str | None = None
+    created_by_details: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class EtlFileCreate(CamelModel):
+    id: str
+    pipeline_id: str
+    name: str
+    type: str = "file"  # 'file' | 'folder'
+    parent_id: str | None = None
+    content: str | None = None
+    language: str | None = None
+    order: int = 0
+    data_source_id: str | None = None
+    disabled: bool | None = None
+    created_at: str | None = None
+
+
+class EtlFileUpdate(CamelModel):
+    name: str | None = None
+    parent_id: str | None = None
+    content: str | None = None
+    language: str | None = None
+    order: int | None = None
+    data_source_id: str | None = None
+    disabled: bool | None = None
+
+
+class EtlFileResponse(CamelModel):
+    id: str
+    pipeline_id: str
+    name: str
+    type: str
+    parent_id: str | None = None
+    content: str | None = None
+    language: str | None = None
+    order: int
+    data_source_id: str | None = None
+    disabled: bool | None = None
+    created_at: str | None = None
