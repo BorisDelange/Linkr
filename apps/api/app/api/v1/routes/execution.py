@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
+import asyncio
 
-from app.core.database import get_db
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.websockets import WebSocketDisconnect
+
+from app.config import settings
+from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
+from app.core.ws_auth import authenticate_ws
 from app.models.user import User
 from app.schemas.execution import (
     ExecuteRequest,
@@ -12,7 +18,9 @@ from app.schemas.execution import (
 )
 from app.services import data_source_service, dataset_service
 from app.services.data import dataset_fs
-from app.services.execution import injection, kernel, runtime
+from app.services.execution import injection, kernel, pty_kernel, runtime
+
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/execute", tags=["execution"])
 
@@ -126,3 +134,117 @@ async def restart_kernel(
     """Kill the persistent kernel for (project, language, env) so the next run
     starts with a clean namespace."""
     await kernel.manager.restart(body.project_uid, body.language, body.env_id)
+
+
+async def _make_ws_resolver(connection_id: str | None):
+    """Build a SQL resolver bound to the connection, if any (mirrors POST /execute
+    so sql_query() works in the terminal too). Loaded once at connect time."""
+    if not connection_id:
+        return None
+    async with async_session() as db:
+        source = await data_source_service.get(db, connection_id)
+    if source is None:
+        return None
+
+    async def resolver(sql: str):
+        return await data_source_service.query(source, sql)
+
+    return resolver
+
+
+async def _terminal_kernel_loop(
+    websocket: WebSocket, project_uid: str, language: str, env_id: str, connection_id: str | None
+) -> None:
+    """REPL over a persistent R/Python kernel: each {code} message streams
+    stdout/stderr chunks back live, then a {done} with figures/table. {interrupt}
+    sends SIGINT to the running run."""
+    k = await kernel.manager.get(project_uid, language, env_id)
+    resolver = await _make_ws_resolver(connection_id)
+
+    async def on_chunk(kind: str, data: str) -> None:
+        await websocket.send_json({"type": kind, "data": data})
+
+    while True:
+        msg = await websocket.receive_json()
+        if msg.get("interrupt"):
+            k.interrupt()
+            continue
+        code = msg.get("code")
+        if code is None:
+            continue
+        try:
+            out = await k.execute_stream(code, on_chunk, query_resolver=resolver)
+            await websocket.send_json({
+                "type": "done",
+                "figures": [
+                    {"id": f"fig-{i}", "type": f["type"], "data": f["data"], "label": f["label"]}
+                    for i, f in enumerate(out.figures)
+                ],
+                "table": out.table,
+                "html": out.html,
+            })
+        except runtime.ExecutionError as e:
+            await websocket.send_json({"type": "error", "message": str(e)})
+
+
+async def _terminal_pty_loop(websocket: WebSocket, project_uid: str, session_id: str) -> None:
+    """Interactive Bash over a PTY: pump raw bytes both ways. Client sends
+    {input} keystrokes (Ctrl+C is byte 0x03, handled natively by the PTY) and
+    {resize}; the shell's output is forwarded as {output} messages."""
+    shell = pty_kernel.manager.create(project_uid, session_id)
+
+    async def pump_output() -> None:
+        while True:
+            data = await shell.read()
+            if not data:
+                await websocket.send_json({"type": "exit"})
+                return
+            await websocket.send_json({"type": "output", "data": data.decode("utf-8", "replace")})
+
+    pump = asyncio.create_task(pump_output())
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            if "input" in msg:
+                shell.write(msg["input"].encode("utf-8"))
+            elif "resize" in msg:
+                shell.resize(int(msg["resize"]["rows"]), int(msg["resize"]["cols"]))
+    finally:
+        pump.cancel()
+        pty_kernel.manager.close(project_uid, session_id)
+
+
+@router.websocket("/terminal")
+async def terminal_ws(websocket: WebSocket):
+    """Interactive server terminal (storage plan §07d). Python/R attach to the
+    project's persistent kernel (shared variables with IDE runs); Bash gets a
+    dedicated PTY shell. Auth via ?token= (no Authorization header on WS)."""
+    user = await authenticate_ws(websocket)
+    if user is None:
+        return  # authenticate_ws already closed with WS_AUTH_FAILED
+
+    project_uid = websocket.query_params.get("projectUid")
+    language = websocket.query_params.get("language", "python")
+    if not project_uid or language not in ("python", "r", "bash"):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+    if not settings.enable_code_execution:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    try:
+        if language == "bash":
+            await _terminal_pty_loop(websocket, project_uid, session_id=str(id(websocket)))
+        else:
+            env_id = websocket.query_params.get("envId", "default")
+            connection_id = websocket.query_params.get("connectionId")
+            await _terminal_kernel_loop(websocket, project_uid, language, env_id, connection_id)
+    except WebSocketDisconnect:
+        pass
+    except Exception:  # noqa: BLE001 — a broken terminal must not crash the worker
+        logger.exception("terminal_ws_error", project=project_uid, language=language)
+        try:
+            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        except RuntimeError:
+            pass

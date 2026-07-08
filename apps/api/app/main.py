@@ -53,8 +53,10 @@ async def lifespan(app: FastAPI):
         await seed_default_roles(db)
     yield
     from app.services.execution.kernel import manager as kernel_manager
+    from app.services.execution.pty_kernel import manager as pty_manager
 
     await kernel_manager.shutdown_all()
+    pty_manager.shutdown_all()
     logger.info("shutting_down_linkr")
 
 

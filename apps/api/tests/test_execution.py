@@ -401,3 +401,112 @@ async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
 async def test_interrupt_no_live_process_returns_false(tmp_path):
     kernel = _make_python_kernel(tmp_path)
     assert kernel.interrupt() is False
+
+
+# --- Bash PTY shell (terminal §07d) --------------------------------------------
+
+
+async def _drain_until(shell, needle: str, timeout: float = 10.0) -> str:
+    """Read PTY output until `needle` appears (or timeout). Returns all seen text."""
+    seen = ""
+    async def _loop():
+        nonlocal seen
+        while needle not in seen:
+            data = await shell.read()
+            if not data:
+                return
+            seen += data.decode("utf-8", "replace")
+    await asyncio.wait_for(_loop(), timeout=timeout)
+    return seen
+
+
+async def test_pty_shell_runs_a_command(tmp_path):
+    from app.services.execution.pty_kernel import PtyShell
+
+    shell = PtyShell(str(tmp_path))
+    shell.start()
+    try:
+        shell.write(b"echo linkr-pty-ok\n")
+        out = await _drain_until(shell, "linkr-pty-ok")
+        assert "linkr-pty-ok" in out
+    finally:
+        shell.shutdown()
+
+
+async def test_pty_shell_starts_in_given_cwd(tmp_path):
+    from app.services.execution.pty_kernel import PtyShell
+
+    marker = tmp_path / "marker_dir"
+    marker.mkdir()
+    shell = PtyShell(str(tmp_path))
+    shell.start()
+    try:
+        shell.write(b"ls\n")
+        out = await _drain_until(shell, "marker_dir")
+        assert "marker_dir" in out
+    finally:
+        shell.shutdown()
+
+
+async def test_pty_shell_dies_after_shutdown(tmp_path):
+    from app.services.execution.pty_kernel import PtyShell
+
+    shell = PtyShell(str(tmp_path))
+    shell.start()
+    assert shell.alive is True
+    shell.shutdown()
+    assert shell.alive is False
+
+
+# --- WebSocket auth (terminal §07d) --------------------------------------------
+
+
+class _FakeWebSocket:
+    """Minimal WebSocket double: query params in, records the close code."""
+
+    def __init__(self, params: dict[str, str]):
+        self.query_params = params
+        self.closed_code: int | None = None
+
+    async def close(self, code: int) -> None:
+        self.closed_code = code
+
+
+async def test_ws_auth_accepts_valid_access_token(client):
+    from app.core.security import create_access_token
+    from app.core.ws_auth import authenticate_ws
+
+    # Create a real user via setup, then mint an access token for them.
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
+    login = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    token = login.json()["access_token"]
+
+    ws = _FakeWebSocket({"token": token})
+    user = await authenticate_ws(ws)
+    assert user is not None and user.username == "admin"
+    assert ws.closed_code is None
+
+
+async def test_ws_auth_rejects_missing_token(client):
+    from app.core.ws_auth import authenticate_ws, WS_AUTH_FAILED
+
+    ws = _FakeWebSocket({})
+    assert await authenticate_ws(ws) is None
+    assert ws.closed_code == WS_AUTH_FAILED
+
+
+async def test_ws_auth_rejects_refresh_token(client):
+    from app.core.security import create_refresh_token
+    from app.core.ws_auth import authenticate_ws, WS_AUTH_FAILED
+
+    ws = _FakeWebSocket({"token": create_refresh_token(1, "admin", "admin")})
+    assert await authenticate_ws(ws) is None
+    assert ws.closed_code == WS_AUTH_FAILED
+
+
+async def test_ws_auth_rejects_garbage_token(client):
+    from app.core.ws_auth import authenticate_ws, WS_AUTH_FAILED
+
+    ws = _FakeWebSocket({"token": "not-a-jwt"})
+    assert await authenticate_ws(ws) is None
+    assert ws.closed_code == WS_AUTH_FAILED
