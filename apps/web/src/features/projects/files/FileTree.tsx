@@ -41,9 +41,10 @@ export function FileTree() {
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
 
-  // Virtual nodes (read-only views of other entities) are never shown in the IDE tree.
+  // Virtual nodes (read-only views of other entities) are hidden from the IDE
+  // tree, except those flagged showInIde (the datasets/ subtree), shown read-only.
   function isVisible(node: TreeNode): boolean {
-    return node.virtual !== true
+    return node.virtual !== true || (node as { showInIde?: true }).showInIde === true
   }
 
   const rootNodes = nodes

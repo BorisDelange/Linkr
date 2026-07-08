@@ -21,6 +21,10 @@ export interface VirtualFileNode {
   language: string
   virtual: true
   readOnly: true
+  // Virtual nodes are export-only and hidden from the IDE tree, EXCEPT the
+  // datasets/ subtree, flagged showInIde so it shows read-only (mirroring the
+  // Datasets page / the on-disk datasets/ folder).
+  showInIde?: true
 }
 
 /** Bridge node for dataset files: NOT virtual (editable), but delegates CRUD to dataset-store. */
@@ -58,19 +62,13 @@ function vFolder(id: string, name: string, parentId: string | null): VirtualFile
   return { id, name, type: 'folder', parentId, content: '', language: '', virtual: true, readOnly: true }
 }
 
-function dsBridgeFile(
-  id: string,
-  name: string,
-  parentId: string | null,
-  content: string,
-  datasetFileId: string,
-  language = 'json',
-): DatasetBridgeNode {
-  return { id, name, type: 'file', parentId, content, language, datasetBridge: true, datasetFileId }
+/** Virtual nodes that ARE shown in the IDE tree (read-only) — the datasets/ subtree. */
+function ideFolder(id: string, name: string, parentId: string | null): VirtualFileNode {
+  return { id, name, type: 'folder', parentId, content: '', language: '', virtual: true, readOnly: true, showInIde: true }
 }
 
-function dsBridgeFolder(id: string, name: string, parentId: string | null, datasetFileId: string): DatasetBridgeNode {
-  return { id, name, type: 'folder', parentId, content: '', language: '', datasetBridge: true, datasetFileId }
+function ideFile(id: string, name: string, parentId: string | null, content: string, language = 'json'): VirtualFileNode {
+  return { id, name, type: 'file', parentId, content, language, virtual: true, readOnly: true, showInIde: true }
 }
 
 /** Slugify a name for use in file paths. */
@@ -205,18 +203,18 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
-    // --- datasets/ (bridge nodes — editable, delegates CRUD to dataset-store) ---
+    // --- datasets/ (read-only view: mirrors the on-disk datasets/ folder; the
+    // Datasets page stays the place to import/edit — the source is immutable) ---
     const datasetsFolderId = 'virtual:datasets'
-    virtual.push(vFolder(datasetsFolderId, 'datasets', null))
+    virtual.push(ideFolder(datasetsFolderId, 'datasets', null))
 
-    const bridgeNodes: DatasetBridgeNode[] = []
     if (datasetFiles.length > 0) {
       for (const df of datasetFiles) {
         const parentId = df.parentId
-          ? `ds-bridge:${df.parentId}`
+          ? `virtual:datasets/node/${df.parentId}`
           : datasetsFolderId
         if (df.type === 'folder') {
-          bridgeNodes.push(dsBridgeFolder(`ds-bridge:${df.id}`, df.name, parentId, df.id))
+          virtual.push(ideFolder(`virtual:datasets/node/${df.id}`, df.name, parentId))
         } else {
           const meta = {
             columns: df.columns ?? [],
@@ -224,14 +222,13 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
             createdAt: df.createdAt,
             updatedAt: df.updatedAt,
           }
-          bridgeNodes.push(
-            dsBridgeFile(`ds-bridge:${df.id}`, df.name, parentId,
-              JSON.stringify(meta, null, 2), df.id),
+          virtual.push(
+            ideFile(`virtual:datasets/node/${df.id}`, df.name, parentId, JSON.stringify(meta, null, 2)),
           )
         }
       }
 
-      // --- analyses (virtual, nested inside dataset bridge folders) ---
+      // --- analyses (nested inside the dataset's folder) ---
       if (datasetAnalyses.length > 0) {
         const byDataset = new Map<string, typeof datasetAnalyses>()
         for (const a of datasetAnalyses) {
@@ -242,17 +239,16 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
 
         for (const [datasetFileId, fileAnalyses] of byDataset) {
           const dataset = datasetFiles.find((f) => f.id === datasetFileId)
-          // Place analyses inside the dataset's bridge folder (named after dataset sans extension)
           const folderName = dataset
             ? dataset.name.replace(/\.[^.]+$/, '')
             : datasetFileId
-          const subFolderId = `virtual:datasets/${datasetFileId}`
-          virtual.push(vFolder(subFolderId, folderName, datasetsFolderId))
+          const subFolderId = `virtual:datasets/analyses/${datasetFileId}`
+          virtual.push(ideFolder(subFolderId, folderName, datasetsFolderId))
 
           for (const a of fileAnalyses) {
             const { id, name, type, config, createdAt, updatedAt } = a
             virtual.push(
-              vFile(`virtual:datasets/${a.id}`, `${slugify(name)}.json`, subFolderId,
+              ideFile(`virtual:datasets/analysis/${a.id}`, `${slugify(name)}.json`, subFolderId,
                 JSON.stringify({ id, name, type, config, createdAt, updatedAt }, null, 2)),
             )
           }
@@ -260,19 +256,19 @@ export function useProjectTree(projectUid: string | null): { nodes: TreeNode[] }
       }
     }
 
-    // --- datasets/ — files from script execution (shared-fs) ---
+    // --- datasets/ — files produced by script execution (shared-fs) ---
     for (const fullPath of sharedFsFileNames) {
       const fileName = fullPath.substring(fullPath.lastIndexOf('/') + 1)
       // Avoid duplicates with dataset store files
       const alreadyExists = datasetFiles.some((df) => df.name === fileName)
       if (!alreadyExists) {
         virtual.push(
-          vFile(`virtual:shared-fs/${fullPath}`, fileName, datasetsFolderId, '', 'plaintext'),
+          ideFile(`virtual:shared-fs/${fullPath}`, fileName, datasetsFolderId, '', 'plaintext'),
         )
       }
     }
 
-    return [...virtual, ...bridgeNodes, ...files]
+    return [...virtual, ...files]
   }, [files, projectUid, projectsRaw, dataSources, cohorts, pipelines, dashboardTabs, dashboardWidgets, datasetFiles, datasetAnalyses, sharedFsFileNames])
 
   return { nodes }
