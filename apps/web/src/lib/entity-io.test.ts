@@ -1,8 +1,14 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import JSZip from 'jszip'
-import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData } from './entity-io'
+import { slugify, parseCsvLine, parseCsvToDatasetData, parseProjectZip, deleteProjectData, datasetToCsv, importProjectContent } from './entity-io'
+import type { ParsedProjectZip } from './entity-io'
 import type { DatasetFile } from '@/types'
 import type { Storage } from '@/lib/storage'
+
+const serverMode = vi.hoisted(() => ({ value: false }))
+vi.mock('@/lib/api-client', () => ({ isServerMode: () => serverMode.value }))
+const importDatasetOnServer = vi.hoisted(() => vi.fn())
+vi.mock('@/lib/api/datasets', () => ({ importDatasetOnServer }))
 
 // slugify produces filesystem-safe names for ZIP entries and folders.
 // A bad slug means a file overwrites another or fails to write → data loss.
@@ -157,5 +163,93 @@ describe('deleteProjectData — tolerates a missing project (server 404)', () =>
     }) as unknown as Storage
 
     await expect(deleteProjectData(store, 'ghost-uid')).resolves.toBeUndefined()
+  })
+})
+
+// datasetToCsv keys rows by column id but must emit a NAME header, so a re-parse
+// (server import) recovers the real columns. A wrong header breaks every downstream query.
+describe('datasetToCsv', () => {
+  const df = {
+    id: 'd1', name: 'x.csv', type: 'file', parentId: null,
+    columns: [
+      { id: 'c0', name: 'patient_id', type: 'number', order: 0 },
+      { id: 'c1', name: 'note', type: 'string', order: 1 },
+    ],
+  } as unknown as DatasetFile
+
+  it('uses column names in the header and values keyed by column id', () => {
+    const csv = datasetToCsv(df, [{ c0: 1, c1: 'a' }, { c0: 2, c1: 'b' }])
+    expect(csv.split('\n')).toEqual(['patient_id,note', '1,a', '2,b'])
+  })
+
+  it('escapes commas, quotes and newlines; blanks nulls', () => {
+    const csv = datasetToCsv(df, [{ c0: null, c1: 'a,"b"\nc' }])
+    // null → empty; the second value is quoted with doubled inner quotes.
+    expect(csv).toBe('patient_id,note\n,"a,""b""\nc"')
+  })
+})
+
+// The reported bug: importing a project in server mode created the project + dashboards but
+// NOT the datasets (the server-mode adapters no-op for dataset files), and widgets kept
+// pointing at the ZIP's dataset UUID. Datasets must be uploaded via importDatasetOnServer and
+// widget datasetFileId relinked to the server's path-based id.
+describe('importProjectContent — server-mode datasets', () => {
+  const emptyParsed = (over: Partial<ParsedProjectZip>): ParsedProjectZip => ({
+    project: { uid: 'p1', name: { en: 'P' } } as unknown as ParsedProjectZip['project'],
+    ideFiles: [], pipelines: [], cohorts: [], connections: [],
+    dashboards: [], dashboardTabs: [], dashboardWidgets: [],
+    datasetFiles: [], datasetAnalyses: [], datasetData: [], datasetRawFiles: [],
+    attachmentsMeta: [], attachmentBlobs: new Map(), ...over,
+  })
+
+  const makeStore = () => {
+    const widgetCreate = vi.fn(async (_w: { datasetFileId?: string }) => {})
+    const datasetFileCreate = vi.fn(async (_f: unknown) => {})
+    const store = new Proxy({}, {
+      get: (_t, prop) => {
+        if (prop === 'dashboardWidgets') return { create: widgetCreate }
+        if (prop === 'datasetFiles') return { create: datasetFileCreate }
+        return new Proxy({}, { get: () => async () => {} })
+      },
+    }) as unknown as Storage
+    return { store, widgetCreate, datasetFileCreate }
+  }
+
+  beforeEach(() => {
+    serverMode.value = false
+    importDatasetOnServer.mockReset()
+  })
+
+  it('uploads dataset files and relinks widget datasetFileId to the server id', async () => {
+    serverMode.value = true
+    importDatasetOnServer.mockResolvedValue({ id: 'table.csv' })
+
+    const parsed = emptyParsed({
+      datasetFiles: [{ id: 'zip-uuid', name: 'table.csv', type: 'file', parentId: null, columns: [] } as unknown as DatasetFile],
+      datasetRawFiles: [{ datasetFileId: 'zip-uuid', blob: new Blob(['a\n1']), fileName: 'table.csv' }],
+      dashboardWidgets: [{ id: 'w1', tabId: 't1', datasetFileId: 'zip-uuid' } as unknown as ParsedProjectZip['dashboardWidgets'][number]],
+    })
+
+    const { store, widgetCreate, datasetFileCreate } = makeStore()
+    await importProjectContent(parsed, 'p1', store)
+
+    // The dataset file was uploaded through the real server import, not the no-op adapter.
+    expect(importDatasetOnServer).toHaveBeenCalledOnce()
+    expect(datasetFileCreate).not.toHaveBeenCalled()
+    // The widget now points at the server's path id, not the ZIP UUID.
+    const createdWidget = widgetCreate.mock.calls[0]?.[0] as { datasetFileId?: string }
+    expect(createdWidget.datasetFileId).toBe('table.csv')
+  })
+
+  it('front-only mode creates the dataset file via storage (no server upload)', async () => {
+    serverMode.value = false
+    const parsed = emptyParsed({
+      datasetFiles: [{ id: 'zip-uuid', name: 'table.csv', type: 'file', parentId: null, columns: [] } as unknown as DatasetFile],
+    })
+    const { store, datasetFileCreate } = makeStore()
+    await importProjectContent(parsed, 'p1', store)
+
+    expect(importDatasetOnServer).not.toHaveBeenCalled()
+    expect(datasetFileCreate).toHaveBeenCalledOnce()
   })
 })

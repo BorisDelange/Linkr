@@ -21,6 +21,8 @@ import type {
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { isServerMode } from '@/lib/api-client'
+import { importDatasetOnServer } from '@/lib/api/datasets'
 
 /**
  * Write a project/workspace README as `README.md` (English or first language)
@@ -323,6 +325,24 @@ function buildDatasetPath(file: DatasetFile, byId: Map<string, DatasetFile>): st
 const json = (data: unknown) => JSON.stringify(data, null, 2)
 
 /**
+ * Serialize dataset rows to CSV. Rows are keyed by column id (as stored/exported);
+ * the header uses column NAMES so a re-parse (front or server) recovers the real columns.
+ */
+export function datasetToCsv(df: DatasetFile, rows: Record<string, unknown>[]): string {
+  const colIds = df.columns?.map(c => c.id) ?? (rows[0] ? Object.keys(rows[0]) : [])
+  const colNames = df.columns?.map(c => c.name) ?? colIds
+  const escape = (v: unknown): string => {
+    if (v == null) return ''
+    const s = String(v)
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  return [
+    colNames.join(','),
+    ...rows.map(row => colIds.map(id => escape(row[id])).join(',')),
+  ].join('\n')
+}
+
+/**
  * Build a ZIP blob containing all project data in a git-friendly folder layout.
  */
 export async function buildProjectZip(
@@ -424,23 +444,8 @@ export async function buildProjectZip(
           }
         } else if (data && data.rows.length > 0) {
           // Computed dataset (no source file): reconstructed CSV, always named .csv.
-          const colIds = df.columns?.map(c => c.id) ?? Object.keys(data.rows[0])
-          const colNames = df.columns?.map(c => c.name) ?? colIds
-          const csvRows = [
-            colNames.join(','),
-            ...data.rows.map(row =>
-              colIds.map(id => {
-                const v = row[id]
-                if (v == null) return ''
-                const s = String(v)
-                return s.includes(',') || s.includes('"') || s.includes('\n')
-                  ? `"${s.replace(/"/g, '""')}"`
-                  : s
-              }).join(',')
-            ),
-          ]
           const baseName = (dsPath.split('/').pop() ?? df.name).replace(/\.[^.]+$/, '')
-          zip.file(`datasets/${folderName}/${baseName}.csv`, csvRows.join('\n'))
+          zip.file(`datasets/${folderName}/${baseName}.csv`, datasetToCsv(df, data.rows))
         }
       }
     }
@@ -492,6 +497,81 @@ export interface ParsedProjectZip {
 }
 
 /**
+ * Import a project's dataset tree, returning a map from each ZIP dataset id to its
+ * FINAL id in storage.
+ *
+ * Front-only (IndexedDB): datasets are UUID-keyed rows — create the file, then save its
+ * parsed rows and raw blob; the final id is the remapped UUID (via mapId).
+ *
+ * Server mode: datasets are disk-source-of-truth (projects/<uid>/datasets/<path>) and the
+ * generic storage adapters no-op for dataset files. Each file is uploaded through the real
+ * server import (importDatasetOnServer), which lands the raw file, parses it into Parquet,
+ * and returns a node whose id is the on-disk path — that path becomes the final id. When a
+ * raw file is absent (data-only export), a CSV is synthesized from the parsed rows so the
+ * dataset still lands on the server.
+ */
+async function importDatasets(
+  parsed: ParsedProjectZip,
+  projectUid: string,
+  storage: Storage,
+  mapId: (oldId: string) => string,
+): Promise<Map<string, string>> {
+  const datasetIdMap = new Map<string, string>()
+  const byId = new Map(parsed.datasetFiles.map(f => [f.id, f]))
+
+  if (!isServerMode()) {
+    for (const df of parsed.datasetFiles) {
+      await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid, parentId: df.parentId ? mapId(df.parentId) : null })
+      datasetIdMap.set(df.id, mapId(df.id))
+    }
+    for (const dd of parsed.datasetData) {
+      await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
+    }
+    for (const rf of parsed.datasetRawFiles ?? []) {
+      await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
+    }
+    return datasetIdMap
+  }
+
+  // Server mode: create folders top-down (a child's path needs its parent to exist first),
+  // then import each file at its real path.
+  const rawByDataset = new Map((parsed.datasetRawFiles ?? []).map(rf => [rf.datasetFileId, rf]))
+  const dataByDataset = new Map(parsed.datasetData.map(dd => [dd.datasetFileId, dd]))
+  const folders = parsed.datasetFiles.filter(f => f.type === 'folder')
+  const files = parsed.datasetFiles.filter(f => f.type === 'file')
+
+  // Parent-before-child ordering by tree depth so folder paths resolve.
+  const depth = (f: DatasetFile): number => {
+    let d = 0, cur: DatasetFile | undefined = f
+    while (cur?.parentId) { cur = byId.get(cur.parentId); d++ }
+    return d
+  }
+  for (const folder of [...folders].sort((a, b) => depth(a) - depth(b))) {
+    const path = buildDatasetPath(folder, byId)
+    datasetIdMap.set(folder.id, path)
+    await storage.datasetFiles.create({ ...folder, id: path, projectUid, parentId: folder.parentId ? (datasetIdMap.get(folder.parentId) ?? null) : null })
+  }
+
+  for (const df of files) {
+    const raw = rawByDataset.get(df.id)
+    const data = dataByDataset.get(df.id)
+    let blob: Blob | undefined = raw?.blob
+    let fileName = raw?.fileName ?? df.name
+    if (!blob && data?.rows?.length) {
+      blob = new Blob([datasetToCsv(df, data.rows)], { type: 'text/csv' })
+      fileName = df.name.match(/\.[^.]+$/) ? df.name.replace(/\.[^.]+$/, '.csv') : `${df.name}.csv`
+    }
+    if (!blob) continue // nothing to upload (empty dataset)
+
+    const parentPath = df.parentId ? (datasetIdMap.get(df.parentId) ?? null) : null
+    const node = await importDatasetOnServer({ projectUid, name: df.name, parentId: parentPath, file: blob, fileName })
+    datasetIdMap.set(df.id, node.id)
+  }
+
+  return datasetIdMap
+}
+
+/**
  * Write a parsed project's sub-entities (IDE files, pipelines, cohorts, connections,
  * dashboards + tabs + widgets, datasets + analyses + data + raw files, attachments) into
  * storage under `projectUid`, remapping every child id to a fresh UUID so records from a
@@ -509,6 +589,14 @@ export async function importProjectContent(
     return idMap.get(oldId)!
   }
 
+  // Datasets must be imported before dashboards/widgets so their final ids are known
+  // when we remap `datasetFileId` references. In server mode a dataset's id is its
+  // on-disk path (not a UUID), so widgets/analyses/filters resolve through datasetIdMap
+  // instead of the generic mapId. resolveDatasetId falls back to mapId for the front-only
+  // path, where dataset ids are remapped UUIDs like every other entity.
+  const datasetIdMap = await importDatasets(parsed, projectUid, storage, mapId)
+  const resolveDatasetId = (oldId: string): string => datasetIdMap.get(oldId) ?? mapId(oldId)
+
   for (const f of parsed.ideFiles) {
     await storage.ideFiles.create({ ...f, id: mapId(f.id), projectUid, parentId: f.parentId ? mapId(f.parentId) : null })
   }
@@ -525,7 +613,7 @@ export async function importProjectContent(
     const filterConfig = (d.filterConfig ?? []).map(f => ({
       ...f,
       id: mapId(f.id),
-      datasetFileId: mapId(f.datasetFileId),
+      datasetFileId: resolveDatasetId(f.datasetFileId),
       ...(f.scope?.type === 'tabs' ? { scope: { ...f.scope, tabIds: f.scope.tabIds.map(mapId) } } : {}),
       ...(f.scope?.type === 'widgets' ? { scope: { ...f.scope, widgetIds: f.scope.widgetIds.map(mapId) } } : {}),
     }))
@@ -534,7 +622,7 @@ export async function importProjectContent(
       id: mapId(d.id),
       projectUid,
       filterConfig,
-      defaultDatasetFileId: d.defaultDatasetFileId ? mapId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
+      defaultDatasetFileId: d.defaultDatasetFileId ? resolveDatasetId(d.defaultDatasetFileId) : d.defaultDatasetFileId,
     })
   }
   for (const tab of parsed.dashboardTabs) {
@@ -545,20 +633,11 @@ export async function importProjectContent(
       ...w,
       id: mapId(w.id),
       tabId: mapId(w.tabId),
-      datasetFileId: w.datasetFileId ? mapId(w.datasetFileId) : w.datasetFileId,
+      datasetFileId: w.datasetFileId ? resolveDatasetId(w.datasetFileId) : w.datasetFileId,
     })
   }
-  for (const df of parsed.datasetFiles) {
-    await storage.datasetFiles.create({ ...df, id: mapId(df.id), projectUid, parentId: df.parentId ? mapId(df.parentId) : null })
-  }
   for (const a of parsed.datasetAnalyses) {
-    await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: mapId(a.datasetFileId) })
-  }
-  for (const dd of parsed.datasetData) {
-    await storage.datasetData.save({ datasetFileId: mapId(dd.datasetFileId), rows: dd.rows })
-  }
-  for (const rf of parsed.datasetRawFiles ?? []) {
-    await storage.datasetRawFiles.save({ datasetFileId: mapId(rf.datasetFileId), blob: rf.blob, fileName: rf.fileName })
+    await storage.datasetAnalyses.create({ ...a, id: mapId(a.id), datasetFileId: resolveDatasetId(a.datasetFileId) })
   }
   for (const meta of parsed.attachmentsMeta) {
     const blobData = parsed.attachmentBlobs.get(meta.id)
