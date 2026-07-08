@@ -29,6 +29,42 @@ persisté ; recalcul à la demande.
 
 ---
 
+## 02 — Persistance serveur par entité (Tâche 4) **[FAIT]**
+
+Chaque entité auparavant client-only (IndexedDB) a maintenant sa persistance serveur :
+modèle SQLAlchemy + schémas Pydantic (camelCase) + service + routes CRUD workspace/project-
+scopées + adaptateur front `lib/api/<entité>.ts` branché dans `createAPIStorage()`
+(`api-storage.ts`). `isServerMode()` décide au niveau de la façade `getStorage()` ; les stores
+Zustand sont inchangés. Migrations Alembic + tests d'intégration pytest pour chacune.
+
+| Entité | Tables | Portée | Notes |
+|---|---|---|---|
+| Pipeline (DAG projet) | `pipelines` | project | **[FAIT]** |
+| ETL pipelines | `etl_pipelines` + `etl_files` | workspace | contenu scripts inline **[FAIT]** |
+| Cohorts | `cohorts` | project | criteria tree JSON ; caches result_count/attrition **[FAIT]** |
+| Data quality | `dq_rule_sets` + `dq_custom_checks` | workspace | SQL inline, cascade **[FAIT]** |
+| Data catalogs | `data_catalogs` | workspace | config/DCAT-AP JSON ; `catalog_results` = cache local **[FAIT]** |
+| Concept sets | `concept_sets` | workspace | expression/resolvedIds JSON ; delete-batch **[FAIT]** |
+| Source-concept IDs | `source_concept_id_ranges` (clé composite) + `_entries` | workspace | upsert + saveBatch **[FAIT]** |
+| Mapping projects | `mapping_projects` + `concept_mappings` + `service_mappings` | workspace | CSV source dans blob store (`raw_file_sha`, lazy-load) ; createBatch/deleteOrphans **[FAIT]** |
+| User plugins | `user_plugins` | workspace (nullable = global) | fichiers code inline **[FAIT]** |
+| IDE connections | `ide_connections` | project | **secret Fernet** (password/token chiffré dans `connection_secret`, jamais renvoyé) **[FAIT]** |
+| Schémas par défaut | (seed) | workspace | OMOP 5.4/5.3, MIMIC-IV/III seedés à la création d'un workspace (front) **[FAIT]** |
+
+Déjà persistés avant cette tâche : workspaces, organizations, projects, data sources,
+datasets, SQL scripts, wiki, schema presets, IDE files (autre session).
+
+Requête serveur d'un mapping project *file* : `POST /mapping-projects/{id}/query` exécute le SQL
+sur le CSV du blob via `db_connect.query_csv` (DuckDB `read_csv_auto`), en reconstruisant la vue
+`source_concepts` (colonnes normalisées via columnMapping, miroir du montage WASM). **[FAIT]**
+
+Perf mode serveur (concept-mapping) : buffer CSV **jamais** chargé dans le state React
+(sortait le navigateur de l'archi §03 et provoquait un lag/timeout devtools) ; `mountFileSourceIntoDuckDB`
+no-op en mode serveur ; cross-project overview parallélisé (`Promise.all`) + chargement des
+lignes source différé aux onglets Table/Export. **[FAIT]**
+
+---
+
 ## 03 — Où tourne le calcul : décision d'architecture (ACTÉE)
 
 Deux modes de déploiement, deux endroits pour le calcul — **le mode seul décide, jamais la
@@ -54,7 +90,7 @@ nuage), mais on garde les agrégats petits quand un agrégat suffit.*
 - **(b) Moteur DuckDB serveur** — une API de requêtes remplace `queryDataSource` (~142 appels)
   et `computeStats` ; le navigateur reçoit des lignes de résultat. **[À FAIRE — plus gros reste]**
 - **(c) R / Python serveur** — exécution par session (voir §06/§07). **[FAIT]** (kernels
-  persistants) ; **terminal streaming = §07(d) [À FAIRE]**.
+  persistants) ; **terminal streaming = §07(d) [FAIT]**.
 
 ---
 
@@ -69,6 +105,12 @@ Implémentation retenue (disque source de vérité) : `projects/<uid>/datasets/`
 fichiers **bruts** (source unique, scannés depuis le disque) ; un **cache Parquet dérivé** vit
 sous `projects/<uid>/.cache/datasets/` pour la pagination/stats/injection. Les analyses sont
 re-keyées par `(project_uid, dataset_path)` avec réconciliation des orphelines au scan.
+
+Le dossier `datasets/` est aussi surfacé **en lecture seule dans l'arbre de l'IDE** (à côté de
+`scripts/`, flag `showInIde` dans `use-project-tree.ts`) : cliquer un fichier ouvre le
+**visualiseur de dataset** (aperçu paginé, même rendu que la page Datasets), pas le JSON de
+métadonnées ; pas de Download ni d'édition depuis l'IDE (la page Datasets reste le point
+d'import/édition, source immuable). **[FAIT]**
 
 ---
 
@@ -112,9 +154,20 @@ kernel Jupyter / console RStudio). Deux sens d'« environnement » : (1) paquets
 - **(a) Kernel Python persistant par projet** — variables persistent. **[FAIT]**
 - **(b) Kernel R persistant.** **[FAIT]**
 - **(c) Multi-environnements + UI footer** (créer/lister/basculer/restart, monitoring). **[PARTIEL]**
-  Route `/execute/kernels` existe (liste des kernels vivants) ; UI footer à compléter.
+  Route `/execute/kernels` existe (liste des kernels vivants) et le kernel est déjà keyé
+  `(project_uid, language, env_id)` — l'isolation par environnement est donc *possible* côté
+  backend. Reste : (1) l'UI footer (créer/basculer/restart + Ready/Busy/RSS) ; (2) attribuer un
+  `env_id` distinct par terminal et/ou pour les scripts (aujourd'hui tout utilise `env_id="default"`,
+  donc kernel partagé) — le modèle « un env par terminal » façon VS Code demandé par le PO ;
+  (3) appliquer `session_timeout_minutes` / `max_sessions_per_user` (définis mais pas branchés).
 - **(d) Terminal serveur = REPL interactif sur un kernel (streaming)** — **le plus complexe,
-  en dernier**. **[À FAIRE — PRIORITÉ de la prochaine session]**
+  en dernier**. **[FAIT]** WebSocket `/execute/terminal` : Python/R en streaming sur le kernel
+  persistant (chunks stdout/stderr live + `done`), interruption Ctrl+C → SIGINT (le kernel survit),
+  Bash = vrai PTY (`pty.openpty` + `bash -i`, pas de fork de l'interpréteur). Auth WS via `?token=`.
+  Front : `TerminalSocket` + xterm, `isServerMode()` décide (WASM inchangé en front-only).
+  **Reste (hors §07d, notés) :** Run du bouton éditeur toujours en batch (à passer en streaming +
+  Stop réel + Ctrl+C) ; streaming R vrai temps réel (aujourd'hui bufferisé par `capture.output`,
+  sortie émise en fin de run).
 
 Kernels persistants en mémoire (acté) : un process R/Python vivant par environnement, gardé en
 RAM côté serveur. Variables perdues au redémarrage serveur ou à l'expiration d'inactivité
