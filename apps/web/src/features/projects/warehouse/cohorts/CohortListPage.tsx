@@ -5,9 +5,11 @@ import type { Cohort } from '@/types'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { useCohortStore } from '@/stores/cohort-store'
+import { useMemo } from 'react'
 import { UsersRound, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,8 +31,18 @@ export function CohortListPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingCohort, setEditingCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
-  const cohorts = uid ? getProjectCohorts(uid) : []
+  const cohorts = useMemo(() => (uid ? getProjectCohorts(uid) : []), [uid, getProjectCohorts])
+
+  const filteredCohorts = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    if (!words.length) return cohorts
+    return cohorts.filter((c) => {
+      const haystack = `${c.name} ${c.description ?? ''}`.toLowerCase()
+      return words.every((w) => haystack.includes(w))
+    })
+  }, [cohorts, searchQuery])
   const basePath = `/workspaces/${wsUid}/projects/${uid}/warehouse/cohorts`
 
   const handleCreate = async (data: { name: string; description: string }) => {
@@ -47,15 +59,26 @@ export function CohortListPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-3xl px-6 py-10">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">
-            {t('cohorts.list_title')}
-          </h1>
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus size={16} />
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('cohorts.list_title')}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('cohorts.list_description')}</p>
+          </div>
+          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setDialogOpen(true)}>
+            <Plus size={14} />
             {t('cohorts.create')}
           </Button>
         </div>
+
+        {cohorts.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('cohorts.search_placeholder')}
+          />
+        )}
 
         {cohorts.length === 0 ? (
           <Card className="mt-6">
@@ -69,9 +92,14 @@ export function CohortListPage() {
               </p>
             </div>
           </Card>
+        ) : filteredCohorts.length === 0 ? (
+          <div className="mt-6 flex flex-col items-center py-8">
+            <UsersRound size={24} className="text-muted-foreground/50" />
+            <p className="mt-2 text-sm text-muted-foreground">{t('cohorts.no_results')}</p>
+          </div>
         ) : (
           <div className="mt-6 space-y-3">
-            {cohorts.map((cohort) => (
+            {filteredCohorts.map((cohort) => (
               <CohortCard
                 key={cohort.id}
                 cohort={cohort}

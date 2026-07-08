@@ -17,6 +17,7 @@ import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -52,6 +53,8 @@ export function ProjectsPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
   const [importOpen, setImportOpen] = useState(false)
 
   // Delete confirmation state
@@ -75,14 +78,56 @@ export function ProjectsPage() {
   // Filter projects by workspace if we're inside one
   const displayProjects = wsUid ? getWorkspaceProjects(wsUid) : projects
 
+  const rawByUid = useMemo(() => new Map(_projectsRaw.map((p) => [p.uid, p])), [_projectsRaw])
+
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const p of displayProjects) for (const b of rawByUid.get(p.uid)?.badges ?? []) if (b.label && !byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
+  }, [displayProjects, rawByUid])
+
   const filteredProjects = useMemo(() => {
-    if (!searchQuery.trim()) return displayProjects
     const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
     return displayProjects.filter((p) => {
-      const text = `${p.name} ${p.description ?? ''}`.toLowerCase()
-      return words.every((w) => text.includes(w))
+      if (words.length) {
+        const text = `${p.name} ${p.description ?? ''}`.toLowerCase()
+        if (!words.every((w) => text.includes(w))) return false
+      }
+      const raw = rawByUid.get(p.uid)
+      if (statusFilter.length && !statusFilter.includes(raw?.status ?? 'active')) return false
+      if (badgeFilter.length) {
+        const labels = new Set((raw?.badges ?? []).map((b) => b.label))
+        if (!badgeFilter.some((l) => labels.has(l))) return false
+      }
+      return true
     })
-  }, [displayProjects, searchQuery])
+  }, [displayProjects, searchQuery, statusFilter, badgeFilter, rawByUid])
+
+  const filterGroups = useMemo<FilterGroup[]>(() => [
+    {
+      key: 'status',
+      label: t('project_settings.status'),
+      selected: statusFilter,
+      onChange: setStatusFilter,
+      options: (['active', 'completed', 'archived', 'draft'] as const).map((s) => ({
+        value: s,
+        label: t(`project_settings.status_${s}`),
+        dotClass: getStatusDotClass(s),
+      })),
+    },
+    {
+      key: 'badges',
+      label: t('project_settings.badges'),
+      selected: badgeFilter,
+      onChange: setBadgeFilter,
+      options: allBadges.map((b) => ({
+        value: b.label,
+        label: b.label,
+        badgeClass: getBadgeClasses(b.color),
+        badgeStyle: getBadgeStyle(b.color),
+      })),
+    },
+  ], [t, statusFilter, badgeFilter, allBadges])
 
   const handleOpenProject = (uid: string, name: string) => {
     openProject(uid, name)
@@ -193,11 +238,14 @@ export function ProjectsPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-4xl px-6 py-10">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">
-            {t('projects.title')}
-          </h1>
-          <div className="flex items-center gap-1">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('projects.title')}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('projects.description')}</p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
             <Button
               variant="outline"
               size="sm"
@@ -215,15 +263,12 @@ export function ProjectsPage() {
         </div>
 
         {displayProjects.length > 0 && (
-          <div className="relative mt-4">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={t('projects.search_placeholder')}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('projects.search_placeholder')}
+            filterGroups={filterGroups}
+          />
         )}
 
         {displayProjects.length === 0 ? (

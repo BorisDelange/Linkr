@@ -16,7 +16,8 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { getBadgeClasses, getBadgeStyle, PRESET_COLORS, isCustomColor } from '@/features/projects/ProjectSettingsPage'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import {
   Select,
   SelectContent,
@@ -211,45 +212,15 @@ export function WorkspaceSettingsPage() {
                 )}
                 <div className="space-y-2">
                   <Label>{t('project_settings.badge_label')}</Label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <Input
                       value={newBadgeLabel}
                       onChange={(e) => setNewBadgeLabel(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddBadge()}
                       placeholder={t('project_settings.badge_label_placeholder')}
-                      className="h-8 w-48 text-sm"
+                      className="h-8 flex-1 text-sm"
                     />
-                    <div className="flex items-center gap-1.5">
-                      {PRESET_COLORS.map((c) => (
-                        <button
-                          key={c.value}
-                          onClick={() => setNewBadgeColor(c.value)}
-                          className={`h-6 w-6 rounded-full ${c.swatch} ring-offset-background transition-all ${
-                            newBadgeColor === c.value
-                              ? 'ring-2 ring-ring ring-offset-2'
-                              : 'hover:ring-1 hover:ring-ring hover:ring-offset-1'
-                          }`}
-                        />
-                      ))}
-                      <div className="relative">
-                        <input
-                          type="color"
-                          value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
-                          onChange={(e) => setNewBadgeColor(e.target.value)}
-                          className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
-                        />
-                        <div
-                          className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all ${
-                            isCustomColor(newBadgeColor)
-                              ? 'ring-2 ring-ring ring-offset-2'
-                              : 'hover:border-muted-foreground/60'
-                          }`}
-                          style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
-                        >
-                          {!isCustomColor(newBadgeColor) && <Plus size={10} />}
-                        </div>
-                      </div>
-                    </div>
+                    <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
                     <Button
                       size="sm"
                       variant="outline"

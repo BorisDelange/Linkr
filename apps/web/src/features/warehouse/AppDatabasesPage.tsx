@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Textarea } from '@/components/ui/textarea'
@@ -49,6 +50,14 @@ import { getStorage } from '@/lib/storage'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailSheet } from '@/features/projects/warehouse/databases/DatabaseDetailSheet'
+
+const DATA_SOURCE_STATUSES = ['connected', 'disconnected', 'error', 'configuring'] as const
+const STATUS_DOT: Record<string, string> = {
+  connected: 'bg-emerald-500',
+  disconnected: 'bg-slate-400',
+  error: 'bg-red-500',
+  configuring: 'bg-amber-500',
+}
 
 // ---------------------------------------------------------------------------
 // CreateFromPresetDialog — create an empty database from a preset DDL
@@ -235,25 +244,69 @@ export function AppDatabasesPage() {
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
   const [sourceToEdit, setSourceToEdit] = useState<DataSource | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [projectFilter, setProjectFilter] = useState<string[]>([])
 
   // Show only databases for the current workspace, hide vocabulary-only sources
   const visibleSources = dataSources.filter((ds) => !ds.isVocabularyReference && ds.workspaceId === wsUid)
 
-  // Fuzzy search: every word in query must appear in name OR description (case-insensitive)
-  const filteredSources = searchQuery.trim()
-    ? visibleSources.filter((ds) => {
-        const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+  const getLinkedProjects = useCallback(
+    (dataSourceId: string) => projects.filter((p) => p.linkedDataSourceIds?.includes(dataSourceId)),
+    [projects],
+  )
+
+  const projectName = useCallback(
+    (p: (typeof projects)[number]) => p.name[language] ?? p.name['en'] ?? Object.values(p.name)[0] ?? '',
+    [language],
+  )
+
+  // Fuzzy search + status + linked-project filters.
+  const filteredSources = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    return visibleSources.filter((ds) => {
+      if (words.length) {
         const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
-        return words.every((w) => haystack.includes(w))
-      })
-    : visibleSources
+        if (!words.every((w) => haystack.includes(w))) return false
+      }
+      if (statusFilter.length && !statusFilter.includes(ds.status)) return false
+      if (projectFilter.length) {
+        const linked = new Set(getLinkedProjects(ds.id).map((p) => p.uid))
+        if (!projectFilter.some((uid) => linked.has(uid))) return false
+      }
+      return true
+    })
+  }, [visibleSources, searchQuery, statusFilter, projectFilter, getLinkedProjects])
+
+  const linkedProjectOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const ds of visibleSources) for (const p of getLinkedProjects(ds.id)) if (!seen.has(p.uid)) seen.set(p.uid, projectName(p))
+    return [...seen.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+  }, [visibleSources, getLinkedProjects, projectName])
+
+  const filterGroups: FilterGroup[] = [
+    {
+      key: 'status',
+      label: t('databases.status'),
+      selected: statusFilter,
+      onChange: setStatusFilter,
+      options: DATA_SOURCE_STATUSES.map((s) => ({
+        value: s,
+        label: t(`databases.status_${s}`),
+        dotClass: STATUS_DOT[s],
+      })),
+    },
+    {
+      key: 'projects',
+      label: t('app_warehouse.linked_projects'),
+      selected: projectFilter,
+      onChange: setProjectFilter,
+      options: linkedProjectOptions,
+    },
+  ]
 
   const currentSelectedSource = selectedSource
     ? dataSources.find((ds) => ds.id === selectedSource.id) ?? null
     : null
-
-  const getLinkedProjects = (dataSourceId: string) =>
-    projects.filter((p) => p.linkedDataSourceIds?.includes(dataSourceId))
 
   const handleRemove = () => {
     if (sourceToRemove) {
@@ -298,20 +351,17 @@ export function AppDatabasesPage() {
           </div>
         </div>
 
-        {/* Search bar */}
-        {dataSources.length > 0 && (
-          <div className="relative mt-4">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('databases.search_placeholder')}
-              className="pl-9"
-            />
-          </div>
+        {/* Search + filters */}
+        {visibleSources.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('databases.search_placeholder')}
+            filterGroups={filterGroups}
+          />
         )}
 
-      {filteredSources.length === 0 && dataSources.length === 0 ? (
+      {visibleSources.length === 0 ? (
         <Card className="mt-4">
           <div className="flex flex-col items-center py-12">
             <Database size={40} className="text-muted-foreground" />

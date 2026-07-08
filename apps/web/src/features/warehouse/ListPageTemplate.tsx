@@ -67,6 +67,8 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   renderEditDialog: (props: { item: T; onOpenChange: (open: boolean) => void }) => ReactNode
   /** Optional extra actions rendered before the Import/New buttons in the header */
   headerActions?: ReactNode
+  /** Optional toolbar (search + filters) rendered on its own row below the title */
+  toolbar?: ReactNode
   /** Optional back button/element rendered on the left of the header row */
   backAction?: ReactNode
 }
@@ -98,6 +100,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   renderCreateDialog,
   renderEditDialog,
   headerActions,
+  toolbar,
   backAction,
 }: ListPageTemplateProps<T>) {
   const { t } = useTranslation()
@@ -111,9 +114,12 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
         {/* Header */}
         <div>
           {backAction && <div className="mb-1">{backAction}</div>}
-          <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
-          <div className="mt-3 flex items-center justify-end gap-1">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-foreground">{t(titleKey)}</h1>
+              <p className="mt-1 text-sm text-muted-foreground">{t(descriptionKey)}</p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
             {headerActions}
             {onImport ? (
               <Button
@@ -142,7 +148,9 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
               <Plus size={14} />
               {t(newButtonKey)}
             </Button>
+            </div>
           </div>
+          {toolbar}
         </div>
 
         {/* Empty state / Item grid */}

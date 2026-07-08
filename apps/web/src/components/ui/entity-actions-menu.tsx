@@ -155,42 +155,47 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Edit dialog */}
-      {toEdit && renderEditDialog({
-        item: toEdit,
-        onOpenChange: (open) => { if (!open) setToEdit(null) },
-      })}
+      {/* Dialogs are portaled to <body>, but React events still bubble through the
+          component tree — so a click inside a dialog would otherwise reach the
+          enclosing card's onClick (opening the entity). Stop it here. */}
+      <div className="contents" onClick={(e) => e.stopPropagation()}>
+        {/* Edit dialog */}
+        {toEdit && renderEditDialog({
+          item: toEdit,
+          onOpenChange: (open) => { if (!open) setToEdit(null) },
+        })}
 
-      {/* Versioning dialog (export + git link) */}
-      {versioning && getGitRemote && onSaveGitRemote && onExport && (
-        <EntityVersioningDialog
-          open
-          onOpenChange={(open) => { if (!open) setVersioning(null) }}
-          initialTab={versioning.tab}
-          supportsIncludeData={exportSupportsIncludeData}
-          gitRemote={getGitRemote(versioning.item)}
-          onExport={() => onExport(versioning.item)}
-          onSaveGitRemote={async (config) => {
-            await onSaveGitRemote(versioning.item, config)
-          }}
-        />
-      )}
+        {/* Versioning dialog (export + git link) */}
+        {versioning && getGitRemote && onSaveGitRemote && onExport && (
+          <EntityVersioningDialog
+            open
+            onOpenChange={(open) => { if (!open) setVersioning(null) }}
+            initialTab={versioning.tab}
+            supportsIncludeData={exportSupportsIncludeData}
+            gitRemote={getGitRemote(versioning.item)}
+            onExport={() => onExport(versioning.item)}
+            onSaveGitRemote={async (config) => {
+              await onSaveGitRemote(versioning.item, config)
+            }}
+          />
+        )}
 
-      {/* Delete confirmation */}
-      <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t(deleteConfirmTitleKey)}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t(deleteConfirmDescriptionKey, { name: localized(toDelete?.name, language) })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        {/* Delete confirmation */}
+        <AlertDialog open={!!toDelete} onOpenChange={(open) => { if (!open) setToDelete(null) }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t(deleteConfirmTitleKey)}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t(deleteConfirmDescriptionKey, { name: localized(toDelete?.name, language) })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+              <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDelete}>{t('common.delete')}</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
     </>
   )
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -7,6 +7,7 @@ import { paths } from '@/lib/paths'
 import { Plus, LayoutGrid, MoreHorizontal, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ListPageToolbar } from '@/components/ui/list-page-toolbar'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
@@ -55,6 +56,7 @@ export function LabDashboardsPage() {
   const [createName, setCreateName] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<Dashboard | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
     loadProjectDashboards(projectUid)
@@ -64,6 +66,15 @@ export function LabDashboardsPage() {
   const projectDashboards = dashboards
     .filter((d) => d.projectUid === projectUid)
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+
+  const filteredDashboards = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    if (!words.length) return projectDashboards
+    return projectDashboards.filter((d) => {
+      const name = localized(d.name, language).toLowerCase()
+      return words.every((w) => name.includes(w))
+    })
+  }, [projectDashboards, searchQuery, language])
 
   const getWidgetCount = (dashboardId: string) => {
     const dashTabs = tabs.filter((t) => t.dashboardId === dashboardId)
@@ -92,7 +103,7 @@ export function LabDashboardsPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-4xl px-6 py-10">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
               {t('dashboard.dashboards_title')}
@@ -101,11 +112,19 @@ export function LabDashboardsPage() {
               {t('dashboard.dashboards_description')}
             </p>
           </div>
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus size={16} />
+          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
+            <Plus size={14} />
             {t('dashboard.create_dashboard')}
           </Button>
         </div>
+
+        {projectDashboards.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('dashboard.search_placeholder')}
+          />
+        )}
 
         {projectDashboards.length === 0 ? (
           <Card className="mt-6">
@@ -123,9 +142,14 @@ export function LabDashboardsPage() {
               </Button>
             </div>
           </Card>
+        ) : filteredDashboards.length === 0 ? (
+          <div className="mt-6 flex flex-col items-center py-8">
+            <LayoutGrid size={24} className="text-muted-foreground/50" />
+            <p className="mt-2 text-sm text-muted-foreground">{t('dashboard.no_results')}</p>
+          </div>
         ) : (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            {projectDashboards.map((dash) => {
+            {filteredDashboards.map((dash) => {
               const widgetCount = getWidgetCount(dash.id)
               return (
                 <Card

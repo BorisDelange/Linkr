@@ -8,20 +8,10 @@ import {
   ChevronRight,
   Database,
   FileSpreadsheet,
-  Search,
-  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -115,29 +105,55 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
 
   // Search + filter state (only used in the projects list sub-view)
   const [searchQuery, setSearchQuery] = useState('')
-  const [statusFilter, setStatusFilter] = useState<Set<MappingProjectStatus>>(new Set())
-  const [badgeFilter, setBadgeFilter] = useState<Set<string>>(new Set())
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
+  const [badgeFilter, setBadgeFilter] = useState<string[]>([])
 
-  // All distinct custom badge labels across the workspace's projects.
-  const allBadgeLabels = useMemo(() => {
-    const labels = new Set<string>()
-    for (const p of projects) for (const b of p.badges ?? []) if (b.label) labels.add(b.label)
-    return [...labels].sort()
+  // All distinct custom badges across the workspace's projects, keeping the first-seen
+  // colour per label so the filter options match the badges shown on the cards.
+  const allBadges = useMemo(() => {
+    const byLabel = new Map<string, string>()
+    for (const p of projects) for (const b of p.badges ?? []) if (b.label && !byLabel.has(b.label)) byLabel.set(b.label, b.color)
+    return [...byLabel.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([label, color]) => ({ label, color }))
   }, [projects])
 
   const filteredProjects = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     return projects.filter((p) => {
       if (q && !(`${localized(p.name, language)} ${localized(p.description, language)}`.toLowerCase().includes(q))) return false
-      if (statusFilter.size > 0 && (!p.status || !statusFilter.has(p.status))) return false
-      if (badgeFilter.size > 0) {
+      if (statusFilter.length > 0 && (!p.status || !statusFilter.includes(p.status))) return false
+      if (badgeFilter.length > 0) {
         const labels = new Set((p.badges ?? []).map((b) => b.label))
-        const intersects = [...badgeFilter].some((l) => labels.has(l))
-        if (!intersects) return false
+        if (!badgeFilter.some((l) => labels.has(l))) return false
       }
       return true
     })
   }, [projects, searchQuery, statusFilter, badgeFilter, language])
+
+  const filterGroups: FilterGroup[] = [
+    {
+      key: 'status',
+      label: t('concept_mapping.project_status'),
+      selected: statusFilter,
+      onChange: setStatusFilter,
+      options: ALL_STATUSES.map((s) => ({
+        value: s,
+        label: t(`concept_mapping.project_status_${s}`),
+        dotClass: MAPPING_STATUS_COLORS[s].dot,
+      })),
+    },
+    {
+      key: 'badges',
+      label: t('concept_mapping.project_badges'),
+      selected: badgeFilter,
+      onChange: setBadgeFilter,
+      options: allBadges.map((b) => ({
+        value: b.label,
+        label: b.label,
+        badgeClass: getBadgeClasses(b.color),
+        badgeStyle: getBadgeStyle(b.color),
+      })),
+    },
+  ]
 
   type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
@@ -352,96 +368,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         deleteConfirmDescriptionKey={mappingActions.deleteConfirmDescriptionKey}
         onImport={handleImport}
         backAction={backButton}
-        headerActions={
-          <div className="mr-auto flex items-center gap-1.5">
-            {/* Search input */}
-            <div className="relative">
-              <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder={t('common.search')}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 w-48 rounded-md border bg-transparent pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-primary"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  aria-label={t('common.clear')}
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            {/* Status filter dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant={statusFilter.size > 0 ? 'default' : 'outline'} size="sm" className="h-8 gap-1 text-xs">
-                  {t('concept_mapping.project_status')}
-                  {statusFilter.size > 0 && <Badge variant="secondary" className="text-[9px]">{statusFilter.size}</Badge>}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-44">
-                <DropdownMenuLabel className="text-xs">{t('concept_mapping.project_status')}</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {ALL_STATUSES.map((s) => (
-                  <DropdownMenuCheckboxItem
-                    key={s}
-                    checked={statusFilter.has(s)}
-                    onCheckedChange={(checked) => {
-                      setStatusFilter((prev) => {
-                        const next = new Set(prev)
-                        if (checked) next.add(s); else next.delete(s)
-                        return next
-                      })
-                    }}
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-xs"
-                  >
-                    <span className={`size-1.5 rounded-full ${MAPPING_STATUS_COLORS[s].dot}`} />
-                    {t(`concept_mapping.project_status_${s}`)}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Custom badges filter */}
-            {allBadgeLabels.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant={badgeFilter.size > 0 ? 'default' : 'outline'} size="sm" className="h-8 gap-1 text-xs">
-                    {t('concept_mapping.project_badges')}
-                    {badgeFilter.size > 0 && <Badge variant="secondary" className="text-[9px]">{badgeFilter.size}</Badge>}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-52 max-h-72 overflow-auto">
-                  <DropdownMenuLabel className="text-xs">{t('concept_mapping.project_badges')}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {allBadgeLabels.map((label) => (
-                    <DropdownMenuCheckboxItem
-                      key={label}
-                      checked={badgeFilter.has(label)}
-                      onCheckedChange={(checked) => {
-                        setBadgeFilter((prev) => {
-                          const next = new Set(prev)
-                          if (checked) next.add(label); else next.delete(label)
-                          return next
-                        })
-                      }}
-                      onSelect={(e) => e.preventDefault()}
-                      className="text-xs"
-                    >
-                      {label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-
-          </div>
+        toolbar={
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('common.search')}
+            filterGroups={filterGroups}
+          />
         }
         renderCardBody={(project) => {
           const progress = getProgress(project)

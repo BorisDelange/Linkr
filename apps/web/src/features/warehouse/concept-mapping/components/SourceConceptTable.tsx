@@ -815,7 +815,7 @@ export function SourceConceptTable({
                 </Button>
               </PopoverTrigger>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.source_filters')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{t('common.filters')}</TooltipContent>
           </Tooltip>
           <PopoverContent align="start" className="w-[260px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
             <div className="flex items-center justify-between">

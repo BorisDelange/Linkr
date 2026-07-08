@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Loader2, BookText } from 'lucide-react'
+import { Download, Loader2, BookText, Upload, FileSpreadsheet, X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -152,6 +152,9 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
   const { createConceptSet, updateMappingProject } = useConceptMappingStore()
 
   const [fileContent, setFileContent] = useState<string>('')
+  const [fileName, setFileName] = useState<string>('')
+  const [dragActive, setDragActive] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -161,16 +164,28 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
   const [catalogProgress, setCatalogProgress] = useState<{ done: number; total: number } | null>(null)
   const [catalogError, setCatalogError] = useState<string | null>(null)
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
+  const readFile = useCallback((file: File) => {
     const reader = new FileReader()
     reader.onload = () => {
       setFileContent(reader.result as string)
+      setFileName(file.name)
       setError(null)
     }
     reader.readAsText(file)
-  }
+  }, [])
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragActive(false)
+    const file = e.dataTransfer.files[0]
+    if (file) readFile(file)
+  }, [readFile])
+
+  const clearFile = useCallback(() => {
+    setFileContent('')
+    setFileName('')
+    setError(null)
+  }, [])
 
   const handleImport = async (source: 'file' | 'url') => {
     if (!activeWorkspaceId) return
@@ -221,6 +236,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
 
       onOpenChange(false)
       setFileContent('')
+      setFileName('')
       setUrl('')
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -317,7 +333,7 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t('concept_mapping.cs_import_title')}</DialogTitle>
           <DialogDescription>{t('concept_mapping.cs_import_description')}</DialogDescription>
@@ -333,7 +349,40 @@ export function ImportConceptSetDialog({ open, onOpenChange, project }: ImportCo
           <TabsContent value="file" className="mt-4 space-y-3">
             <div className="grid gap-2">
               <Label>{t('concept_mapping.cs_import_json_file')}</Label>
-              <Input type="file" accept=".json" onChange={handleFileUpload} />
+              {!fileName ? (
+                <div
+                  className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer ${
+                    dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                  }`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+                  onDragLeave={() => setDragActive(false)}
+                  onDrop={handleDrop}
+                >
+                  <Upload size={28} className="text-muted-foreground/50" />
+                  <p className="mt-2 text-sm text-muted-foreground">{t('concept_mapping.file_drop_hint')}</p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">JSON</p>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) readFile(f)
+                      e.target.value = ''
+                    }}
+                  />
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 rounded-md border p-2">
+                  <FileSpreadsheet size={16} className="shrink-0 text-emerald-500" />
+                  <p className="min-w-0 flex-1 truncate text-sm font-medium">{fileName}</p>
+                  <Button variant="ghost" size="icon-xs" onClick={clearFile}>
+                    <X size={14} />
+                  </Button>
+                </div>
+              )}
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
             <DialogFooter>

@@ -6,6 +6,7 @@ import type { DataSource } from '@/types'
 import { Database, Link as LinkIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,6 +23,14 @@ import { LinkDatabaseDialog } from './databases/LinkDatabaseDialog'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 const EMPTY_IDS: string[] = []
+
+const DATA_SOURCE_STATUSES = ['connected', 'disconnected', 'error', 'configuring'] as const
+const STATUS_DOT: Record<string, string> = {
+  connected: 'bg-emerald-500',
+  disconnected: 'bg-slate-400',
+  error: 'bg-red-500',
+  configuring: 'bg-amber-500',
+}
 
 export function DatabasesPage() {
   const { t } = useTranslation()
@@ -41,6 +50,8 @@ export function DatabasesPage() {
   const [linkDialogOpen, setLinkDialogOpen] = useState(false)
   const [sourceToUnlink, setSourceToUnlink] = useState<DataSource | null>(null)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string[]>([])
 
   // Mount all data sources for this project when entering the page
   useEffect(() => {
@@ -53,6 +64,32 @@ export function DatabasesPage() {
     if (!uid) return []
     return dataSources.filter((ds) => linkedIds.includes(ds.id) && !ds.isVocabularyReference)
   }, [uid, dataSources, linkedIds])
+
+  const filteredSources = useMemo(() => {
+    const words = searchQuery.toLowerCase().split(/\s+/).filter(Boolean)
+    return sources.filter((ds) => {
+      if (words.length) {
+        const haystack = `${ds.name} ${ds.description ?? ''}`.toLowerCase()
+        if (!words.every((w) => haystack.includes(w))) return false
+      }
+      if (statusFilter.length && !statusFilter.includes(ds.status)) return false
+      return true
+    })
+  }, [sources, searchQuery, statusFilter])
+
+  const filterGroups: FilterGroup[] = [
+    {
+      key: 'status',
+      label: t('databases.status'),
+      selected: statusFilter,
+      onChange: setStatusFilter,
+      options: DATA_SOURCE_STATUSES.map((s) => ({
+        value: s,
+        label: t(`databases.status_${s}`),
+        dotClass: STATUS_DOT[s],
+      })),
+    },
+  ]
 
   const activeSource = useMemo(() => {
     if (!uid) return undefined
@@ -95,15 +132,27 @@ export function DatabasesPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-3xl px-6 py-10">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-foreground">
-            {t('databases.title')}
-          </h1>
-          <Button onClick={() => setLinkDialogOpen(true)}>
-            <LinkIcon size={16} />
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">
+              {t('databases.title')}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">{t('databases.list_description')}</p>
+          </div>
+          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setLinkDialogOpen(true)}>
+            <LinkIcon size={14} />
             {t('app_warehouse.link_database')}
           </Button>
         </div>
+
+        {sources.length > 0 && (
+          <ListPageToolbar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            searchPlaceholder={t('databases.search_placeholder')}
+            filterGroups={filterGroups}
+          />
+        )}
 
         {sources.length === 0 ? (
           <Card className="mt-6">
@@ -117,9 +166,14 @@ export function DatabasesPage() {
               </p>
             </div>
           </Card>
+        ) : filteredSources.length === 0 ? (
+          <div className="mt-6 flex flex-col items-center py-8">
+            <Database size={24} className="text-muted-foreground/50" />
+            <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
+          </div>
         ) : (
           <div className="mt-6 space-y-3">
-            {sources.map((ds) => (
+            {filteredSources.map((ds) => (
               <DatabaseCard
                 key={ds.id}
                 source={ds}

@@ -32,7 +32,8 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
-import { PRESET_COLORS, getBadgeClasses, getBadgeStyle, isCustomColor } from '@/features/projects/ProjectSettingsPage'
+import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
@@ -465,8 +466,15 @@ export function CreateMappingProjectDialog({
   }
 
   // --- Validation ---
-  // In edit mode with a file source and no new file uploaded, the existing fileSourceData is sufficient
-  const hasExistingFileData = isEdit && sourceType === 'file' && !!(editingProject?.fileSourceData?.rawFileBuffer || editingProject?.fileSourceData?.rows.length)
+  // In edit mode with a file source and no new file uploaded, the existing fileSourceData is sufficient.
+  // In server mode the CSV bytes never come to the browser (rawFileBuffer undefined, rows empty) — the
+  // file lives in the blob store — so a persisted fileName/columns is the reliable "file exists" signal.
+  const hasExistingFileData = isEdit && sourceType === 'file' && !!(
+    editingProject?.fileSourceData?.rawFileBuffer
+    || editingProject?.fileSourceData?.rows.length
+    || editingProject?.fileSourceData?.fileName
+    || editingProject?.fileSourceData?.columns.length
+  )
   const isFileValid = sourceType === 'file' && (
     hasExistingFileData && parsedRows.length === 0  // no new file → existing data is valid
     || (parsedColumns.length > 0 && parsedRows.length > 0 && !!columnMapping.conceptCodeColumn && !!columnMapping.terminologyColumn)
@@ -978,38 +986,6 @@ export function CreateMappingProjectDialog({
                 )
               })()}
               <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c.value}
-                      type="button"
-                      onClick={() => setNewBadgeColor(c.value)}
-                      className={`h-6 w-6 rounded-full ${c.swatch} ring-offset-background transition-all ${
-                        newBadgeColor === c.value
-                          ? 'ring-2 ring-ring ring-offset-2'
-                          : 'hover:ring-1 hover:ring-ring hover:ring-offset-1'
-                      }`}
-                    />
-                  ))}
-                  <div className="relative">
-                    <input
-                      type="color"
-                      value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
-                      onChange={(e) => setNewBadgeColor(e.target.value)}
-                      className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
-                    />
-                    <div
-                      className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all ${
-                        isCustomColor(newBadgeColor)
-                          ? 'ring-2 ring-ring ring-offset-2'
-                          : 'hover:border-muted-foreground/60'
-                      }`}
-                      style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
-                    >
-                      {!isCustomColor(newBadgeColor) && <Plus size={10} />}
-                    </div>
-                  </div>
-                </div>
                 {(() => {
                   const trimmed = newBadgeLabel.trim()
                   const conflict = labelConflict(trimmed)
@@ -1025,7 +1001,7 @@ export function CreateMappingProjectDialog({
                           value={newBadgeLabel}
                           onChange={(e) => setNewBadgeLabel(e.target.value)}
                           placeholder={t('concept_mapping.badge_label_placeholder')}
-                          className={`h-7 text-xs flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
+                          className={`h-8 text-xs flex-1 ${conflict ? 'border-destructive focus-visible:ring-destructive' : ''}`}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && trimmed && !conflict) {
                               e.preventDefault()
@@ -1033,11 +1009,12 @@ export function CreateMappingProjectDialog({
                             }
                           }}
                         />
+                        <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-7 px-2"
+                          className="h-8 px-2"
                           disabled={!trimmed || !!conflict}
                           onClick={() => addBadge({ id: '', label: trimmed, color: newBadgeColor })}
                         >
@@ -1110,7 +1087,7 @@ export function CreateMappingProjectDialog({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{editingProject!.fileSourceData!.fileName}</p>
                       <p className="text-[10px] text-muted-foreground">
-                        {editingProject!.fileSourceData!.rows.length.toLocaleString()} {t('datasets.rows')} · {editingProject!.fileSourceData!.columns.length} {t('datasets.columns')}
+                        {(editingProject!.fileSourceData!.totalRowCount ?? editingProject!.fileSourceData!.rows.length).toLocaleString()} {t('datasets.rows')} · {editingProject!.fileSourceData!.columns.length} {t('datasets.columns')}
                       </p>
                     </div>
                     <Button

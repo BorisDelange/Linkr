@@ -5,10 +5,11 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
-import type { ProjectStatus, BadgeColor, PresetBadgeColor, ProjectBadge } from '@/types'
+import type { ProjectStatus, BadgeColor, ProjectBadge } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -38,51 +39,17 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
-export const PRESET_COLORS: { value: PresetBadgeColor; bg: string; text: string; swatch: string }[] = [
-  { value: 'blue', bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', swatch: 'bg-blue-400' },
-  { value: 'red', bg: 'bg-red-100 dark:bg-red-950', text: 'text-red-700 dark:text-red-300', swatch: 'bg-red-400' },
-  { value: 'green', bg: 'bg-green-100 dark:bg-green-950', text: 'text-green-700 dark:text-green-300', swatch: 'bg-green-400' },
-  { value: 'violet', bg: 'bg-violet-100 dark:bg-violet-950', text: 'text-violet-700 dark:text-violet-300', swatch: 'bg-violet-400' },
-  { value: 'amber', bg: 'bg-amber-100 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', swatch: 'bg-amber-400' },
-  { value: 'rose', bg: 'bg-rose-100 dark:bg-rose-950', text: 'text-rose-700 dark:text-rose-300', swatch: 'bg-rose-400' },
-  { value: 'cyan', bg: 'bg-cyan-100 dark:bg-cyan-950', text: 'text-cyan-700 dark:text-cyan-300', swatch: 'bg-cyan-400' },
-  { value: 'slate', bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300', swatch: 'bg-slate-400' },
-]
-
-/** Returns Tailwind classes for preset colors, or inline-style-friendly info for custom hex */
-export function getBadgeClasses(color: BadgeColor): string {
-  const c = PRESET_COLORS.find((pc) => pc.value === color)
-  return c ? `${c.bg} ${c.text}` : ''
-}
-
-/** Returns inline style for custom hex colors */
-export function getBadgeStyle(color: BadgeColor): React.CSSProperties | undefined {
-  const isPreset = PRESET_COLORS.some((pc) => pc.value === color)
-  if (isPreset) return undefined
-  return { backgroundColor: `${color}20`, color }
-}
-
-export function isCustomColor(color: BadgeColor): boolean {
-  return !PRESET_COLORS.some((pc) => pc.value === color)
-}
-
-/** Returns Tailwind classes for a project status */
-export function getStatusClasses(status: ProjectStatus): string {
-  const s = STATUS_COLORS[status]
-  return `${s.bg} ${s.text}`
-}
-
-/** Returns the dot color class for a project status */
-export function getStatusDotClass(status: ProjectStatus): string {
-  return STATUS_COLORS[status].dot
-}
-
-const STATUS_COLORS: Record<ProjectStatus, { bg: string; text: string; dot: string }> = {
-  active: { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-700 dark:text-emerald-300', dot: 'bg-emerald-500' },
-  completed: { bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-700 dark:text-blue-300', dot: 'bg-blue-500' },
-  archived: { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-600 dark:text-slate-400', dot: 'bg-slate-400' },
-  draft: { bg: 'bg-amber-100 dark:bg-amber-950', text: 'text-amber-700 dark:text-amber-300', dot: 'bg-amber-500' },
-}
+// Badge/status colour helpers moved to @/lib/badge-colors; re-exported here for
+// backward compatibility with existing importers.
+export {
+  PRESET_COLORS,
+  getBadgeClasses,
+  getBadgeStyle,
+  isCustomColor,
+  getStatusClasses,
+  getStatusDotClass,
+} from '@/lib/badge-colors'
+import { getBadgeClasses, getBadgeStyle, getStatusDotClass } from '@/lib/badge-colors'
 
 const STATUS_OPTIONS: ProjectStatus[] = ['active', 'completed', 'archived', 'draft']
 
@@ -280,45 +247,15 @@ export function ProjectSettingsPage() {
                 {/* Add badge */}
                 <div className="space-y-2">
                   <Label>{t('project_settings.badge_label')}</Label>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <Input
                       value={newBadgeLabel}
                       onChange={(e) => setNewBadgeLabel(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && handleAddBadge()}
                       placeholder={t('project_settings.badge_label_placeholder')}
-                      className="h-8 w-48 text-sm"
+                      className="h-8 flex-1 text-sm"
                     />
-                    <div className="flex items-center gap-1.5">
-                      {PRESET_COLORS.map((c) => (
-                        <button
-                          key={c.value}
-                          onClick={() => setNewBadgeColor(c.value)}
-                          className={`h-6 w-6 rounded-full ${c.swatch} ring-offset-background transition-all ${
-                            newBadgeColor === c.value
-                              ? 'ring-2 ring-ring ring-offset-2'
-                              : 'hover:ring-1 hover:ring-ring hover:ring-offset-1'
-                          }`}
-                        />
-                      ))}
-                      <div className="relative">
-                        <input
-                          type="color"
-                          value={isCustomColor(newBadgeColor) ? newBadgeColor : '#6366f1'}
-                          onChange={(e) => setNewBadgeColor(e.target.value)}
-                          className="absolute inset-0 h-6 w-6 cursor-pointer opacity-0"
-                        />
-                        <div
-                          className={`flex h-6 w-6 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/40 text-muted-foreground/60 ring-offset-background transition-all ${
-                            isCustomColor(newBadgeColor)
-                              ? 'ring-2 ring-ring ring-offset-2'
-                              : 'hover:border-muted-foreground/60'
-                          }`}
-                          style={isCustomColor(newBadgeColor) ? { backgroundColor: newBadgeColor, borderStyle: 'solid', borderColor: newBadgeColor } : undefined}
-                        >
-                          {!isCustomColor(newBadgeColor) && <Plus size={10} />}
-                        </div>
-                      </div>
-                    </div>
+                    <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
                     <Button
                       size="sm"
                       variant="outline"
