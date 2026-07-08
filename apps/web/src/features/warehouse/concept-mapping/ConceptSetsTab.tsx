@@ -485,9 +485,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
             <TooltipTrigger asChild>
               <div className="cursor-default">
                 <div className="truncate font-medium">{row.original.name}</div>
-                {row.original.description && (
-                  <div className="truncate text-[10px] text-muted-foreground mt-0.5">{row.original.description}</div>
-                )}
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-sm">

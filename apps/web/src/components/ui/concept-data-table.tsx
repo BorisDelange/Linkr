@@ -219,7 +219,7 @@ export function ConceptDataTable<T>({ data, columns: cols, rowKey, emptyMessage 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
-        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+        <Table className="w-full mb-3" style={{ tableLayout: 'fixed' }}>
           <TableHeader>
             <TableRow>
               {table.getHeaderGroups().map((hg) =>
