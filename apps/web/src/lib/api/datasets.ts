@@ -33,13 +33,16 @@ interface DsNode {
 }
 
 function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
-  _dsProject.set(n.id, projectUid)
+  // Disk-source identity: the id IS the relative path, so every opaque consumer
+  // (rows/stats query, analyses, /execute) sends the path the backend expects.
+  _dsProject.set(n.path, projectUid)
+  const parentPath = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : null
   return {
-    id: n.id,
+    id: n.path,
     projectUid,
     name: n.name,
     type: n.type,
-    parentId: n.parentId,
+    parentId: parentPath,
     path: n.path,
     columns: (n.columns ?? undefined) as DatasetFile['columns'],
     rowCount: n.rowCount ?? undefined,
