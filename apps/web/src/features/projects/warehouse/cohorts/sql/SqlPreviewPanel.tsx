@@ -104,7 +104,7 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute 
             variant="ghost"
             size="sm"
             onClick={handleReset}
-            className="gap-1.5 text-xs h-7"
+            className="h-6 gap-1 text-xs"
           >
             <RotateCcw size={12} />
             {t('cohorts.sql_reset')}
@@ -112,7 +112,7 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute 
         )}
 
         {/* Copy button */}
-        <Button variant="ghost" size="sm" onClick={handleCopy} className="gap-1.5 text-xs h-7">
+        <Button variant="ghost" size="sm" onClick={handleCopy} className="h-6 gap-1 text-xs">
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? t('common.copied') : t('cohorts.sql_copy')}
         </Button>

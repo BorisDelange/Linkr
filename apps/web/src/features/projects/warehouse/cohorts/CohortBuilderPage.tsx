@@ -227,11 +227,11 @@ export function CohortBuilderPage() {
         <div className="flex-1" />
 
         {/* Import/Export */}
-        <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="gap-1 text-xs h-7">
+        <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
           <Upload size={12} />
           {t('common.import')}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="gap-1 text-xs h-7">
+        <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="h-6 gap-1 text-xs">
           <Download size={12} />
           {t('common.export')}
         </Button>
@@ -241,9 +241,9 @@ export function CohortBuilderPage() {
           size="sm"
           onClick={handleExecute}
           disabled={loading || !activeSource}
-          className="gap-1.5 text-xs"
+          className="h-6 gap-1 text-xs"
         >
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
           {t('cohorts.execute')}
         </Button>
       </div>

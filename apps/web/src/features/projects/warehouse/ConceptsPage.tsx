@@ -126,7 +126,7 @@ export function ConceptsPage() {
           <h1 className="text-lg font-semibold">{t('concepts.title')}</h1>
           <p className="text-xs text-muted-foreground">{t('concepts.description')}</p>
         </div>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={resetCache}>
+        <Button variant="outline" size="sm" className="h-6 gap-1 text-xs" onClick={resetCache}>
           <RefreshCw size={12} />
           {t('concepts.cache_reset')}
         </Button>
