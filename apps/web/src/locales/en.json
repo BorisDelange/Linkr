@@ -2133,7 +2133,11 @@
     "item_files": "All project files and code",
     "item_preferences": "All preferences (language, theme, editor settings)",
     "warning": "This action cannot be undone.",
-    "confirm": "Delete all data"
+    "confirm": "Delete all data",
+    "cache_title": "Clear local cache",
+    "cache_description": "This clears data cached in your browser (IndexedDB). Your data lives on the server and is not affected.",
+    "cache_hint": "Useful to remove leftover data from a previous client-only session.",
+    "cache_confirm": "Clear cache"
   },
   "version_check": {
     "update_title": "Linkr has been updated",
@@ -2239,6 +2243,7 @@
   "user_menu": {
     "profile": "Settings",
     "reset_data": "Reset all data",
+    "clear_local_cache": "Clear local cache",
     "sign_out": "Sign out"
   },
   "runtime": {

@@ -67,15 +67,15 @@ import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts
 import type { ShortcutActionId } from '@/types/shortcuts'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 
-/** Shortcut actions surfaced in the SQL editor (subset of the IDE's set). */
+/** Shortcut actions surfaced in the SQL editor (subset of the IDE's set;
+ * no terminal here, so no toggle/clear-terminal). */
 const SQL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'toggle_sidebar',
+  'new_file',
   'save_file',
   'run_selection_or_line',
   'run_file',
   'toggle_comment',
-  'find',
-  'replace',
 ]
 import type { SqlScriptFile } from '@/types'
 
@@ -321,7 +321,10 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
   // Global shortcuts shared with the IDE (via the shortcut store). Editor-scoped
   // actions (save/run/find/replace/comment) are handled by Monaco in CodeEditor.
   const globalShortcutHandlers = useMemo<ShortcutHandlers>(
-    () => ({ toggle_sidebar: () => setExplorerVisible((v) => !v) }),
+    () => ({
+      toggle_sidebar: () => setExplorerVisible((v) => !v),
+      new_file: () => { setCreateFolderMode(false); setCreateFileOpen(true) },
+    }),
     [],
   )
   useGlobalShortcuts(globalShortcutHandlers)

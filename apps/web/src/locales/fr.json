@@ -2133,7 +2133,11 @@
     "item_files": "Tous les fichiers et le code des projets",
     "item_preferences": "Toutes les préférences (langue, thème, paramètres de l'éditeur)",
     "warning": "Cette action est irréversible.",
-    "confirm": "Supprimer toutes les données"
+    "confirm": "Supprimer toutes les données",
+    "cache_title": "Vider le cache local",
+    "cache_description": "Ceci vide les données mises en cache dans votre navigateur (IndexedDB). Vos données sont sur le serveur et ne sont pas affectées.",
+    "cache_hint": "Utile pour supprimer des données résiduelles d'une précédente session en mode client seul.",
+    "cache_confirm": "Vider le cache"
   },
   "version_check": {
     "update_title": "Linkr a été mis à jour",
@@ -2239,6 +2243,7 @@
   "user_menu": {
     "profile": "Paramètres",
     "reset_data": "Réinitialiser les données",
+    "clear_local_cache": "Vider le cache local",
     "sign_out": "Se déconnecter"
   },
   "runtime": {

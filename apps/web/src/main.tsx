@@ -10,7 +10,7 @@ import '@/index.css'
 import { App } from '@/app/App'
 import { AuthGate } from '@/app/AuthGate'
 import { AppErrorBoundary } from '@/components/layout/AppErrorBoundary'
-import { executePendingReset } from '@/lib/version-check'
+import { executePendingReset, executePendingCacheClear, purgeStaleLocalDataForServerMode } from '@/lib/version-check'
 import { registerDefaultPlugins, registerUserPlugins } from '@/lib/plugins/default-plugins'
 import { isServerMode } from '@/lib/api-client'
 import { initStorage } from '@/lib/storage'
@@ -18,8 +18,12 @@ import { createIDBStorage } from '@/lib/storage/idb-storage'
 import { createAPIStorage } from '@/lib/storage/api-storage'
 
 async function boot() {
-  // Handle pending data reset BEFORE opening any IDB connection
+  // Handle pending data reset / cache clear BEFORE opening any IDB connection.
   await executePendingReset()
+  await executePendingCacheClear()
+  // In server mode, drop any leftover client-only IndexedDB once (avoids a
+  // hybrid state where non-API-backed stores still read stale local data).
+  await purgeStaleLocalDataForServerMode(isServerMode())
 
   // Initialize storage (API-backed in server mode, IndexedDB in local mode) and plugins
   initStorage(isServerMode() ? createAPIStorage() : createIDBStorage())

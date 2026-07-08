@@ -95,7 +95,9 @@ export const DEFAULT_SHORTCUTS: Record<
     id: 'new_file',
     labelKey: 'shortcuts.new_file',
     scope: 'global',
-    defaultBinding: kb('n'),
+    // Cmd/Ctrl+N is reserved by the browser (new window) and can't be
+    // preventDefault-ed, so use Cmd/Ctrl+Alt+N which the page can capture.
+    defaultBinding: kb('n', { alt: true }),
   },
   clear_terminal: {
     id: 'clear_terminal',
@@ -296,10 +298,6 @@ export const SHORTCUT_GROUPS: ShortcutGroup[] = [
       'run_selection_or_line',
       'run_file',
       'toggle_comment',
-      'undo',
-      'redo',
-      'find',
-      'replace',
     ],
   },
   {

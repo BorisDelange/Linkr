@@ -15,7 +15,7 @@ import { localized } from '@/lib/localized'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { SCHEMA_PRESETS } from '@/lib/schema-presets'
 import { paths } from '@/lib/paths'
-import { clearAllData } from '@/lib/version-check'
+import { clearAllData, clearLocalCache } from '@/lib/version-check'
 import { Sun, Moon, Languages, Trash2, LogOut, Building2, FolderOpen, Settings, ArrowLeft, BookOpen, ArrowRightLeft, MoreHorizontal, LayoutDashboard, UsersRound, Workflow, SquareTerminal, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -183,7 +183,7 @@ export function Header() {
     i18n.changeLanguage(newLang)
   }
 
-  const handleResetData = () => clearAllData()
+  const handleResetData = () => (isServerMode ? clearLocalCache() : clearAllData())
 
   // Build display name and initials from firstName/lastName
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ')
@@ -483,7 +483,7 @@ export function Header() {
                   className="cursor-pointer text-destructive focus:text-destructive"
                 >
                   <Trash2 size={14} className="text-destructive" />
-                  {t('user_menu.reset_data')}
+                  {isServerMode ? t('user_menu.clear_local_cache') : t('user_menu.reset_data')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="cursor-pointer">
@@ -499,18 +499,25 @@ export function Header() {
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('reset.title')}</DialogTitle>
+            <DialogTitle>{isServerMode ? t('reset.cache_title') : t('reset.title')}</DialogTitle>
             <DialogDescription asChild>
-              <div className="space-y-3">
-                <p>{t('reset.description')}</p>
-                <ul className="list-disc pl-4 text-xs space-y-1">
-                  <li>{t('reset.item_projects')}</li>
-                  <li>{t('reset.item_dashboards')}</li>
-                  <li>{t('reset.item_files')}</li>
-                  <li>{t('reset.item_preferences')}</li>
-                </ul>
-                <p className="font-medium text-destructive">{t('reset.warning')}</p>
-              </div>
+              {isServerMode ? (
+                <div className="space-y-3">
+                  <p>{t('reset.cache_description')}</p>
+                  <p className="text-xs text-muted-foreground">{t('reset.cache_hint')}</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p>{t('reset.description')}</p>
+                  <ul className="list-disc pl-4 text-xs space-y-1">
+                    <li>{t('reset.item_projects')}</li>
+                    <li>{t('reset.item_dashboards')}</li>
+                    <li>{t('reset.item_files')}</li>
+                    <li>{t('reset.item_preferences')}</li>
+                  </ul>
+                  <p className="font-medium text-destructive">{t('reset.warning')}</p>
+                </div>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -519,7 +526,7 @@ export function Header() {
             </Button>
             <Button variant="destructive" onClick={handleResetData}>
               <Trash2 size={14} />
-              {t('reset.confirm')}
+              {isServerMode ? t('reset.cache_confirm') : t('reset.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>

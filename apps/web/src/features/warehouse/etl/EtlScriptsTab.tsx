@@ -68,15 +68,15 @@ import { EtlFileTree } from './EtlFileTree'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import type { EtlFile } from '@/types'
 
-/** Shortcut actions surfaced in the ETL editor (subset of the IDE's set). */
+/** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
+ * no terminal here, so no toggle/clear-terminal). */
 const ETL_EDITOR_SHORTCUT_ACTIONS: ShortcutActionId[] = [
   'toggle_sidebar',
+  'new_file',
   'save_file',
   'run_selection_or_line',
   'run_file',
   'toggle_comment',
-  'find',
-  'replace',
 ]
 
 const ETL_FILE_TYPES = [
@@ -355,7 +355,10 @@ export function EtlScriptsTab({ pipelineId }: Props) {
   // Global shortcuts shared with the IDE (via the shortcut store). The editor's
   // sidebar toggle is the only page-level action; the rest are Monaco-scoped.
   const globalShortcutHandlers = useMemo<ShortcutHandlers>(
-    () => ({ toggle_sidebar: () => setExplorerVisible((v) => !v) }),
+    () => ({
+      toggle_sidebar: () => setExplorerVisible((v) => !v),
+      new_file: () => setCreateFileOpen(true),
+    }),
     [],
   )
   useGlobalShortcuts(globalShortcutHandlers)

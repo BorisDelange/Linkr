@@ -15,6 +15,8 @@ export const APP_SCHEMA_VERSION = 1
 const BUILD_HASH_KEY = 'linkr-app-build-hash'
 const SCHEMA_VERSION_KEY = 'linkr-app-schema-version'
 const PENDING_RESET_KEY = 'linkr-pending-reset'
+const PENDING_CACHE_CLEAR_KEY = 'linkr-pending-cache-clear'
+const SERVER_IDB_PURGED_KEY = 'linkr-server-idb-purged'
 
 export type VersionStatus =
   | { kind: 'up-to-date' }
@@ -65,9 +67,7 @@ export function clearAllData(): void {
  * If a reset was requested, delete all IDB databases and clear localStorage.
  * Must be called at app startup BEFORE opening any IDB connection.
  */
-export async function executePendingReset(): Promise<boolean> {
-  if (localStorage.getItem(PENDING_RESET_KEY) !== '1') return false
-
+async function deleteAllIndexedDbs(): Promise<void> {
   try {
     const databases = await indexedDB.databases()
     await Promise.all(
@@ -83,9 +83,60 @@ export async function executePendingReset(): Promise<boolean> {
   } catch {
     // indexedDB.databases() not supported in all browsers — best effort
   }
+}
 
+export async function executePendingReset(): Promise<boolean> {
+  if (localStorage.getItem(PENDING_RESET_KEY) !== '1') return false
+  await deleteAllIndexedDbs()
   localStorage.clear()
   return true
+}
+
+/**
+ * Server-mode counterpart to {@link clearAllData}: clears the residual local
+ * cache (IndexedDB) without wiping localStorage, so the auth session survives.
+ * The real data lives on the server and is untouched.
+ */
+export function clearLocalCache(): void {
+  localStorage.setItem(PENDING_CACHE_CLEAR_KEY, '1')
+  window.location.href = '/'
+}
+
+/** Delete IndexedDB if a cache clear was requested (keeps localStorage/session). */
+export async function executePendingCacheClear(): Promise<boolean> {
+  if (localStorage.getItem(PENDING_CACHE_CLEAR_KEY) !== '1') return false
+  localStorage.removeItem(PENDING_CACHE_CLEAR_KEY)
+  await deleteAllIndexedDbs()
+  return true
+}
+
+/**
+ * One-time purge of residual client-only IndexedDB when the app runs in
+ * server mode. Data lives on the server there; a leftover local database from
+ * a previous client-only run would otherwise serve stale entities for whichever
+ * stores aren't API-backed yet, producing a confusing hybrid state.
+ *
+ * Runs at most once (guarded by a localStorage flag) and never touches
+ * localStorage otherwise, so the auth token / theme survive. Must be called at
+ * startup BEFORE opening any IDB connection.
+ */
+export async function purgeStaleLocalDataForServerMode(serverMode: boolean): Promise<boolean> {
+  if (!serverMode) return false
+  if (localStorage.getItem(SERVER_IDB_PURGED_KEY) === '1') return false
+
+  let purged = false
+  try {
+    const databases = await indexedDB.databases()
+    if (databases.some((db) => db.name)) {
+      await deleteAllIndexedDbs()
+      purged = true
+    }
+  } catch {
+    // indexedDB.databases() unsupported — best effort; still set the flag below.
+  }
+
+  localStorage.setItem(SERVER_IDB_PURGED_KEY, '1')
+  return purged
 }
 
 /** Store current version info in localStorage (call after user acknowledges or on first visit). */
