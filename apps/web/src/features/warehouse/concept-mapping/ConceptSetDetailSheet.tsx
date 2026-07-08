@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, BarChart3 } from 'lucide-react'
+import { Loader2, BarChart3, Check } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -10,18 +10,11 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
+import { ConceptDataTable, type ConceptColumn } from '@/components/ui/concept-data-table'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Card } from '@/components/ui/card'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
-import type { ConceptSet, ResolvedConcept } from '@/types'
+import type { ConceptSet, ConceptSetItem, ResolvedConcept } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 
 interface ConceptSetDetailSheetProps {
@@ -40,7 +33,7 @@ function getResolvedUrl(sourceUrl?: string): string | null {
 
 const MIN_WIDTH = 400
 const MAX_WIDTH = 1600
-const DEFAULT_WIDTH = Math.round(window.innerWidth / 2)
+const DEFAULT_WIDTH = Math.round(window.innerWidth * 0.58)
 
 export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: ConceptSetDetailSheetProps) {
   const { t, i18n } = useTranslation()
@@ -73,6 +66,26 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
   const onPointerUp = useCallback(() => {
     dragging.current = false
   }, [])
+
+  const resolvedColumns = useMemo<ConceptColumn<ResolvedConcept>[]>(() => [
+    { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (c) => c.conceptName, filter: 'text', size: 220, minSize: 120 },
+    { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (c) => c.conceptId, filter: 'number', size: 80, minSize: 50, cell: (c) => <span className="font-mono text-xs text-muted-foreground">{c.conceptId}</span> },
+    { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (c) => c.vocabularyId, filter: 'select', size: 90, minSize: 50 },
+    { id: 'domainId', header: t('concept_mapping.cs_detail_domain'), accessor: (c) => c.domainId, filter: 'select', size: 100, minSize: 50 },
+    { id: 'conceptClassId', header: t('concept_mapping.cs_detail_class'), accessor: (c) => c.conceptClassId, filter: 'select', size: 100, minSize: 50 },
+    { id: 'standardConcept', header: t('concept_mapping.col_std'), accessor: (c) => c.standardConcept ?? '', filter: 'select', size: 70, minSize: 50, center: true, cell: (c) => <StandardConceptBadge value={c.standardConcept} /> },
+  ], [t])
+
+  const flagCell = (on: boolean) => on ? <Check size={13} className="mx-auto text-green-600" /> : null
+  const expressionColumns = useMemo<ConceptColumn<ConceptSetItem>[]>(() => [
+    { id: 'conceptName', header: t('concept_mapping.cs_detail_concept_name'), accessor: (i) => i.concept.conceptName, filter: 'text', size: 220, minSize: 120 },
+    { id: 'conceptId', header: t('concept_mapping.col_concept_id'), accessor: (i) => i.concept.conceptId, filter: 'number', size: 80, minSize: 50, cell: (i) => <span className="font-mono text-xs text-muted-foreground">{i.concept.conceptId}</span> },
+    { id: 'vocabularyId', header: t('concept_mapping.cs_detail_vocabulary'), accessor: (i) => i.concept.vocabularyId, filter: 'select', size: 90, minSize: 50 },
+    { id: 'domainId', header: t('concept_mapping.cs_detail_domain'), accessor: (i) => i.concept.domainId, filter: 'select', size: 100, minSize: 50 },
+    { id: 'isExcluded', header: t('concept_mapping.cs_detail_excluded'), accessor: (i) => i.isExcluded ? 1 : 0, filter: 'none', size: 80, minSize: 50, center: true, cell: (i) => flagCell(i.isExcluded) },
+    { id: 'includeDescendants', header: t('concept_mapping.cs_detail_descendants'), accessor: (i) => i.includeDescendants ? 1 : 0, filter: 'none', size: 100, minSize: 60, center: true, cell: (i) => flagCell(i.includeDescendants) },
+    { id: 'includeMapped', header: t('concept_mapping.cs_detail_mapped'), accessor: (i) => i.includeMapped ? 1 : 0, filter: 'none', size: 80, minSize: 50, center: true, cell: (i) => flagCell(i.includeMapped) },
+  ], [t])
 
   // Reset state when concept set changes
   useEffect(() => {
@@ -231,72 +244,20 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange }: Concep
                 <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_empty')}</p>
               </div>
             ) : (
-              <div className="flex h-full flex-col overflow-hidden">
-                <p className="shrink-0 px-4 py-1.5 text-xs text-muted-foreground border-b">
-                  {resolvedConcepts.length} {t('concept_mapping.cs_detail_resolved_count')}
-                </p>
-                <div className="flex-1 overflow-auto">
-                  <Table style={{ tableLayout: 'fixed' }}>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="text-xs">{t('concept_mapping.cs_detail_concept_name')}</TableHead>
-                        <TableHead className="text-xs w-[70px]">ID</TableHead>
-                        <TableHead className="text-xs w-[80px]">{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
-                        <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_domain')}</TableHead>
-                        <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_class')}</TableHead>
-                        <TableHead className="text-xs w-[40px]">{t('concept_mapping.col_std')}</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {resolvedConcepts.map((c) => (
-                        <TableRow key={c.conceptId}>
-                          <TableCell className="truncate px-2 py-1 text-xs">{c.conceptName}</TableCell>
-                          <TableCell className="px-2 py-1 text-xs text-muted-foreground">{c.conceptId}</TableCell>
-                          <TableCell className="px-2 py-1 text-xs">{c.vocabularyId}</TableCell>
-                          <TableCell className="px-2 py-1 text-xs">{c.domainId}</TableCell>
-                          <TableCell className="px-2 py-1 text-xs">{c.conceptClassId}</TableCell>
-                          <TableCell className="px-2 py-1"><StandardConceptBadge value={c.standardConcept} /></TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
+              <ConceptDataTable
+                data={resolvedConcepts}
+                rowKey={(c) => c.conceptId}
+                columns={resolvedColumns}
+              />
             )}
           </TabsContent>
 
           <TabsContent value="expression" className="flex-1 overflow-hidden m-0">
-            <div className="h-full overflow-auto">
-              <Table style={{ tableLayout: 'fixed' }}>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">{t('concept_mapping.cs_detail_concept_name')}</TableHead>
-                    <TableHead className="text-xs w-[70px]">ID</TableHead>
-                    <TableHead className="text-xs w-[80px]">{t('concept_mapping.cs_detail_vocabulary')}</TableHead>
-                    <TableHead className="text-xs w-[90px]">{t('concept_mapping.cs_detail_domain')}</TableHead>
-                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_excluded')}>Ex</TableHead>
-                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_descendants')}>De</TableHead>
-                    <TableHead className="text-xs w-[30px]" title={t('concept_mapping.cs_detail_mapped')}>Ma</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {conceptSet.expression.items.map((item, i) => {
-                    const checkColor = item.isExcluded ? 'text-destructive' : 'text-green-600'
-                    return (
-                      <TableRow key={i}>
-                        <TableCell className="truncate px-2 py-1 text-xs">{item.concept.conceptName}</TableCell>
-                        <TableCell className="px-2 py-1 text-xs text-muted-foreground">{item.concept.conceptId}</TableCell>
-                        <TableCell className="px-2 py-1 text-xs">{item.concept.vocabularyId}</TableCell>
-                        <TableCell className="px-2 py-1 text-xs">{item.concept.domainId}</TableCell>
-                        <TableCell className={`px-2 py-1 text-center text-xs ${item.isExcluded ? checkColor : ''}`}>{item.isExcluded ? '✓' : ''}</TableCell>
-                        <TableCell className={`px-2 py-1 text-center text-xs ${item.includeDescendants ? checkColor : ''}`}>{item.includeDescendants ? '✓' : ''}</TableCell>
-                        <TableCell className={`px-2 py-1 text-center text-xs ${item.includeMapped ? checkColor : ''}`}>{item.includeMapped ? '✓' : ''}</TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+            <ConceptDataTable
+              data={conceptSet.expression.items}
+              rowKey={(item) => item.concept.conceptId}
+              columns={expressionColumns}
+            />
           </TabsContent>
         </Tabs>
       </SheetContent>

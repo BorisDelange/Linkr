@@ -37,6 +37,16 @@ const statusDot: Record<string, string> = {
   configuring: 'bg-amber-500',
 }
 
+/** Display label for a database engine (proper casing, not raw uppercase). */
+const engineLabels: Record<string, string> = {
+  duckdb: 'DuckDB',
+  postgresql: 'PostgreSQL',
+  sqlite: 'SQLite',
+  mysql: 'MySQL',
+  sqlserver: 'SQL Server',
+  oracle: 'Oracle',
+}
+
 function ConnectionItem({
   entry,
   isActive,
@@ -55,20 +65,20 @@ function ConnectionItem({
       type="button"
       onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent',
+        'flex w-full min-w-0 items-center gap-3 overflow-hidden rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent',
         isActive && 'bg-accent ring-1 ring-primary/30'
       )}
     >
       <Database size={14} className="shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-medium">{entry.name}</span>
           <span className={cn('size-2 shrink-0 rounded-full', statusDot[entry.status] ?? 'bg-gray-400')} />
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="uppercase">{entry.engine}</span>
+        <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <span className="shrink-0">{engineLabels[entry.engine] ?? entry.engine}</span>
           {entry.errorMessage && (
-            <span className="truncate text-destructive">{entry.errorMessage}</span>
+            <span className="min-w-0 truncate text-destructive">{entry.errorMessage}</span>
           )}
         </div>
       </div>
@@ -115,8 +125,11 @@ export function ConnectionsPanel({ open, onOpenChange, projectUid }: Connections
             <SheetTitle>{t('connections.title')}</SheetTitle>
           </SheetHeader>
 
-          <ScrollArea className="flex-1">
-            <div className="space-y-6 p-5">
+          <ScrollArea className="w-full flex-1">
+            {/* w-[380px]/max-w-full pins the width: Radix's viewport wraps content
+                in a display:table element that otherwise grows to the widest
+                child (e.g. a long error string), overflowing the panel. */}
+            <div className="w-[380px] max-w-full space-y-6 p-5">
               {/* Warehouse databases */}
               <div>
                 <div className="mb-3 flex items-center gap-2">
