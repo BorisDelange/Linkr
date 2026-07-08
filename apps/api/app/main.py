@@ -15,6 +15,8 @@ from app.core.permissions import seed_default_roles
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
+from app.api.v1.routes.ide_connections import router as ide_connections_router
+from app.api.v1.routes.user_plugins import router as user_plugins_router
 from app.api.v1.routes.mapping_projects import router as mapping_projects_router
 from app.api.v1.routes.source_concept_ids import router as source_concept_ids_router
 from app.api.v1.routes.data_catalogs import router as data_catalogs_router
@@ -116,6 +118,8 @@ app.include_router(data_catalogs_router, prefix="/api/v1")
 app.include_router(concept_sets_router, prefix="/api/v1")
 app.include_router(source_concept_ids_router, prefix="/api/v1")
 app.include_router(mapping_projects_router, prefix="/api/v1")
+app.include_router(ide_connections_router, prefix="/api/v1")
+app.include_router(user_plugins_router, prefix="/api/v1")
 app.include_router(data_sources_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")

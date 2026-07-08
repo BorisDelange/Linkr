@@ -9,6 +9,8 @@ from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
 from app.models.etl_pipeline import EtlFile, EtlPipeline
+from app.models.ide_connection import IdeConnection
+from app.models.user_plugin import UserPlugin
 from app.models.plugin import Plugin
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
@@ -34,6 +36,8 @@ __all__ = [
     "MappingProject",
     "ConceptMapping",
     "ServiceMapping",
+    "IdeConnection",
+    "UserPlugin",
     "DqRuleSet",
     "DqCustomCheck",
     "EtlPipeline",
