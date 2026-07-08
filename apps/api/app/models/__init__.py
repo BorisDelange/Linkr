@@ -3,6 +3,7 @@ from app.models.project import Project
 from app.models.cohort import Cohort
 from app.models.concept_set import ConceptSet
 from app.models.data_catalog import DataCatalog
+from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet
@@ -27,6 +28,8 @@ __all__ = [
     "Cohort",
     "ConceptSet",
     "DataCatalog",
+    "SourceConceptIdRange",
+    "SourceConceptIdEntry",
     "DqRuleSet",
     "DqCustomCheck",
     "EtlPipeline",

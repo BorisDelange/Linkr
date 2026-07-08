@@ -6,6 +6,7 @@ import {
 } from '@/lib/api/datasets'
 import { apiCohortStorage } from '@/lib/api/cohorts'
 import { apiConceptSetStorage } from '@/lib/api/concept-sets'
+import { apiSourceConceptIdEntryStorage, apiSourceConceptIdRangeStorage } from '@/lib/api/source-concept-ids'
 import { apiDataCatalogStorage } from '@/lib/api/catalogs'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
 import { apiDqCustomCheckStorage, apiDqRuleSetStorage } from '@/lib/api/dq'
@@ -57,5 +58,7 @@ export function createAPIStorage(): Storage {
     dqCustomChecks: apiDqCustomCheckStorage,
     dataCatalogs: apiDataCatalogStorage,
     conceptSets: apiConceptSetStorage,
+    sourceConceptIdRanges: apiSourceConceptIdRangeStorage,
+    sourceConceptIdEntries: apiSourceConceptIdEntryStorage,
   }
 }
