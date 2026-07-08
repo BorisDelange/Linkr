@@ -186,3 +186,23 @@ Un environnement = `{ langage, id, projet, paquets installés, process vivant }`
   unique** (scan disque, pas de table miroir de contenu), façon RStudio/Jupyter.
 - **Caches** (`*_stats_cache`, `catalog_results`, scores) → pas en base, recalcul serveur.
 - **Dossier racine** → `LINKR_DATA_DIR` fixé côté serveur (lecture seule dans le wizard).
+
+
+---
+
+## État de session — 2026-07-08
+
+### Fait cette session
+- **Tâche 4 (stockage entités) : COMPLÈTE** — voir §02. Toutes les entités client-only sont persistées serveur (+ seed des schémas par défaut à la création d'un workspace).
+- **Requête serveur du CSV d'un mapping project** (§02) — premier morceau de la Tâche 2/§03(b).
+- **Perf concept-mapping en mode serveur** — buffer hors state, mount WASM no-op serveur, cross-project overview parallélisé + différé.
+- **Divers UI** : schema browser unifié (SQL scripts / IDE / ETL) + modal large ; homogénéisation boutons ; raccourcis clavier (match sur `event.code`, new-file = Cmd/Ctrl+Alt+N) ; reset → « Clear local cache » + purge IndexedDB au 1er boot serveur ; panneau Connections (overflow, labels engine, bouton outline blanc-sur-blanc) ; bouton connecter DB serveur → `retestDataSource`.
+
+### À FINIR (non résolu)
+- **⚠️ Connexion d'une base externe en mode serveur — PAS réglé.** Symptômes : (1) base ajoutée reste grise ; (2) « detail not found » (404) après ; (3) une DW qui « fonctionne » affiche `IO Error: Unable to connect to Postgres` dans le mapping project. Le bouton connecter (no-op serveur) a été corrigé (`retestDataSource`). Sur l'instance de test le secret contenait une **typo de mot de passe** (`posetgres`) — mais le PO indique que **ce n'est toujours pas réglé**. Reprendre le diagnostic bout en bout : flux create→secret→query, `_scope` (schéma non-`public`), remontée d'erreur 422 DuckDB brute, cas file-DB (statut gris).
+- **Tâche 2 — Moteur DuckDB serveur généralisé** — remplacer `queryDataSource` (~142 appels) + `computeStats` par une API serveur unifiée. Seul le cas mapping-project CSV est fait. **[À FAIRE]**
+- **Tâche 3 — Terminal serveur** (§07(d), streaming) — autre session. **[À FAIRE]**
+- **§07(c)** — UI footer multi-environnements (créer/lister/basculer/restart, monitoring RSS). **[PARTIEL]**
+
+### Coordination
+Sessions parallèles sur `feature/fastapi-backend` (voir mémoire `parallel-session-git`). Les fichiers untracked `ide_files.py` / `schemas/ide_file.py` appartiennent à la session IDE — ne pas committer.
