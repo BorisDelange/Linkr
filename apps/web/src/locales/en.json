@@ -2133,7 +2133,12 @@
     "error": "Invalid username or password",
     "subtitle": "Sign in to your account",
     "signing_in": "Signing in…",
-    "setup_complete": "Account created successfully. Please sign in."
+    "setup_complete": "Account created successfully. Please sign in.",
+    "server_error": "Something went wrong on the server. Please try again.",
+    "server_unreachable": "Cannot reach the server. Check your connection and try again.",
+    "server_unreachable_title": "Server unreachable",
+    "server_unreachable_description": "Linkr can't reach its backend server. It may be starting up, offline, or misconfigured. Once it's available, retry.",
+    "retry": "Retry"
   },
   "reset": {
     "tooltip": "Reset local data",

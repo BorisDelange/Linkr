@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { LoginPage } from '@/features/login/LoginPage'
+import { ServerUnreachable } from '@/features/login/ServerUnreachable'
 import { SetupWizard } from '@/features/setup/SetupWizard'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 
@@ -19,6 +20,7 @@ export function AuthGate({ children }: AuthGateProps) {
     isServerMode,
     needsSetup,
     isCheckingAuth,
+    serverUnreachable,
     token,
     user,
     checkSetupStatus,
@@ -62,6 +64,12 @@ export function AuthGate({ children }: AuthGateProps) {
         <Loader2 size={20} className="animate-spin text-muted-foreground" />
       </div>
     )
+  }
+
+  // Backend didn't answer the setup check — show a dedicated screen (with retry)
+  // instead of a login form that can only fail with a misleading error.
+  if (serverUnreachable) {
+    return <ServerUnreachable />
   }
 
   // Setup wizard

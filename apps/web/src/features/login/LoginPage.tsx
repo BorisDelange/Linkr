@@ -70,7 +70,13 @@ export function LoginPage({ setupJustCompleted }: LoginPageProps) {
               </div>
 
               {loginError && (
-                <p className="text-sm text-destructive">{t('login.error')}</p>
+                <p className="text-sm text-destructive">
+                  {loginError === 'invalid_credentials'
+                    ? t('login.error')
+                    : loginError === 'unreachable'
+                      ? t('login.server_unreachable')
+                      : t('login.server_error')}
+                </p>
               )}
 
               <Button type="submit" className="w-full" disabled={loading || !username || !password}>

@@ -16,6 +16,7 @@ interface AuthState {
   user: AuthUser | null
   needsSetup: boolean | null // null = not yet checked
   isCheckingAuth: boolean
+  serverUnreachable: boolean // server mode + backend didn't answer the setup check
   loginError: string | null
 
   checkSetupStatus: () => Promise<void>
@@ -51,6 +52,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     user: stored.user,
     needsSetup: null,
     isCheckingAuth: false,
+    serverUnreachable: false,
     loginError: null,
 
     checkSetupStatus: async () => {
@@ -60,13 +62,16 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         const res = await fetch(`${getApiBaseUrl()}/api/v1/setup/status`)
         if (res.ok) {
           const data = await res.json()
-          set({ needsSetup: data.needs_setup, isCheckingAuth: false })
+          set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
         } else {
-          set({ needsSetup: false, isCheckingAuth: false })
+          // The server answered (even with an error) — it's reachable.
+          set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: false })
         }
       } catch {
-        // Backend unreachable — assume no setup needed (will show error elsewhere)
-        set({ needsSetup: false, isCheckingAuth: false })
+        // The backend didn't answer at all (down, wrong URL, refused to boot, CORS):
+        // flag it so the gate shows a dedicated "server unreachable" screen instead
+        // of a login form that can only fail with a misleading error.
+        set({ needsSetup: false, isCheckingAuth: false, serverUnreachable: true })
       }
     },
 
@@ -80,8 +85,9 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         })
 
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}))
-          set({ loginError: data.detail || 'Login failed' })
+          // 401 = bad credentials (i18n-mapped in the UI); anything else surfaces
+          // the server's own detail so the user sees the real reason.
+          set({ loginError: res.status === 401 ? 'invalid_credentials' : 'server_error' })
           return false
         }
 
@@ -89,7 +95,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         get().setTokens(data.access_token, data.refresh_token, data.user)
         return true
       } catch {
-        set({ loginError: 'Cannot connect to server' })
+        set({ loginError: 'unreachable' })
         return false
       }
     },

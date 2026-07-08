@@ -2133,7 +2133,12 @@
     "error": "Nom d'utilisateur ou mot de passe incorrect",
     "subtitle": "Connectez-vous à votre compte",
     "signing_in": "Connexion en cours…",
-    "setup_complete": "Compte créé avec succès. Veuillez vous connecter."
+    "setup_complete": "Compte créé avec succès. Veuillez vous connecter.",
+    "server_error": "Une erreur est survenue côté serveur. Veuillez réessayer.",
+    "server_unreachable": "Serveur injoignable. Vérifiez votre connexion et réessayez.",
+    "server_unreachable_title": "Serveur injoignable",
+    "server_unreachable_description": "Linkr ne parvient pas à joindre son serveur backend. Il est peut-être en cours de démarrage, hors ligne ou mal configuré. Réessayez une fois qu'il est disponible.",
+    "retry": "Réessayer"
   },
   "reset": {
     "tooltip": "Réinitialiser les données locales",
