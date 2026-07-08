@@ -131,7 +131,8 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
       </div>
 
       {/* Stat cards + section details — bottom half */}
-      <div className="flex min-h-0 basis-1/2 flex-col gap-4 overflow-hidden">
+      {/* pb-1.5 leaves room for the section cards' shadow-sm so it isn't clipped by the overflow-hidden ancestors */}
+      <div className="flex min-h-0 basis-1/2 flex-col gap-4 overflow-hidden pb-1.5">
         {/* Stat Cards */}
         <div className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
