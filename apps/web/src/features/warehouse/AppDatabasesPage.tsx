@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource, CustomSchemaPreset } from '@/types'
@@ -234,7 +235,11 @@ export function AppDatabasesPage() {
   const { t } = useTranslation()
   const { wsUid } = useResolvedParams()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource } = useDataSourceStore()
+  const { testConnection, disconnectDataSource, removeDataSource, reconnectDataSource, retestDataSource } = useDataSourceStore()
+  // In server mode the DB lives on the server: (re)connecting means re-testing
+  // the stored connection there (testConnection/reconnect are front-only no-ops).
+  const connectAction = (id: string) => (isServerMode() ? retestDataSource(id) : testConnection(id))
+  const reconnectAction = (id: string) => (isServerMode() ? retestDataSource(id) : reconnectDataSource(id))
   const projects = useAppStore((s) => s._projectsRaw)
   const language = useAppStore((s) => s.language)
 
@@ -387,9 +392,9 @@ export function AppDatabasesPage() {
                 <DatabaseCard
                   source={ds}
                   onClick={() => setSelectedSource(ds)}
-                  onTestConnection={() => testConnection(ds.id)}
+                  onTestConnection={() => connectAction(ds.id)}
                   onDisconnect={() => disconnectDataSource(ds.id)}
-                  onReconnect={() => reconnectDataSource(ds.id)}
+                  onReconnect={() => reconnectAction(ds.id)}
                   onEdit={() => setSourceToEdit(ds)}
                   onRemove={() => setSourceToRemove(ds)}
                 />
