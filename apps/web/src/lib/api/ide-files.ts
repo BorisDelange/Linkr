@@ -4,12 +4,14 @@ import type { IdeFile } from '@/types'
 
 /**
  * Server-mode IDE file storage. The backend treats projects/<uid>/scripts/ as the
- * single source of truth (see project_fs.py): the tree is scanned from disk and
- * files are addressed by their relative PATH. To fit the store's id-keyed
- * IdeFileStorage interface without a uuid mapping table, server-mode nodes use
- * their relative path AS the id (parentId = parent's path, or null at the root).
- * Renames/moves therefore change ids — the store reloads the tree after each
- * mutation (loadProjectFiles), which also surfaces files added outside the app.
+ * single source of truth (see project_fs.py): the tree is scanned from disk. The
+ * scripts/ directory itself is surfaced as a synthetic root folder named "scripts"
+ * (path ""), so the IDE shows exactly one scripts folder and never doubles it.
+ *
+ * Nodes keep the backend's derived id; this adapter caches id→(projectUid, path)
+ * from the last scan so id-keyed create/update/delete can resolve the on-disk path.
+ * Renames/moves change ids — the store reloads the tree after each mutation
+ * (reloadFromDisk), which also surfaces files added outside the app.
  */
 
 const BASE = '/ide-files'
@@ -25,29 +27,30 @@ interface ServerNode {
   content: string | null
 }
 
-// Track the project a given node id belongs to (needed for id-keyed update/delete,
-// which don't carry the projectUid). Rebuilt on every getByProject.
-const _projectByPath = new Map<string, string>()
+// id → { projectUid, path } from the last getByProject scan (path is relative to
+// scripts/; the synthetic root's path is "").
+const _meta = new Map<string, { projectUid: string; path: string }>()
 
 function toIdeFile(projectUid: string, n: ServerNode): IdeFile {
-  // Use the relative path as the stable id so parentId chains resolve in the store.
-  const parentPath = n.path.includes('/') ? n.path.slice(0, n.path.lastIndexOf('/')) : null
-  _projectByPath.set(n.path, projectUid)
+  _meta.set(n.id, { projectUid, path: n.path })
   return {
-    id: n.path,
+    id: n.id,
     projectUid,
     name: n.name,
     type: n.type,
-    parentId: parentPath,
+    parentId: n.parentId,
     content: n.content ?? undefined,
     language: n.language ?? undefined,
     createdAt: '',
   }
 }
 
-/** Build a file's relative path from its parent path (id) + name. */
-function pathFor(parentId: string | null, name: string): string {
-  return parentId ? `${parentId}/${name}` : name
+/** Relative path of a new child = parent's path + name (parent "" = scripts root). */
+function childPath(parentId: string | null, name: string): string {
+  if (!parentId) return name
+  const parent = _meta.get(parentId)
+  const prefix = parent && parent.path ? `${parent.path}/` : ''
+  return `${prefix}${name}`
 }
 
 export const apiIdeFileStorage: IdeFileStorage = {
@@ -58,14 +61,12 @@ export const apiIdeFileStorage: IdeFileStorage = {
     return nodes.map((n) => toIdeFile(projectUid, n))
   },
 
-  getById: async () => {
-    // Callers resolve files via getByProject (the store holds the tree in memory).
-    return undefined
-  },
+  getById: async () => undefined,
 
   create: async (file) => {
-    const path = pathFor(file.parentId, file.name)
-    _projectByPath.set(path, file.projectUid)
+    // The synthetic "scripts" root already exists on disk as scripts/ — skip it.
+    if (file.name === 'scripts' && file.parentId === null && file.type === 'folder') return
+    const path = childPath(file.parentId, file.name)
     await apiRequest(BASE, {
       method: 'POST',
       body: JSON.stringify({
@@ -78,40 +79,39 @@ export const apiIdeFileStorage: IdeFileStorage = {
   },
 
   update: async (id, changes) => {
-    // id is the current relative path. Content saves write in place; a name change
-    // is a move to a sibling path (the store reloads the tree afterwards).
-    const projectUid = _projectByPath.get(id)
-    if (!projectUid) return
+    const meta = _meta.get(id)
+    if (!meta) return
+    const { projectUid, path } = meta
     if (changes.content !== undefined) {
       await apiRequest(`${BASE}/content`, {
         method: 'PUT',
-        body: JSON.stringify({ projectUid, path: id, content: changes.content }),
+        body: JSON.stringify({ projectUid, path, content: changes.content }),
       })
     }
     if (changes.name !== undefined) {
-      const parent = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : null
-      const newPath = pathFor(parent, changes.name)
+      const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+      const newPath = parent ? `${parent}/${changes.name}` : changes.name
       await apiRequest(`${BASE}/move`, {
         method: 'POST',
-        body: JSON.stringify({ projectUid, path: id, newPath }),
+        body: JSON.stringify({ projectUid, path, newPath }),
       })
     }
     if (changes.parentId !== undefined) {
-      const name = id.includes('/') ? id.slice(id.lastIndexOf('/') + 1) : id
-      const newPath = pathFor(changes.parentId ?? null, name)
+      const name = path.includes('/') ? path.slice(path.lastIndexOf('/') + 1) : path
+      const newPath = childPath(changes.parentId ?? null, name)
       await apiRequest(`${BASE}/move`, {
         method: 'POST',
-        body: JSON.stringify({ projectUid, path: id, newPath }),
+        body: JSON.stringify({ projectUid, path, newPath }),
       })
     }
   },
 
   delete: async (id) => {
-    const projectUid = _projectByPath.get(id)
-    if (!projectUid) return
+    const meta = _meta.get(id)
+    if (!meta) return
     await apiRequest(`${BASE}/delete`, {
       method: 'POST',
-      body: JSON.stringify({ projectUid, path: id }),
+      body: JSON.stringify({ projectUid: meta.projectUid, path: meta.path }),
     })
   },
 

@@ -833,17 +833,20 @@ export const useFileStore = create<FileState>((set, get) => ({
       openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
     }))
     // Persist. Server mode: re-scan disk so the node picks up its real path-derived
-    // id and any externally-added files show up; then re-select the created file.
+    // id and any externally-added files show up, then select the new file by name
+    // under its parent (its backend id isn't known until the scan returns).
     const created = getStorage().ideFiles.create(node)
     if (isServerMode()) {
       created
         .then(() => get().reloadFromDisk(projectUid))
         .then(() => {
-          const path = parentId ? `${parentId}/${name}` : name
-          set((s) => ({
-            selectedFileId: path,
-            openFileIds: s.openFileIds.includes(path) ? s.openFileIds : [...s.openFileIds, path],
-          }))
+          const match = get().files.find((f) => f.name === name && f.parentId === parentId)
+          if (match) {
+            set((s) => ({
+              selectedFileId: match.id,
+              openFileIds: s.openFileIds.includes(match.id) ? s.openFileIds : [...s.openFileIds, match.id],
+            }))
+          }
         })
         .catch((err) => console.error('[file-store] Failed to persist file:', node.id, err))
       return
