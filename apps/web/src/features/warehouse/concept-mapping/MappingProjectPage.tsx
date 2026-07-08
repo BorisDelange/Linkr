@@ -43,7 +43,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const {
     mappingProjects, mappingProjectsLoaded, loadMappingProjects,
     conceptSetsLoaded, loadConceptSets,
-    loadProjectMappings, ensureProjectRawFile,
+    loadProjectMappings,
   } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
@@ -55,13 +55,6 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   useEffect(() => {
     loadProjectMappings(projectId)
   }, [projectId, loadProjectMappings])
-
-  // Lazily fetch the source CSV bytes once projects are loaded (server mode omits
-  // them from the list; front-only already has them). Tabs read the buffer to
-  // mount the file source into DuckDB.
-  useEffect(() => {
-    if (mappingProjectsLoaded) void ensureProjectRawFile(projectId)
-  }, [mappingProjectsLoaded, projectId, ensureProjectRawFile])
 
   // Free DuckDB memory when leaving the project. The CSV file source can hold ~200 MB
   // of in-memory tables — releasing it lets the user open another large project without

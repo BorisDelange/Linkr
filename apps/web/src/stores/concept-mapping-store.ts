@@ -34,9 +34,6 @@ interface ConceptMappingState {
   createMappingProject: (project: MappingProject) => Promise<void>
   updateMappingProject: (id: string, changes: Partial<MappingProject>) => Promise<void>
   deleteMappingProject: (id: string) => Promise<void>
-  /** Ensure a file-source project's raw CSV buffer is loaded (server mode fetches
-   *  it lazily; front-only already has it). Patches the in-memory project. */
-  ensureProjectRawFile: (projectId: string) => Promise<void>
 
   // --- Concept Mappings (scoped to active project) ---
   mappings: ConceptMapping[]
@@ -196,18 +193,6 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
       mappingProjects: s.mappingProjects.filter((p) => p.id !== id),
       mappings: s.activeProjectId === id ? [] : s.mappings,
       activeProjectId: s.activeProjectId === id ? null : s.activeProjectId,
-    }))
-  },
-
-  ensureProjectRawFile: async (projectId) => {
-    const project = get().mappingProjects.find((p) => p.id === projectId)
-    if (!project || project.sourceType !== 'file') return
-    // Already have the bytes (front-only always does; server after a first load).
-    if (project.fileSourceData?.rawFileBuffer?.byteLength) return
-    const full = await getStorage().mappingProjects.getById(projectId)
-    if (!full?.fileSourceData?.rawFileBuffer?.byteLength) return
-    set((s) => ({
-      mappingProjects: s.mappingProjects.map((p) => (p.id === projectId ? full : p)),
     }))
   },
 

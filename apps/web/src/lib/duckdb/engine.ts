@@ -779,6 +779,10 @@ export function mountFileSourceIntoDuckDB(
   columnMapping: FileColumnMapping,
   rawFileBuffer?: Uint8Array | ArrayBuffer,
 ): Promise<void> {
+  // Server mode: the CSV lives on the server and is queried there
+  // (queryDataSource routes `filesrc_<id>` to the mapping-projects endpoint).
+  // Nothing is mounted in the browser — the raw bytes never come down.
+  if (isServerMode()) return Promise.resolve()
   // If already mounted, skip
   if (mountedFileSources.has(projectId)) return Promise.resolve()
   // If a mount is already in flight for this project, return the same promise

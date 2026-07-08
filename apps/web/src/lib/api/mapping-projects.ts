@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type {
   ConceptMappingStorage,
@@ -57,21 +57,10 @@ async function uploadRawFile(projectId: string, project: Partial<MappingProject>
   })
 }
 
-/** Fetch the source CSV bytes for a project and rebuild `fileSourceData.rawFileBuffer`. */
-async function loadRawFile(project: MappingProject): Promise<MappingProject> {
-  if (project.sourceType !== 'file' || !project.fileSourceData) return project
-  try {
-    const res = await apiFetch(`/api/v1${PROJ}/${project.id}/raw-file`)
-    if (!res.ok) return project
-    const buf = new Uint8Array(await res.arrayBuffer())
-    return { ...project, fileSourceData: { ...project.fileSourceData, rawFileBuffer: buf } }
-  } catch {
-    return project
-  }
-}
-
 export const apiMappingProjectStorage: MappingProjectStorage = {
-  // Lazy: list responses omit the CSV bytes; they're loaded on getById.
+  // The CSV bytes never come down in server mode — the source is queried
+  // server-side (POST /mapping-projects/{id}/query). Responses carry metadata
+  // only; the browser holds no rawFileBuffer.
   getAll: () => apiRequest<MappingProject[]>(PROJ),
 
   getByWorkspace: (workspaceId) =>
@@ -79,8 +68,7 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
 
   getById: async (id) => {
     try {
-      const project = await apiRequest<MappingProject>(`${PROJ}/${id}`)
-      return await loadRawFile(project)
+      return await apiRequest<MappingProject>(`${PROJ}/${id}`)
     } catch {
       return undefined
     }
