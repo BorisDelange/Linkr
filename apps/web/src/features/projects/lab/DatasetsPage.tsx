@@ -13,8 +13,6 @@ import {
   Table2,
   Plus,
   BarChart3,
-  Pencil,
-  Trash2,
   Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,25 +30,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import { InlineRenameField } from '@/components/InlineRenameField'
 import {
   DndContext,
   closestCenter,
@@ -73,6 +58,7 @@ import { DatasetFileTree } from './datasets/DatasetFileTree'
 import { DatasetTable } from './datasets/DatasetTable'
 import { ColumnStatsPanel } from './datasets/ColumnStatsPanel'
 import { AnalysesPanel } from './datasets/AnalysesPanel'
+import { AnalysisList } from './datasets/AnalysisList'
 import { CreateDatasetDialog } from './datasets/CreateDatasetDialog'
 import { CreateFolderDialog } from './datasets/CreateFolderDialog'
 import { UploadDatasetDialog } from './datasets/UploadDatasetDialog'
@@ -260,8 +246,6 @@ export function DatasetsPage() {
     selectAnalysis,
     closeAnalysis,
     reorderOpenAnalyses,
-    deleteAnalysis,
-    renameAnalysis,
     _dirtyVersion,
   } = useDatasetStore()
   const { activeProjectUid } = useAppStore()
@@ -274,8 +258,6 @@ export function DatasetsPage() {
   const [statsVisible, setStatsVisible] = useState(true)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
   const [selectedColumnId, setSelectedColumnId] = useState<string | null>(null)
-  const [renamingAnalysisId, setRenamingAnalysisId] = useState<string | null>(null)
-  const [deleteAnalysisId, setDeleteAnalysisId] = useState<string | null>(null)
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(new Set())
 
   // Load datasets when the project changes
@@ -385,11 +367,6 @@ export function DatasetsPage() {
     const to = openAnalysisIds.indexOf(over.id as string)
     if (from !== -1 && to !== -1) reorderOpenAnalyses(from, to)
   }, [openAnalysisIds, reorderOpenAnalyses])
-
-  // Analysis rename helper (the inline field owns the draft + submit).
-  const handleStartAnalysisRename = useCallback((id: string) => {
-    setRenamingAnalysisId(id)
-  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -527,83 +504,9 @@ export function DatasetsPage() {
                   </Tooltip>
                 </div>
 
-                {/* Analyses list */}
-                <ScrollArea className="flex-1">
-                  {!selectedFileId ? (
-                    <div className="flex items-center justify-center p-4 text-center">
-                      <p className="text-xs text-muted-foreground">
-                        {t('datasets.no_analyses_select_dataset')}
-                      </p>
-                    </div>
-                  ) : analyses.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center p-4 text-center">
-                      <p className="text-xs text-muted-foreground">
-                        {t('datasets.no_analyses')}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="py-1">
-                      {analyses.map((analysis) => {
-                        const isActive = analysis.id === selectedAnalysisId
-                        return (
-                          <ContextMenu key={analysis.id}>
-                            <ContextMenuTrigger asChild>
-                              <button
-                                onClick={() => {
-                                  selectAnalysis(isActive ? null : analysis.id)
-                                }}
-                                onDoubleClick={() => handleStartAnalysisRename(analysis.id)}
-                                className={cn(
-                                  'group flex w-full items-center gap-1.5 px-3 py-1 text-left text-xs transition-colors hover:bg-accent/50',
-                                  isActive && 'bg-accent text-accent-foreground',
-                                )}
-                              >
-                                <BarChart3 size={14} className="shrink-0 text-violet-500" />
-                                {renamingAnalysisId === analysis.id ? (
-                                  <InlineRenameField
-                                    initialValue={analysis.name}
-                                    onSubmit={(name) => { renameAnalysis(analysis.id, name); setRenamingAnalysisId(null) }}
-                                    onCancel={() => setRenamingAnalysisId(null)}
-                                    hasClash={(candidate) =>
-                                      analyses.some((a) => a.id !== analysis.id && a.datasetFileId === analysis.datasetFileId && a.name.toLowerCase() === candidate.toLowerCase())
-                                    }
-                                  />
-                                ) : (
-                                  <>
-                                    <span className="truncate">{analysis.name}</span>
-                                    <LanguageBadge language={analysis.config.language as AnalysisLanguage | undefined} type={analysis.type} />
-                                    {analysis.config.autoRun && (
-                                      <Tooltip>
-                                        <TooltipTrigger asChild>
-                                          <Zap size={10} className="shrink-0 text-amber-500 fill-amber-500" />
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right">{t('datasets.analysis_auto_run')}</TooltipContent>
-                                      </Tooltip>
-                                    )}
-                                  </>
-                                )}
-                              </button>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem onClick={() => handleStartAnalysisRename(analysis.id)}>
-                                <Pencil size={14} />
-                                {t('datasets.rename')}
-                              </ContextMenuItem>
-                              <ContextMenuSeparator />
-                              <ContextMenuItem
-                                variant="destructive"
-                                onClick={() => setDeleteAnalysisId(analysis.id)}
-                              >
-                                <Trash2 size={14} />
-                                {t('datasets.delete')}
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        )
-                      })}
-                    </div>
-                  )}
-                </ScrollArea>
+                {/* Analyses list (self-contained: owns its rename/delete state so
+                    interacting with it doesn't re-render the dataset table). */}
+                <AnalysisList selectedFileId={selectedFileId} />
               </div>
             </div>
           </Allotment.Pane>
@@ -810,29 +713,6 @@ export function DatasetsPage() {
           datasetFileId={selectedFileId}
         />
       )}
-
-      {/* Delete analysis confirmation */}
-      <AlertDialog open={!!deleteAnalysisId} onOpenChange={(open) => { if (!open) setDeleteAnalysisId(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('datasets.delete_analysis_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('datasets.delete_analysis_description', {
-                name: analyses.find((a) => a.id === deleteAnalysisId)?.name ?? '',
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => { if (deleteAnalysisId) deleteAnalysis(deleteAnalysisId); setDeleteAnalysisId(null) }}
-            >
-              {t('datasets.delete')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Unsaved changes confirmation dialog */}
       <Dialog
