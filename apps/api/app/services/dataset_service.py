@@ -237,11 +237,36 @@ async def write_rows(db: AsyncSession, node: DatasetFile, rows: list[dict]) -> N
 
 # --- Analyses --------------------------------------------------------------
 
-async def list_analyses(db: AsyncSession, file_id: str) -> list[DatasetAnalysis]:
+async def list_analyses(
+    db: AsyncSession, project_uid: str, dataset_path: str
+) -> list[DatasetAnalysis]:
     result = await db.execute(
-        select(DatasetAnalysis).where(DatasetAnalysis.dataset_file_id == file_id)
+        select(DatasetAnalysis).where(
+            DatasetAnalysis.project_uid == project_uid,
+            DatasetAnalysis.dataset_path == dataset_path,
+        )
     )
     return list(result.scalars().all())
+
+
+async def reconcile_analyses(db: AsyncSession, project_uid: str) -> None:
+    """Delete analyses whose dataset path no longer exists under datasets/ on disk
+    (e.g. the raw file was removed outside the app). Run on dataset scan/refresh."""
+    from app.services import project_fs
+
+    live = {
+        n["path"] for n in project_fs.scan_datasets(project_uid) if n["type"] == "file"
+    }
+    result = await db.execute(
+        select(DatasetAnalysis).where(DatasetAnalysis.project_uid == project_uid)
+    )
+    removed = False
+    for a in result.scalars().all():
+        if a.dataset_path not in live:
+            await db.delete(a)
+            removed = True
+    if removed:
+        await db.commit()
 
 
 async def get_analysis(db: AsyncSession, analysis_id: str) -> DatasetAnalysis | None:

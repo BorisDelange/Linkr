@@ -79,6 +79,41 @@ async def test_delete_purges_cache(client, seed_roles):
     assert not list(cache_root.glob("*.parquet"))
 
 
+async def test_analysis_keyed_by_path_and_reconciled_on_delete(client, seed_roles):
+    """An analysis attaches to a dataset by path; deleting the dataset (or losing
+    the raw file) removes the orphaned analysis on the next scan."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "cohort.csv").write_text("age\n1\n2\n")
+
+    a = (await client.post(f"{API}/dataset-files/analyses", headers=h, json={
+        "projectUid": uid, "datasetPath": "cohort.csv", "name": "A1", "type": "table1", "config": {},
+    })).json()
+    assert a["datasetPath"] == "cohort.csv"
+
+    listed = (await client.get(f"{API}/dataset-files/analyses", headers=h, params={"projectUid": uid, "path": "cohort.csv"})).json()
+    assert len(listed) == 1 and listed[0]["id"] == a["id"]
+
+    # Delete the dataset → its analysis is reconciled away.
+    await client.post(f"{API}/dataset-files/delete", headers=h, json={"projectUid": uid, "path": "cohort.csv"})
+    after = (await client.get(f"{API}/dataset-files/analyses", headers=h, params={"projectUid": uid, "path": "cohort.csv"})).json()
+    assert after == []
+
+
+async def test_analysis_reconciled_when_raw_removed_externally(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "d.csv").write_text("x\n1\n")
+    await client.post(f"{API}/dataset-files/analyses", headers=h, json={
+        "projectUid": uid, "datasetPath": "d.csv", "name": "A", "type": "table1", "config": {},
+    })
+    # Remove the raw file outside the app, then a plain dataset scan reconciles.
+    (_datasets(uid) / "d.csv").unlink()
+    await client.get(f"{API}/dataset-files", headers=h, params={"projectUid": uid})
+    after = (await client.get(f"{API}/dataset-files/analyses", headers=h, params={"projectUid": uid, "path": "d.csv"})).json()
+    assert after == []
+
+
 async def test_cache_reused_until_raw_changes(client, seed_roles):
     h = await _admin_headers(client)
     uid = await _project(client, h)

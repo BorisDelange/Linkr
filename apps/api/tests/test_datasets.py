@@ -219,17 +219,16 @@ async def test_non_member_cannot_access(client, db):
     assert (await client.delete(f"{API}/datasets/{ds['id']}", headers=other)).status_code == 403
 
 
-async def test_analyses_crud(client):
+async def test_analyses_crud(client, seed_roles):
+    """Analyses are now keyed by dataset path under the dataset-files router."""
     headers = await _admin_headers(client)
     _, project_uid = await _project(client, headers)
-    ds = (await client.post(f"{API}/datasets", headers=headers,
-          json={"projectUid": project_uid, "name": "d", "type": "file"})).json()
 
-    a = (await client.post(f"{API}/datasets/{ds['id']}/analyses", headers=headers,
-         json={"datasetFileId": ds["id"], "name": "Table 1", "type": "table1", "config": {}})).json()
-    assert a["type"] == "table1"
-    r = await client.get(f"{API}/datasets/{ds['id']}/analyses", headers=headers)
+    a = (await client.post(f"{API}/dataset-files/analyses", headers=headers,
+         json={"projectUid": project_uid, "datasetPath": "d.csv", "name": "Table 1", "type": "table1", "config": {}})).json()
+    assert a["type"] == "table1" and a["datasetPath"] == "d.csv"
+    r = await client.get(f"{API}/dataset-files/analyses", headers=headers, params={"projectUid": project_uid, "path": "d.csv"})
     assert len(r.json()) == 1
-    r = await client.patch(f"{API}/datasets/analyses/{a['id']}", headers=headers, json={"name": "T1"})
+    r = await client.patch(f"{API}/dataset-files/analyses/{a['id']}", headers=headers, json={"name": "T1"})
     assert r.json()["name"] == "T1"
-    assert (await client.delete(f"{API}/datasets/analyses/{a['id']}", headers=headers)).status_code == 204
+    assert (await client.delete(f"{API}/dataset-files/analyses/{a['id']}", headers=headers)).status_code == 204

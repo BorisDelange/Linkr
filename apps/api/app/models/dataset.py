@@ -38,14 +38,20 @@ class DatasetFile(Base, TimestampMixin):
 
 
 class DatasetAnalysis(Base, TimestampMixin):
+    """A viz/analysis attached to a dataset. Datasets are disk-source-of-truth
+    (no DB row), so an analysis is keyed by (project_uid, dataset_path) — the
+    relative path under projects/<uid>/datasets/. Orphans (whose dataset path no
+    longer exists on disk) are reconciled away on scan."""
+
     __tablename__ = "dataset_analyses"
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
-    dataset_file_id: Mapped[str] = mapped_column(
-        ForeignKey("dataset_files.id", ondelete="CASCADE")
+    project_uid: Mapped[str] = mapped_column(
+        ForeignKey("projects.uid", ondelete="CASCADE")
     )
+    dataset_path: Mapped[str] = mapped_column(String(1024))
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(50))
     config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)

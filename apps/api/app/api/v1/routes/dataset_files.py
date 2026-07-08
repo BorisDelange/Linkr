@@ -10,9 +10,15 @@ from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_role
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.dataset import DatasetRowsPage, DatasetRowsQuery
+from app.schemas.dataset import (
+    DatasetAnalysisCreate,
+    DatasetAnalysisResponse,
+    DatasetAnalysisUpdate,
+    DatasetRowsPage,
+    DatasetRowsQuery,
+)
 from app.schemas.dataset_fs import DsCreateFolder, DsDelete, DsMove, DsNodeResponse
-from app.services import project_fs
+from app.services import dataset_service, project_fs
 from app.services.data import dataset_fs, dataset_rows
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -44,9 +50,11 @@ async def list_dataset_files(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Scan datasets/ from disk. Purges cache entries whose raw file disappeared."""
+    """Scan datasets/ from disk. Purges cache entries + reconciles analyses whose
+    raw dataset file disappeared (covers files removed outside the app + Refresh)."""
     await _check_project(db, project_uid, user, "viewer")
     dataset_fs.purge_orphans(project_uid)
+    await dataset_service.reconcile_analyses(db, project_uid)
     out: list[DsNodeResponse] = []
     for n in project_fs.scan_datasets(project_uid):
         columns, row_count = _resolve_meta(project_uid, n)
@@ -154,3 +162,54 @@ async def delete_dataset(
     elif p.is_file():
         p.unlink(missing_ok=True)
     dataset_fs.purge_orphans(body.project_uid)
+    await dataset_service.reconcile_analyses(db, body.project_uid)
+
+
+# --- Analyses (keyed by dataset path) --------------------------------------
+
+@router.get("/analyses", response_model=list[DatasetAnalysisResponse])
+async def list_analyses(
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_project(db, project_uid, user, "viewer")
+    return await dataset_service.list_analyses(db, project_uid, path)
+
+
+@router.post("/analyses", response_model=DatasetAnalysisResponse, status_code=status.HTTP_201_CREATED)
+async def create_analysis(
+    body: DatasetAnalysisCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_project(db, body.project_uid, user, "editor")
+    return await dataset_service.create_analysis(db, body)
+
+
+@router.patch("/analyses/{analysis_id}", response_model=DatasetAnalysisResponse)
+async def update_analysis(
+    analysis_id: str,
+    body: DatasetAnalysisUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    a = await dataset_service.get_analysis(db, analysis_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await _check_project(db, a.project_uid, user, "editor")
+    return await dataset_service.update_analysis(db, a, body)
+
+
+@router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_analysis(
+    analysis_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    a = await dataset_service.get_analysis(db, analysis_id)
+    if a is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await _check_project(db, a.project_uid, user, "editor")
+    await dataset_service.delete_analysis(db, a)

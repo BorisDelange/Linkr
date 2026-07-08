@@ -9,9 +9,6 @@ from app.models.dataset import DatasetFile
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.dataset import (
-    DatasetAnalysisCreate,
-    DatasetAnalysisResponse,
-    DatasetAnalysisUpdate,
     DatasetDataResponse,
     DatasetDataWrite,
     DatasetFileCreate,
@@ -236,51 +233,4 @@ async def put_dataset_data(
     await dataset_service.write_rows(db, node, body.rows)
 
 
-# --- Analyses --------------------------------------------------------------
-
-@router.get("/{file_id}/analyses", response_model=list[DatasetAnalysisResponse])
-async def list_analyses(
-    file_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await _load_file(db, file_id, user, "viewer")
-    return await dataset_service.list_analyses(db, file_id)
-
-
-@router.post("/{file_id}/analyses", response_model=DatasetAnalysisResponse, status_code=status.HTTP_201_CREATED)
-async def create_analysis(
-    file_id: str,
-    body: DatasetAnalysisCreate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    await _load_file(db, file_id, user, "editor")
-    return await dataset_service.create_analysis(db, body)
-
-
-@router.patch("/analyses/{analysis_id}", response_model=DatasetAnalysisResponse)
-async def update_analysis(
-    analysis_id: str,
-    body: DatasetAnalysisUpdate,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    a = await dataset_service.get_analysis(db, analysis_id)
-    if a is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_file(db, a.dataset_file_id, user, "editor")
-    return await dataset_service.update_analysis(db, a, body)
-
-
-@router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_analysis(
-    analysis_id: str,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    a = await dataset_service.get_analysis(db, analysis_id)
-    if a is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
-    await _load_file(db, a.dataset_file_id, user, "editor")
-    await dataset_service.delete_analysis(db, a)
+# Analyses moved to the disk-source dataset-files router (keyed by dataset path).

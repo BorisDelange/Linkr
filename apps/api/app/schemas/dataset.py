@@ -105,7 +105,8 @@ class DatasetDataWrite(CamelModel):
 
 class DatasetAnalysisCreate(CamelModel):
     id: str | None = None
-    dataset_file_id: str
+    project_uid: str
+    dataset_path: str
     name: str
     type: str
     config: dict = {}
@@ -118,7 +119,8 @@ class DatasetAnalysisUpdate(CamelModel):
 
 class DatasetAnalysisResponse(CamelModel):
     id: str
-    dataset_file_id: str
+    project_uid: str
+    dataset_path: str
     name: str
     type: str
     config: dict
