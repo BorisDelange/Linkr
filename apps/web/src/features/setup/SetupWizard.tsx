@@ -14,6 +14,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 import { getApiBaseUrl } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth-store'
 
 interface DbInfo {
   engine: string
@@ -26,6 +27,7 @@ interface SetupWizardProps {
 
 export function SetupWizard({ onComplete }: SetupWizardProps) {
   const { t } = useTranslation()
+  const login = useAuthStore((s) => s.login)
   const [step, setStep] = useState(1)
 
   // Step 1: the database is configured server-side (LINKR_DATABASE_URL); we
@@ -66,7 +68,15 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       })
 
       if (res.ok) {
-        onComplete()
+        // The account exists but isn't logged in yet — sign in with the same
+        // credentials so a token is stored before the app mounts (otherwise its
+        // first API call fires unauthenticated → 401).
+        const loggedIn = await login(username, password)
+        if (loggedIn) {
+          onComplete()
+        } else {
+          setCreateError(t('setup.error_generic'))
+        }
       } else {
         const data = await res.json().catch(() => ({}))
         setCreateError(data.detail || t('setup.error_generic'))
