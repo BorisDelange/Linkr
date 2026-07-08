@@ -95,8 +95,9 @@ export const DEFAULT_SHORTCUTS: Record<
     id: 'new_file',
     labelKey: 'shortcuts.new_file',
     scope: 'global',
-    // Cmd/Ctrl+N is reserved by the browser (new window) and can't be
-    // preventDefault-ed, so use Cmd/Ctrl+Alt+N which the page can capture.
+    // Cmd/Ctrl+N is browser-reserved (new window, not preventable), so use
+    // Cmd/Ctrl+Alt+N. Matching relies on event.code (physical key) because Alt
+    // turns event.key into a dead key on Mac.
     defaultBinding: kb('n', { alt: true }),
   },
   clear_terminal: {

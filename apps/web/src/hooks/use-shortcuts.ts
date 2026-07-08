@@ -2,11 +2,24 @@ import { useEffect } from 'react'
 import { useShortcutStore } from '@/stores/shortcut-store'
 import type { ShortcutActionId, KeyCombo } from '@/types/shortcuts'
 
+/** The physical `event.code` a single-character combo key maps to, or null for
+ * special keys (Enter, F8, `\``…) that we still match on `event.key`. Using the
+ * physical code makes Alt combos work: ⌥N yields event.key "~" but code "KeyN". */
+function physicalCode(key: string): string | null {
+  if (/^[a-z]$/i.test(key)) return `Key${key.toUpperCase()}`
+  if (/^[0-9]$/.test(key)) return `Digit${key}`
+  return null
+}
+
 /** Check if a keyboard event matches a KeyCombo */
 export function matchesCombo(event: KeyboardEvent, combo: KeyCombo): boolean {
   const modKey = event.metaKey || event.ctrlKey
+  const code = physicalCode(combo.key)
+  const keyMatches = code
+    ? event.code === code
+    : event.key.toLowerCase() === combo.key.toLowerCase()
   return (
-    event.key.toLowerCase() === combo.key.toLowerCase() &&
+    keyMatches &&
     modKey === combo.ctrlOrMeta &&
     event.shiftKey === combo.shift &&
     event.altKey === combo.alt
@@ -36,9 +49,10 @@ export function useGlobalShortcuts(handlers: ShortcutHandlers): void {
         const def = shortcuts[actionId]
         if (!def || def.scope !== 'global') continue
         if (matchesCombo(event, def.binding)) {
-          // Skip most shortcuts when typing in input/textarea,
-          // but allow clear_terminal (Cmd+K) to always fire
-          if (inInput && actionId !== 'clear_terminal') return
+          // When typing in an input/textarea/editor (Monaco uses a hidden
+          // textarea), only skip bare shortcuts — a Cmd/Ctrl combo is never
+          // text entry, so global actions (new file, toggle sidebar…) still fire.
+          if (inInput && !def.binding.ctrlOrMeta) return
           event.preventDefault()
           handler()
           return
