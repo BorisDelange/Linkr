@@ -3548,6 +3548,9 @@
     "connecting": "Connexion au shell serveur…",
     "authFailed": "Échec de l’authentification — rouvrez le terminal.",
     "shellExited": "[shell terminé]",
-    "disconnected": "[déconnecté]"
+    "disconnected": "[déconnecté]",
+    "serverKernel": "kernel serveur",
+    "wasm": "WASM",
+    "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code"
   }
 }

@@ -3548,6 +3548,9 @@
     "connecting": "Connecting to server shell…",
     "authFailed": "Authentication failed — reopen the terminal.",
     "shellExited": "[shell exited]",
-    "disconnected": "[disconnected]"
+    "disconnected": "[disconnected]",
+    "serverKernel": "server kernel",
+    "wasm": "WASM",
+    "bashLimited": "Note: limited shell — use Python or R terminals for code execution"
   }
 }

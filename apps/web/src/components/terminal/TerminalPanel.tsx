@@ -11,19 +11,10 @@ import { useAppStore } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
 
-const terminalConfig: Record<TerminalType, { welcome: string; prompt: string }> = {
-  bash: {
-    welcome: '\x1b[1;34mLinkr Terminal\x1b[0m — Bash (WASM)\r\n\x1b[2mNote: limited shell — use Python or R terminals for code execution\x1b[0m\r\n',
-    prompt: '$ ',
-  },
-  python: {
-    welcome: '\x1b[1;33mPython\x1b[0m (Pyodide WASM)\r\n',
-    prompt: '>>> ',
-  },
-  r: {
-    welcome: '\x1b[1;36mR\x1b[0m (webR WASM)\r\n',
-    prompt: '> ',
-  },
+const terminalConfig: Record<TerminalType, { prompt: string }> = {
+  bash: { prompt: '$ ' },
+  python: { prompt: '>>> ' },
+  r: { prompt: '> ' },
 }
 
 interface TerminalPanelProps {
@@ -181,8 +172,19 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid }: Ter
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    terminal.writeln(config.welcome)
-    terminal.write(config.prompt)
+    // The banner reflects where code actually runs: a server kernel in
+    // full-stack mode, the in-browser WASM engine otherwise. Bash's banner is
+    // replaced by the PTY's own prompt below, so only write it in WASM mode.
+    const engineLabel = serverMode ? t('terminal.serverKernel') : t('terminal.wasm')
+    const banner: Record<TerminalType, string> = {
+      bash: serverMode
+        ? ''
+        : `\x1b[1;34mLinkr Terminal\x1b[0m — Bash (${t('terminal.wasm')})\r\n\x1b[2m${t('terminal.bashLimited')}\x1b[0m\r\n`,
+      python: `\x1b[1;33mPython\x1b[0m (${engineLabel})\r\n`,
+      r: `\x1b[1;36mR\x1b[0m (${engineLabel})\r\n`,
+    }
+    if (banner[terminalType]) terminal.writeln(banner[terminalType])
+    if (!(serverMode && terminalType === 'bash')) terminal.write(config.prompt)
 
     if (onData) {
       terminal.onData(onData)
