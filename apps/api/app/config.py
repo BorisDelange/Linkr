@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # CORS — comma-separated string in env; exposed as a list via cors_origin_list.
     cors_origins: str = "http://localhost:3000"
 
+    # Uploads — hard cap on a single assembled upload (raw files, DB imports).
+    # Guards the blob store's disk against an authenticated user filling it.
+    max_upload_mb: int = 2048  # 2 GB
+
     # Code execution
     enable_code_execution: bool = True
     max_sessions_per_user: int = 5

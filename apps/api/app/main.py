@@ -59,6 +59,17 @@ async def lifespan(app: FastAPI):
             "(python3 -c 'import secrets; print(secrets.token_urlsafe(48))') "
             "or run with LINKR_DEBUG=true for local development."
         )
+    # A wildcard CORS origin combined with allow_credentials=True (below) would let
+    # any site make credentialed requests to the API. Refuse it in production; a
+    # dev run (debug) may still use it for convenience with a warning.
+    if "*" in settings.cors_origin_list:
+        if not settings.debug:
+            raise RuntimeError(
+                "LINKR_CORS_ORIGINS contains '*' while credentials are allowed. "
+                "List explicit origins (e.g. https://linkr.example.org) in production, "
+                "or run with LINKR_DEBUG=true for local development."
+            )
+        logger.warning("cors_wildcard_with_credentials", origins=settings.cors_origin_list)
     logger.info("starting_linkr", version=settings.app_version, mode=settings.app_mode)
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.

@@ -127,7 +127,18 @@ Reminder: `apps/api` is **not in the shipping build** (prod = static WASM). Serv
 
 **Carried follow-ups (non-blocking, mostly server-mode-only or systemic):** CORS `*` guard/doc; `role` in JWT informational; `update_project` destination-workspace check; upload size limit + per-user kernel/PTY session caps (resource exhaustion); Map/Sankey error-swallowing + parity nits; the `workspace_id is None → no access check` systemic pattern (shared with dataset_files) — confirm intended policy for orphan projects.
 
-**Files changed (one grouped commit):** main.py, routes/{organizations,projects,execution,schema_presets}.py, services/{blob_store, data/dataset_parser, data/db_connect, mapping_project_service}.py, tests/{test_organizations,test_execution,test_schema_presets,+new test_blob_store,+new test_db_connect_dsn}.py, apps/web/src/features/.../analyses/{regression,kaplan-meier,statistical-tests}-server.ts, apps/web/src/lib/api/mapping-projects.ts.
+**Files changed (review commit `e860150c`):** main.py, routes/{organizations,projects,execution,schema_presets}.py, services/{blob_store, data/dataset_parser, data/db_connect, mapping_project_service}.py, tests/{test_organizations,test_execution,test_schema_presets,+new test_blob_store,+new test_db_connect_dsn}.py, apps/web/src/features/.../analyses/{regression,kaplan-meier,statistical-tests}-server.ts, apps/web/src/lib/api/mapping-projects.ts.
+
+### Post-review hardening (separate commit, at the user's request)
+
+Three of the carried follow-ups were then implemented (the rest stay on the list):
+- **CORS `*` guard** (main.py) — refuse boot when a CORS origin is `*` and not debug (credentials + wildcard); warn in debug. Mirrors the secret-key guard.
+- **Upload size limit** (config.py `max_upload_mb`=2048 default, uploads.py) — reject at init when the declared size exceeds the cap AND enforce the real cumulative size while streaming each chunk (413), so a client that understates/omits fileSize is still cut off. Tests added. (User chose an env-config value for now; a DB-backed app-settings entity + admin UI is a possible later evolution.)
+- **Per-user terminal (PTY) session cap** (pty_kernel.py + execution.py) — `max_sessions_per_user` now enforced on bash terminals (each is an OS process); the WS is closed with a message past the cap. Per-user quota, freed on close. Unit test added. NOTE: R/Python kernels are keyed by (project, language, env) and shared per project — NOT per user — so the cap deliberately applies only to PTY shells.
+
+**Deferred to the upcoming access-control rework** (user: "on n'a pas encore implémenté les accès par groupe d'accès user, on fera tout d'un coup"): `update_project` destination-workspace check and the `workspace_id is None → no access check` systemic pattern — both belong to that dedicated authz pass, not a piecemeal fix.
+
+**Still open (non-blocking):** `role` in JWT (informational); Map/Sankey error-swallowing + sankey NaN parity (front, non-shipping).
 
 ---
 

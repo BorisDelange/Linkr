@@ -552,3 +552,26 @@ async def test_ws_auth_rejects_garbage_token(client):
     ws = _FakeWebSocket({"token": "not-a-jwt"})
     assert await authenticate_ws(ws) is None
     assert ws.closed_code == WS_AUTH_FAILED
+
+
+async def test_pty_manager_caps_sessions_per_user(monkeypatch):
+    """Each terminal shell is an OS process; a user can't exceed
+    max_sessions_per_user concurrent shells, but the cap is per-user and a
+    closed session frees a slot."""
+    from app.config import settings
+    from app.services.execution.pty_kernel import PtyManager, SessionLimitReached
+
+    monkeypatch.setattr(settings, "max_sessions_per_user", 2)
+    m = PtyManager()
+    try:
+        await m.create("p", "s1", user_id=1)
+        await m.create("p", "s2", user_id=1)
+        with pytest.raises(SessionLimitReached):
+            await m.create("p", "s3", user_id=1)
+        # A different user has an independent quota.
+        await m.create("p", "s4", user_id=2)
+        # Freeing a slot lets user 1 open another.
+        m.close("p", "s1")
+        await m.create("p", "s5", user_id=1)
+    finally:
+        m.shutdown_all()

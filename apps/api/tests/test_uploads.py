@@ -88,3 +88,33 @@ async def test_dedup_same_content(client):
 async def test_upload_requires_auth(client):
     r = await client.post(f"{API}/uploads", json={"fileName": "x", "totalChunks": 1})
     assert r.status_code in (401, 403)
+
+
+async def test_init_rejects_declared_oversize(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    headers = await _admin_headers(client)
+    r = await client.post(
+        f"{API}/uploads",
+        headers=headers,
+        json={"fileName": "big.csv", "totalChunks": 1, "fileSize": 5 * 1024 * 1024},
+    )
+    assert r.status_code == 413
+
+
+async def test_chunk_enforces_limit_when_size_understated(client, monkeypatch):
+    """A client that lies about (or omits) fileSize is still cut off at the cap
+    while streaming the chunk."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    headers = await _admin_headers(client)
+    # Init without declaring fileSize → init guard can't catch it.
+    uid = (await client.post(
+        f"{API}/uploads", headers=headers, json={"fileName": "big.csv", "totalChunks": 1}
+    )).json()["uploadId"]
+    r = await client.put(
+        f"{API}/uploads/{uid}/chunk?index=0", headers=headers, content=b"x" * (2 * 1024 * 1024)
+    )
+    assert r.status_code == 413

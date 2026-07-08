@@ -25,11 +25,20 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 _CHUNK = 1024 * 1024
 
 
+def _max_upload_bytes() -> int:
+    return settings.max_upload_mb * 1024 * 1024
+
+
 def _session_dir(upload_id: str) -> Path:
     # uuid4 hex only — reject anything that could escape the tmp root.
     if not upload_id.isalnum():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid upload id")
     return settings.data_path / "_tmp" / upload_id
+
+
+def _session_bytes(d: Path) -> int:
+    """Total bytes already written for this upload session (chunk files only)."""
+    return sum(p.stat().st_size for p in d.iterdir() if p.name.isdigit())
 
 
 class InitRequest(CamelModel):
@@ -51,6 +60,14 @@ class CompleteResponse(CamelModel):
 
 @router.post("", response_model=InitResponse)
 async def init_upload(body: InitRequest, _user: User = Depends(get_current_user)):
+    # Reject early when the declared size already exceeds the cap (saves the
+    # round-trips); put_chunk still enforces the real size for clients that lie
+    # about or omit file_size.
+    if body.file_size is not None and body.file_size > _max_upload_bytes():
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            f"File exceeds the {settings.max_upload_mb} MB upload limit.",
+        )
     upload_id = uuid.uuid4().hex
     d = _session_dir(upload_id)
     d.mkdir(parents=True, exist_ok=True)
@@ -85,10 +102,24 @@ async def put_chunk(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
     if index < 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid chunk index")
-    # Stream the raw body to disk without buffering the whole chunk in memory.
+    # Stream the raw body to disk without buffering the whole chunk in memory,
+    # aborting if the session's total size crosses the cap (real enforcement, even
+    # when the client understated or omitted file_size at init).
+    limit = _max_upload_bytes()
+    # Bytes already stored, excluding this index if it's being re-sent (resume).
+    existing = d / str(index)
+    written = _session_bytes(d) - (existing.stat().st_size if existing.exists() else 0)
     tmp = d / f"{index}.part"
     with tmp.open("wb") as f:
         async for piece in request.stream():
+            written += len(piece)
+            if written > limit:
+                f.close()
+                tmp.unlink(missing_ok=True)
+                raise HTTPException(
+                    status.HTTP_413_CONTENT_TOO_LARGE,
+                    f"Upload exceeds the {settings.max_upload_mb} MB limit.",
+                )
             f.write(piece)
     tmp.replace(d / str(index))
 

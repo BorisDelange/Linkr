@@ -234,11 +234,18 @@ async def _terminal_kernel_loop(
             current.cancel()
 
 
-async def _terminal_pty_loop(websocket: WebSocket, project_uid: str, session_id: str) -> None:
+async def _terminal_pty_loop(
+    websocket: WebSocket, project_uid: str, session_id: str, user_id: int
+) -> None:
     """Interactive Bash over a PTY: pump raw bytes both ways. Client sends
     {input} keystrokes (Ctrl+C is byte 0x03, handled natively by the PTY) and
     {resize}; the shell's output is forwarded as {output} messages."""
-    shell = await pty_kernel.manager.create(project_uid, session_id)
+    try:
+        shell = await pty_kernel.manager.create(project_uid, session_id, user_id)
+    except pty_kernel.SessionLimitReached as e:
+        await websocket.send_json({"type": "error", "message": str(e)})
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     async def pump_output() -> None:
         while True:
@@ -292,7 +299,9 @@ async def terminal_ws(websocket: WebSocket):
     await websocket.accept()
     try:
         if language == "bash":
-            await _terminal_pty_loop(websocket, project_uid, session_id=str(id(websocket)))
+            await _terminal_pty_loop(
+                websocket, project_uid, session_id=str(id(websocket)), user_id=user.id
+            )
         else:
             env_id = websocket.query_params.get("envId", "default")
             connection_id = websocket.query_params.get("connectionId")

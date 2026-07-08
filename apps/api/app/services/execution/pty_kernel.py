@@ -130,23 +130,44 @@ class PtyShell:
             self._master_fd = None
 
 
+class SessionLimitReached(Exception):
+    """A user has hit max_sessions_per_user concurrent terminal shells."""
+
+
 class PtyManager:
     """Live PTY shells keyed by (project_uid, session_id). A shell is a stateful
     interactive session, so each WebSocket connection gets its own — no sharing,
-    unlike the code kernels whose whole point is a shared namespace."""
+    unlike the code kernels whose whole point is a shared namespace.
+
+    Each shell is an OS process; an unbounded number per user would exhaust
+    server processes/memory, so concurrent shells are capped per user."""
 
     def __init__(self):
         self._shells: dict[tuple[str, str], PtyShell] = {}
+        self._owner: dict[tuple[str, str], int] = {}
 
-    async def create(self, project_uid: str, session_id: str) -> PtyShell:
+    def _count_for_user(self, user_id: int) -> int:
+        return sum(1 for uid in self._owner.values() if uid == user_id)
+
+    async def create(self, project_uid: str, session_id: str, user_id: int) -> PtyShell:
+        from app.config import settings
+
+        if self._count_for_user(user_id) >= settings.max_sessions_per_user:
+            raise SessionLimitReached(
+                f"Terminal session limit reached ({settings.max_sessions_per_user})."
+            )
         cwd = str(project_fs.project_dir(project_uid))
         shell = PtyShell(cwd)
         await shell.start()
-        self._shells[(project_uid, session_id)] = shell
+        key = (project_uid, session_id)
+        self._shells[key] = shell
+        self._owner[key] = user_id
         return shell
 
     def close(self, project_uid: str, session_id: str) -> None:
-        shell = self._shells.pop((project_uid, session_id), None)
+        key = (project_uid, session_id)
+        shell = self._shells.pop(key, None)
+        self._owner.pop(key, None)
         if shell is not None:
             shell.shutdown()
 
@@ -154,6 +175,7 @@ class PtyManager:
         for shell in self._shells.values():
             shell.shutdown()
         self._shells.clear()
+        self._owner.clear()
 
 
 manager = PtyManager()
