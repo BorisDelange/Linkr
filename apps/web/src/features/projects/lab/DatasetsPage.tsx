@@ -9,7 +9,6 @@ import {
   RefreshCw,
   PanelLeft,
   PanelRight,
-  Undo2,
   X,
   Table2,
   Plus,
@@ -241,8 +240,6 @@ export function DatasetsPage() {
     reloadDatasetsFromDisk,
     loadFileData,
     loadAnalyses,
-    peekUndo,
-    performUndo,
     isFileDirty,
     saveFile,
     revertFile,
@@ -289,7 +286,6 @@ export function DatasetsPage() {
   }, [selectedFileId, loadFileData, loadAnalyses, selectAnalysis])
 
   const selectedFile = files.find((f) => f.id === selectedFileId && f.type === 'file')
-  const undoAction = peekUndo()
 
   // Determine parent folder from current selection (for create dialogs)
   const selectedParentId = useMemo(() => {
@@ -404,17 +400,6 @@ export function DatasetsPage() {
         return
       }
 
-      // Cmd+Z: undo last tree action
-      if (isMod && e.key === 'z' && !e.shiftKey) {
-        const tag = (e.target as HTMLElement)?.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return
-        if (undoAction) {
-          e.preventDefault()
-          performUndo()
-        }
-        return
-      }
-
       // Cmd+N: open create dataset dialog
       if (isMod && e.key === 'n') {
         e.preventDefault()
@@ -425,7 +410,7 @@ export function DatasetsPage() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [handleSaveFile, undoAction, performUndo])
+  }, [handleSaveFile])
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -478,6 +463,8 @@ export function DatasetsPage() {
                     </TooltipTrigger>
                     <TooltipContent>{t('datasets.upload')}</TooltipContent>
                   </Tooltip>
+                </div>
+                <div className="flex items-center gap-0.5">
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -489,30 +476,8 @@ export function DatasetsPage() {
                         <RefreshCw size={14} />
                       </Button>
                     </TooltipTrigger>
-                    <TooltipContent>{t('datasets.refresh_files', 'Refresh datasets (rescan disk)')}</TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="flex items-center gap-0.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={performUndo}
-                        disabled={!undoAction}
-                      >
-                        <Undo2 size={14} />
-                      </Button>
-                    </TooltipTrigger>
                     <TooltipContent>
-                      {undoAction
-                        ? t('files.undo_action', {
-                            action: t(
-                              undoAction.descriptionKey,
-                              undoAction.descriptionParams
-                            ),
-                          })
-                        : t('files.undo')}
+                      {t('datasets.refresh_files', 'Refresh datasets (rescan disk)')}
                     </TooltipContent>
                   </Tooltip>
                   <Tooltip>
