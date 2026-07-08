@@ -216,6 +216,7 @@
   },
   "projects": {
     "title": "Projects",
+    "description": "Projects organize your databases, analyses and dashboards around a research question.",
     "create": "New project",
     "open": "Open",
     "no_projects": "No projects yet",
@@ -295,6 +296,8 @@
     "lock_layout_hint": "Lock the layout to prevent changes",
     "dashboards_title": "Dashboards",
     "dashboards_description": "Create and manage data dashboards for this project.",
+    "search_placeholder": "Search dashboards...",
+    "no_results": "No dashboards matching your search",
     "create_dashboard": "Create dashboard",
     "create_dialog_title": "Create a new dashboard",
     "create_dialog_description": "Give your dashboard a name.",
@@ -482,6 +485,7 @@
   "databases": {
     "title": "Databases",
     "description": "Manage database connections for the data warehouse.",
+    "list_description": "Databases linked to this project provide the data for its warehouse and analyses.",
     "add": "Add database",
     "add_database": "Add database",
     "add_connection": "Add connection",
@@ -530,6 +534,7 @@
     "remove": "Remove",
     "remove_confirm_title": "Remove database",
     "remove_confirm_description": "Are you sure you want to remove this database? This will delete all associated files and cached statistics.",
+    "status": "Status",
     "status_connected": "Connected",
     "status_disconnected": "Disconnected",
     "status_error": "Connection error",
@@ -741,6 +746,9 @@
     "title": "Cohorts",
     "create": "New cohort",
     "list_title": "Cohorts",
+    "list_description": "Cohorts define patient populations from inclusion criteria for your analyses.",
+    "search_placeholder": "Search cohorts...",
+    "no_results": "No cohorts matching your search",
     "no_cohorts": "No cohorts defined",
     "no_cohorts_description": "Create your first cohort to define patient populations for your analyses.",
     "not_found": "Cohort not found",
@@ -2179,6 +2187,7 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "filters": "Filters",
     "entity_not_found_title": "{{entity}} not found",
     "entity_not_found_description": "It may have been deleted, or the link is incorrect.",
     "entity_project": "Project",
@@ -3534,5 +3543,11 @@
     "create_account": "Create Account",
     "creating": "Creating account…",
     "error_generic": "Setup failed. Please try again."
+  },
+  "terminal": {
+    "connecting": "Connecting to server shell…",
+    "authFailed": "Authentication failed — reopen the terminal.",
+    "shellExited": "[shell exited]",
+    "disconnected": "[disconnected]"
   }
 }

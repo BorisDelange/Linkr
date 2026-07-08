@@ -1688,6 +1688,7 @@ export function FilesPage() {
                     >
                       <TerminalPane
                         onClose={toggleBottomPanel}
+                        projectUid={activeProjectUid ?? undefined}
                       />
                     </Allotment.Pane>
                   )}

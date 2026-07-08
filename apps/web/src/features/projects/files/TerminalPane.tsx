@@ -28,9 +28,10 @@ let tabCounter = 1
 
 interface TerminalPaneProps {
   onClose: () => void
+  projectUid?: string
 }
 
-export function TerminalPane({ onClose }: TerminalPaneProps) {
+export function TerminalPane({ onClose, projectUid }: TerminalPaneProps) {
   const [tabs, setTabs] = useState<TerminalTab[]>([
     { id: 'term-0', type: 'bash', label: 'Bash' },
   ])
@@ -125,7 +126,7 @@ export function TerminalPane({ onClose }: TerminalPaneProps) {
       </div>
       <div className="flex-1 overflow-hidden">
         {activeTab && (
-          <TerminalPanel key={activeTab.id} terminalType={activeTab.type} />
+          <TerminalPanel key={activeTab.id} terminalType={activeTab.type} projectUid={projectUid} />
         )}
       </div>
     </div>

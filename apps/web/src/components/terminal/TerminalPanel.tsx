@@ -1,9 +1,12 @@
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { getPyodide, getPyodideStatus } from '@/lib/runtimes/pyodide-engine'
 import { getWebR, getWebRStatus } from '@/lib/runtimes/webr-engine'
+import { isServerMode } from '@/lib/api-client'
+import { TerminalSocket } from '@/lib/api/terminal-ws'
 import { useAppStore } from '@/stores/app-store'
 
 type TerminalType = 'bash' | 'python' | 'r'
@@ -26,6 +29,9 @@ const terminalConfig: Record<TerminalType, { welcome: string; prompt: string }> 
 interface TerminalPanelProps {
   terminalType?: TerminalType
   onData?: (data: string) => void
+  /** Present in full-stack mode: routes execution to the project's server kernel
+   * (python/r) or a PTY shell (bash) over a WebSocket instead of WASM. */
+  projectUid?: string
 }
 
 async function executePythonRepl(code: string): Promise<{ stdout: string; stderr: string }> {
@@ -114,7 +120,8 @@ const terminalThemes = {
   },
 }
 
-export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelProps) {
+export function TerminalPanel({ terminalType = 'bash', onData, projectUid }: TerminalPanelProps) {
+  const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -138,6 +145,9 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
     const history: string[] = []
     let historyIndex = -1
     let executing = false
+    // Full-stack: python/r attach to the project kernel, bash to a PTY, over a WS.
+    const serverMode = isServerMode() && !!projectUid
+    let socket: TerminalSocket | null = null
 
     const currentTheme = useAppStore.getState()
     const currentEditorTheme = currentTheme.editorSettings.theme
@@ -178,6 +188,91 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
       terminal.onData(onData)
     }
 
+    const resizeObserver = new ResizeObserver(() => fitAddon.fit())
+    resizeObserver.observe(containerRef.current)
+    const handleClear = () => {
+      terminal.clear()
+      if (!(serverMode && terminalType === 'bash')) terminal.write(config.prompt)
+    }
+    window.addEventListener('linkr:clear-terminal', handleClear)
+
+    const teardown = () => {
+      window.removeEventListener('linkr:clear-terminal', handleClear)
+      resizeObserver.disconnect()
+      socket?.close()
+      terminal.dispose()
+    }
+
+    // Full-stack Bash: a raw PTY. The shell owns echo, line editing, the prompt
+    // and colors — we pass every keystroke through untouched (Ctrl+C is byte
+    // 0x03, handled by the PTY) and paint back whatever bytes the shell emits.
+    if (serverMode && terminalType === 'bash') {
+      terminal.clear()
+      terminal.writeln(`\x1b[2m${t('terminal.connecting')}\x1b[0m`)
+      socket = new TerminalSocket(
+        { projectUid: projectUid!, language: 'bash' },
+        {
+          onOpen: () => {
+            terminal.clear()
+            const { rows, cols } = terminal
+            socket?.resize(rows, cols)
+          },
+          onMessage: (msg) => {
+            if (msg.type === 'output' && msg.data) terminal.write(msg.data)
+            else if (msg.type === 'exit') terminal.writeln(`\r\n\x1b[2m${t('terminal.shellExited')}\x1b[0m`)
+          },
+          onClose: ({ authFailed }) => {
+            terminal.writeln(
+              authFailed
+                ? `\r\n\x1b[31m${t('terminal.authFailed')}\x1b[0m`
+                : `\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`
+            )
+          },
+        }
+      )
+      socket.connect()
+      terminal.onData((data) => socket?.sendInput(data))
+      resizeObserver.disconnect()
+      const ptyResize = new ResizeObserver(() => {
+        fitAddon.fit()
+        socket?.resize(terminal.rows, terminal.cols)
+      })
+      ptyResize.observe(containerRef.current)
+      return () => {
+        ptyResize.disconnect()
+        teardown()
+      }
+    }
+
+    // Full-stack python/r: line-edited REPL against the persistent kernel; the
+    // WASM engines below are the front-only path. Chunks stream in live.
+    if (serverMode && (terminalType === 'python' || terminalType === 'r')) {
+      socket = new TerminalSocket(
+        { projectUid: projectUid!, language: terminalType },
+        {
+          onMessage: (msg) => {
+            if ((msg.type === 'stdout' || msg.type === 'output') && msg.data) {
+              terminal.write(msg.data.replace(/\n/g, '\r\n'))
+            } else if (msg.type === 'stderr' && msg.data) {
+              terminal.write(`\x1b[31m${msg.data.replace(/\n/g, '\r\n')}\x1b[0m`)
+            } else if (msg.type === 'error' && msg.message) {
+              terminal.writeln(`\x1b[31m${msg.message}\x1b[0m`)
+              executing = false
+              terminal.write(config.prompt)
+            } else if (msg.type === 'done') {
+              executing = false
+              terminal.write(config.prompt)
+            }
+          },
+          onClose: ({ authFailed }) => {
+            if (authFailed) terminal.writeln(`\r\n\x1b[31m${t('terminal.authFailed')}\x1b[0m`)
+            else terminal.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
+          },
+        }
+      )
+      socket.connect()
+    }
+
     const writeOutput = (text: string, isError = false) => {
       if (!text) return
       const lines = text.split('\n')
@@ -199,6 +294,13 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
       history.push(cmd)
       historyIndex = -1
       executing = true
+
+      // Server REPL: hand the line to the kernel; chunks stream back via
+      // socket.onMessage, which reprints the prompt on the done/error message.
+      if (socket) {
+        socket.runCode(cmd)
+        return
+      }
 
       if (terminalType === 'python') {
         if (getPyodideStatus() !== 'ready' && getPyodideStatus() !== 'executing') {
@@ -255,7 +357,8 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
     }
 
     terminal.onData((data) => {
-      if (executing) return
+      // While a command runs, ignore input except Ctrl+C (kernel interrupt).
+      if (executing && data !== '\x03') return
 
       switch (data) {
         case '\r': { // Enter
@@ -301,6 +404,12 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
           }
           break
         case '\x03': // Ctrl+C
+          if (socket && executing) {
+            // Interrupt the running kernel (SIGINT); done/error reprints the prompt.
+            terminal.writeln('^C')
+            socket.interrupt()
+            break
+          }
           currentLine = ''
           terminal.writeln('^C')
           terminal.write(config.prompt)
@@ -317,24 +426,8 @@ export function TerminalPanel({ terminalType = 'bash', onData }: TerminalPanelPr
       }
     })
 
-    const resizeObserver = new ResizeObserver(() => {
-      fitAddon.fit()
-    })
-    resizeObserver.observe(containerRef.current)
-
-    // Listen for clear-terminal custom event (Cmd+K shortcut)
-    const handleClear = () => {
-      terminal.clear()
-      terminal.write(config.prompt)
-    }
-    window.addEventListener('linkr:clear-terminal', handleClear)
-
-    return () => {
-      window.removeEventListener('linkr:clear-terminal', handleClear)
-      resizeObserver.disconnect()
-      terminal.dispose()
-    }
-  }, [terminalType, onData])
+    return teardown
+  }, [terminalType, onData, projectUid, t])
 
   return (
     <div

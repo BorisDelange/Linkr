@@ -216,6 +216,7 @@
   },
   "projects": {
     "title": "Projets",
+    "description": "Les projets organisent vos bases de données, analyses et tableaux de bord autour d'une question de recherche.",
     "create": "Nouveau projet",
     "open": "Ouvrir",
     "no_projects": "Aucun projet",
@@ -295,6 +296,8 @@
     "lock_layout_hint": "Verrouiller la disposition pour empêcher les modifications",
     "dashboards_title": "Tableaux de bord",
     "dashboards_description": "Créez et gérez les tableaux de bord de ce projet.",
+    "search_placeholder": "Rechercher des tableaux de bord...",
+    "no_results": "Aucun tableau de bord ne correspond à votre recherche",
     "create_dashboard": "Créer un tableau de bord",
     "create_dialog_title": "Créer un nouveau tableau de bord",
     "create_dialog_description": "Donnez un nom à votre tableau de bord.",
@@ -482,6 +485,7 @@
   "databases": {
     "title": "Bases de données",
     "description": "Gérer les connexions aux bases de données de l'entrepôt.",
+    "list_description": "Les bases de données liées à ce projet fournissent les données de son entrepôt et de ses analyses.",
     "add": "Ajouter une base",
     "add_database": "Ajouter une base",
     "add_connection": "Ajouter une connexion",
@@ -530,6 +534,7 @@
     "remove": "Supprimer",
     "remove_confirm_title": "Supprimer la base de données",
     "remove_confirm_description": "Êtes-vous sûr de vouloir supprimer cette base ? Les fichiers associés et les statistiques en cache seront supprimés.",
+    "status": "Statut",
     "status_connected": "Connectée",
     "status_disconnected": "Déconnectée",
     "status_error": "Erreur de connexion",
@@ -741,6 +746,9 @@
     "title": "Cohortes",
     "create": "Nouvelle cohorte",
     "list_title": "Cohortes",
+    "list_description": "Les cohortes définissent des populations de patients à partir de critères d'inclusion pour vos analyses.",
+    "search_placeholder": "Rechercher des cohortes...",
+    "no_results": "Aucune cohorte ne correspond à votre recherche",
     "no_cohorts": "Aucune cohorte définie",
     "no_cohorts_description": "Créez votre première cohorte pour définir des populations de patients.",
     "not_found": "Cohorte introuvable",
@@ -2179,6 +2187,7 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "filters": "Filtres",
     "entity_not_found_title": "{{entity}} introuvable",
     "entity_not_found_description": "Il a peut-être été supprimé, ou le lien est incorrect.",
     "entity_project": "Projet",
@@ -3534,5 +3543,11 @@
     "create_account": "Créer le compte",
     "creating": "Création en cours…",
     "error_generic": "La configuration a échoué. Veuillez réessayer."
+  },
+  "terminal": {
+    "connecting": "Connexion au shell serveur…",
+    "authFailed": "Échec de l’authentification — rouvrez le terminal.",
+    "shellExited": "[shell terminé]",
+    "disconnected": "[déconnecté]"
   }
 }
