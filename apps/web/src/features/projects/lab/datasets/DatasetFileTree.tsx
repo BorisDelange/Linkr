@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Folder,
@@ -14,6 +14,7 @@ import {
   Settings2,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { InlineRenameField } from '@/components/InlineRenameField'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -90,21 +91,12 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
   } = useDatasetStore()
 
   const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(node.name)
   const [dragOver, setDragOver] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const isFolder = node.type === 'folder'
   const isExpanded = expandedFolders.includes(node.id)
   const isSelected = selectedFileId === node.id
   const children = isFolder ? getChildren(node.id) : []
-
-  useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()
-    }
-  }, [editing])
 
   const handleClick = () => {
     if (isFolder) {
@@ -115,16 +107,7 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
     }
   }
 
-  const handleRenameSubmit = () => {
-    const trimmed = editName.trim()
-    if (trimmed && trimmed !== node.name) {
-      renameNode(node.id, trimmed)
-    }
-    setEditing(false)
-  }
-
   const handleStartRename = () => {
-    setEditName(node.name)
     setEditing(true)
   }
 
@@ -273,17 +256,15 @@ function DatasetTreeItem({ node, depth, getChildren, onRequestDelete, onRequestI
 
             {/* Name or inline rename input */}
             {editing ? (
-              <input
-                ref={inputRef}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleRenameSubmit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRenameSubmit()
-                  if (e.key === 'Escape') setEditing(false)
-                }}
-                className="ml-1 flex-1 bg-transparent text-xs outline-none border-b border-primary"
-                onClick={(e) => e.stopPropagation()}
+              <InlineRenameField
+                initialValue={node.name}
+                selectBaseName={!isFolder}
+                onSubmit={(name) => { renameNode(node.id, name); setEditing(false) }}
+                onCancel={() => setEditing(false)}
+                hasClash={(candidate) =>
+                  files.some((f) => f.parentId === node.parentId && f.id !== node.id && f.name.toLowerCase() === candidate.toLowerCase())
+                }
+                className="ml-1"
               />
             ) : (
               <span className="ml-1 truncate">{node.name}</span>

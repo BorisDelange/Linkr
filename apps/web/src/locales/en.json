@@ -1045,7 +1045,9 @@
     "plot_builder_axis_must_be_numeric": "\"{{column}}\" is not numeric. Scatter and line plots need numeric (or date) X and Y axes.",
     "plot_builder_value_must_be_numeric": "\"{{column}}\" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.",
     "plot_builder_bar_y_must_be_numeric": "\"{{column}}\" is not numeric. Bar charts average a numeric Y over a categorical X (or leave Y empty to count rows).",
-    "refresh_files": "Refresh datasets (rescan disk)"
+    "refresh_files": "Refresh datasets (rescan disk)",
+    "delete_analysis_title": "Delete analysis",
+    "delete_analysis_description": "Delete the analysis \"{{name}}\"? This cannot be undone."
   },
   "subsets": {
     "title": "Subsets",
