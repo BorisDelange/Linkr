@@ -54,21 +54,30 @@ def _connect(extension: str) -> duckdb.DuckDBPyConnection:
 
 
 def _dsn_value(value: str) -> str:
-    """Quote a libpq/MySQL DSN value with DOUBLE quotes, backslash-escaping any
-    embedded double-quote or backslash.
+    """Escape a libpq/MySQL DSN value so it stays a single opaque token.
 
-    Two layers of quoting are in play: the DSN itself is later wrapped in a
-    single-quoted SQL literal (``ATTACH '<dsn>' ...``), so DSN values must NOT use
-    single quotes or they'd terminate that literal. libpq/MySQL accept
-    ``key="value"`` with backslash escaping, which stays inert inside the SQL
-    single-quoted string.
+    DuckDB's postgres/mysql ATTACH parser does NOT understand libpq's
+    ``key="value"`` double-quoting — it would take the quotes as literal
+    characters of the value (``host="localhost"`` → it tries to resolve the host
+    name ``"localhost"``, quotes included, and fails). What it does honour is
+    libpq's backslash escaping: any character can be escaped with ``\\``, so we
+    backslash-escape the delimiters (space, backslash) and the single quote.
+
+    Single quotes matter because the whole DSN is later wrapped in a
+    single-quoted SQL literal (``ATTACH '<dsn>' ...``); a raw single quote in a
+    value would otherwise interact with that literal.
 
     Without this, an attacker-controlled field (e.g. a `username` of
     ``x password=secret host=evil``) would inject extra DSN keywords and could
-    redirect the connection or smuggle parameters. Quoting keeps each value one
-    opaque token.
+    redirect the connection or smuggle parameters. Escaping the space keeps each
+    value one token, so no injected ``key=value`` pair can break out.
     """
-    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace(" ", "\\ ")
+    )
 
 
 def _dsn(config: dict, password: str | None) -> str:
