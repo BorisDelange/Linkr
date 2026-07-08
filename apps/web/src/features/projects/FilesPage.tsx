@@ -16,7 +16,6 @@ import {
   Plug,
   X,
   Lock,
-  LockOpen,
   Eye,
   EyeOff,
   ChevronLeft,
@@ -149,7 +148,6 @@ export function FilesPage() {
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [explorerVisible, setExplorerVisible] = useState(true)
-  const [showVirtualFiles, setShowVirtualFiles] = useState(() => localStorage.getItem('linkr-show-virtual-files') === 'true')
   const [editorVisible, setEditorVisible] = useState(true)
   const [dragFileId, setDragFileId] = useState<string | null>(null)
   const [dropFileInsert, setDropFileInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
@@ -842,24 +840,6 @@ export function FilesPage() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
-                        variant={showVirtualFiles ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={() => {
-                          const next = !showVirtualFiles
-                          setShowVirtualFiles(next)
-                          localStorage.setItem('linkr-show-virtual-files', String(next))
-                        }}
-                      >
-                        {showVirtualFiles ? <LockOpen size={14} /> : <Lock size={14} />}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t(showVirtualFiles ? 'files.hide_protected' : 'files.show_protected')}
-                    </TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
                         variant="ghost"
                         size="icon-xs"
                         onClick={() => setExplorerVisible(false)}
@@ -873,7 +853,7 @@ export function FilesPage() {
                   </Tooltip>
                 </div>
               </div>
-              <FileTree showVirtualFiles={showVirtualFiles} />
+              <FileTree />
             </div>
           </Allotment.Pane>
 

@@ -34,31 +34,16 @@ function sortRootNodes(a: TreeNode, b: TreeNode): number {
   return sortNodes(a, b)
 }
 
-interface FileTreeProps {
-  showVirtualFiles: boolean
-}
-
-export function FileTree({ showVirtualFiles }: FileTreeProps) {
+export function FileTree() {
   const { t } = useTranslation()
   const { expandedFolders, selectedFileId, moveNode } = useFileStore()
   const activeProjectUid = useAppStore((s) => s.activeProjectUid)
   const { nodes } = useProjectTree(activeProjectUid)
   const [rootDragOver, setRootDragOver] = useState(false)
 
-  // When virtual files are hidden, check if a folder contains only virtual descendants
-  function hasNonVirtualDescendant(parentId: string): boolean {
-    const children = nodes.filter((f) => f.parentId === parentId)
-    return children.some((child) =>
-      child.virtual !== true || (child.type === 'folder' && hasNonVirtualDescendant(child.id))
-    )
-  }
-
+  // Virtual nodes (read-only views of other entities) are never shown in the IDE tree.
   function isVisible(node: TreeNode): boolean {
-    if (showVirtualFiles) return true
-    if (node.virtual !== true) return true
-    // Virtual folder: only show if it has non-virtual descendants
-    if (node.type === 'folder') return hasNonVirtualDescendant(node.id)
-    return false
+    return node.virtual !== true
   }
 
   const rootNodes = nodes

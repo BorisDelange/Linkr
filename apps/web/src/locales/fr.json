@@ -1327,8 +1327,6 @@
     "table_per_page": "Par page",
     "table_page": "Page {{page}} sur {{total}}",
     "columns": "Colonnes",
-    "show_protected": "Afficher les fichiers protégés",
-    "hide_protected": "Masquer les fichiers protégés",
     "console": "Console",
     "close": "Fermer",
     "close_all": "Tout fermer",
