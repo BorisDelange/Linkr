@@ -67,6 +67,18 @@ async def test_client_supplied_uid_kept(client):
     assert r.status_code == 201 and r.json()["uid"] == "proj-fixed"
 
 
+async def test_create_with_unknown_workspace_rejected(client):
+    # An imported project may reference a workspace that doesn't exist on this
+    # instance; the API must reject it cleanly (400) rather than 500 on the FK.
+    headers = await _bootstrap_admin(client)
+    r = await client.post(
+        f"{API}/projects",
+        headers=headers,
+        json={"name": {"en": "X"}, "workspaceId": "does-not-exist"},
+    )
+    assert r.status_code == 400
+
+
 async def test_non_member_cannot_access_project(client, db):
     admin_headers = await _bootstrap_admin(client)
     ws_id = await _make_workspace(client, admin_headers)

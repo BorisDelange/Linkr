@@ -162,11 +162,22 @@ export function ProjectsPage() {
     const uid = duplicate ? crypto.randomUUID() : project.uid
     const storage = getStorage()
 
+    // Resolve to a workspace that exists on the target backend. In server mode the project
+    // row carries a FK to workspaces; a workspaceId from the imported ZIP that doesn't exist
+    // here fails the insert (500), and every sub-entity create then 404s ("Project not found").
+    const existingWorkspaces = useWorkspaceStore.getState()._workspacesRaw
+    const workspaceExists = (id: string | null | undefined): boolean =>
+      !!id && existingWorkspaces.some((w) => w.id === id)
+    const workspaceId =
+      [wsUid, activeWorkspaceId, project.workspaceId].find(workspaceExists)
+      ?? existingWorkspaces[0]?.id
+      ?? undefined
+
     const entity: Project = {
       ...project,
       uid,
       projectId: duplicate ? (project.projectId ? `${project.projectId}-copy` : undefined) : project.projectId,
-      workspaceId: wsUid ?? activeWorkspaceId ?? project.workspaceId,
+      workspaceId,
       name: duplicate
         ? (typeof project.name === 'string'
           ? `${project.name} (copy)` as unknown as Project['name']
