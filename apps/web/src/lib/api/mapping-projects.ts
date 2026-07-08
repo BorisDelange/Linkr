@@ -14,25 +14,34 @@ const SVC = '/service-mappings'
 /**
  * Strip the heavy raw CSV bytes out of a project before it goes over JSON: they
  * live in the content-addressed blob store, referenced by sha. If a project
- * carries a fresh `rawFileBuffer`, upload it first and record the sha.
+ * carries a fresh `rawFileBuffer`.
  */
-async function persistRawFile(project: MappingProject): Promise<MappingProject> {
+
+/** Whether this project has fresh CSV bytes that must be offloaded to the blob store. */
+function hasRawBuffer(project: Partial<MappingProject>): boolean {
+  return !!project.fileSourceData?.rawFileBuffer?.byteLength
+}
+
+/** Project metadata with the CSV bytes removed (rows stays empty — legacy only). */
+function stripBuffer<T extends Partial<MappingProject>>(project: T): T {
+  const fsd = project.fileSourceData
+  if (!fsd) return project
+  return { ...project, fileSourceData: { ...fsd, rawFileBuffer: undefined, rows: [] } }
+}
+
+/** Upload the CSV bytes to the blob store and attach the sha to the project.
+ * The project must already exist server-side (raw-file 404s otherwise). */
+async function uploadRawFile(projectId: string, project: Partial<MappingProject>): Promise<void> {
   const fsd = project.fileSourceData
   const buffer = fsd?.rawFileBuffer
-  if (!fsd || !buffer || buffer.byteLength === 0) return project
-
+  if (!fsd || !buffer || buffer.byteLength === 0) return
   const blob = new Blob([buffer as unknown as BlobPart], { type: 'text/csv' })
   const fileName = fsd.fileName || 'source.csv'
   const { sha } = await uploadFileInChunks(blob, fileName)
-  await apiRequest(`${PROJ}/${project.id}/raw-file`, {
+  await apiRequest(`${PROJ}/${projectId}/raw-file`, {
     method: 'POST',
     body: JSON.stringify({ sha, fileName }),
   })
-  // Send project metadata without the bytes (rows stays empty — legacy only).
-  return {
-    ...project,
-    fileSourceData: { ...fsd, rawFileBuffer: undefined, rows: [] },
-  }
 }
 
 /** Fetch the source CSV bytes for a project and rebuild `fileSourceData.rawFileBuffer`. */
@@ -65,18 +74,18 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
   },
 
   create: async (project) => {
-    const withoutBuffer = await persistRawFile(project)
-    await apiRequest(PROJ, { method: 'POST', body: JSON.stringify(withoutBuffer) })
+    // Create the row first (metadata, no bytes), THEN upload the CSV — the
+    // raw-file endpoint needs the project to exist.
+    await apiRequest(PROJ, { method: 'POST', body: JSON.stringify(stripBuffer(project)) })
+    if (hasRawBuffer(project)) await uploadRawFile(project.id, project)
   },
 
   update: async (id, changes) => {
-    // If an update carries a new buffer, upload it and drop the bytes from JSON.
-    let payload: Partial<MappingProject> = changes
-    if (changes.fileSourceData?.rawFileBuffer?.byteLength) {
-      const persisted = await persistRawFile({ id, ...changes } as MappingProject)
-      payload = { ...changes, fileSourceData: persisted.fileSourceData }
-    }
-    await apiRequest(`${PROJ}/${id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+    await apiRequest(`${PROJ}/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(stripBuffer(changes)),
+    })
+    if (hasRawBuffer(changes)) await uploadRawFile(id, changes)
   },
 
   delete: async (id) => {
