@@ -87,7 +87,7 @@ import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
-import { SchemaInspectorDialog } from '@/features/warehouse/databases/SchemaInspectorDialog'
+import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
 import { ConnectionsPanel } from './files/ConnectionsPanel'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
@@ -1717,7 +1717,7 @@ export function FilesPage() {
           onOpenChange={setShortcutsOpen}
         />
         {activeConnectionId && (
-          <SchemaInspectorDialog
+          <SchemaBrowserDialog
             open={schemaDialogOpen}
             onOpenChange={setSchemaDialogOpen}
             dataSourceId={activeConnectionId}

@@ -61,7 +61,7 @@ import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '
 import { isServerMode } from '@/lib/api-client'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { SqlScriptsFileTree } from './SqlScriptsFileTree'
-import { SchemaInspectorDialog } from '@/features/warehouse/databases/SchemaInspectorDialog'
+import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import { useGlobalShortcuts, type ShortcutHandlers } from '@/hooks/use-shortcuts'
 import type { ShortcutActionId } from '@/types/shortcuts'
@@ -844,7 +844,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
 
       {/* Database schema browser */}
       {activeDbId && (
-        <SchemaInspectorDialog
+        <SchemaBrowserDialog
           open={schemaDialogOpen}
           onOpenChange={setSchemaDialogOpen}
           dataSourceId={activeDbId}

@@ -8,6 +8,8 @@ import {
   ChevronDown,
   Trash2,
   Pencil,
+  Check,
+  X,
 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -74,6 +76,12 @@ export function EtlFileTree() {
 
   const deleteConfirmFile = deleteConfirmFileId ? files.find((f) => f.id === deleteConfirmFileId) : null
 
+  // True if another node under the same parent already has this name (rename guard).
+  const nameExists = (parentId: string | null, name: string, exceptId: string) =>
+    files.some(
+      (f) => f.parentId === parentId && f.id !== exceptId && f.name.toLowerCase() === name.toLowerCase(),
+    )
+
   const rootFiles = files.filter((f) => f.parentId === null)
   const getChildren = (parentId: string) =>
     files.filter((f) => f.parentId === parentId).sort((a, b) => a.order - b.order)
@@ -103,6 +111,7 @@ export function EtlFileTree() {
               onSelect={selectFile}
               onDelete={handleDeleteRequest}
               onRename={(id, name) => updateFile(id, { name })}
+              nameExists={nameExists}
               getChildren={getChildren}
               expandedFolders={expandedFolders}
               selectedFileId={selectedFileId}
@@ -143,6 +152,7 @@ function EtlFileTreeItem({
   onSelect,
   onDelete,
   onRename,
+  nameExists,
   getChildren,
   expandedFolders,
   selectedFileId,
@@ -156,6 +166,7 @@ function EtlFileTreeItem({
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onRename: (id: string, name: string) => void
+  nameExists: (parentId: string | null, name: string, exceptId: string) => boolean
   getChildren: (parentId: string) => EtlFile[]
   expandedFolders: Set<string>
   selectedFileId: string | null
@@ -166,16 +177,26 @@ function EtlFileTreeItem({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (editing && inputRef.current) {
-      inputRef.current.focus()
-      inputRef.current.select()  // select all so typing replaces the name outright
-    }
-  }, [editing])
+    if (!editing || !inputRef.current) return
+    const input = inputRef.current
+    input.focus()
+    // Select the base name (before the extension) for files so a rename keeps the
+    // extension by default; select all for folders (no extension).
+    const dot = file.name.lastIndexOf('.')
+    if (!isFolder && dot > 0) input.setSelectionRange(0, dot)
+    else input.select()
+  }, [editing, file.name, isFolder])
+
+  const trimmedNewName = editName.trim()
+  const renameClashes =
+    !!trimmedNewName &&
+    trimmedNewName.toLowerCase() !== file.name.toLowerCase() &&
+    nameExists(file.parentId, trimmedNewName, file.id)
 
   const handleRenameSubmit = () => {
-    const trimmed = editName.trim()
-    if (trimmed && trimmed !== file.name) {
-      onRename(file.id, trimmed)
+    if (!trimmedNewName || renameClashes) return
+    if (trimmedNewName !== file.name) {
+      onRename(file.id, trimmedNewName)
     }
     setEditing(false)
   }
@@ -183,6 +204,80 @@ function EtlFileTreeItem({
   const handleStartRename = () => {
     setEditName(file.name)
     setEditing(true)
+  }
+
+  // An <input> nested in the row <button> is invalid HTML and lets the button
+  // steal focus/keys; render the editing row as a plain div instead.
+  if (editing) {
+    return (
+      <div>
+        <div
+          className="flex w-full min-w-0 items-center gap-1.5 py-1 pr-2 text-xs"
+          style={{ paddingLeft: `${depth * 16 + 8}px` }}
+        >
+          {isFolder ? <span className="w-3" /> : <span className="w-3" />}
+          <FileCode size={14} className={getFileColor(file)} />
+          <span
+            className={cn(
+              '-ml-0.5 flex min-w-0 flex-1 items-center rounded border bg-background',
+              renameClashes ? 'border-destructive' : 'border-primary',
+            )}
+          >
+            <input
+              ref={inputRef}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              title={renameClashes ? t('etl.name_exists', { name: trimmedNewName }) : undefined}
+              onKeyDown={(e) => {
+                e.stopPropagation()
+                if (e.key === 'Enter') handleRenameSubmit()
+                else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+              }}
+              className="w-0 min-w-0 flex-1 bg-transparent px-1 py-0.5 text-xs outline-none"
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={t('common.cancel')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setEditing(false)}
+              className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-destructive"
+            >
+              <X size={12} />
+            </button>
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={renameClashes || !trimmedNewName}
+              aria-label={t('common.save')}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleRenameSubmit}
+              className="mr-0.5 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-green-600 disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Check size={12} />
+            </button>
+          </span>
+        </div>
+        {isFolder && isExpanded && getChildren(file.id).map((child) => (
+          <EtlFileTreeItem
+            key={child.id}
+            file={child}
+            depth={depth + 1}
+            isActive={child.id === selectedFileId}
+            isFolder={child.type === 'folder'}
+            isExpanded={expandedFolders.has(child.id)}
+            onToggleFolder={onToggleFolder}
+            onSelect={onSelect}
+            onDelete={onDelete}
+            onRename={onRename}
+            nameExists={nameExists}
+            getChildren={getChildren}
+            expandedFolders={expandedFolders}
+            selectedFileId={selectedFileId}
+          />
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -215,22 +310,7 @@ function EtlFileTreeItem({
                 <FileCode size={14} className={getFileColor(file)} />
               </>
             )}
-            {editing ? (
-              <input
-                ref={inputRef}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onBlur={handleRenameSubmit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRenameSubmit()
-                  if (e.key === 'Escape') setEditing(false)
-                }}
-                className="ml-0.5 flex-1 bg-transparent text-xs outline-none border-b border-primary"
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <span className="truncate">{file.name}</span>
-            )}
+            <span className="truncate">{file.name}</span>
           </button>
         </ContextMenuTrigger>
         <ContextMenuContent>
@@ -261,6 +341,7 @@ function EtlFileTreeItem({
           onSelect={onSelect}
           onDelete={onDelete}
           onRename={onRename}
+          nameExists={nameExists}
           getChildren={getChildren}
           expandedFolders={expandedFolders}
           selectedFileId={selectedFileId}
