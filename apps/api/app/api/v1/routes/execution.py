@@ -157,21 +157,18 @@ async def _terminal_kernel_loop(
 ) -> None:
     """REPL over a persistent R/Python kernel: each {code} message streams
     stdout/stderr chunks back live, then a {done} with figures/table. {interrupt}
-    sends SIGINT to the running run."""
+    sends SIGINT to the running run.
+
+    A run must not block the receive loop, or the {interrupt} that should stop it
+    would sit unread until the run finished. So each {code} runs as its own task
+    while the loop keeps reading, letting {interrupt} fire mid-run."""
     k = await kernel.manager.get(project_uid, language, env_id)
     resolver = await _make_ws_resolver(connection_id)
 
     async def on_chunk(kind: str, data: str) -> None:
         await websocket.send_json({"type": kind, "data": data})
 
-    while True:
-        msg = await websocket.receive_json()
-        if msg.get("interrupt"):
-            k.interrupt()
-            continue
-        code = msg.get("code")
-        if code is None:
-            continue
+    async def run(code: str) -> None:
         try:
             out = await k.execute_stream(code, on_chunk, query_resolver=resolver)
             await websocket.send_json({
@@ -186,12 +183,30 @@ async def _terminal_kernel_loop(
         except runtime.ExecutionError as e:
             await websocket.send_json({"type": "error", "message": str(e)})
 
+    current: asyncio.Task | None = None
+    try:
+        while True:
+            msg = await websocket.receive_json()
+            if msg.get("interrupt"):
+                k.interrupt()
+                continue
+            code = msg.get("code")
+            if code is None:
+                continue
+            # One run at a time (REPL); ignore a new line while one is in flight.
+            if current is not None and not current.done():
+                continue
+            current = asyncio.create_task(run(code))
+    finally:
+        if current is not None and not current.done():
+            current.cancel()
+
 
 async def _terminal_pty_loop(websocket: WebSocket, project_uid: str, session_id: str) -> None:
     """Interactive Bash over a PTY: pump raw bytes both ways. Client sends
     {input} keystrokes (Ctrl+C is byte 0x03, handled natively by the PTY) and
     {resize}; the shell's output is forwarded as {output} messages."""
-    shell = pty_kernel.manager.create(project_uid, session_id)
+    shell = await pty_kernel.manager.create(project_uid, session_id)
 
     async def pump_output() -> None:
         while True:

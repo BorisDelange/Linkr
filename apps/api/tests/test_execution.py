@@ -424,7 +424,7 @@ async def test_pty_shell_runs_a_command(tmp_path):
     from app.services.execution.pty_kernel import PtyShell
 
     shell = PtyShell(str(tmp_path))
-    shell.start()
+    await shell.start()
     try:
         shell.write(b"echo linkr-pty-ok\n")
         out = await _drain_until(shell, "linkr-pty-ok")
@@ -439,7 +439,7 @@ async def test_pty_shell_starts_in_given_cwd(tmp_path):
     marker = tmp_path / "marker_dir"
     marker.mkdir()
     shell = PtyShell(str(tmp_path))
-    shell.start()
+    await shell.start()
     try:
         shell.write(b"ls\n")
         out = await _drain_until(shell, "marker_dir")
@@ -452,7 +452,7 @@ async def test_pty_shell_dies_after_shutdown(tmp_path):
     from app.services.execution.pty_kernel import PtyShell
 
     shell = PtyShell(str(tmp_path))
-    shell.start()
+    await shell.start()
     assert shell.alive is True
     shell.shutdown()
     assert shell.alive is False
