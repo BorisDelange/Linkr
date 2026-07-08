@@ -32,6 +32,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -156,8 +157,9 @@ export function LabDashboardsPage() {
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
                           <DropdownMenuItem onClick={() => setRenameTarget(dash)}>
                             <Pencil size={14} />
-                            {t('dashboard.rename_title')}
+                            {t('common.rename')}
                           </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(dash.id)}>
                             <Trash2 size={14} />
                             {t('common.delete')}
