@@ -87,6 +87,16 @@ async def test_persistent_kernel_keeps_variables_between_runs(client):
     assert r.json()["stdout"].strip() == "42"
 
 
+async def test_execute_large_output_not_truncated_or_500(client):
+    """A result line larger than asyncio's default 64 KB StreamReader limit must
+    read fully (raised limit), not raise LimitOverrunError → 500."""
+    headers = await _admin_headers(client)
+    body = {"language": "python", "code": "print('x' * 200000)", "projectUid": "p-big"}
+    r = await client.post(f"{API}/execute", headers=headers, json=body)
+    assert r.status_code == 200
+    assert len(r.json()["stdout"]) >= 200000
+
+
 async def test_kernel_recovers_from_dead_subprocess(client):
     """A crashed/killed kernel subprocess must not poison future runs: the next
     execute restarts it (broken-pipe retry) instead of returning a 500."""

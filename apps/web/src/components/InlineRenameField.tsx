@@ -45,12 +45,26 @@ export function InlineRenameField({
   }
 
   useEffect(() => {
-    const el = inputRef.current
-    if (!el) return
-    el.focus()
-    const dot = initialValue.lastIndexOf('.')
-    if (selectBaseName && dot > 0) el.setSelectionRange(0, dot)
-    else el.select()
+    // A context menu / double-click restores focus a frame or two later and would
+    // steal it from the input (clearing the selection). Poll a few frames until
+    // focus settles on our input, then select (base name for files).
+    let tries = 0
+    let raf = 0
+    const applySelection = (el: HTMLInputElement) => {
+      const dot = initialValue.lastIndexOf('.')
+      if (selectBaseName && dot > 0) el.setSelectionRange(0, dot)
+      else el.select()
+    }
+    const tick = () => {
+      const el = inputRef.current
+      if (el) {
+        if (document.activeElement !== el) el.focus()
+        if (document.activeElement === el) { applySelection(el); return }
+      }
+      if (tries++ < 10) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
   }, [initialValue, selectBaseName])
 
   return (

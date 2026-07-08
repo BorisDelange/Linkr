@@ -184,12 +184,16 @@ class Kernel:
     async def _ensure_started(self) -> asyncio.subprocess.Process:
         if self._proc is not None and self._proc.returncode is None:
             return self._proc
+        # One result line carries the whole JSON output (stdout + base64 figures +
+        # table), which easily exceeds asyncio's default 64 KB StreamReader limit
+        # and would raise LimitOverrunError on readline(). Raise it to 64 MB.
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
             cwd=self._cwd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            limit=64 * 1024 * 1024,
         )
         return self._proc
 
