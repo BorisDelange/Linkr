@@ -50,13 +50,18 @@ interface FileTreeItemProps {
   selectedFileId: string | null
 }
 
-function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, _content?: string) {
+function getFileIcon(name: string, type: 'file' | 'folder', isOpen: boolean, isDataset = false) {
   if (type === 'folder') {
     return isOpen ? (
       <FolderOpen size={14} className="shrink-0 text-blue-400" />
     ) : (
       <Folder size={14} className="shrink-0 text-blue-400" />
     )
+  }
+  // Dataset nodes get the spreadsheet icon whatever their name — the Datasets page
+  // shows it unconditionally, and a dataset may be named without a .csv/.xlsx suffix.
+  if (isDataset) {
+    return <FileSpreadsheet size={14} className="shrink-0 text-emerald-500" />
   }
   const ext = name.split('.').pop()?.toLowerCase()
 
@@ -263,7 +268,7 @@ export function FileTreeItem({
         </span>
       )}
       {!isFolder && <span className="w-3 shrink-0" />}
-      {getFileIcon(node.name, node.type, isExpanded, 'content' in node ? (node as { content?: string }).content : undefined)}
+      {getFileIcon(node.name, node.type, isExpanded, node.id.startsWith('virtual:datasets/node/'))}
     </>
   )
 
