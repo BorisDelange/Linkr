@@ -29,6 +29,7 @@ interface DatasetState {
   isAnalysisDirty: (id: string) => boolean
 
   loadProjectDatasets: (projectUid: string) => Promise<void>
+  reloadDatasetsFromDisk: (projectUid: string) => Promise<void>
   createFile: (name: string, parentId: string | null) => void
   createFolder: (name: string, parentId: string | null) => void
   deleteNode: (id: string) => void
@@ -133,60 +134,39 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   loadProjectDatasets: async (projectUid) => {
     if (get().activeProjectUid === projectUid) return
+    await get().reloadDatasetsFromDisk(projectUid)
+  },
 
+  // Server mode (disk-source): re-scan projects/<uid>/datasets/. Used by the
+  // Refresh button and after every mutation so external changes + path-id changes
+  // (rename/move) settle. In front-only mode this simply re-reads IndexedDB.
+  reloadDatasetsFromDisk: async (projectUid) => {
     try {
       const storage = getStorage()
       const stored = await storage.datasetFiles.getByProject(projectUid)
-
-      _loadedData.clear()
-      _dataSaveTimers.forEach((t) => clearTimeout(t))
-      _dataSaveTimers.clear()
-      _savedDataSnapshot.clear()
-      _analysisSaveTimers.forEach((t) => clearTimeout(t))
-      _analysisSaveTimers.clear()
-      _savedAnalysisSnapshot.clear()
-
-      if (stored.length > 0) {
-        const rootFolders = stored
-          .filter((f) => f.type === 'folder' && f.parentId === null)
-          .map((f) => f.id)
-        set({
-          files: stored,
-          activeProjectUid: projectUid,
-          selectedFileId: null,
-          openFileIds: [],
-          expandedFolders: rootFolders,
-          analyses: [],
-          openAnalysisIds: [],
-          selectedAnalysisId: null,
-          _dirtyVersion: 0,
-        })
-      } else {
-        set({
-          files: [],
-          activeProjectUid: projectUid,
-          selectedFileId: null,
-          openFileIds: [],
-          expandedFolders: [],
-          analyses: [],
-          openAnalysisIds: [],
-          selectedAnalysisId: null,
-          _dirtyVersion: 0,
-        })
-      }
-    } catch {
+      const ids = new Set(stored.map((f) => f.id))
+      const prev = get()
+      const keep = prev.activeProjectUid === projectUid
+      const selectedFileId = keep && prev.selectedFileId && ids.has(prev.selectedFileId) ? prev.selectedFileId : null
+      const openFileIds = keep ? prev.openFileIds.filter((id) => ids.has(id)) : []
+      const rootFolders = stored.filter((f) => f.type === 'folder' && f.parentId === null).map((f) => f.id)
+      const expandedFolders = keep ? prev.expandedFolders.filter((id) => ids.has(id)) : rootFolders
       set({
-        files: [],
+        files: stored,
         activeProjectUid: projectUid,
-        selectedFileId: null,
-        openFileIds: [],
-        expandedFolders: [],
-        analyses: [],
-        openAnalysisIds: [],
-        selectedAnalysisId: null,
+        selectedFileId,
+        openFileIds,
+        expandedFolders,
+        analyses: keep ? prev.analyses : [],
+        openAnalysisIds: keep ? prev.openAnalysisIds : [],
+        selectedAnalysisId: keep ? prev.selectedAnalysisId : null,
+        _dirtyVersion: 0,
       })
+    } catch {
+      set({ files: [], activeProjectUid: projectUid, selectedFileId: null, openFileIds: [], expandedFolders: [], analyses: [], openAnalysisIds: [], selectedAnalysisId: null })
     }
   },
+
 
   createFile: (name, parentId) => {
     const projectUid = get().activeProjectUid ?? ''
@@ -246,7 +226,12 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       files: [...s.files, node],
       expandedFolders: [...s.expandedFolders, id],
     }))
-    getStorage().datasetFiles.create(node).catch((e) => console.warn('[dataset-store] persist error:', e))
+    const createdFolder = getStorage().datasetFiles.create(node)
+    if (isServerMode()) {
+      createdFolder.then(() => get().reloadDatasetsFromDisk(projectUid)).catch((e) => console.warn('[dataset-store] persist error:', e))
+      return
+    }
+    createdFolder.catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -316,6 +301,13 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       if (timer) { clearTimeout(timer); _analysisSaveTimers.delete(analysis.id) }
     }
     const storage = getStorage()
+    if (isServerMode()) {
+      // The backend removes a folder's descendants + reconciles analyses server-side;
+      // delete the top node only, then re-scan disk. No undo (the file is gone).
+      const projectUid = state.activeProjectUid ?? ''
+      storage.datasetFiles.delete(id).then(() => get().reloadDatasetsFromDisk(projectUid)).catch((e) => console.warn('[dataset-store] persist error:', e))
+      return
+    }
     for (const rid of idsToRemove) {
       storage.datasetFiles.delete(rid).catch((e) => console.warn('[dataset-store] persist error:', e))
       storage.datasetData.delete(rid).catch((e) => console.warn('[dataset-store] persist error:', e))
@@ -355,10 +347,16 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const node = state.files.find((f) => f.id === id)
     if (!node) return
     const oldName = node.name
+    const projectUid = state.activeProjectUid ?? ''
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName, updatedAt: new Date().toISOString() } : f)),
     }))
-    getStorage().datasetFiles.update(id, { name: newName, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    const renamed = getStorage().datasetFiles.update(id, { name: newName, updatedAt: new Date().toISOString() })
+    if (isServerMode()) {
+      renamed.then(() => get().reloadDatasetsFromDisk(projectUid)).catch((e) => console.warn('[dataset-store] persist error:', e))
+      return
+    }
+    renamed.catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,
@@ -382,12 +380,18 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     if (!node) return
     const oldParentId = node.parentId
     if (oldParentId === newParentId) return
+    const projectUid = state.activeProjectUid ?? ''
     set((s) => ({
       files: s.files.map((f) =>
         f.id === id ? { ...f, parentId: newParentId, updatedAt: new Date().toISOString() } : f
       ),
     }))
-    getStorage().datasetFiles.update(id, { parentId: newParentId, updatedAt: new Date().toISOString() }).catch((e) => console.warn('[dataset-store] persist error:', e))
+    const moved = getStorage().datasetFiles.update(id, { parentId: newParentId, updatedAt: new Date().toISOString() })
+    if (isServerMode()) {
+      moved.then(() => get().reloadDatasetsFromDisk(projectUid)).catch((e) => console.warn('[dataset-store] persist error:', e))
+      return
+    }
+    moved.catch((e) => console.warn('[dataset-store] persist error:', e))
 
     get().pushUndo({
       id: `undo-${undoCounter++}`,

@@ -6,6 +6,7 @@ import {
   FilePlus,
   FolderPlus,
   Upload,
+  RefreshCw,
   PanelLeft,
   PanelRight,
   Undo2,
@@ -237,6 +238,7 @@ export function DatasetsPage() {
     closeFile,
     reorderOpenFiles,
     loadProjectDatasets,
+    reloadDatasetsFromDisk,
     loadFileData,
     loadAnalyses,
     peekUndo,
@@ -475,6 +477,19 @@ export function DatasetsPage() {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('datasets.upload')}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => { if (activeProjectUid) reloadDatasetsFromDisk(activeProjectUid) }}
+                        disabled={!activeProjectUid}
+                      >
+                        <RefreshCw size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('datasets.refresh_files', 'Refresh datasets (rescan disk)')}</TooltipContent>
                   </Tooltip>
                 </div>
                 <div className="flex items-center gap-0.5">

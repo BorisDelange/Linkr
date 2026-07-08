@@ -129,12 +129,24 @@ async def _import_dataset(client, headers) -> tuple[str, str]:
     return uid, ds["id"]
 
 
+async def _disk_dataset(client, headers) -> tuple[str, str]:
+    """Create a project and drop a CSV into its datasets/ dir (disk-source mode).
+    Returns (project_uid, dataset_path)."""
+    from app.services import project_fs
+
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    (project_fs.datasets_dir(uid) / "d.csv").write_text("age,grp\n30,a\n40,b\n")
+    return uid, "d.csv"
+
+
 async def test_execute_injects_dataset_python(client):
     headers = await _admin_headers(client)
-    project_uid, ds_id = await _import_dataset(client, headers)
+    project_uid, path = await _disk_dataset(client, headers)
+    # In disk-source mode datasetFileId carries the dataset's relative path.
     r = await client.post(f"{API}/execute", headers=headers, json={
         "language": "python", "code": "print(list(dataset.columns)); print(float(dataset['age'].mean()))",
-        "projectUid": project_uid, "datasetFileId": ds_id,
+        "projectUid": project_uid, "datasetFileId": path,
     })
     assert r.status_code == 200
     out = r.json()["stdout"]
@@ -143,15 +155,14 @@ async def test_execute_injects_dataset_python(client):
 
 async def test_execute_injects_filtered_dataset(client):
     headers = await _admin_headers(client)
-    project_uid, ds_id = await _import_dataset(client, headers)  # age: 30, 40
-    # Filters are keyed by the parser's generated column id.
-    ds = (await client.get(f"{API}/datasets/{ds_id}", headers=headers)).json()
-    age_col = next(c["id"] for c in ds["columns"] if c["name"] == "age")
+    project_uid, path = await _disk_dataset(client, headers)  # age: 30, 40
+    files = (await client.get(f"{API}/dataset-files", headers=headers, params={"projectUid": project_uid})).json()
+    age_col = next(c["id"] for c in files[0]["columns"] if c["name"] == "age")
     # Keep only age >= 35 -> one row (age 40).
     r = await client.post(f"{API}/execute", headers=headers, json={
         "language": "python",
         "code": "print(len(dataset))",
-        "projectUid": project_uid, "datasetFileId": ds_id,
+        "projectUid": project_uid, "datasetFileId": path,
         "datasetFilters": [
             {"colId": age_col, "kind": "number",
              "alternatives": [{"op": "between", "min": 35}]},

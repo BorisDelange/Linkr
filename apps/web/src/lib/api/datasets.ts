@@ -14,11 +14,49 @@ import type {
   DatasetRawFile,
 } from '@/types'
 
+// Datasets are disk-source-of-truth in server mode (projects/<uid>/datasets/).
+// The backend addresses them by relative PATH; to fit the store's id-keyed
+// interfaces we make server-mode DatasetFile.id === the relative path. This cache
+// maps id(=path) → projectUid so id-only methods (rows/stats/analyses) can build
+// the project-scoped API calls. Rebuilt on every getByProject scan.
+const _dsProject = new Map<string, string>()
+
+/** A dataset node from the disk scan (id derives from the relative path). */
+interface DsNode {
+  id: string
+  name: string
+  type: 'file' | 'folder'
+  parentId: string | null
+  path: string
+  columns?: { id: string; name: string; type: string; order?: number }[] | null
+  rowCount?: number | null
+}
+
+function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
+  _dsProject.set(n.id, projectUid)
+  return {
+    id: n.id,
+    projectUid,
+    name: n.name,
+    type: n.type,
+    parentId: n.parentId,
+    path: n.path,
+    columns: (n.columns ?? undefined) as DatasetFile['columns'],
+    rowCount: n.rowCount ?? undefined,
+    createdAt: '',
+    updatedAt: '',
+  }
+}
+
+/** Child path from parent id(=path) + name (root parent → bare name). */
+function dsChildPath(parentId: string | null, name: string): string {
+  return parentId ? `${parentId}/${name}` : name
+}
+
 /**
- * Server-mode dataset import: upload the raw file in chunks, then ask the
- * backend to parse it (DuckDB) and create the DatasetFile. Returns the created
- * file, whose columns/rowCount were computed server-side (parity with the
- * client parser). Used by UploadDatasetDialog instead of createFileWithData.
+ * Server-mode dataset import: upload the raw file in chunks, then land it in
+ * projects/<uid>/datasets/<path> on disk (the source of truth) and parse it into
+ * the Parquet cache. Returns the created node (id === its relative path).
  */
 export async function importDatasetOnServer(params: {
   projectUid: string
@@ -30,17 +68,13 @@ export async function importDatasetOnServer(params: {
   onProgress?: (fraction: number) => void
 }): Promise<DatasetFile> {
   const uploaded = await uploadFileInChunks(params.file, params.fileName, params.onProgress)
-  return apiRequest<DatasetFile>('/datasets/import', {
+  // The dataset keeps its real filename on disk; parentId (a path) prefixes it.
+  const path = dsChildPath(params.parentId, params.fileName)
+  const node = await apiRequest<DsNode>('/dataset-files/import', {
     method: 'POST',
-    body: JSON.stringify({
-      projectUid: params.projectUid,
-      name: params.name,
-      parentId: params.parentId,
-      sha: uploaded.sha,
-      fileName: uploaded.fileName,
-      parseOptions: params.parseOptions ?? null,
-    }),
+    body: JSON.stringify({ projectUid: params.projectUid, path, sha: uploaded.sha }),
   })
+  return dsNodeToFile(params.projectUid, node)
 }
 
 /** One column filter in a server row query — mirrors ColumnFilterInput's shapes. */
@@ -75,32 +109,35 @@ export function queryDatasetRows(
   datasetFileId: string,
   query: ServerRowsQuery,
 ): Promise<ServerRowsPage> {
-  return apiRequest<ServerRowsPage>(`/datasets/${datasetFileId}/rows/query`, {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+  return apiRequest<ServerRowsPage>(`/dataset-files/rows/query?${qs}`, {
     method: 'POST',
     body: JSON.stringify(query),
   })
 }
 
-/** Re-parse a dataset's stored raw file with new options, server-side. Returns
- *  the updated file (columns/rowCount recomputed by DuckDB, parity with import). */
-export function reimportDataset(
+/** Re-parse a dataset's raw file with new options (rebuilds the Parquet cache). */
+export async function reimportDataset(
   datasetFileId: string,
   parseOptions?: DatasetParseOptions,
 ): Promise<DatasetFile> {
-  return apiRequest<DatasetFile>(`/datasets/${datasetFileId}/reimport`, {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const node = await apiRequest<DsNode>('/dataset-files/reimport', {
     method: 'POST',
-    body: JSON.stringify({ parseOptions: parseOptions ?? null }),
+    body: JSON.stringify({ projectUid, path: datasetFileId, parseOptions: parseOptions ?? null }),
   })
+  return dsNodeToFile(projectUid, node)
 }
 
-/** Duplicate a dataset file server-side. The blob store is content-addressed, so
- *  the copy re-points the same rows/raw blobs — no bytes are copied. Returns the
- *  created file (with fresh id) to insert into the store. */
-export function duplicateDataset(datasetFileId: string, name: string): Promise<DatasetFile> {
-  return apiRequest<DatasetFile>(`/datasets/${datasetFileId}/duplicate`, {
+/** Duplicate a dataset by copying its raw file to a sibling with a new name. */
+export async function duplicateDataset(datasetFileId: string, name: string): Promise<DatasetFile> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const node = await apiRequest<DsNode>('/dataset-files/duplicate', {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ projectUid, path: datasetFileId, newName: name }),
   })
+  return dsNodeToFile(projectUid, node)
 }
 
 /** Aggregate stats for one column: completeness + distinct, plus a shape-specific
@@ -110,8 +147,10 @@ export function fetchColumnStats(
   datasetFileId: string,
   colId: string,
 ): Promise<Record<string, unknown>> {
+  const projectUid = _dsProject.get(datasetFileId) ?? ''
+  const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
   return apiRequest<Record<string, unknown>>(
-    `/datasets/${datasetFileId}/columns/${encodeURIComponent(colId)}/stats`,
+    `/dataset-files/columns/${encodeURIComponent(colId)}/stats?${qs}`,
   )
 }
 
@@ -125,114 +164,125 @@ export function fetchColumnStats(
  */
 
 export const apiDatasetFileStorage: DatasetFileStorage = {
-  getByProject: (projectUid) =>
-    apiRequest<DatasetFile[]>(`/datasets?projectUid=${encodeURIComponent(projectUid)}`),
-
-  getById: async (id) => {
-    try {
-      return await apiRequest<DatasetFile>(`/datasets/${id}`)
-    } catch {
-      return undefined
-    }
+  getByProject: async (projectUid) => {
+    const nodes = await apiRequest<DsNode[]>(
+      `/dataset-files?projectUid=${encodeURIComponent(projectUid)}`,
+    )
+    return nodes.map((n) => dsNodeToFile(projectUid, n))
   },
 
+  getById: async () => undefined, // callers hold the tree from getByProject
+
   create: async (file) => {
-    await apiRequest('/datasets', { method: 'POST', body: JSON.stringify(file) })
+    // Only folders are created via this path (files arrive through import). id=path.
+    if (file.type !== 'folder') return
+    const path = dsChildPath(file.parentId, file.name)
+    _dsProject.set(path, file.projectUid)
+    await apiRequest('/dataset-files/folder', {
+      method: 'POST',
+      body: JSON.stringify({ projectUid: file.projectUid, path }),
+    })
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/datasets/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
+    const projectUid = _dsProject.get(id) ?? ''
+    if (changes.name !== undefined) {
+      const parent = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : ''
+      const newPath = parent ? `${parent}/${changes.name}` : changes.name
+      await apiRequest('/dataset-files/move', {
+        method: 'POST',
+        body: JSON.stringify({ projectUid, path: id, newPath }),
+      })
+    }
+    if (changes.parentId !== undefined) {
+      const name = id.includes('/') ? id.slice(id.lastIndexOf('/') + 1) : id
+      const newPath = dsChildPath(changes.parentId ?? null, name)
+      await apiRequest('/dataset-files/move', {
+        method: 'POST',
+        body: JSON.stringify({ projectUid, path: id, newPath }),
+      })
+    }
   },
 
   delete: async (id) => {
-    await apiRequest(`/datasets/${id}`, { method: 'DELETE' })
+    const projectUid = _dsProject.get(id) ?? ''
+    await apiRequest('/dataset-files/delete', {
+      method: 'POST',
+      body: JSON.stringify({ projectUid, path: id }),
+    })
   },
 
-  deleteByProject: async (projectUid) => {
-    const files = await apiRequest<DatasetFile[]>(
-      `/datasets?projectUid=${encodeURIComponent(projectUid)}`,
-    )
-    // Delete roots; the server cascades children by parent_id.
-    const roots = files.filter((f) => !f.parentId)
-    await Promise.all(roots.map((f) => apiRequest(`/datasets/${f.id}`, { method: 'DELETE' })))
+  deleteByProject: async () => {
+    // The project dir is removed with the project on the server; no-op here.
   },
 }
 
 export const apiDatasetDataStorage: DatasetDataStorage = {
-  get: async (datasetFileId) => {
-    try {
-      const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
-        `/datasets/${datasetFileId}/data`,
-      )
-      return { datasetFileId, rows: res.rows }
-    } catch {
-      return undefined
-    }
-  },
-
-  save: async (data: DatasetData) => {
-    await apiRequest(`/datasets/${data.datasetFileId}/data`, {
-      method: 'PUT',
-      body: JSON.stringify({ rows: data.rows }),
-    })
-  },
-
-  delete: async (datasetFileId) => {
-    // Rows are cleared by writing an empty set (blob is freed if unreferenced).
-    await apiRequest(`/datasets/${datasetFileId}/data`, {
-      method: 'PUT',
-      body: JSON.stringify({ rows: [] }),
-    })
-  },
+  // Server datasets paginate via queryDatasetRows; the whole-rows blob is unused.
+  get: async () => undefined,
+  save: async (_data: DatasetData) => {},
+  delete: async (_datasetFileId) => {},
 }
 
 export const apiDatasetRawFileStorage: DatasetRawFileStorage = {
   get: async (datasetFileId) => {
+    // The raw file lives on disk under datasets/<path>; download it by path.
+    const projectUid = _dsProject.get(datasetFileId) ?? ''
     try {
-      const res = await apiFetch(`/api/v1/datasets/${datasetFileId}/raw`)
+      const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+      const res = await apiFetch(`/api/v1/dataset-files/raw?${qs}`)
       if (!res.ok) return undefined
       const blob = await res.blob()
-      // Empty (not a fake "<id>.data") when the header is unavailable, so callers
-      // can fall back to the dataset's own name instead of a broken filename.
       const fileName = res.headers.get('x-file-name') ?? ''
       return { datasetFileId, blob, fileName }
     } catch {
       return undefined
     }
   },
-
-  // The raw file is stored by POST /datasets/import (chunked upload). In server
-  // mode there is no separate raw-save step, so this is a no-op.
   save: async (_data: DatasetRawFile) => {},
-
   delete: async (_datasetFileId) => {},
 }
 
 export const apiDatasetAnalysisStorage: DatasetAnalysisStorage = {
-  getByDataset: (datasetFileId) =>
-    apiRequest<DatasetAnalysis[]>(`/datasets/${datasetFileId}/analyses`),
+  getByDataset: async (datasetFileId) => {
+    const projectUid = _dsProject.get(datasetFileId) ?? ''
+    const qs = `projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(datasetFileId)}`
+    const rows = await apiRequest<(DatasetAnalysis & { datasetPath: string })[]>(
+      `/dataset-files/analyses?${qs}`,
+    )
+    // Server keys analyses by datasetPath; the store links them by datasetFileId (= path).
+    return rows.map((a) => ({ ...a, datasetFileId: a.datasetPath }))
+  },
 
-  getById: async () => undefined, // not needed by callers in server mode
+  getById: async () => undefined,
 
   create: async (analysis) => {
-    await apiRequest(`/datasets/${analysis.datasetFileId}/analyses`, {
+    const projectUid = _dsProject.get(analysis.datasetFileId) ?? ''
+    await apiRequest('/dataset-files/analyses', {
       method: 'POST',
-      body: JSON.stringify(analysis),
+      body: JSON.stringify({
+        id: analysis.id,
+        projectUid,
+        datasetPath: analysis.datasetFileId,
+        name: analysis.name,
+        type: analysis.type,
+        config: analysis.config,
+      }),
     })
   },
 
   update: async (id, changes) => {
-    await apiRequest(`/datasets/analyses/${id}`, {
+    await apiRequest(`/dataset-files/analyses/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(changes),
     })
   },
 
   delete: async (id) => {
-    await apiRequest(`/datasets/analyses/${id}`, { method: 'DELETE' })
+    await apiRequest(`/dataset-files/analyses/${id}`, { method: 'DELETE' })
   },
 
   deleteByDataset: async () => {
-    // Analyses cascade with the dataset file on the server.
+    // Analyses reconcile against the disk scan on the server.
   },
 }

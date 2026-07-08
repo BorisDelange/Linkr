@@ -41,11 +41,14 @@ def _raw_signature(raw: Path) -> dict:
     return {"mtime": int(st.st_mtime_ns), "size": st.st_size}
 
 
-def resolve_cache(project_uid: str, rel: str, parse_options: dict | None = None) -> dict:
+def resolve_cache(
+    project_uid: str, rel: str, parse_options: dict | None = None, force: bool = False
+) -> dict:
     """Ensure a fresh Parquet cache for the raw dataset at ``datasets/<rel>`` and
     return {parquet: Path, columns: [...], rowCount: int}. Parses the raw file
     (CSV/XLSX/Parquet — DuckDB-backed) only when the cache is missing or the raw
-    file changed. A native .parquet raw file is used directly as its own cache."""
+    file changed (or `force`, e.g. a reimport with new parse options). A native
+    .parquet raw file is used directly as its own cache."""
     raw = project_fs.dataset_path(project_uid, rel)
     if not raw.is_file():
         raise FileNotFoundError(rel)
@@ -58,7 +61,7 @@ def resolve_cache(project_uid: str, rel: str, parse_options: dict | None = None)
     # once (cheap: read_parquet) to get columns/types, cached in the meta sidecar.
     if suffix in _NATIVE_PARQUET:
         meta = _read_meta(meta_path)
-        if meta is None or meta.get("sig") != sig:
+        if force or meta is None or meta.get("sig") != sig:
             columns, _, row_count = _parse(raw, rel, parse_options)
             meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": True}
             _write_meta(meta_path, meta)
@@ -67,7 +70,7 @@ def resolve_cache(project_uid: str, rel: str, parse_options: dict | None = None)
     # CSV/XLSX/etc: parse to a Parquet cache when missing/stale.
     parquet = _cache_parquet(project_uid, rel)
     meta = _read_meta(meta_path)
-    if meta is None or meta.get("sig") != sig or not parquet.is_file():
+    if force or meta is None or meta.get("sig") != sig or not parquet.is_file():
         columns, rows, row_count = _parse(raw, rel, parse_options)
         tmp = dataset_rows.write_parquet(rows, columns)
         parquet.parent.mkdir(parents=True, exist_ok=True)

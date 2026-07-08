@@ -17,8 +17,16 @@ from app.schemas.dataset import (
     DatasetRowsPage,
     DatasetRowsQuery,
 )
-from app.schemas.dataset_fs import DsCreateFolder, DsDelete, DsMove, DsNodeResponse
-from app.services import dataset_service, project_fs
+from app.schemas.dataset_fs import (
+    DsCreateFolder,
+    DsDelete,
+    DsDuplicate,
+    DsImport,
+    DsMove,
+    DsNodeResponse,
+    DsReimport,
+)
+from app.services import blob_store, dataset_service, project_fs
 from app.services.data import dataset_fs, dataset_rows
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -106,6 +114,114 @@ async def column_stats(
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
     return dataset_rows.column_stats(res["parquet"], col_id, col["type"])
+
+
+@router.get("/raw")
+async def get_raw(
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Download the raw dataset file from disk (datasets/<path>)."""
+    from fastapi.responses import FileResponse
+
+    await _check_project(db, project_uid, user, "viewer")
+    try:
+        p = project_fs.dataset_path(project_uid, path)
+    except ValueError:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid path")
+    if not p.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    name = path.rsplit("/", 1)[-1]
+    return FileResponse(p, filename=name, headers={"x-file-name": name})
+
+
+@router.post("/import", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
+async def import_dataset(
+    body: DsImport,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Land an uploaded raw file into datasets/<path> on disk (the source of truth),
+    then parse it into the Parquet cache and return the node with columns/rowCount."""
+    await _check_project(db, body.project_uid, user, "editor")
+    if not blob_store.exists(body.sha):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
+    try:
+        dst = project_fs.dataset_path(body.project_uid, body.path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    import shutil
+
+    shutil.copyfile(blob_store.path_for(body.sha), dst)
+    try:
+        res = dataset_fs.resolve_cache(body.project_uid, body.path)
+        columns, row_count = res["columns"], res["rowCount"]
+    except Exception:
+        columns, row_count = None, None
+    return DsNodeResponse(
+        id=project_fs.node_id("ds", body.path),
+        name=body.path.rsplit("/", 1)[-1], type="file",
+        parent_id=(project_fs.node_id("ds", body.path.rsplit("/", 1)[0]) if "/" in body.path else None),
+        path=body.path, columns=columns, row_count=row_count,
+    )
+
+
+def _file_node(project_uid: str, path: str) -> DsNodeResponse:
+    columns = row_count = None
+    try:
+        res = dataset_fs.resolve_cache(project_uid, path)
+        columns, row_count = res["columns"], res["rowCount"]
+    except Exception:
+        pass
+    return DsNodeResponse(
+        id=project_fs.node_id("ds", path),
+        name=path.rsplit("/", 1)[-1], type="file",
+        parent_id=(project_fs.node_id("ds", path.rsplit("/", 1)[0]) if "/" in path else None),
+        path=path, columns=columns, row_count=row_count,
+    )
+
+
+@router.post("/reimport", response_model=DsNodeResponse)
+async def reimport_dataset(
+    body: DsReimport,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-parse the raw file with new options (rebuilds the Parquet cache)."""
+    await _check_project(db, body.project_uid, user, "editor")
+    try:
+        dataset_fs.resolve_cache(body.project_uid, body.path, body.parse_options, force=True)
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    return _file_node(body.project_uid, body.path)
+
+
+@router.post("/duplicate", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
+async def duplicate_dataset(
+    body: DsDuplicate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy the raw dataset file to a sibling with a new name."""
+    await _check_project(db, body.project_uid, user, "editor")
+    import shutil
+
+    try:
+        src = project_fs.dataset_path(body.project_uid, body.path)
+        parent = body.path.rsplit("/", 1)[0] if "/" in body.path else ""
+        new_path = f"{parent}/{body.new_name}" if parent else body.new_name
+        dst = project_fs.dataset_path(body.project_uid, new_path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if not src.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+    shutil.copyfile(src, dst)
+    return _file_node(body.project_uid, new_path)
 
 
 @router.post("/folder", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)

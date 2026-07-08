@@ -11,16 +11,37 @@ from app.schemas.execution import (
     RuntimeFigureResponse,
 )
 from app.services import data_source_service, dataset_service
+from app.services.data import dataset_fs
 from app.services.execution import injection, kernel, runtime
 
 router = APIRouter(prefix="/execute", tags=["execution"])
 
 
 async def _dataset_preamble(
-    db: AsyncSession, dataset_file_id: str, language: str, filters: list[dict] | None
+    db: AsyncSession,
+    dataset_ref: str,
+    language: str,
+    filters: list[dict] | None,
+    project_uid: str | None,
 ) -> str:
-    """Server-side `dataset` injection code for the requested dataset."""
-    node = await dataset_service.get(db, dataset_file_id)
+    """Server-side `dataset` injection code for the requested dataset.
+
+    Disk-source mode (project context): `dataset_ref` is the dataset's relative
+    path under datasets/; inject from its Parquet cache. Legacy: `dataset_ref` is
+    a DB DatasetFile id."""
+    if project_uid:
+        try:
+            res = dataset_fs.resolve_cache(project_uid, dataset_ref)
+        except FileNotFoundError:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
+        path = res["parquet"].as_posix()
+        columns = res["columns"]
+        return (
+            injection.python_preamble_from(path, columns, filters)
+            if language == "python"
+            else injection.r_preamble_from(path, columns, filters)
+        )
+    node = await dataset_service.get(db, dataset_ref)
     if node is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
     return (
@@ -43,7 +64,7 @@ async def execute_code(
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
         preamble = await _dataset_preamble(
-            db, body.dataset_file_id, body.language, body.dataset_filters
+            db, body.dataset_file_id, body.language, body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + code
 

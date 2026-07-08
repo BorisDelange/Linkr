@@ -684,6 +684,8 @@ export interface DatasetFile extends Seedable, Authored {
   name: string
   type: 'file' | 'folder'
   parentId: string | null
+  /** Server mode (disk-source): relative path under datasets/. Equals `id`. */
+  path?: string
   columns?: DatasetColumn[]
   rowCount?: number
   parseOptions?: DatasetParseOptions

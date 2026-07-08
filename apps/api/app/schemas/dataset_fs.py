@@ -14,6 +14,26 @@ class DsNodeResponse(CamelModel):
     row_count: int | None = None
 
 
+class DsImport(CamelModel):
+    project_uid: str
+    # Target relative path under datasets/ (readable name, e.g. "cohort.csv").
+    path: str
+    # Content hash of the already-uploaded raw file (chunked upload → blob store).
+    sha: str
+
+
+class DsReimport(CamelModel):
+    project_uid: str
+    path: str
+    parse_options: dict | None = None
+
+
+class DsDuplicate(CamelModel):
+    project_uid: str
+    path: str
+    new_name: str
+
+
 class DsCreateFolder(CamelModel):
     project_uid: str
     path: str

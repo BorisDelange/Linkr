@@ -15,13 +15,17 @@ from app.services import blob_store
 
 
 def python_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:
-    """Python code that loads the dataset's Parquet as a `dataset` DataFrame.
+    """Python `dataset` injection for a DB-backed dataset (legacy blob path)."""
+    path = blob_store.path_for(node.data_sha).as_posix() if node.data_sha else ""
+    return python_preamble_from(path, node.columns or [], filters)
+
+
+def python_preamble_from(path: str, columns: list[dict], filters: list[dict] | None = None) -> str:
+    """Python code that loads a Parquet file at `path` as a `dataset` DataFrame.
 
     `filters` (dashboard filters, resolved client-side to concrete predicates keyed
     by columnId) are applied to the raw Parquet before columns are renamed, so a
     widget sees the same filtered rows it would in front-only mode."""
-    path = blob_store.path_for(node.data_sha).as_posix() if node.data_sha else ""
-    columns = node.columns or []
     rename = {c["id"]: c["name"] for c in columns}
     number_cols = [c["name"] for c in columns if c.get("type") == "number"]
     date_cols = [c["name"] for c in columns if c.get("type") == "date"]
@@ -89,9 +93,13 @@ def _python_filter_code(filters: list[dict]) -> str:
 
 
 def r_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:
-    """R code that loads the dataset's Parquet as a `dataset` data.frame."""
+    """R `dataset` injection for a DB-backed dataset (legacy blob path)."""
     path = blob_store.path_for(node.data_sha).as_posix() if node.data_sha else ""
-    columns = node.columns or []
+    return r_preamble_from(path, node.columns or [], filters)
+
+
+def r_preamble_from(path: str, columns: list[dict], filters: list[dict] | None = None) -> str:
+    """R code that loads a Parquet file at `path` as a `dataset` data.frame."""
     # Build named vector for renaming: c("col-1" = "age", ...)
     rename_pairs = ", ".join(
         f"{_r_str(c['id'])} = {_r_str(c['name'])}" for c in columns
