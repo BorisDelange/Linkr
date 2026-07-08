@@ -3,6 +3,7 @@ from app.models.project import Project
 from app.models.cohort import Cohort
 from app.models.concept_set import ConceptSet
 from app.models.data_catalog import DataCatalog
+from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
@@ -30,6 +31,9 @@ __all__ = [
     "DataCatalog",
     "SourceConceptIdRange",
     "SourceConceptIdEntry",
+    "MappingProject",
+    "ConceptMapping",
+    "ServiceMapping",
     "DqRuleSet",
     "DqCustomCheck",
     "EtlPipeline",

@@ -6,6 +6,7 @@ import {
 } from '@/lib/api/datasets'
 import { apiCohortStorage } from '@/lib/api/cohorts'
 import { apiConceptSetStorage } from '@/lib/api/concept-sets'
+import { apiConceptMappingStorage, apiMappingProjectStorage, apiServiceMappingStorage } from '@/lib/api/mapping-projects'
 import { apiSourceConceptIdEntryStorage, apiSourceConceptIdRangeStorage } from '@/lib/api/source-concept-ids'
 import { apiDataCatalogStorage } from '@/lib/api/catalogs'
 import { apiDataSourceStorage, apiFileStorage } from '@/lib/api/data-sources'
@@ -60,5 +61,8 @@ export function createAPIStorage(): Storage {
     conceptSets: apiConceptSetStorage,
     sourceConceptIdRanges: apiSourceConceptIdRangeStorage,
     sourceConceptIdEntries: apiSourceConceptIdEntryStorage,
+    mappingProjects: apiMappingProjectStorage,
+    conceptMappings: apiConceptMappingStorage,
+    serviceMappings: apiServiceMappingStorage,
   }
 }

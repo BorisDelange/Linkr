@@ -1,0 +1,315 @@
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.schemas.base import CamelModel
+
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.core.permissions import check_workspace_role
+from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
+from app.models.user import User
+from app.schemas.mapping_project import (
+    ConceptMappingBatch,
+    ConceptMappingCreate,
+    ConceptMappingDeleteByProjects,
+    ConceptMappingDeleteOrphans,
+    ConceptMappingResponse,
+    ConceptMappingUpdate,
+    MappingProjectCreate,
+    MappingProjectResponse,
+    MappingProjectUpdate,
+    ServiceMappingCreate,
+    ServiceMappingResponse,
+    ServiceMappingUpdate,
+)
+from app.services import blob_store
+from app.services import mapping_project_service as svc
+
+router = APIRouter(tags=["mapping-projects"])
+
+_PROJ = "/mapping-projects"
+_MAP = "/concept-mappings"
+_SVC = "/service-mappings"
+
+
+async def _load_project(
+    db: AsyncSession, project_id: str, user: User, min_role: str
+) -> MappingProject:
+    project = await svc.get(db, project_id)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await check_workspace_role(db, project.workspace_id, user, min_role)
+    return project
+
+
+async def _load_mapping(
+    db: AsyncSession, mapping_id: str, user: User, min_role: str
+) -> ConceptMapping:
+    mapping = await svc.get_mapping(db, mapping_id)
+    if mapping is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await _load_project(db, mapping.project_id, user, min_role)
+    return mapping
+
+
+async def _load_service_mapping(
+    db: AsyncSession, mapping_id: str, user: User, min_role: str
+) -> ServiceMapping:
+    mapping = await svc.get_service_mapping(db, mapping_id)
+    if mapping is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    await check_workspace_role(db, mapping.workspace_id, user, min_role)
+    return mapping
+
+
+# --- Mapping projects ------------------------------------------------------
+
+@router.get(_PROJ, response_model=list[MappingProjectResponse])
+async def list_projects(
+    workspace_id: str | None = Query(default=None, alias="workspaceId"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if workspace_id is not None:
+        await check_workspace_role(db, workspace_id, user, "viewer")
+        return await svc.list_for_workspace(db, workspace_id)
+    projects = await svc.list_all(db)
+    visible: list[MappingProject] = []
+    for p in projects:
+        try:
+            await check_workspace_role(db, p.workspace_id, user, "viewer")
+            visible.append(p)
+        except HTTPException:
+            continue
+    return visible
+
+
+@router.post(_PROJ, response_model=MappingProjectResponse, status_code=status.HTTP_201_CREATED)
+async def create_project(
+    body: MappingProjectCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_workspace_role(db, body.workspace_id, user, "editor")
+    return await svc.create(db, body)
+
+
+@router.get(_PROJ + "/{project_id}", response_model=MappingProjectResponse)
+async def get_project(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _load_project(db, project_id, user, "viewer")
+
+
+@router.patch(_PROJ + "/{project_id}", response_model=MappingProjectResponse)
+async def update_project(
+    project_id: str,
+    body: MappingProjectUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _load_project(db, project_id, user, "editor")
+    return await svc.update(db, project, body)
+
+
+@router.delete(_PROJ + "/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_project(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _load_project(db, project_id, user, "editor")
+    await svc.delete(db, project)
+
+
+# --- Source-CSV blob (uploaded separately via /uploads, referenced by sha) --
+
+class RawFileRef(CamelModel):
+    sha: str
+    file_name: str | None = None
+
+
+@router.post(_PROJ + "/{project_id}/raw-file", response_model=MappingProjectResponse)
+async def set_raw_file(
+    project_id: str,
+    body: RawFileRef,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _load_project(db, project_id, user, "editor")
+    if not blob_store.exists(body.sha):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
+    return await svc.update(
+        db, project,
+        MappingProjectUpdate(raw_file_sha=body.sha, raw_file_name=body.file_name),
+    )
+
+
+@router.get(_PROJ + "/{project_id}/raw-file")
+async def get_raw_file(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await _load_project(db, project_id, user, "viewer")
+    if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
+    data = await blob_store.read_bytes(project.raw_file_sha)
+    return Response(
+        content=data,
+        media_type="application/octet-stream",
+        headers={"x-file-name": project.raw_file_name or "source.csv"},
+    )
+
+
+# --- Concept mappings (per-project) ----------------------------------------
+
+@router.get(_PROJ + "/{project_id}/mappings", response_model=list[ConceptMappingResponse])
+async def list_mappings(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_project(db, project_id, user, "viewer")
+    return await svc.list_mappings(db, project_id)
+
+
+@router.delete(_PROJ + "/{project_id}/mappings", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mappings_for_project(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_project(db, project_id, user, "editor")
+    await svc.delete_mappings_for_project(db, project_id)
+
+
+@router.post(_MAP, response_model=ConceptMappingResponse, status_code=status.HTTP_201_CREATED)
+async def create_mapping(
+    body: ConceptMappingCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_project(db, body.project_id, user, "editor")
+    return await svc.create_mapping(db, body)
+
+
+@router.post(_MAP + "/batch", status_code=status.HTTP_204_NO_CONTENT)
+async def create_mappings_batch(
+    body: ConceptMappingBatch,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    for pid in {m.project_id for m in body.mappings}:
+        await _load_project(db, pid, user, "editor")
+    await svc.create_mappings_batch(db, body.mappings)
+
+
+@router.post(_MAP + "/delete-by-projects", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_by_projects(
+    body: ConceptMappingDeleteByProjects,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    for pid in body.project_ids:
+        await _load_project(db, pid, user, "editor")
+    await svc.delete_mappings_for_projects(db, body.project_ids)
+
+
+@router.post(_MAP + "/delete-orphans", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_orphans(
+    body: ConceptMappingDeleteOrphans,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Admin-only housekeeping: prune mappings whose project is gone. Restrict to
+    # admins since it operates across all projects.
+    if user.role != "admin":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin only")
+    await svc.delete_orphan_mappings(db, body.valid_project_ids)
+
+
+@router.patch(_MAP + "/{mapping_id}", response_model=ConceptMappingResponse)
+async def update_mapping(
+    mapping_id: str,
+    body: ConceptMappingUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mapping = await _load_mapping(db, mapping_id, user, "editor")
+    return await svc.update_mapping(db, mapping, body)
+
+
+@router.delete(_MAP + "/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mapping(
+    mapping_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mapping = await _load_mapping(db, mapping_id, user, "editor")
+    await svc.delete_mapping(db, mapping)
+
+
+# --- Service mappings ------------------------------------------------------
+
+@router.get(_SVC, response_model=list[ServiceMappingResponse])
+async def list_service_mappings(
+    workspace_id: str | None = Query(default=None, alias="workspaceId"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if workspace_id is not None:
+        await check_workspace_role(db, workspace_id, user, "viewer")
+        return await svc.list_service_mappings_for_workspace(db, workspace_id)
+    mappings = await svc.list_service_mappings_all(db)
+    visible: list[ServiceMapping] = []
+    for m in mappings:
+        try:
+            await check_workspace_role(db, m.workspace_id, user, "viewer")
+            visible.append(m)
+        except HTTPException:
+            continue
+    return visible
+
+
+@router.post(_SVC, response_model=ServiceMappingResponse, status_code=status.HTTP_201_CREATED)
+async def create_service_mapping(
+    body: ServiceMappingCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await check_workspace_role(db, body.workspace_id, user, "editor")
+    return await svc.create_service_mapping(db, body)
+
+
+@router.get(_SVC + "/{mapping_id}", response_model=ServiceMappingResponse)
+async def get_service_mapping(
+    mapping_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await _load_service_mapping(db, mapping_id, user, "viewer")
+
+
+@router.patch(_SVC + "/{mapping_id}", response_model=ServiceMappingResponse)
+async def update_service_mapping(
+    mapping_id: str,
+    body: ServiceMappingUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mapping = await _load_service_mapping(db, mapping_id, user, "editor")
+    return await svc.update_service_mapping(db, mapping, body)
+
+
+@router.delete(_SVC + "/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_service_mapping(
+    mapping_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    mapping = await _load_service_mapping(db, mapping_id, user, "editor")
+    await svc.delete_service_mapping(db, mapping)
