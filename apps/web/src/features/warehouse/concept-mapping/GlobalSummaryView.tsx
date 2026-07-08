@@ -407,21 +407,49 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const loadAllMappings = useCallback(async () => {
     if (projects.length === 0) { setLoadingMappings(false); return }
     setLoadingMappings(true)
-    const results: ConceptMapping[] = []
-    for (const p of projects) {
-      const ms = await getStorage().conceptMappings.getByProject(p.id)
-      results.push(...ms)
-    }
-    setAllMappings(results)
 
-    // For DB projects, query DuckDB to get total source concepts count + all source concept rows
-    const totalsMap = new Map<string, number>()
+    // Mappings for every project, fetched in parallel (one round-trip each in
+    // server mode — running them serially was the dominant open-view lag).
+    const perProject = await Promise.all(
+      projects.map((p) => getStorage().conceptMappings.getByProject(p.id)),
+    )
+    setAllMappings(perProject.flat())
+
+    // Summary needs only per-project source-concept COUNTS (cheap aggregate),
+    // not every source row. The heavy all-rows fetch is deferred to the Table/
+    // Export tabs (loadSourceConcepts). Counts run in parallel too.
+    const dbProjects = projects.filter(
+      (p) => p.sourceType !== 'file' && !p.fileSourceData,
+    )
+    const counts = await Promise.all(
+      dbProjects.map(async (p) => {
+        const ds = dataSources.find((d) => d.id === p.dataSourceId)
+        if (!ds?.schemaMapping) return [p.id, 0] as const
+        try {
+          await ensureMounted(ds.id)
+          const countSql = buildSourceConceptsCountQuery(ds.schemaMapping, {})
+          if (!countSql) return [p.id, 0] as const
+          const [row] = await queryDataSource(ds.id, countSql)
+          return [p.id, Number(row?.total ?? 0)] as const
+        } catch {
+          return [p.id, 0] as const
+        }
+      }),
+    )
+    setDbProjectTotals(new Map(counts))
+
+    setLoadingMappings(false)
+  }, [projects, dataSources, ensureMounted])
+
+  // Heavy: all source-concept ROWS for every project (used only by the Table /
+  // Export tabs). Deferred until one of those tabs is opened; runs in parallel.
+  const loadSourceConcepts = useCallback(async () => {
     const sourceConceptsMap = new Map<string, SourceConceptRaw[]>()
-    for (const p of projects) {
-      const isFile = p.sourceType === 'file' || !!p.fileSourceData
-      if (isFile) {
-        // File project: mount into DuckDB and query
-        if (p.fileSourceData) {
+    await Promise.all(
+      projects.map(async (p) => {
+        const isFile = p.sourceType === 'file' || !!p.fileSourceData
+        if (isFile) {
+          if (!p.fileSourceData) return
           try {
             await mountFileSourceIntoDuckDB(p.id, p.fileSourceData.rows, p.fileSourceData.columnMapping, p.fileSourceData.rawFileBuffer)
             const dsId = fileSourceDataSourceId(p.id)
@@ -436,23 +464,15 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
               if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
             }
             sourceConceptsMap.set(p.id, Array.from(seen.values()))
-          } catch {
-            // If mount/query fails, skip
-          }
+          } catch { /* skip on mount/query failure */ }
+          return
         }
-        continue
-      }
-      const ds = dataSources.find((d) => d.id === p.dataSourceId)
-      if (!ds?.schemaMapping) continue
-      try {
-        await ensureMounted(ds.id)
-        const countSql = buildSourceConceptsCountQuery(ds.schemaMapping, {})
-        if (countSql) {
-          const [row] = await queryDataSource(ds.id, countSql)
-          totalsMap.set(p.id, Number(row?.total ?? 0))
-        }
-        const allSql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-        if (allSql) {
+        const ds = dataSources.find((d) => d.id === p.dataSourceId)
+        if (!ds?.schemaMapping) return
+        try {
+          await ensureMounted(ds.id)
+          const allSql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
+          if (!allSql) return
           const rows = await queryDataSource(ds.id, allSql)
           sourceConceptsMap.set(p.id, rows.map((row) => ({
             concept_id: Number(row.concept_id ?? 0),
@@ -460,15 +480,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             concept_code: String(row.concept_code || row.concept_id || ''),
             vocabulary_id: String(row.vocabulary_id ?? ds.id),
           })))
-        }
-      } catch {
-        // If DuckDB unavailable, fall back to empty
-      }
-    }
-    setDbProjectTotals(totalsMap)
+        } catch { /* skip if DuckDB unavailable */ }
+      }),
+    )
     setAllSourceConceptsByProject(sourceConceptsMap)
-
-    setLoadingMappings(false)
   }, [projects, dataSources, ensureMounted])
 
   // Load registry entries for this workspace (used in table + export)
@@ -547,6 +562,18 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   useEffect(() => {
     if (activeTab === 'table' || activeTab === 'export') loadRegistry()
   }, [activeTab, loadRegistry])
+
+  // Load the heavy source-concept rows lazily, only when the Table/Export tab is
+  // first opened (the Summary tab needs only the counts loaded above). Reloads
+  // if the project set changes.
+  const sourceConceptsLoadedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (activeTab !== 'table' && activeTab !== 'export') return
+    const key = projects.map((p) => p.id).join(',')
+    if (sourceConceptsLoadedRef.current === key) return
+    sourceConceptsLoadedRef.current = key
+    void loadSourceConcepts()
+  }, [activeTab, projects, loadSourceConcepts])
 
   // Populate DuckDB table the first time the user opens the Table tab, or when
   // the underlying data / grouping changes. We do NOT re-populate on every tab
