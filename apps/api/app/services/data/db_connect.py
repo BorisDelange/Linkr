@@ -8,8 +8,11 @@ never stored: it lives only for the duration of the connection.
 """
 
 import datetime
+import os
 import re
+from collections.abc import Callable
 from decimal import Decimal
+from pathlib import Path
 
 import duckdb
 
@@ -389,6 +392,104 @@ def query_parquet_folder(
     return connection_pool.run_pooled(
         pool_key, _setup, lambda con: _run_statements(con, search_path, sql)
     )
+
+
+def _source_setup(
+    config: dict,
+    password: str | None,
+    files: list[tuple[str, str]] | None,
+    known: list[str] | None,
+) -> tuple[Callable[[], duckdb.DuckDBPyConnection], str]:
+    """Return a (setup, search_path) pair that connects to the source and makes
+    its tables resolvable by bare name — the same wiring query_external/query_file/
+    query_parquet_folder use, factored out so materialize_parquet can reuse it."""
+    engine = config.get("engine")
+    if engine in ("postgresql", "mysql"):
+        spec = _engine_spec(config)
+        scope = _scope(config)
+
+        def _setup_ext() -> duckdb.DuckDBPyConnection:
+            con = _connect(spec["extension"])
+            _attach(con, config, password)
+            return con
+
+        return _setup_ext, f"memory,{_ATTACH_ALIAS}.{scope}"
+
+    if not files:
+        raise ValueError("no files for file/parquet source materialization")
+
+    if len(files) > 1 or any(
+        f.lower().endswith((".parquet", ".pq")) for f, _ in files
+    ):
+        groups = _group_parquet(files, known or [])
+
+        def _setup_pq() -> duckdb.DuckDBPyConnection:
+            con = duckdb.connect()
+            con.execute(f"SET extension_directory = '{_ext_dir()}'")
+            _attach_parquet_views(con, groups)
+            return con
+
+        return _setup_pq, f"{_ATTACH_ALIAS},memory"
+
+    path = files[0][1]
+
+    def _setup_file() -> duckdb.DuckDBPyConnection:
+        con = duckdb.connect()
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        _attach_file(con, str(engine), path)
+        return con
+
+    return _setup_file, f"memory,{_ATTACH_ALIAS}"
+
+
+def materialize_parquet(
+    config: dict,
+    password: str | None,
+    files: list[tuple[str, str]] | None,
+    known: list[str] | None,
+    select_sql: str,
+    dest_path: str,
+) -> None:
+    """Run `select_sql` against the source and write the full result to a Parquet
+    file at `dest_path`, via a one-shot (non-pooled) connection.
+
+    Non-pooled on purpose: this can be a long full scan, and using the source's
+    pooled connection (keyed by source id) would serialise — and thus block — every
+    normal page query on that source for the whole materialization. A throwaway
+    connection lets refresh run alongside reads.
+
+    Written to a temp file then atomically renamed over `dest_path`, so concurrent
+    readers always see either the previous complete cache or the new one — never a
+    half-written file.
+    """
+    setup, search_path = _source_setup(config, password, files, known)
+    dest = Path(dest_path)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}")
+    con = setup()
+    try:
+        con.execute(f"SET search_path='{search_path}'")
+        con.execute(
+            f"COPY ({select_sql}) TO '{tmp.as_posix()}' (FORMAT PARQUET)"
+        )
+        tmp.replace(dest)
+    finally:
+        con.close()
+        tmp.unlink(missing_ok=True)
+
+
+def query_cached_parquet(path: str, sql: str) -> list[dict]:
+    """Run read-only SQL against a materialized cache Parquet exposed as the view
+    `concepts` — the table name the page query references."""
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        con.execute(
+            f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{path}')"
+        )
+        return _run_statements(con, "memory", sql)
+    finally:
+        con.close()
 
 
 def introspect_parquet_folder(

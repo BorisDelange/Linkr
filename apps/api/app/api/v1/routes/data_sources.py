@@ -7,6 +7,14 @@ from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_role
 from app.models.data_source import DataSource
 from app.models.user import User
+from app.schemas.concept_cache import (
+    ConceptCacheRefreshRequest,
+    ConceptCacheStatus,
+    ConceptPageRequest,
+    ConceptPageResult,
+    ConceptStatsResponse,
+    ConceptStatsSave,
+)
 from app.schemas.data_source import (
     DataSourceCreate,
     DataSourceFileImportRequest,
@@ -19,7 +27,12 @@ from app.schemas.data_source import (
     TestConnectionRequest,
     TestConnectionResult,
 )
-from app.services import blob_store, data_source_service
+from app.services import (
+    blob_store,
+    concept_stats_cache_service,
+    data_source_service,
+)
+from app.services.data import concept_cache_fs
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -219,6 +232,92 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "viewer")
     return await data_source_service.introspect(db, source)
+
+
+@router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)
+async def concept_cache_status(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Whether the source has a materialized concept-list cache, and its "last
+    refreshed" time (the Parquet file's mtime)."""
+    await _load_source(db, source_id, user, "viewer")
+    return ConceptCacheStatus(
+        exists=concept_cache_fs.exists(source_id),
+        refreshed_at=concept_cache_fs.refreshed_at(source_id),
+    )
+
+
+@router.post("/{source_id}/concept-cache/refresh", response_model=ConceptCacheStatus)
+async def refresh_concept_cache(
+    source_id: str,
+    body: ConceptCacheRefreshRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Materialize the concept list to Parquet (shared across users). Editor role,
+    since it writes shared state. Atomic: readers keep seeing the old cache until
+    the new one is in place."""
+    source = await _load_source(db, source_id, user, "editor")
+    try:
+        mtime = await data_source_service.refresh_concept_cache(db, source, body.select_sql)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return ConceptCacheStatus(exists=True, refreshed_at=mtime)
+
+
+@router.post("/{source_id}/concept-cache/query", response_model=ConceptPageResult)
+async def query_concept_cache(
+    source_id: str,
+    body: ConceptPageRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run a page/filter/sort query against the cached concept Parquet (view
+    `concepts`). 404 if the cache has not been built yet."""
+    await _load_source(db, source_id, user, "viewer")
+    try:
+        rows = await data_source_service.query_concept_cache(source_id, body.sql)
+    except FileNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    return ConceptPageResult(rows=rows)
+
+
+@router.get(
+    "/{source_id}/concept-stats/{concept_id}", response_model=ConceptStatsResponse
+)
+async def get_concept_stats(
+    source_id: str,
+    concept_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Shared cached detail-panel stats for one concept. 404 until first computed."""
+    await _load_source(db, source_id, user, "viewer")
+    row = await concept_stats_cache_service.get(db, source_id, concept_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
+    return row
+
+
+@router.put(
+    "/{source_id}/concept-stats/{concept_id}", response_model=ConceptStatsResponse
+)
+async def save_concept_stats(
+    source_id: str,
+    concept_id: int,
+    body: ConceptStatsSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Persist the stats a client computed for one concept, sharing them."""
+    await _load_source(db, source_id, user, "editor")
+    return await concept_stats_cache_service.save(db, source_id, concept_id, body.stats)
 
 
 @router.get("/{source_id}/files", response_model=list[DataSourceFileResponse])
