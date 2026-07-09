@@ -119,7 +119,12 @@ async def execute_code(
         # With a project context, reuse a persistent kernel so variables survive
         # between runs (§07). Context-less runs stay stateless one-shots.
         if body.language in ("python", "r") and body.project_uid:
-            k = await kernel.manager.get(body.project_uid, body.language, body.env_id)
+            try:
+                k = await kernel.manager.get(
+                    body.project_uid, body.language, body.env_id, user.id
+                )
+            except kernel.KernelLimitReached as e:
+                raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
             out = await k.execute(code, query_resolver=resolver)
         elif body.language == "python":
             out = await runtime.run_python(code)
@@ -185,7 +190,8 @@ async def _make_ws_resolver(connection_id: str | None):
 
 
 async def _terminal_kernel_loop(
-    websocket: WebSocket, project_uid: str, language: str, env_id: str, connection_id: str | None
+    websocket: WebSocket, project_uid: str, language: str, env_id: str,
+    connection_id: str | None, user_id: int,
 ) -> None:
     """REPL over a persistent R/Python kernel: each {code} message streams
     stdout/stderr chunks back live, then a {done} with figures/table. {interrupt}
@@ -194,7 +200,12 @@ async def _terminal_kernel_loop(
     A run must not block the receive loop, or the {interrupt} that should stop it
     would sit unread until the run finished. So each {code} runs as its own task
     while the loop keeps reading, letting {interrupt} fire mid-run."""
-    k = await kernel.manager.get(project_uid, language, env_id)
+    try:
+        k = await kernel.manager.get(project_uid, language, env_id, user_id)
+    except kernel.KernelLimitReached as e:
+        await websocket.send_json({"type": "error", "data": str(e)})
+        await websocket.close()
+        return
     resolver = await _make_ws_resolver(connection_id)
 
     async def on_chunk(kind: str, data: str) -> None:
@@ -305,7 +316,9 @@ async def terminal_ws(websocket: WebSocket):
         else:
             env_id = websocket.query_params.get("envId", "default")
             connection_id = websocket.query_params.get("connectionId")
-            await _terminal_kernel_loop(websocket, project_uid, language, env_id, connection_id)
+            await _terminal_kernel_loop(
+                websocket, project_uid, language, env_id, connection_id, user.id
+            )
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001 — a broken terminal must not crash the worker

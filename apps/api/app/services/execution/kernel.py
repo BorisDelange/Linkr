@@ -23,11 +23,39 @@ import asyncio
 import base64
 import json
 import signal
+import subprocess
+import time
 
 from typing import Awaitable, Callable
 
 from app.config import settings
 from app.services.execution.runtime import RuntimeOutput, ExecutionError
+
+
+def _read_rss_kb(pid: int) -> int | None:
+    """Resident set size (KB) of a process, without a psutil dependency.
+
+    Reads /proc on Linux (the production Docker image) and falls back to `ps` on
+    macOS/dev. Returns None if the process is gone or unreadable — RSS is
+    best-effort monitoring, never load-bearing."""
+    try:
+        with open(f"/proc/{pid}/statm") as f:
+            # Fields are in pages; column 2 (resident) × page size.
+            resident_pages = int(f.read().split()[1])
+        import resource
+
+        return resident_pages * (resource.getpagesize() // 1024)
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        out = subprocess.run(
+            ["ps", "-o", "rss=", "-p", str(pid)],
+            capture_output=True, text=True, timeout=2,
+        )
+        val = out.stdout.strip()
+        return int(val) if val else None
+    except (subprocess.SubprocessError, ValueError):
+        return None
 
 # Callback invoked with (kind, data) for each incremental output chunk, where
 # kind is "stdout" or "stderr". May be sync or async.
@@ -252,6 +280,22 @@ class Kernel:
         self._proc: asyncio.subprocess.Process | None = None
         self._lock = asyncio.Lock()
         self.busy = False
+        # Monotonic timestamp of the last run — drives the idle-timeout sweep and
+        # the footer's "last active" display. Seeded at creation so a just-started
+        # kernel isn't immediately considered idle.
+        self.last_activity = time.monotonic()
+
+    @property
+    def pid(self) -> int | None:
+        return self._proc.pid if self._proc is not None and self._proc.returncode is None else None
+
+    @property
+    def rss_kb(self) -> int | None:
+        pid = self.pid
+        return _read_rss_kb(pid) if pid is not None else None
+
+    def idle_seconds(self) -> float:
+        return time.monotonic() - self.last_activity
 
     async def _ensure_started(self) -> asyncio.subprocess.Process:
         if self._proc is not None and self._proc.returncode is None:
@@ -313,6 +357,7 @@ class Kernel:
         `query_resolver(sql)` mid-run. One execution at a time per kernel."""
         async with self._lock:
             self.busy = True
+            self.last_activity = time.monotonic()
             try:
                 # A dead subprocess (crashed on a prior run) leaves a broken stdin
                 # pipe; restart once so a single failure doesn't poison every future
@@ -330,6 +375,7 @@ class Kernel:
                 ) from e
             finally:
                 self.busy = False
+                self.last_activity = time.monotonic()
 
         if done is None:
             await self.shutdown()
@@ -392,26 +438,75 @@ class Kernel:
             shutil.rmtree(self._cwd, ignore_errors=True)
 
 
+class KernelLimitReached(Exception):
+    """A user has hit max_sessions_per_user concurrent R/Python kernels."""
+
+
 class KernelManager:
-    """Holds live kernels keyed by (project_uid, language, env_id)."""
+    """Holds live kernels keyed by (project_uid, language, env_id).
+
+    Idle kernels are evicted after ``session_timeout_minutes`` (their process is
+    a long-lived interpreter holding memory), and the number of concurrent
+    kernels per user is capped at ``max_sessions_per_user`` — the same limits the
+    PTY shells enforce, so a user cannot pin unbounded server processes."""
 
     def __init__(self):
         self._kernels: dict[tuple[str, str, str], Kernel] = {}
+        self._owner: dict[tuple[str, str, str], int] = {}
         self._lock = asyncio.Lock()
 
-    async def get(self, project_uid: str, language: str, env_id: str) -> Kernel:
+    def _timeout_seconds(self) -> float:
+        return settings.session_timeout_minutes * 60
+
+    def _sweep_idle_locked(self) -> list[Kernel]:
+        """Drop kernels idle past the timeout. Caller holds the lock; returns the
+        evicted kernels to shut down outside it (shutdown awaits the process)."""
+        timeout = self._timeout_seconds()
+        if timeout <= 0:
+            return []
+        evicted: list[Kernel] = []
+        for key in list(self._kernels):
+            kernel = self._kernels[key]
+            if not kernel.busy and kernel.idle_seconds() > timeout:
+                evicted.append(kernel)
+                del self._kernels[key]
+                self._owner.pop(key, None)
+        return evicted
+
+    def _count_for_user(self, user_id: int) -> int:
+        return sum(1 for uid in self._owner.values() if uid == user_id)
+
+    async def get(
+        self, project_uid: str, language: str, env_id: str, user_id: int | None = None
+    ) -> Kernel:
         key = (project_uid, language, env_id)
         async with self._lock:
+            to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
             if kernel is None:
+                if (
+                    user_id is not None
+                    and self._count_for_user(user_id) >= settings.max_sessions_per_user
+                ):
+                    # Shut evicted kernels before raising so we don't leak them.
+                    for k in to_shutdown:
+                        await k.shutdown()
+                    raise KernelLimitReached(
+                        f"Kernel session limit reached ({settings.max_sessions_per_user})."
+                    )
                 kernel = self._make(language, project_uid)
                 self._kernels[key] = kernel
-            return kernel
+                if user_id is not None:
+                    self._owner[key] = user_id
+        for k in to_shutdown:
+            await k.shutdown()
+        return kernel
 
     async def restart(self, project_uid: str, language: str, env_id: str) -> None:
         key = (project_uid, language, env_id)
         async with self._lock:
             kernel = self._kernels.pop(key, None)
+            self._owner.pop(key, None)
         if kernel is not None:
             await kernel.shutdown()
 
@@ -419,17 +514,22 @@ class KernelManager:
         async with self._lock:
             kernels = list(self._kernels.values())
             self._kernels.clear()
+            self._owner.clear()
         for k in kernels:
             await k.shutdown()
 
     def list_for_project(self, project_uid: str) -> list[dict]:
-        """Live kernels for a project: their language, env, and running/busy state."""
+        """Live kernels for a project: language, env, running/busy state, and
+        monitoring (pid, resident memory KB, idle seconds) for the footer."""
         return [
             {
                 "language": lang,
                 "envId": env,
                 "alive": kernel.alive,
                 "busy": kernel.busy,
+                "pid": kernel.pid,
+                "rssKb": kernel.rss_kb,
+                "idleSeconds": round(kernel.idle_seconds()),
             }
             for (proj, lang, env), kernel in self._kernels.items()
             if proj == project_uid
