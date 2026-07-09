@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Code2, ArrowLeft, Database, TriangleAlert } from 'lucide-react'
+import { ArrowLeft, Database, TriangleAlert } from 'lucide-react'
+import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { cn } from '@/lib/utils'
 import type { DashboardWidgetSource } from '@/types'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -213,7 +214,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     resetAndClose()
   }
 
-  const doAddInline = (language: 'python' | 'r' | 'sql') => {
+  const doAddInline = (language: 'python' | 'r') => {
     const source: DashboardWidgetSource = {
       type: 'inline',
       language,
@@ -225,7 +226,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     resetAndClose()
   }
 
-  const handleAddInline = (language: 'python' | 'r' | 'sql') => {
+  const handleAddInline = (language: 'python' | 'r') => {
     if (!datasetFileId) {
       setPendingAction(() => () => doAddInline(language))
     } else {
@@ -433,17 +434,22 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
           </TabsContent>
 
           <TabsContent value="inline" className="mt-3">
-            <div className="grid grid-cols-3 gap-3">
-              {(['python', 'r', 'sql'] as const).map((lang) => (
+            {/* SQL is intentionally omitted: sql_query() targets a DB connection, and datasets
+                are file-based at this stage — a SQL widget has nothing to query. */}
+            <div className="grid grid-cols-2 gap-3">
+              {([
+                { lang: 'python', label: 'Python', Icon: PythonLogo },
+                { lang: 'r', label: 'R', Icon: RLogo },
+              ] as const).map(({ lang, label, Icon }) => (
                 <button
                   key={lang}
                   onClick={() => handleAddInline(lang)}
                   className="flex flex-col items-center gap-2 rounded-lg border p-4 text-center transition-colors hover:bg-accent/50"
                 >
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <Code2 size={20} className="text-amber-500" />
+                    <Icon size={22} />
                   </div>
-                  <p className="text-sm font-medium">{lang.toUpperCase()}</p>
+                  <p className="text-sm font-medium">{label}</p>
                 </button>
               ))}
             </div>
