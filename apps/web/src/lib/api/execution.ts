@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
+import { useSessionStore } from '@/stores/session-store'
 import type { RuntimeLanguage, RuntimeOutput } from '@/lib/runtimes/types'
 
 /**
@@ -23,13 +24,21 @@ export function executeOnServer(
   // with a project context; analysis components don't pass projectUid, so default
   // it to the active project. Also scopes the persistent kernel per project.
   const projectUid = opts?.projectUid ?? useAppStore.getState().activeProjectUid ?? null
+  // The server refuses context-less runs (no workspace/project scope). Fail here
+  // with a clear message rather than sending a request that can only 400.
+  if (!projectUid) throw new Error('Cannot run code without an active project')
+  // Default to the project's active session so runs land in the namespace the
+  // user selected in the Session dropdown (unless a caller pins an explicit env).
+  const envId =
+    opts?.envId ??
+    (projectUid ? useSessionStore.getState().getActiveSessionId(projectUid) : 'default')
   return apiRequest<RuntimeOutput>('/execute', {
     method: 'POST',
     body: JSON.stringify({
       language,
       code,
       projectUid,
-      envId: opts?.envId ?? 'default',
+      envId,
       datasetFileId: opts?.datasetFileId ?? null,
       connectionId: opts?.connectionId ?? null,
       datasetFilters: opts?.datasetFilters ?? null,

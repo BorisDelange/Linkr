@@ -2061,6 +2061,13 @@
     "preset_rstudio": "RStudio",
     "preset_jupyter": "Jupyter"
   },
+  "sessions": {
+    "title": "Session",
+    "default": "Default",
+    "new": "New session",
+    "name_placeholder": "Session name",
+    "delete": "Delete session"
+  },
   "connections": {
     "title": "Connections",
     "warehouse_databases": "Warehouse databases",

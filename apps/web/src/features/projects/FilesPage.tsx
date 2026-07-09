@@ -85,6 +85,7 @@ import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
+import { SessionDropdown } from '@/components/execution/SessionDropdown'
 import { TerminalPane } from './files/TerminalPane'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
@@ -904,6 +905,10 @@ export function FilesPage() {
                       language={selectedLanguage as 'python' | 'r' | undefined}
                       projectUid={activeProjectUid ?? undefined}
                     />
+                    {/* Session (kernel namespace) selector — server mode, R/Python only. */}
+                    {(selectedLanguage === 'python' || selectedLanguage === 'r') && activeProjectUid && (
+                      <SessionDropdown projectUid={activeProjectUid} />
+                    )}
                     {isSql && activeConnectionId && (
                       <Tooltip>
                         <TooltipTrigger asChild>

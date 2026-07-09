@@ -23,6 +23,8 @@ interface TerminalPanelProps {
   /** Present in full-stack mode: routes execution to the project's server kernel
    * (python/r) or a PTY shell (bash) over a WebSocket instead of WASM. */
   projectUid?: string
+  /** Kernel namespace (session) for python/r REPLs. Ignored for bash. */
+  envId?: string
 }
 
 async function executePythonRepl(code: string): Promise<{ stdout: string; stderr: string }> {
@@ -111,7 +113,7 @@ const terminalThemes = {
   },
 }
 
-export function TerminalPanel({ terminalType = 'bash', onData, projectUid }: TerminalPanelProps) {
+export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId }: TerminalPanelProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -250,7 +252,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid }: Ter
     // WASM engines below are the front-only path. Chunks stream in live.
     if (serverMode && (terminalType === 'python' || terminalType === 'r')) {
       socket = new TerminalSocket(
-        { projectUid: projectUid!, language: terminalType },
+        { projectUid: projectUid!, language: terminalType, envId },
         {
           onMessage: (msg) => {
             if ((msg.type === 'stdout' || msg.type === 'output') && msg.data) {
@@ -429,7 +431,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid }: Ter
     })
 
     return teardown
-  }, [terminalType, onData, projectUid, t])
+  }, [terminalType, onData, projectUid, envId, t])
 
   return (
     <div
