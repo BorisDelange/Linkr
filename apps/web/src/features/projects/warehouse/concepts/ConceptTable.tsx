@@ -475,7 +475,7 @@ export function ConceptTable({
               ) : table.getRowModel().rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={table.getVisibleLeafColumns().length} className="h-24 text-center text-sm text-muted-foreground">
-                    {t('concepts.stats_no_records')}
+                    {t('concepts.no_concepts')}
                   </TableCell>
                 </TableRow>
               ) : (

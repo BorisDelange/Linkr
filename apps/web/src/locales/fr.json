@@ -463,6 +463,7 @@
     "stats_row_count": "Enregistrements",
     "stats_loading": "Calcul des statistiques...",
     "stats_no_records": "Aucun enregistrement trouvé pour ce concept.",
+    "no_concepts": "Aucun concept trouvé.",
     "stats_value_distribution": "Distribution des valeurs",
     "stats_min": "Min",
     "stats_max": "Max",
