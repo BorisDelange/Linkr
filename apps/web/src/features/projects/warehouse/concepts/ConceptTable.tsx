@@ -97,6 +97,16 @@ interface ConceptTableProps {
 // Sub-components
 // ---------------------------------------------------------------------------
 
+/** A count cell: the number when known, or a dash when the cache holds no count
+ * for this concept yet. Refresh replaces the cache atomically, so a cell never
+ * shows a partial/blank state mid-refresh — it keeps the previous value. */
+function CountCell({ value }: { value: number | undefined }) {
+  if (value !== undefined && value !== null) {
+    return <span className="tabular-nums">{Number(value).toLocaleString()}</span>
+  }
+  return <span className="text-muted-foreground">—</span>
+}
+
 function ColumnFilterSelect({
   value,
   options,
@@ -279,9 +289,7 @@ export function ConceptTable({
             header: () => t('concepts.column_records'),
             accessorFn: (row) => row.record_count,
             cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.record_count ?? 0).toLocaleString()}
-              </span>
+              <CountCell value={row.original.record_count as number | undefined} />
             ),
             size: 90,
             minSize: 60,
@@ -293,9 +301,7 @@ export function ConceptTable({
             header: () => t('concepts.column_patients'),
             accessorFn: (row) => row.patient_count,
             cell: ({ row }) => (
-              <span className="tabular-nums">
-                {Number(row.original.patient_count ?? 0).toLocaleString()}
-              </span>
+              <CountCell value={row.original.patient_count as number | undefined} />
             ),
             size: 90,
             minSize: 60,

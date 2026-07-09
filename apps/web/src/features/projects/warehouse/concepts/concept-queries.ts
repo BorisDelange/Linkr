@@ -205,8 +205,12 @@ function buildSelectForDict(
   filters: ConceptFilters,
   _multiDict: boolean,
   mapping: SchemaMapping,
+  withCounts: boolean,
 ): string | null {
-  const countsSubquery = buildCountsSubquery(mapping, dict.key)
+  // When counts are streamed/cached separately, skip the expensive GROUP-BY join
+  // so the list renders immediately; record/patient counts fall back to 0 and are
+  // filled in client-side from the count cache.
+  const countsSubquery = withCounts ? buildCountsSubquery(mapping, dict.key) : null
   const hasCounts = countsSubquery !== null
   const where = buildWhereClause(dict, filters, allColumns, 'c')
 
@@ -252,6 +256,7 @@ export function buildConceptsQuery(
   page: number,
   pageSize: number,
   sorting?: ConceptSorting | null,
+  withCounts = true,
 ): string | null {
   const dicts = mapping.conceptTables
   if (!dicts || dicts.length === 0) return null
@@ -268,7 +273,7 @@ export function buildConceptsQuery(
   if (activeDicts.length === 0) return null
 
   const subQueries = activeDicts
-    .map((d) => buildSelectForDict(d, allColumns, filters, multiDict, mapping))
+    .map((d) => buildSelectForDict(d, allColumns, filters, multiDict, mapping, withCounts))
     .filter(Boolean)
 
   if (subQueries.length === 0) return null
@@ -287,6 +292,24 @@ export function buildConceptsQuery(
   return `SELECT * FROM (
   ${subQueries.join('\n  UNION ALL\n  ')}
 ) _union ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${offset}`
+}
+
+/** The full (unpaginated, unfiltered) enriched list with counts — the SELECT
+ * materialized to the server-side Parquet cache. Its output columns are the
+ * stable aliases the cache page queries then read. */
+export function buildConceptsMaterializeQuery(
+  mapping: SchemaMapping,
+  allColumns: ColumnDescriptor[],
+): string | null {
+  const dicts = mapping.conceptTables
+  if (!dicts || dicts.length === 0) return null
+  const multiDict = dicts.length > 1
+  const subQueries = dicts
+    .map((d) => buildSelectForDict(d, allColumns, EMPTY_FILTERS, multiDict, mapping, true))
+    .filter(Boolean)
+  if (subQueries.length === 0) return null
+  if (subQueries.length === 1) return subQueries[0] as string
+  return subQueries.join('\n  UNION ALL\n  ')
 }
 
 export function buildConceptsCountQuery(
@@ -342,6 +365,81 @@ export function buildFilterOptionsQuery(
   if (parts.length === 0) return null
   if (parts.length === 1) return `${parts[0]} ORDER BY val`
   return `SELECT DISTINCT val FROM (${parts.join(' UNION ALL ')}) _opts ORDER BY val`
+}
+
+// ---------------------------------------------------------------------------
+// Queries against the materialized flat Parquet cache (server mode)
+//
+// The cache is one row per concept with the stable alias columns
+// (concept_id, concept_name, record_count, …), exposed server-side as the view
+// `concepts`. Filters/sort/search are therefore plain single-table predicates on
+// those aliases — much simpler than the source multi-table SQL. `withCounts` is
+// irrelevant here (counts are already materialized as columns).
+// ---------------------------------------------------------------------------
+
+/** WHERE clause over the flat cache columns (mirrors buildWhereClause's filters
+ * but against the stable aliases, single table). */
+function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]): string {
+  const conditions: string[] = []
+
+  const searchId = filters._searchId
+  if (searchId?.trim()) {
+    conditions.push(`CAST("concept_id" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
+  }
+
+  const searchText = filters._searchText
+  if (searchText?.trim()) {
+    const words = searchText.trim().split(/\s+/).filter(Boolean)
+    const parts = words.map((w) => `"concept_name" ILIKE '%${esc(w)}%'`)
+    if (parts.length) conditions.push(`(${parts.join(' AND ')})`)
+  }
+
+  const searchCode = filters._searchCode
+  if (searchCode?.trim()) {
+    conditions.push(`"concept_code" ILIKE '%${esc(searchCode.trim())}%'`)
+  }
+
+  const dictKey = filters._dict_key
+  if (dictKey) conditions.push(`"_dict_key" = '${esc(dictKey)}'`)
+
+  for (const col of allColumns) {
+    if (!col.filterable) continue
+    const v = filters[col.id]
+    if (!v) continue
+    if (col.id === '_dict_key') continue
+    conditions.push(`"${col.id}" = '${esc(v)}'`)
+  }
+
+  return conditions.length ? 'WHERE ' + conditions.join(' AND ') : ''
+}
+
+export function buildCachePageQuery(
+  filters: ConceptFilters,
+  allColumns: ColumnDescriptor[],
+  page: number,
+  pageSize: number,
+  sorting?: ConceptSorting | null,
+): string {
+  const where = buildCacheWhere(filters, allColumns)
+  const orderBy = sorting
+    ? `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
+    : 'concept_id'
+  return `SELECT * FROM concepts ${where} ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${page * pageSize}`
+}
+
+export function buildCacheCountQuery(
+  filters: ConceptFilters,
+  allColumns: ColumnDescriptor[],
+): string {
+  return `SELECT COUNT(*)::INTEGER AS cnt FROM concepts ${buildCacheWhere(filters, allColumns)}`
+}
+
+export function buildCacheFilterOptionsQuery(columnId: string): string {
+  return `SELECT DISTINCT "${columnId}" AS val FROM concepts WHERE "${columnId}" IS NOT NULL ORDER BY val`
+}
+
+export function buildCacheDetailQuery(conceptId: number): string {
+  return `SELECT * FROM concepts WHERE concept_id = ${conceptId} LIMIT 1`
 }
 
 // ---------------------------------------------------------------------------
@@ -429,6 +527,16 @@ FROM (
   ${parts.join('\n  UNION ALL\n  ')}
 ) sub
 GROUP BY cid`
+}
+
+/** All concept ids of a dictionary (the id list to compute counts for on refresh). */
+export function buildAllConceptIdsQuery(
+  mapping: SchemaMapping,
+  dictKey: string,
+): string | null {
+  const dict = mapping.conceptTables?.find((d) => d.key === dictKey)
+  if (!dict) return null
+  return `SELECT "${dict.idColumn}" AS concept_id FROM "${dict.table}"`
 }
 
 // ---------------------------------------------------------------------------

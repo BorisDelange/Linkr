@@ -1,16 +1,29 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
+import { isServerMode } from '@/lib/api-client'
+import {
+  getConceptCacheStatus,
+  refreshConceptCache,
+  queryConceptCache,
+  getConceptStats,
+  saveConceptStats,
+} from '@/lib/api/concept-cache'
 import type { SchemaMapping } from '@/types'
 import {
   computeAvailableColumns,
   buildFilterOptionsQuery,
   buildConceptsQuery,
   buildConceptsCountQuery,
+  buildConceptsMaterializeQuery,
   buildConceptFullQuery,
   buildDomainCountQuery,
   buildValueDistributionQuery,
   buildValueHistogramQuery,
   hasValueColumnForDict,
+  buildCachePageQuery,
+  buildCacheCountQuery,
+  buildCacheFilterOptionsQuery,
+  buildCacheDetailQuery,
   EMPTY_FILTERS,
 } from './concept-queries'
 import type { ConceptFilters, ConceptSorting } from './concept-queries'
@@ -88,7 +101,6 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [concepts, setConcepts] = useState<ConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [isLoading, setIsLoading] = useState(false)
-  const [refreshTick, setRefreshTick] = useState(0)
 
   const resultCache = useRef<Map<string, CachedResult>>(cached?.resultCache ?? new Map())
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
@@ -99,6 +111,15 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
 
   const statsCache = useRef<Map<number, ConceptStats>>(cached?.statsCache ?? new Map())
+
+  // Server mode: the concept list (with counts) is materialized to a shared
+  // Parquet cache; the page reads from it. `cacheReady` gates page queries on the
+  // cache existing; `lastRefreshed` is its file mtime; `countsRefreshing` drives
+  // the Refresh spinner. Front-only mode ignores all this (queries the source).
+  const [cacheReady, setCacheReady] = useState(false)
+  const [lastRefreshed, setLastRefreshed] = useState<string | null>(null)
+  const [countsRefreshing, setCountsRefreshing] = useState(false)
+  const refreshToken = useRef(0)
 
   // The concept whose stats are the ones we currently want shown. A slow load
   // for a previously-clicked concept must not clobber a newer selection, and a
@@ -127,6 +148,22 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       }
     }
 
+  }, [dataSourceId])
+
+  // Server mode: check whether the source already has a materialized cache, so
+  // page queries can read it (and the "last refreshed" time is shown). Front-only
+  // needs none of this.
+  useEffect(() => {
+    setCacheReady(false)
+    setLastRefreshed(null)
+    if (!dataSourceId || !isServerMode()) return
+    let cancelled = false
+    getConceptCacheStatus(dataSourceId).then((status) => {
+      if (cancelled) return
+      setCacheReady(status.exists)
+      setLastRefreshed(status.refreshedAt ? new Date(status.refreshedAt * 1000).toISOString() : null)
+    }).catch(() => {})
+    return () => { cancelled = true }
   }, [dataSourceId])
 
   // ---------------------------------------------------------------------------
@@ -197,6 +234,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
+    const server = isServerMode()
+    // Server mode: options come from the cache Parquet (needs it built first).
+    if (server && !cacheReady) return
 
     const loadOptions = async () => {
       try {
@@ -205,9 +245,13 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
         await Promise.all(
           filterableCols.map(async (col) => {
-            const sql = buildFilterOptionsQuery(schemaMapping, col.id)
+            const sql = server
+              ? buildCacheFilterOptionsQuery(col.id)
+              : buildFilterOptionsQuery(schemaMapping, col.id)
             if (!sql) return
-            const rows = await queryDataSource(dataSourceId, sql)
+            const rows = server
+              ? await queryConceptCache(dataSourceId, sql)
+              : await queryDataSource(dataSourceId, sql)
             results[col.id] = rows.map((r) => String(r.val))
           }),
         )
@@ -223,7 +267,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       }
     }
     loadOptions()
-  }, [dataSourceId, schemaMapping, hasConceptTable, availableColumns, dicts])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, availableColumns, dicts])
 
   // ---------------------------------------------------------------------------
   // Load concepts when filters or page change
@@ -232,8 +276,25 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
 
-    const conceptsSql = buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
-    const countSql = buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
+    const server = isServerMode()
+
+    // Server mode: read the page from the materialized Parquet cache (flat table
+    // `concepts`, counts already columns). If no cache exists yet, show nothing —
+    // the user builds it with Refresh. Front-only: query the source directly, with
+    // counts computed inline (fast in-browser DuckDB-WASM).
+    if (server && !cacheReady) {
+      setConcepts([])
+      setTotalCount(0)
+      setIsLoading(false)
+      return
+    }
+
+    const conceptsSql = server
+      ? buildCachePageQuery(effectiveFilters, availableColumns, page, pageSize, sorting)
+      : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting, true)
+    const countSql = server
+      ? buildCacheCountQuery(effectiveFilters, availableColumns)
+      : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
     if (!conceptsSql || !countSql) {
       setConcepts([])
       setTotalCount(0)
@@ -252,14 +313,14 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       return
     }
 
+    const run = (sql: string) =>
+      server ? queryConceptCache(dataSourceId, sql) : queryDataSource(dataSourceId, sql)
+
     let cancelled = false
     const load = async () => {
       setIsLoading(true)
       try {
-        const [rows, countResult] = await Promise.all([
-          queryDataSource(dataSourceId, conceptsSql),
-          queryDataSource(dataSourceId, countSql),
-        ])
+        const [rows, countResult] = await Promise.all([run(conceptsSql), run(countSql)])
         if (cancelled) return
         const loadedConcepts = rows as unknown as ConceptRow[]
         const loadedTotal = Number(countResult[0]?.cnt ?? 0)
@@ -278,7 +339,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, hasConceptTable, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns, refreshTick])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
 
   // ---------------------------------------------------------------------------
   // Load selected concept details
@@ -297,6 +358,13 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
     const load = async () => {
       try {
+        // Server mode: the concept row is already in the cache Parquet, so the
+        // detail reads from it (no source round-trip). Front-only queries source.
+        if (isServerMode()) {
+          const rows = await queryConceptCache(dataSourceId, buildCacheDetailQuery(selectedConceptId))
+          if (rows.length > 0) setSelectedConcept(rows[0] as Record<string, unknown>)
+          return
+        }
         const sql = buildConceptFullQuery(schemaMapping, selectedConceptId, dictKey)
         if (!sql) return
         const rows = await queryDataSource(dataSourceId, sql)
@@ -332,6 +400,25 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     }
 
     setConceptStatsLoading(true)
+
+    // Server mode: check the shared server cache first — another user may have
+    // already computed these stats. On a hit, render without touching the source.
+    if (isServerMode()) {
+      try {
+        const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId)
+        if (shared) {
+          statsCache.current.set(conceptId, shared)
+          if (!isStale()) {
+            setConceptStats(shared)
+            setConceptStatsLoading(false)
+          }
+          return
+        }
+      } catch {
+        // Fall through to compute.
+      }
+    }
+
     try {
       const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
       if (!countSql) {
@@ -366,6 +453,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
       const stats: ConceptStats = { rowCount, distribution, histogram }
       statsCache.current.set(conceptId, stats)
+      // Share the computed stats with every user of this source.
+      if (isServerMode()) {
+        saveConceptStats(dataSourceId, conceptId, stats).catch(() => {})
+      }
       // Only apply if this is still the selected concept — a newer click wins.
       if (!isStale()) setConceptStats(stats)
     } catch (err) {
@@ -392,12 +483,40 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // Actions
   // ---------------------------------------------------------------------------
 
-  const resetCache = useCallback(() => {
+  // Rebuild the shared cache. Server mode: materialize the full enriched list
+  // (concepts + counts) to Parquet on the server, then flip cacheReady so page
+  // queries read from it. The server writes atomically (a temp file swapped in),
+  // so other users keep seeing the previous cache until this one is ready.
+  // Front-only has no server cache — Refresh just clears the volatile caches so
+  // the source is re-queried.
+  const refresh = useCallback(async () => {
+    if (!dataSourceId || !schemaMapping) return
+    const token = ++refreshToken.current
     statsCache.current.clear()
     resultCache.current.clear()
     setConceptStats(null)
-    setRefreshTick((t) => t + 1)
-  }, [])
+
+    if (!isServerMode()) {
+      setCacheReady(false)
+      setCacheReady(true)  // re-trigger the list effect (front-only queries source)
+      return
+    }
+
+    setCountsRefreshing(true)
+    try {
+      const cols = computeAvailableColumns(schemaMapping.conceptTables ?? [])
+      const selectSql = buildConceptsMaterializeQuery(schemaMapping, cols)
+      if (!selectSql) return
+      const status = await refreshConceptCache(dataSourceId, selectSql)
+      if (refreshToken.current !== token) return
+      setLastRefreshed(status.refreshedAt ? new Date(status.refreshedAt * 1000).toISOString() : new Date().toISOString())
+      setCacheReady(true)
+    } catch (err) {
+      console.error('Failed to refresh concept cache:', err)
+    } finally {
+      if (refreshToken.current === token) setCountsRefreshing(false)
+    }
+  }, [dataSourceId, schemaMapping])
 
   const updateFilter = useCallback((key: string, value: string | null) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
@@ -417,6 +536,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   }, [])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+
+  // Server mode with no cache yet: signal it so the page can prompt for a first
+  // Refresh instead of showing an empty table with no explanation.
+  const needsRefresh = concepts.length === 0 && !cacheReady && isServerMode()
 
   return {
     hasConceptTable,
@@ -439,6 +562,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     selectedConcept,
     conceptStats,
     conceptStatsLoading,
-    resetCache,
+    refresh,
+    lastRefreshed,
+    countsRefreshing,
+    needsRefresh,
   }
 }

@@ -290,6 +290,19 @@ export interface DatabaseStatsCache {
   tableCounts: TableRowCount[]
 }
 
+export interface ConceptCountEntry {
+  recordCount: number
+  patientCount: number
+}
+
+/** Shared per-source cache of concept record/patient counts (keyed by concept id
+ * as a string). `computedAt` is the "last refreshed" time. */
+export interface ConceptCountCache {
+  dataSourceId: string
+  computedAt: string
+  counts: Record<string, ConceptCountEntry>
+}
+
 export interface DataSource extends Seedable, Authored {
   id: string
   workspaceId?: string

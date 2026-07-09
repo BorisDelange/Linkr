@@ -17,7 +17,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 const columnVisibilityCache = new Map<string, VisibilityState>()
 
 export function ConceptsPage() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { projectUid: uid } = useResolvedParams()
   const { getActiveSource } = useDataSourceStore()
   const mappedSource = uid ? getActiveSource(uid) : undefined
@@ -43,7 +43,10 @@ export function ConceptsPage() {
     selectedConcept,
     conceptStats,
     conceptStatsLoading,
-    resetCache,
+    refresh,
+    lastRefreshed,
+    countsRefreshing,
+    needsRefresh,
   } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping)
 
   const sourceId = mappedSource?.id
@@ -126,11 +129,46 @@ export function ConceptsPage() {
           <h1 className="text-lg font-semibold">{t('concepts.title')}</h1>
           <p className="text-xs text-muted-foreground">{t('concepts.description')}</p>
         </div>
-        <Button variant="outline" size="sm" className="h-6 gap-1 text-xs" onClick={resetCache}>
-          <RefreshCw size={12} />
-          {t('concepts.cache_reset')}
-        </Button>
+        <div className="flex items-center gap-3">
+          {lastRefreshed && (
+            <span className="text-xs text-muted-foreground">
+              {t('concepts.last_refreshed', {
+                date: new Date(lastRefreshed).toLocaleString(i18n.language, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }),
+              })}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 text-xs"
+            onClick={refresh}
+            disabled={countsRefreshing}
+          >
+            <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
+            {t('concepts.refresh')}
+          </Button>
+        </div>
       </div>
+
+      {/* No cache yet (server mode): prompt to build it. */}
+      {needsRefresh && (
+        <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2">
+          <span className="text-xs text-muted-foreground">{t('concepts.cache_empty')}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 gap-1 text-xs"
+            onClick={refresh}
+            disabled={countsRefreshing}
+          >
+            <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
+            {t('concepts.build_cache')}
+          </Button>
+        </div>
+      )}
 
       {/* Main content: table + detail */}
       <div className="flex-1 overflow-hidden">
