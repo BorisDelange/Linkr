@@ -8,7 +8,11 @@ from starlette.websockets import WebSocketDisconnect
 from app.config import settings
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role, check_workspace_role
+from app.core.permissions import (
+    check_project_role,
+    check_workspace_role,
+    has_project_permission,
+)
 from app.core.ws_auth import authenticate_ws
 from app.models.project import Project
 from app.models.user import User
@@ -45,6 +49,21 @@ async def _require_project_access(
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     await check_project_role(db, project, user, min_role)
+
+
+async def _require_code_execution(
+    db: AsyncSession, project_uid: str, user: User
+) -> None:
+    """Running code / attaching a terminal requires the code-execution:write
+    permission on the project (granted to editor+ by default, but separable so an
+    admin can allow read-everything without letting a role run server-side code)."""
+    project = await db.get(Project, project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    if not await has_project_permission(db, project, user, "code-execution:write"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Code execution not permitted on this project"
+        )
 
 
 async def _require_connection_access(
@@ -111,7 +130,7 @@ async def execute_code(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "project_uid is required to run code"
         )
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_code_execution(db, body.project_uid, user)
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
@@ -178,7 +197,7 @@ async def restart_kernel(
 ):
     """Kill the caller's persistent kernel for (project, language, env) so the
     next run starts with a clean namespace."""
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_code_execution(db, body.project_uid, user)
     await kernel.manager.restart(body.project_uid, user.id, body.language, body.env_id)
 
 
@@ -199,7 +218,7 @@ async def create_session(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_project_access(db, body.project_uid, user, "editor")
+    await _require_code_execution(db, body.project_uid, user)
     return await execution_session_service.create(db, body, user.id)
 
 
@@ -349,11 +368,11 @@ async def terminal_ws(websocket: WebSocket):
         return
 
     # A terminal opens an arbitrary shell/kernel in the project's working dir, so
-    # it requires the same editor membership as running code over HTTP. The HTTP
-    # dependency system doesn't apply to a raw WebSocket, so check explicitly.
+    # it requires the same code-execution permission as running code over HTTP.
+    # The HTTP dependency system doesn't apply to a raw WebSocket, so check here.
     try:
         async with async_session() as db:
-            await _require_project_access(db, project_uid, user, "editor")
+            await _require_code_execution(db, project_uid, user)
     except HTTPException:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

@@ -333,6 +333,33 @@ async def test_execute_forbidden_without_project_membership(client):
             json={"language": "python", "projectUid": uid})).status_code == 403
 
 
+async def test_code_execution_requires_write_not_just_read(client):
+    """A viewer can see the project but cannot run code (code-execution:write is
+    an editor+ permission); an editor can."""
+    admin = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
+    )).json()["uid"]
+    await client.post(f"{API}/users", headers=admin,
+                      json={"username": "val", "password": "pw", "role": "user"})
+    val_id = (await client.get(f"{API}/users", headers=admin)).json()
+    val_id = next(u["id"] for u in val_id if u["username"] == "val")
+    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
+
+    # Viewer: no code execution.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": val_id, "role": "viewer"})
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 403
+
+    # Editor: allowed.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": val_id, "role": "editor"})
+    assert (await client.post(f"{API}/execute", headers=val,
+            json={"language": "python", "code": "print(1)", "projectUid": uid})).status_code == 200
+
+
 # --- Streaming core (execute_stream) -------------------------------------------
 # These exercise the Kernel directly: the terminal (§07d) streams output chunk by
 # chunk, while the batch execute() wrapper (covered by the tests above) proves the

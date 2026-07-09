@@ -7,8 +7,9 @@ path used for external data sources.
 
 Read-only is enforced two ways: only a single SELECT/WITH statement is accepted,
 and it runs in a transaction that is always rolled back, so nothing can be
-written even if a driver would otherwise allow it. Admin-only because the app DB
-holds every table, including password hashes and encrypted connection secrets.
+written even if a driver would otherwise allow it. Gated by the global
+"app-database:read" permission (admin-only by default) because the app DB holds
+every table, including password hashes and encrypted connection secrets.
 """
 
 import datetime
@@ -19,7 +20,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import get_current_admin
+from app.core.permissions import require_global_permission
 from app.models.user import User
 from app.schemas.data_source import (
     IntrospectedColumn,
@@ -90,7 +91,7 @@ def _jsonable(value):
 @router.post("/query", response_model=QueryResult)
 async def query_app_database(
     body: QueryRequest,
-    _admin: User = Depends(get_current_admin),
+    _user: User = Depends(require_global_permission("app-database:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Run a single read-only SELECT against the app's own database."""
@@ -116,7 +117,7 @@ async def query_app_database(
 
 @router.get("/schema", response_model=list[IntrospectedTable])
 async def app_database_schema(
-    _admin: User = Depends(get_current_admin),
+    _user: User = Depends(require_global_permission("app-database:read")),
     db: AsyncSession = Depends(get_db),
 ):
     """Tables + columns of the app's own database (engine-agnostic reflection)."""

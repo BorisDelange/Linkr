@@ -27,13 +27,26 @@ RESOURCES = [
     "concepts",
     "members",
     "organizations",
+    # Running R/Python/SQL server-side in a project. Powerful (a live kernel in
+    # the project dir), so it's its own resource rather than folded into
+    # "datasets" — an admin can grant read-everything without code execution.
+    "code-execution",
+    # Per-project role overrides (project_members). Managed by project owners.
+    "project-members",
 ]
 ACTIONS = ["read", "write", "delete"]
 
 PERMISSIONS = [f"{r}:{a}" for r in RESOURCES for a in ACTIONS]
 
 # Actions that a global admin manages instance-wide.
-GLOBAL_RESOURCES = ["users", "roles", "settings"]
+GLOBAL_RESOURCES = [
+    "users",
+    "roles",
+    "settings",
+    # Read-only SQL against the app's OWN database (Settings → Application
+    # database). Holds every table incl. password hashes, so it's admin-tier.
+    "app-database",
+]
 GLOBAL_PERMISSIONS = [f"{r}:{a}" for r in GLOBAL_RESOURCES for a in ACTIONS]
 
 ALL_PERMISSIONS = PERMISSIONS + GLOBAL_PERMISSIONS
@@ -169,6 +182,45 @@ async def check_project_role(
             detail="Insufficient project permissions",
         )
     return role
+
+
+async def _role_grants(db: AsyncSession, role_name: str, permission: str) -> bool:
+    role = await db.scalar(select(Role).where(Role.name == role_name))
+    return role is not None and permission in (role.permissions or [])
+
+
+async def has_project_permission(
+    db: AsyncSession, project: Project, user: User, permission: str
+) -> bool:
+    """True if the user's effective role on `project` grants `permission`.
+
+    Resolves the role across the three dimensions (override > inherited) and then
+    checks that role's permission list — so a per-project override changes not
+    just the rank but the granted permissions too. Global admins always pass."""
+    if user.role == "admin":
+        return True
+    role = await effective_project_role(db, project, user)
+    if role is None:
+        return False
+    return await _role_grants(db, role, permission)
+
+
+def require_global_permission(permission: str):
+    """Dependency factory: require a global-tier `permission` (e.g.
+    "app-database:read"). The user's global role is consulted; admins pass."""
+
+    async def _dep(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if user.role == "admin" or await _role_grants(db, user.role, permission):
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions",
+        )
+
+    return _dep
 
 
 def require_workspace_role(min_role: str):

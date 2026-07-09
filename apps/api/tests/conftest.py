@@ -70,7 +70,10 @@ async def seed_roles(engine):
 
 
 @pytest_asyncio.fixture
-async def client(engine, monkeypatch):
+async def client(engine, seed_roles, monkeypatch):
+    # seed_roles: production seeds the default system roles at startup, and
+    # permission checks (has_project_permission / require_global_permission)
+    # resolve a role name to its Role row — so the rows must exist here too.
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     async def _override_get_db():
