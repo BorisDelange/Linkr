@@ -126,6 +126,7 @@ export function FilesPage() {
     terminalTabs,
     openTerminalTab,
     closeTerminalTab,
+    selectTerminalTab,
     loadProjectFiles,
     reloadFromDisk,
     isFileDirty,
@@ -1155,13 +1156,13 @@ export function FilesPage() {
                       <TooltipContent>{t('files.terminal')}</TooltipContent>
                     </Tooltip>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => openTerminalTab('bash')}>
+                      <DropdownMenuItem onSelect={() => { openTerminalTab('bash'); setEditorVisible(true) }}>
                         {t('files.terminal_bash')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => openTerminalTab('python')}>
+                      <DropdownMenuItem onSelect={() => { openTerminalTab('python'); setEditorVisible(true) }}>
                         {t('files.terminal_python')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => openTerminalTab('r')}>
+                      <DropdownMenuItem onSelect={() => { openTerminalTab('r'); setEditorVisible(true) }}>
                         {t('files.terminal_r')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -1318,7 +1319,7 @@ export function FilesPage() {
                         <button
                           key={tt.id}
                           onClick={() => {
-                            selectFile(tt.id)
+                            selectTerminalTab(tt.id)
                             if (!editorVisible) setEditorVisible(true)
                           }}
                           className={cn(

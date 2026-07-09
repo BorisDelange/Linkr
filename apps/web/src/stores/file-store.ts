@@ -95,6 +95,9 @@ interface FileState {
   terminalTabs: TerminalTab[]
   openTerminalTab: (kind: 'bash' | 'python' | 'r') => void
   closeTerminalTab: (id: string) => void
+  /** Make a terminal tab active WITHOUT adding it to openFileIds (it is not a
+   * file). Selecting it via selectFile would pollute the file-tab list. */
+  selectTerminalTab: (id: string) => void
 
   executionResults: ExecutionResult[]
   addExecutionResult: (result: ExecutionResult) => void
@@ -1243,6 +1246,8 @@ export const useFileStore = create<FileState>((set, get) => ({
         selectedFileId: id,  // the unified tab bar makes it the active tab
       }
     }),
+
+  selectTerminalTab: (id) => set({ selectedFileId: id }),
 
   closeTerminalTab: (id) =>
     set((s) => {
