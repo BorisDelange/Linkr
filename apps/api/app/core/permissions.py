@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.role import Role
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
@@ -132,6 +133,44 @@ async def has_permission(
     return permission in (role.permissions or [])
 
 
+async def effective_project_role(
+    db: AsyncSession, project: Project, user: User
+) -> str | None:
+    """The user's resolved role on `project` across the three dimensions.
+
+    admin (global)          → always "owner"
+    project override        → replaces the inherited role (can widen OR restrict)
+    else inherited          → the user's workspace role on the project's workspace
+    else (no workspace)     → "owner" for a legacy/unassigned project (any user)
+
+    Returns None when the user has no access at all.
+    """
+    if user.role == "admin":
+        return "owner"
+    override = await db.get(ProjectMember, (project.uid, user.id))
+    if override is not None:
+        return override.role
+    if project.workspace_id is None:
+        # Unassigned project: no membership model applies, open to any user.
+        return "owner"
+    member = await db.get(WorkspaceMember, (project.workspace_id, user.id))
+    return member.role if member is not None else None
+
+
+async def check_project_role(
+    db: AsyncSession, project: Project, user: User, min_role: str
+) -> str:
+    """Enforce at least `min_role` on `project` (3-dimension resolution); raise
+    403 otherwise. Returns the effective role."""
+    role = await effective_project_role(db, project, user)
+    if role is None or ROLE_ORDER.get(role, -1) < ROLE_ORDER.get(min_role, 99):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient project permissions",
+        )
+    return role
+
+
 def require_workspace_role(min_role: str):
     """Dependency factory: require at least `min_role` on the path workspace.
 
@@ -168,10 +207,11 @@ def require_permission(permission: str):
 
 
 def require_project_role(min_role: str):
-    """Require `min_role` on the workspace owning the path project.
+    """Require `min_role` on the path project (3-dimension resolution).
 
-    Project access derives from workspace membership. A project not yet assigned
-    to a workspace is accessible to any authenticated user (legacy/unassigned).
+    Access resolves as: global admin → owner; else a per-project override
+    (project_members) if present; else the inherited workspace role; else, for a
+    project with no workspace, open to any authenticated user (legacy/unassigned).
     """
 
     async def _dep(
@@ -184,8 +224,7 @@ def require_project_role(min_role: str):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Not found"
             )
-        if project.workspace_id is not None:
-            await check_workspace_role(db, project.workspace_id, user, min_role)
+        await check_project_role(db, project, user, min_role)
         return project
 
     return _dep

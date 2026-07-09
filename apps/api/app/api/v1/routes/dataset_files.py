@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_project_role
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.dataset import (
@@ -36,8 +36,7 @@ async def _check_project(db: AsyncSession, project_uid: str, user: User, min_rol
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if project.workspace_id is not None:
-        await check_workspace_role(db, project.workspace_id, user, min_role)
+    await check_project_role(db, project, user, min_role)
 
 
 def _resolve_meta(project_uid: str, node: dict) -> tuple[list[dict] | None, int | None]:

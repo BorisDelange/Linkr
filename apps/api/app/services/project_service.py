@@ -1,25 +1,36 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.project import ProjectCreate, ProjectUpdate
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
-    """Projects in workspaces the user is a member of (admins see all)."""
+    """Projects the user can reach (admins see all).
+
+    A project is visible when the user has a role on its workspace (inherited) OR
+    a per-project override grants them a role directly — the latter lets a project
+    be shared with someone who isn't a workspace member."""
     if user.role == "admin":
         result = await db.execute(select(Project))
         return list(result.scalars().all())
 
+    my_workspaces = select(WorkspaceMember.workspace_id).where(
+        WorkspaceMember.user_id == user.id
+    )
+    my_overrides = select(ProjectMember.project_uid).where(
+        ProjectMember.user_id == user.id
+    )
     result = await db.execute(
-        select(Project)
-        .join(
-            WorkspaceMember,
-            WorkspaceMember.workspace_id == Project.workspace_id,
+        select(Project).where(
+            or_(
+                Project.workspace_id.in_(my_workspaces),
+                Project.uid.in_(my_overrides),
+            )
         )
-        .where(WorkspaceMember.user_id == user.id)
     )
     return list(result.scalars().all())
 

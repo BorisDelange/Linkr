@@ -29,6 +29,7 @@ from app.api.v1.routes.execution import router as execution_router
 from app.api.v1.routes.dataset_files import router as dataset_files_router
 from app.api.v1.routes.ide_files import router as ide_files_router
 from app.api.v1.routes.health import router as health_router
+from app.api.v1.routes.members import router as members_router
 from app.api.v1.routes.organizations import router as organizations_router
 from app.api.v1.routes.pipelines import router as pipelines_router
 from app.api.v1.routes.projects import router as projects_router
@@ -129,6 +130,7 @@ app.include_router(database_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(workspaces_router, prefix="/api/v1")
 app.include_router(projects_router, prefix="/api/v1")
+app.include_router(members_router, prefix="/api/v1")
 app.include_router(organizations_router, prefix="/api/v1")
 app.include_router(schema_presets_router, prefix="/api/v1")
 app.include_router(sql_scripts_router, prefix="/api/v1")

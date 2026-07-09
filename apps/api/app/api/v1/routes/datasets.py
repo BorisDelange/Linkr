@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_role
+from app.core.permissions import check_project_role
 from app.models.dataset import DatasetFile
 from app.models.project import Project
 from app.models.user import User
@@ -28,12 +28,12 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 async def _require_project_access(
     db: AsyncSession, project_uid: str, user: User, min_role: str
 ) -> None:
-    """Dataset access derives from the owning project's workspace membership."""
+    """Dataset access derives from the owning project (workspace role inherited,
+    with per-project override applied)."""
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if project.workspace_id is not None:
-        await check_workspace_role(db, project.workspace_id, user, min_role)
+    await check_project_role(db, project, user, min_role)
 
 
 async def _load_file(
