@@ -19,6 +19,14 @@ export interface OutputTab {
   content: unknown
 }
 
+/** A terminal opened as a full-width editor tab (JupyterLab-style), not a bottom
+ * panel. Kept in its own registry so it never touches the file tab logic. */
+export interface TerminalTab {
+  id: string
+  kind: 'bash' | 'python' | 'r'
+  label: string
+}
+
 export type ExecLanguage = 'python' | 'r' | 'sql'
 
 export interface ExecutionResult {
@@ -81,6 +89,12 @@ interface FileState {
 
   outputVisible: boolean
   setOutputVisible: (v: boolean) => void
+
+  /** Terminals opened as editor tabs. Selecting one sets selectedFileId to its id
+   * so the unified tab bar treats it like any active tab. */
+  terminalTabs: TerminalTab[]
+  openTerminalTab: (kind: 'bash' | 'python' | 'r') => void
+  closeTerminalTab: (id: string) => void
 
   executionResults: ExecutionResult[]
   addExecutionResult: (result: ExecutionResult) => void
@@ -1215,6 +1229,34 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   outputVisible: false,
   setOutputVisible: (v) => set({ outputVisible: v }),
+
+  terminalTabs: [],
+
+  openTerminalTab: (kind) =>
+    set((s) => {
+      const labels = { bash: 'Bash', python: 'Python', r: 'R' } as const
+      const n = s.terminalTabs.filter((t) => t.kind === kind).length + 1
+      const id = `term:${kind}:${newFileId('file')}`
+      const tab: TerminalTab = { id, kind, label: `${labels[kind]} ${n}` }
+      return {
+        terminalTabs: [...s.terminalTabs, tab],
+        selectedFileId: id,  // the unified tab bar makes it the active tab
+      }
+    }),
+
+  closeTerminalTab: (id) =>
+    set((s) => {
+      const remaining = s.terminalTabs.filter((t) => t.id !== id)
+      // If the closed terminal was active, fall back to the last open file (or
+      // another terminal), mirroring closeFile's fallback.
+      let selected = s.selectedFileId
+      if (selected === id) {
+        selected = s.openFileIds[s.openFileIds.length - 1]
+          ?? remaining[remaining.length - 1]?.id
+          ?? null
+      }
+      return { terminalTabs: remaining, selectedFileId: selected }
+    }),
 
   executionResults: [],
   addExecutionResult: (result) =>

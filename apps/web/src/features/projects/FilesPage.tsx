@@ -86,7 +86,8 @@ import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
-import { TerminalPane } from './files/TerminalPane'
+import { TerminalPanel } from '@/components/terminal/TerminalPanel'
+import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
 import { SchemaBrowserDialog } from '@/features/warehouse/databases/SchemaBrowserDialog'
 import { EditorSettingsDialog } from './files/EditorSettingsDialog'
@@ -122,6 +123,9 @@ export function FilesPage() {
     clearExecutionResults,
     outputVisible,
     setOutputVisible,
+    terminalTabs,
+    openTerminalTab,
+    closeTerminalTab,
     loadProjectFiles,
     reloadFromDisk,
     isFileDirty,
@@ -130,7 +134,7 @@ export function FilesPage() {
     _dirtyVersion,
     editorModeFileIds,
   } = useFileStore()
-  const { bottomPanelOpen, toggleBottomPanel, activeProjectUid } = useAppStore()
+  const { activeProjectUid } = useAppStore()
   const { activeConnectionId, loadProjectConnections, getProjectConnections, setActiveConnection } = useConnectionStore()
   const { isExecuting, startExecution, stopExecution, finishExecution } = useRuntimeStore()
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -254,6 +258,7 @@ export function FilesPage() {
   }, [])
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
+  const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
   const isVirtualFile = selectedNode?.virtual === true
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
   const selectedLanguage = selectedNode?.language
@@ -751,11 +756,11 @@ export function FilesPage() {
   // Global shortcuts (scope: 'global')
   const globalHandlers: ShortcutHandlers = useMemo(
     () => ({
-      toggle_terminal: toggleBottomPanel,
+      toggle_terminal: () => openTerminalTab('bash'),
       new_file: handleNewFile,
       clear_terminal: handleClearTerminal,
     }),
-    [toggleBottomPanel, handleNewFile, handleClearTerminal]
+    [openTerminalTab, handleNewFile, handleClearTerminal]
   )
   useGlobalShortcuts(globalHandlers)
 
@@ -1138,18 +1143,29 @@ export function FilesPage() {
                     </Tooltip>
                   )}
 
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant={bottomPanelOpen ? 'secondary' : 'ghost'}
-                        size="icon-xs"
-                        onClick={toggleBottomPanel}
-                      >
-                        <Terminal size={14} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('files.terminal')}</TooltipContent>
-                  </Tooltip>
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon-xs">
+                            <Terminal size={14} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('files.terminal')}</TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onSelect={() => openTerminalTab('bash')}>
+                        {t('files.terminal_bash')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openTerminalTab('python')}>
+                        {t('files.terminal_python')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => openTerminalTab('r')}>
+                        {t('files.terminal_r')}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1293,6 +1309,32 @@ export function FilesPage() {
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
+                      )
+                    })}
+                    {/* Terminal tabs (JupyterLab-style, full-width when active) */}
+                    {terminalTabs.map((tt) => {
+                      const isActive = tt.id === selectedFileId
+                      return (
+                        <button
+                          key={tt.id}
+                          onClick={() => {
+                            selectFile(tt.id)
+                            if (!editorVisible) setEditorVisible(true)
+                          }}
+                          className={cn(
+                            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
+                            isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
+                          )}
+                        >
+                          <Terminal size={11} className="text-muted-foreground/70" />
+                          <span className="max-w-[140px] truncate" title={tt.label}>{tt.label}</span>
+                          <span
+                            onClick={(e) => { e.stopPropagation(); closeTerminalTab(tt.id) }}
+                            className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                          >
+                            <X size={10} />
+                          </span>
+                        </button>
                       )
                     })}
                   </div>
@@ -1612,8 +1654,31 @@ export function FilesPage() {
                           />
                         )}
 
+                        {/* Terminal tabs: all kept mounted (sessions survive tab
+                            switches); only the active one is visible. */}
+                        {terminalTabs.map((tt) => {
+                          const isActive = tt.id === selectedFileId
+                          return (
+                            <div
+                              key={tt.id}
+                              className="h-full"
+                              style={{ display: isActive ? 'block' : 'none' }}
+                            >
+                              <TerminalPanel
+                                terminalType={tt.kind}
+                                projectUid={activeProjectUid ?? undefined}
+                                envId={
+                                  activeProjectUid
+                                    ? useSessionStore.getState().getActiveSessionId(activeProjectUid)
+                                    : undefined
+                                }
+                              />
+                            </div>
+                          )
+                        })}
+
                         {/* Empty state */}
-                        {!selectedNode && (
+                        {!selectedNode && !activeTerminalTab && (
                           <div className="flex h-full items-center justify-center">
                             <div className="text-center">
                               <FileCode
@@ -1690,20 +1755,6 @@ export function FilesPage() {
                       </Allotment.Pane>
                     </Allotment>
                   </Allotment.Pane>
-
-                  {/* Bottom: terminal panel */}
-                  {bottomPanelOpen && (
-                    <Allotment.Pane
-                      preferredSize={250}
-                      minSize={120}
-                      maxSize={500}
-                    >
-                      <TerminalPane
-                        onClose={toggleBottomPanel}
-                        projectUid={activeProjectUid ?? undefined}
-                      />
-                    </Allotment.Pane>
-                  )}
                 </Allotment>
               </div>
             </div>
