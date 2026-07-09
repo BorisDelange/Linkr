@@ -121,7 +121,7 @@ async def execute_code(
         if body.language in ("python", "r") and body.project_uid:
             try:
                 k = await kernel.manager.get(
-                    body.project_uid, body.language, body.env_id, user.id
+                    body.project_uid, user.id, body.language, body.env_id
                 )
             except kernel.KernelLimitReached as e:
                 raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
@@ -156,9 +156,10 @@ async def list_kernels(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Live kernels for a project (language, env, alive, busy) — feeds the IDE footer."""
+    """The caller's live kernels for a project (language, env, alive, busy, pid,
+    rss, idle) — feeds the IDE footer. Per-user: never exposes others' kernels."""
     await _require_project_access(db, project_uid, user, "viewer")
-    return kernel.manager.list_for_project(project_uid)
+    return kernel.manager.list_for_user(project_uid, user.id)
 
 
 @router.post("/restart", status_code=status.HTTP_204_NO_CONTENT)
@@ -167,10 +168,10 @@ async def restart_kernel(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Kill the persistent kernel for (project, language, env) so the next run
-    starts with a clean namespace."""
+    """Kill the caller's persistent kernel for (project, language, env) so the
+    next run starts with a clean namespace."""
     await _require_project_access(db, body.project_uid, user, "editor")
-    await kernel.manager.restart(body.project_uid, body.language, body.env_id)
+    await kernel.manager.restart(body.project_uid, user.id, body.language, body.env_id)
 
 
 async def _make_ws_resolver(connection_id: str | None):
@@ -201,7 +202,7 @@ async def _terminal_kernel_loop(
     would sit unread until the run finished. So each {code} runs as its own task
     while the loop keeps reading, letting {interrupt} fire mid-run."""
     try:
-        k = await kernel.manager.get(project_uid, language, env_id, user_id)
+        k = await kernel.manager.get(project_uid, user_id, language, env_id)
     except kernel.KernelLimitReached as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()

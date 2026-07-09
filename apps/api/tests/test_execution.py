@@ -116,8 +116,10 @@ async def test_kernel_recovers_from_dead_subprocess(client):
     body = {"language": "python", "code": "print('ok')", "projectUid": uid}
     assert (await client.post(f"{API}/execute", headers=headers, json=body)).status_code == 200
     # Kill the live kernel's subprocess out from under it, leaving a dead pipe.
+    # The kernel is keyed by user too now, so grab the one live kernel from the
+    # registry instead of guessing the key.
     from app.services.execution.kernel import manager
-    k = await manager.get(uid, "python", "default")
+    k = next(iter(manager._kernels.values()))  # noqa: SLF001 — test reaches in
     if k._proc is not None:  # noqa: SLF001 — test reaches into the kernel to simulate a crash
         k._proc.kill()
         await k._proc.wait()

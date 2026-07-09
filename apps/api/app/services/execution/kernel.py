@@ -451,8 +451,10 @@ class KernelManager:
     PTY shells enforce, so a user cannot pin unbounded server processes."""
 
     def __init__(self):
-        self._kernels: dict[tuple[str, str, str], Kernel] = {}
-        self._owner: dict[tuple[str, str, str], int] = {}
+        # Keyed by (project_uid, user_id, language, env_id): a kernel holds a live
+        # variable namespace, so it MUST be per-user — two users on the same env
+        # id must never share one interpreter (they'd see each other's variables).
+        self._kernels: dict[tuple[str, int, str, str], Kernel] = {}
         self._lock = asyncio.Lock()
 
     def _timeout_seconds(self) -> float:
@@ -470,25 +472,20 @@ class KernelManager:
             if not kernel.busy and kernel.idle_seconds() > timeout:
                 evicted.append(kernel)
                 del self._kernels[key]
-                self._owner.pop(key, None)
         return evicted
 
     def _count_for_user(self, user_id: int) -> int:
-        return sum(1 for uid in self._owner.values() if uid == user_id)
+        return sum(1 for (_p, uid, _l, _e) in self._kernels if uid == user_id)
 
     async def get(
-        self, project_uid: str, language: str, env_id: str, user_id: int | None = None
+        self, project_uid: str, user_id: int, language: str, env_id: str
     ) -> Kernel:
-        key = (project_uid, language, env_id)
+        key = (project_uid, user_id, language, env_id)
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
             if kernel is None:
-                if (
-                    user_id is not None
-                    and self._count_for_user(user_id) >= settings.max_sessions_per_user
-                ):
-                    # Shut evicted kernels before raising so we don't leak them.
+                if self._count_for_user(user_id) >= settings.max_sessions_per_user:
                     for k in to_shutdown:
                         await k.shutdown()
                     raise KernelLimitReached(
@@ -496,31 +493,43 @@ class KernelManager:
                     )
                 kernel = self._make(language, project_uid)
                 self._kernels[key] = kernel
-                if user_id is not None:
-                    self._owner[key] = user_id
         for k in to_shutdown:
             await k.shutdown()
         return kernel
 
-    async def restart(self, project_uid: str, language: str, env_id: str) -> None:
-        key = (project_uid, language, env_id)
+    async def restart(
+        self, project_uid: str, user_id: int, language: str, env_id: str
+    ) -> None:
+        key = (project_uid, user_id, language, env_id)
         async with self._lock:
             kernel = self._kernels.pop(key, None)
-            self._owner.pop(key, None)
         if kernel is not None:
             await kernel.shutdown()
+
+    async def shutdown_env(
+        self, project_uid: str, user_id: int, env_id: str
+    ) -> None:
+        """Kill every kernel (python + r) of one env for a user — used when the
+        user deletes that session."""
+        async with self._lock:
+            keys = [
+                k for k in self._kernels
+                if k[0] == project_uid and k[1] == user_id and k[3] == env_id
+            ]
+            kernels = [self._kernels.pop(k) for k in keys]
+        for k in kernels:
+            await k.shutdown()
 
     async def shutdown_all(self) -> None:
         async with self._lock:
             kernels = list(self._kernels.values())
             self._kernels.clear()
-            self._owner.clear()
         for k in kernels:
             await k.shutdown()
 
-    def list_for_project(self, project_uid: str) -> list[dict]:
-        """Live kernels for a project: language, env, running/busy state, and
-        monitoring (pid, resident memory KB, idle seconds) for the footer."""
+    def list_for_user(self, project_uid: str, user_id: int) -> list[dict]:
+        """Live kernels for one user in a project: language, env, running/busy
+        state, and monitoring (pid, resident memory KB, idle seconds)."""
         return [
             {
                 "language": lang,
@@ -531,8 +540,8 @@ class KernelManager:
                 "rssKb": kernel.rss_kb,
                 "idleSeconds": round(kernel.idle_seconds()),
             }
-            for (proj, lang, env), kernel in self._kernels.items()
-            if proj == project_uid
+            for (proj, uid, lang, env), kernel in self._kernels.items()
+            if proj == project_uid and uid == user_id
         ]
 
     def _make(self, language: str, project_uid: str) -> Kernel:
