@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     # Data
     data_dir: str = "~/.linkr"
 
+    # Server-side query engine: how long a warm DuckDB connection to a data
+    # source is kept alive between queries before it is closed for inactivity.
+    pool_ttl_seconds: int = 300
+
     model_config = {"env_prefix": "LINKR_", "env_file": str(_ENV_FILE)}
 
     @property

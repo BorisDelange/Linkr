@@ -12,7 +12,7 @@ from app.schemas.data_source import (
     DataSourceUpdate,
 )
 from app.services import blob_store
-from app.services.data import db_connect
+from app.services.data import connection_pool, db_connect
 
 # External network databases reached via DuckDB's ATTACH extensions.
 _EXTERNAL_ENGINES = ("postgresql", "mysql")
@@ -115,6 +115,9 @@ async def update(
         setattr(source, key, value)
     await db.commit()
     await db.refresh(source)
+    # A changed host/credential/file must not keep being served through a warm
+    # connection opened against the old config.
+    connection_pool.invalidate(source.id)
     return source
 
 
@@ -127,6 +130,7 @@ async def delete(db: AsyncSession, source: DataSource) -> None:
     shas = {f.content_hash for f in files}
     await db.delete(source)  # cascades to data_source_files via FK
     await db.commit()
+    connection_pool.invalidate(source.id)
     for sha in shas:
         if not await _sha_still_referenced(db, sha):
             await blob_store.delete(sha)
@@ -164,13 +168,18 @@ async def import_file(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    # The source's file set changed — a warm connection holds views over the old
+    # files, so drop it and let the next query rebuild from the new set.
+    connection_pool.invalidate(req.data_source_id)
     return row
 
 
 async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
     sha = file.content_hash
+    source_id = file.data_source_id
     await db.delete(file)
     await db.commit()
+    connection_pool.invalidate(source_id)
     if not await _sha_still_referenced(db, sha):
         await blob_store.delete(sha)
 
@@ -184,15 +193,21 @@ async def query(db: AsyncSession, source: DataSource, sql: str) -> list[dict]:
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
         password = connection_password(source)
-        return await asyncio.to_thread(db_connect.query_external, config, password, sql)
+        return await asyncio.to_thread(
+            db_connect.query_external, config, password, sql, source.id
+        )
     if engine in _FILE_ENGINES:
         files = await _source_files(db, source)
         if not files:
             raise ValueError("no database file uploaded for this source")
         if _is_parquet_folder(config, files):
             known = _known_tables(source)
-            return await asyncio.to_thread(db_connect.query_parquet_folder, files, known, sql)
-        return await asyncio.to_thread(db_connect.query_file, engine, files[0][1], sql)
+            return await asyncio.to_thread(
+                db_connect.query_parquet_folder, files, known, sql, source.id
+            )
+        return await asyncio.to_thread(
+            db_connect.query_file, engine, files[0][1], sql, source.id
+        )
     raise ValueError(f"queries not supported for engine: {engine}")
 
 

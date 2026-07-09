@@ -14,6 +14,7 @@ from decimal import Decimal
 import duckdb
 
 from app.config import settings
+from app.services.data import connection_pool
 
 _ATTACH_ALIAS = "ext"
 
@@ -194,22 +195,44 @@ def _run_statements(
     return [_row_to_json(dict(zip(names, row))) for row in rows]
 
 
-def query_external(config: dict, password: str | None, sql: str) -> list[dict]:
+def query_external(
+    config: dict, password: str | None, sql: str, pool_key: str | None = None
+) -> list[dict]:
     """Run SQL against the attached source and return rows as dicts.
 
     Bare table names (``FROM patients``) resolve to the source via search_path,
     matching the DuckDB-WASM path. The source is attached read-only; CREATE VIEW
     / temp tables land in DuckDB's local `memory` catalog (writable), so
     multi-statement scripts work. Date/time values come back as ISO strings.
+
+    When `pool_key` is given, the connection (extension loaded + source ATTACHed)
+    is kept warm and reused across calls (connection_pool) — the setup cost
+    (~150 ms + the remote handshake) is then paid only on the first query.
+    `search_path` is re-set on every call, so reuse is safe. Without a key the
+    connection is opened and closed per call (used by one-shot paths like
+    test_connection, where reuse would defeat the point).
     """
     spec = _engine_spec(config)
     scope = _scope(config)
-    con = _connect(spec["extension"])
-    try:
+    search_path = f"memory,{_ATTACH_ALIAS}.{scope}"
+
+    def _setup() -> duckdb.DuckDBPyConnection:
+        con = _connect(spec["extension"])
         _attach(con, config, password)
-        return _run_statements(con, f"memory,{_ATTACH_ALIAS}.{scope}", sql)
-    finally:
-        con.close()
+        return con
+
+    if pool_key is None:
+        con = _setup()
+        try:
+            return _run_statements(con, search_path, sql)
+        finally:
+            con.close()
+
+    return connection_pool.run_pooled(
+        pool_key,
+        _setup,
+        lambda con: _run_statements(con, search_path, sql),
+    )
 
 
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
@@ -223,16 +246,30 @@ def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None
         con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (READ_ONLY)")
 
 
-def query_file(engine: str, path: str, sql: str) -> list[dict]:
+def query_file(
+    engine: str, path: str, sql: str, pool_key: str | None = None
+) -> list[dict]:
     """Run SQL against a local DuckDB/SQLite file (server-side). Read-only file;
-    CREATE VIEW / temp tables land in the writable `memory` catalog."""
-    con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
-    try:
+    CREATE VIEW / temp tables land in the writable `memory` catalog. With
+    `pool_key`, the ATTACHed connection is kept warm across calls."""
+    search_path = f"memory,{_ATTACH_ALIAS}"
+
+    def _setup() -> duckdb.DuckDBPyConnection:
+        con = duckdb.connect()
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, engine, path)
-        return _run_statements(con, f"memory,{_ATTACH_ALIAS}", sql)
-    finally:
-        con.close()
+        return con
+
+    if pool_key is None:
+        con = _setup()
+        try:
+            return _run_statements(con, search_path, sql)
+        finally:
+            con.close()
+
+    return connection_pool.run_pooled(
+        pool_key, _setup, lambda con: _run_statements(con, search_path, sql)
+    )
 
 
 def query_csv(path: str, select_sql: str, sql: str) -> list[dict]:
@@ -319,24 +356,39 @@ def _attach_parquet_views(
 ) -> None:
     con.execute(f"CREATE SCHEMA IF NOT EXISTS {_ATTACH_ALIAS}")
     for table, paths in groups.items():
+        # OR REPLACE so a warm pooled connection can re-run setup idempotently.
         con.execute(
-            f'CREATE VIEW {_ATTACH_ALIAS}."{table}" AS SELECT * FROM {_reader(paths)}'
+            f'CREATE OR REPLACE VIEW {_ATTACH_ALIAS}."{table}" AS '
+            f"SELECT * FROM {_reader(paths)}"
         )
 
 
 def query_parquet_folder(
-    files: list[tuple[str, str]], known: list[str], sql: str
+    files: list[tuple[str, str]], known: list[str], sql: str,
+    pool_key: str | None = None,
 ) -> list[dict]:
     """Run read-only SQL against a folder of Parquet files exposed as views, one
-    per table (mirrors the browser mountFileFolder path)."""
+    per table (mirrors the browser mountFileFolder path). With `pool_key`, the
+    connection (views created) is kept warm across calls."""
     groups = _group_parquet(files, known)
-    con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
-    try:
+    search_path = f"{_ATTACH_ALIAS},memory"
+
+    def _setup() -> duckdb.DuckDBPyConnection:
+        con = duckdb.connect()
+        con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_parquet_views(con, groups)
-        return _run_statements(con, f"{_ATTACH_ALIAS},memory", sql)
-    finally:
-        con.close()
+        return con
+
+    if pool_key is None:
+        con = _setup()
+        try:
+            return _run_statements(con, search_path, sql)
+        finally:
+            con.close()
+
+    return connection_pool.run_pooled(
+        pool_key, _setup, lambda con: _run_statements(con, search_path, sql)
+    )
 
 
 def introspect_parquet_folder(
