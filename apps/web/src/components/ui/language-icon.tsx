@@ -43,7 +43,11 @@ export function PythonLogo({ size = 20, className }: LanguageIconProps) {
   )
 }
 
-/** R logo — grey ring with a blue "R". */
+/**
+ * R logo — the official mark (r-project.org/logo): a grey gradient ring with a
+ * blue "R". Both shapes use the even-odd fill rule (the ring and the R's counter
+ * are cut out), exactly as in the source SVG.
+ */
 export function RLogo({ size = 20, className }: LanguageIconProps) {
   return (
     <svg
@@ -54,13 +58,25 @@ export function RLogo({ size = 20, className }: LanguageIconProps) {
       className={className}
       aria-hidden="true"
     >
+      <defs>
+        <linearGradient id="linkr-r-ring" x1="0" y1="0.5" x2="1" y2="0.5">
+          <stop offset="0" stopColor="#CBCED0" />
+          <stop offset="1" stopColor="#84838B" />
+        </linearGradient>
+        <linearGradient id="linkr-r-letter" x1="0" y1="0.5" x2="1" y2="0.5">
+          <stop offset="0" stopColor="#276DC3" />
+          <stop offset="1" stopColor="#165CAA" />
+        </linearGradient>
+      </defs>
       <path
-        fill="#8CAAC4"
-        d="M361.453 485.937C162.329 485.937.906 377.828.906 244.469.906 111.109 162.329 3 361.453 3c199.124 0 360.547 108.109 360.547 241.469 0 133.359-161.423 241.468-360.547 241.468zM416 87C246.283 87 108.75 172.019 108.75 276.875S246.283 466.75 416 466.75c169.717 0 289.5-84.019 289.5-189.875S585.717 87 416 87z"
+        fill="url(#linkr-r-ring)"
+        fillRule="evenodd"
+        d="M361.453 485.937C162.329 485.937 0.906 377.828 0.906 244.469 0.906 111.109 162.329 3 361.453 3 560.578 3 722 111.109 722 244.469c0 133.359-161.422 241.468-360.547 241.468zM416.641 97.406c-121.238 0-219.508 63.375-219.508 141.531 0 78.157 98.27 141.532 219.508 141.532 121.239 0 217.559-42.063 217.559-141.532 0-99.468-96.32-141.531-217.559-141.531z"
       />
       <path
-        fill="#1E63B9"
-        d="M550 358.522c14.786 4.362 45.902 12.437 51 15 6.373 3.203 22.174 9.542 28 19 5.001 8.115 7.516 13.264 11 21l58 100-95 .456L558 462s-22.784-38.522-29-49c-5.822-9.814-11.436-11.226-15-12s-21.667-.522-21.667-.522H478V559l-84 .456V222h179s81.5 1.688 81.5 68.5-54.5 68.022-54.5 68.022zM511 289.522l-33-.044v-45h35c4.373 0 25 1.5 25 22 0 20.291-16.667 22.813-27 23.044z"
+        fill="url(#linkr-r-letter)"
+        fillRule="evenodd"
+        d="M550.688 377.938s14.542 4.376 23.109 8.594c2.941 1.449 8.078 4.484 11.797 7.906 3.343 3.079 5.156 6.457 5.156 6.457l83.906 141.605-135.129 0.062-63.375-118.906s-12.977-22.394-20.992-28.812c-6.688-5.356-9.539-7.266-16.297-7.266h-32.109l0.011 154.918-119.578 0.017V116.048h239.895s109.219 1.972 109.219 105.917c0 103.945-85.617 129.998-85.617 129.998zM486.578 202.5l-72.723-0.06-0.037 63.583 72.76 0.033s33.694-0.05 33.694-32.226c0-32.816-33.694-31.33-33.694-31.33z"
       />
     </svg>
   )
