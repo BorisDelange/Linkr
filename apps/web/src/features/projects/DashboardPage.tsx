@@ -106,6 +106,11 @@ export function DashboardPage() {
   // (hidden via CSS when inactive) so returning to it doesn't remount — no figure redraw, and
   // widget results stay live in the DOM. Unvisited tabs are never mounted, so we don't pay the
   // cost of tabs the user never opens.
+  //
+  // "Reload widgets on tab switch" turns keep-alive OFF: only the current tab is mounted, so
+  // leaving a tab frees its DOM and returning remounts + recomputes it. The lever for very large
+  // dashboards / low-end machines that shouldn't accumulate mounted tabs.
+  const keepAlive = dashboard?.reloadWidgetsOnTabSwitch !== true
   const [visitedTabIds, setVisitedTabIds] = useState<Set<string>>(new Set())
   const isMountableLeaf = !!currentTabId && !activeTabIsContainer && tabWidgets.length > 0
   // Drop the visited set when the dashboard changes — its tab ids no longer apply.
@@ -113,14 +118,16 @@ export function DashboardPage() {
     setVisitedTabIds(new Set())
   }, [currentDashboardId])
   useEffect(() => {
-    if (isMountableLeaf && currentTabId && !visitedTabIds.has(currentTabId)) {
+    if (keepAlive && isMountableLeaf && currentTabId && !visitedTabIds.has(currentTabId)) {
       setVisitedTabIds((prev) => new Set(prev).add(currentTabId))
     }
-  }, [isMountableLeaf, currentTabId, visitedTabIds])
-  // Always include the current leaf tab, even on its first render before the effect records it,
-  // so there's no blank frame on first visit.
-  const mountedTabs = dashboardTabs.filter(
-    (tab) => visitedTabIds.has(tab.id) || (isMountableLeaf && tab.id === currentTabId),
+  }, [keepAlive, isMountableLeaf, currentTabId, visitedTabIds])
+  // With keep-alive: every visited leaf tab (+ the current one on its first render, before the
+  // effect records it). Without: only the current leaf tab, so switching away unmounts it.
+  const mountedTabs = dashboardTabs.filter((tab) =>
+    keepAlive
+      ? visitedTabIds.has(tab.id) || (isMountableLeaf && tab.id === currentTabId)
+      : isMountableLeaf && tab.id === currentTabId,
   )
 
   // All widgets in this dashboard (across all tabs) — for filter sidebar dataset list
