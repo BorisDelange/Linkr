@@ -102,6 +102,27 @@ export function DashboardPage() {
     : false
   const tabWidgets = widgets.filter((w) => w.tabId === currentTabId)
 
+  // Keep-alive for visited leaf tabs: once a tab with widgets is shown, keep its grid mounted
+  // (hidden via CSS when inactive) so returning to it doesn't remount — no figure redraw, and
+  // widget results stay live in the DOM. Unvisited tabs are never mounted, so we don't pay the
+  // cost of tabs the user never opens.
+  const [visitedTabIds, setVisitedTabIds] = useState<Set<string>>(new Set())
+  const isMountableLeaf = !!currentTabId && !activeTabIsContainer && tabWidgets.length > 0
+  // Drop the visited set when the dashboard changes — its tab ids no longer apply.
+  useEffect(() => {
+    setVisitedTabIds(new Set())
+  }, [currentDashboardId])
+  useEffect(() => {
+    if (isMountableLeaf && currentTabId && !visitedTabIds.has(currentTabId)) {
+      setVisitedTabIds((prev) => new Set(prev).add(currentTabId))
+    }
+  }, [isMountableLeaf, currentTabId, visitedTabIds])
+  // Always include the current leaf tab, even on its first render before the effect records it,
+  // so there's no blank frame on first visit.
+  const mountedTabs = dashboardTabs.filter(
+    (tab) => visitedTabIds.has(tab.id) || (isMountableLeaf && tab.id === currentTabId),
+  )
+
   // All widgets in this dashboard (across all tabs) — for filter sidebar dataset list
   const allDashboardWidgets = widgets.filter((w) => {
     const tabIds = new Set(dashboardTabs.map((t) => t.id))
@@ -253,14 +274,21 @@ export function DashboardPage() {
               </div>
             </div>
           ) : tabWidgets.length > 0 ? (
-            <WidgetGrid
-              widgets={tabWidgets}
-              editMode={editMode}
-              hideTitleBars={dashboard.showWidgetTitles === false}
-              dashboard={dashboard}
-              projectUid={projectUid}
-              onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
-            />
+            // Render every visited tab's grid, showing only the active one. Kept mounted so
+            // switching back doesn't remount (no figure flash). React keys by tab id so each
+            // grid keeps its own widget subtree across switches.
+            mountedTabs.map((tab) => (
+              <div key={tab.id} className={tab.id === currentTabId ? 'contents' : 'hidden'}>
+                <WidgetGrid
+                  widgets={widgets.filter((w) => w.tabId === tab.id)}
+                  editMode={editMode}
+                  hideTitleBars={dashboard.showWidgetTitles === false}
+                  dashboard={dashboard}
+                  projectUid={projectUid}
+                  onRequestExport={(widgetId) => { setExportPreselectId(widgetId); setExportOpen(true) }}
+                />
+              </div>
+            ))
           ) : (
             <div className="flex h-full min-h-[400px] items-center justify-center p-8">
               <div className="flex w-full max-w-md flex-col items-center rounded-xl border-2 border-dashed border-muted-foreground/25 py-16">

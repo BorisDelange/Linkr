@@ -212,9 +212,12 @@ export function WidgetGrid({ widgets, editMode, hideTitleBars, dashboard, projec
     const el = containerRef.current
     if (!el) return
     const measure = () => {
-      setContainerWidth(el.clientWidth)
+      // Ignore a 0 width: it means the grid is in a display:none tab (kept mounted for
+      // keep-alive). Keeping the last good width avoids a 0-column relayout that would
+      // flash when the tab is shown again — the ResizeObserver re-measures on reveal.
+      if (el.clientWidth > 0) setContainerWidth(el.clientWidth)
       const viewport = el.closest('[data-slot="scroll-area-viewport"]') ?? el.parentElement
-      if (viewport) setAvailableHeight(viewport.clientHeight)
+      if (viewport && viewport.clientHeight > 0) setAvailableHeight(viewport.clientHeight)
     }
     const observer = new ResizeObserver(measure)
     observer.observe(el)
