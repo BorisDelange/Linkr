@@ -196,7 +196,10 @@ repeat {
   .code <- rawToChar(base64decode(substr(.line, 2, nchar(.line))))
   .run_n <- .run_n + 1
   .pat <- sprintf("_linkr_p_%03d_%%03d.svg", .run_n)
-  if (.has_svglite) svglite::svglite(filename = .pat, width = 8, height = 6)
+  # 28x28 in @ pointsize 24 reproduces WebR's 2016x2016 px client canvas (webr-engine.ts),
+  # so a widget's absolute sizes (base_size, margins, point/text sizes) render identically in
+  # both modes; the old 8x6 landscape device made large base_size text overflow and overlap.
+  if (.has_svglite) svglite::svglite(filename = .pat, width = 28, height = 28, pointsize = 24)
   .err <- character(0)
   .out <- tryCatch(
     withCallingHandlers(
