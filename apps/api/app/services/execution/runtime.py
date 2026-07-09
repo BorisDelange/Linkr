@@ -114,14 +114,20 @@ with open("''' + _OUTPUT_FILE + '''", "w", encoding="utf-8") as fh:
 # writer WebR uses) and fall back to the base cairo svg() device — svglite avoids
 # the X11/cairo shared-library dependency that the built-in device needs. User
 # errors surface on stderr via message().
+#
+# Geometry must match WebR's client device so a plugin's absolute sizes (base_size,
+# margins, point/text sizes) render the same in both modes. WebR uses a 2016×2016 px
+# canvas at pointsize 24 (webr-engine.ts: 1008 × R_PLOT_SCALE=2). svglite sizes in
+# inches at 72 px/in, so 28×28 in @ pointsize 24 reproduces that exact 2016 px square;
+# a small landscape device (the old 8×6) made large base_size text overflow and overlap.
 _R_HARNESS = '''\
 .linkr_dev_open <- function() {
   if (requireNamespace("svglite", quietly = TRUE)) {
-    svglite::svglite(filename = "_linkr_plot_%03d.svg", width = 8, height = 6)
+    svglite::svglite(filename = "_linkr_plot_%03d.svg", width = 28, height = 28, pointsize = 24)
     return(TRUE)
   }
   tryCatch({
-    grDevices::svg("_linkr_plot_%03d.svg", onefile = FALSE, width = 8, height = 6)
+    grDevices::svg("_linkr_plot_%03d.svg", onefile = FALSE, width = 28, height = 28, pointsize = 24)
     TRUE
   }, error = function(e) FALSE)
 }
