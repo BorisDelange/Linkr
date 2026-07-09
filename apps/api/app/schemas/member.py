@@ -20,9 +20,12 @@ class WorkspaceMemberResponse(CamelModel):
 
 
 class WorkspaceMemberWrite(CamelModel):
-    """Add or change a workspace member's role."""
+    """Add or change a workspace member's role. Identify the user by id or by
+    username (username lets an owner add someone without listing every user,
+    which is admin-only)."""
 
-    user_id: int
+    user_id: int | None = None
+    username: str | None = None
     role: str  # viewer | editor | owner
 
 
@@ -35,7 +38,8 @@ class ProjectMemberResponse(CamelModel):
 
 
 class ProjectMemberWrite(CamelModel):
-    """Set (or update) a per-project role override for a user."""
+    """Set (or update) a per-project role override for a user, by id or username."""
 
-    user_id: int
+    user_id: int | None = None
+    username: str | None = None
     role: str  # viewer | editor | owner

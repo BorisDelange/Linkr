@@ -30,6 +30,28 @@
     "settings": "Settings",
     "back_to_workspaces": "Back to workspaces"
   },
+  "members": {
+    "title": "Members",
+    "workspace_description": "Who can access this workspace and what they can do. Roles apply to every project in the workspace unless a project overrides them.",
+    "project_description": "Per-project role overrides. A member here replaces the role they inherit from the workspace — you can grant more or less access for this project only.",
+    "add_label": "Add a member",
+    "username_placeholder": "Username",
+    "add": "Add",
+    "add_override": "Add override",
+    "user": "User",
+    "role": "Role",
+    "role_viewer": "Viewer",
+    "role_editor": "Editor",
+    "role_owner": "Owner",
+    "empty": "No members yet.",
+    "no_overrides": "No project-specific overrides. Everyone uses their inherited workspace role.",
+    "remove": "Remove member",
+    "remove_override": "Remove override",
+    "requires_backend": "Member management requires the Python backend (server mode).",
+    "load_error": "Could not load members.",
+    "save_error": "Could not save the member. Check the username and your permissions.",
+    "remove_error": "Could not remove the member."
+  },
   "workspaces": {
     "title": "Workspaces",
     "description": "Organize your projects, plugins, and data warehouses by organization.",

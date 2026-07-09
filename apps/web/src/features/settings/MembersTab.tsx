@@ -1,0 +1,252 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { Info, Plus, Trash2, Users } from 'lucide-react'
+import { isServerMode } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth-store'
+import {
+  membersApi,
+  type MemberRole,
+  type ProjectMember,
+  type WorkspaceMember,
+} from '@/lib/api/members'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
+
+const ROLES: MemberRole[] = ['viewer', 'editor', 'owner']
+
+type Row = WorkspaceMember | ProjectMember
+
+interface MembersTabProps {
+  scope: 'workspace' | 'project'
+  /** Workspace id or project uid. */
+  targetId: string
+}
+
+/**
+ * Membership management for a workspace or a project. Server-mode only
+ * (accounts + roles live on the backend). Project scope manages per-project
+ * overrides that replace the inherited workspace role.
+ */
+export function MembersTab({ scope, targetId }: MembersTabProps) {
+  const { t } = useTranslation()
+  const currentUserId = useAuthStore((s) => s.user?.id)
+  const [members, setMembers] = useState<Row[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [newUsername, setNewUsername] = useState('')
+  const [newRole, setNewRole] = useState<MemberRole>('editor')
+  const [busy, setBusy] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!isServerMode()) return
+    setLoading(true)
+    try {
+      const rows =
+        scope === 'workspace'
+          ? await membersApi.listWorkspace(targetId)
+          : await membersApi.listProject(targetId)
+      setMembers(rows)
+      setError(null)
+    } catch {
+      setError(t('members.load_error'))
+    } finally {
+      setLoading(false)
+    }
+  }, [scope, targetId, t])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const upsert = async (body: { userId?: number; username?: string; role: MemberRole }) => {
+    setBusy(true)
+    try {
+      if (scope === 'workspace') await membersApi.upsertWorkspace(targetId, body)
+      else await membersApi.upsertProject(targetId, body)
+      await load()
+      setError(null)
+    } catch {
+      setError(t('members.save_error'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleAdd = async () => {
+    if (!newUsername.trim()) return
+    await upsert({ username: newUsername.trim(), role: newRole })
+    setNewUsername('')
+  }
+
+  const handleChangeRole = (userId: number, role: MemberRole) =>
+    upsert({ userId, role })
+
+  const handleRemove = async (userId: number) => {
+    setBusy(true)
+    try {
+      if (scope === 'workspace') await membersApi.removeWorkspace(targetId, userId)
+      else await membersApi.removeProject(targetId, userId)
+      await load()
+      setError(null)
+    } catch {
+      setError(t('members.remove_error'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!isServerMode()) {
+    return (
+      <div className="mx-auto max-w-3xl pt-2">
+        <Card>
+          <CardContent className="flex items-start gap-2 p-4 text-xs text-muted-foreground">
+            <Info size={14} className="mt-0.5 shrink-0" />
+            <span>{t('members.requires_backend')}</span>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-6 pt-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <Users size={15} />
+            {t('members.title')}
+          </CardTitle>
+          <CardDescription>
+            {scope === 'project'
+              ? t('members.project_description')
+              : t('members.workspace_description')}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {/* Add member by username */}
+          <div className="space-y-2">
+            <Label>{t('members.add_label')}</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                value={newUsername}
+                onChange={(e) => setNewUsername(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                placeholder={t('members.username_placeholder')}
+                className="h-8 flex-1 text-sm"
+              />
+              <Select value={newRole} onValueChange={(v) => setNewRole(v as MemberRole)}>
+                <SelectTrigger className="h-8 w-32 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {t(`members.role_${r}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleAdd}
+                disabled={!newUsername.trim() || busy}
+                className="gap-1"
+              >
+                <Plus size={14} />
+                {scope === 'project' ? t('members.add_override') : t('members.add')}
+              </Button>
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-destructive">{error}</p>}
+
+          {/* Members list */}
+          {loading ? (
+            <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
+          ) : members.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {scope === 'project' ? t('members.no_overrides') : t('members.empty')}
+            </p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t('members.user')}</TableHead>
+                  <TableHead className="w-40">{t('members.role')}</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {members.map((m) => {
+                  const isSelf = m.userId === currentUserId
+                  return (
+                    <TableRow key={m.userId}>
+                      <TableCell className="text-sm">
+                        <span className="font-medium">{m.user?.username ?? `#${m.userId}`}</span>
+                        {m.user?.email && (
+                          <span className="ml-2 text-xs text-muted-foreground">{m.user.email}</span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Select
+                          value={m.role}
+                          onValueChange={(v) => handleChangeRole(m.userId, v as MemberRole)}
+                          disabled={busy}
+                        >
+                          <SelectTrigger className="h-8 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {t(`members.role_${r}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleRemove(m.userId)}
+                          disabled={busy || (scope === 'workspace' && isSelf)}
+                          title={
+                            scope === 'project'
+                              ? t('members.remove_override')
+                              : t('members.remove')
+                          }
+                        >
+                          <Trash2 size={14} />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

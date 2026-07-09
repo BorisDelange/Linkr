@@ -6,6 +6,7 @@ user (see permissions.effective_project_role). Managing members requires owner o
 the target (global admins bypass)."""
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -32,6 +33,24 @@ def _validate_role(role: str) -> None:
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"role must be one of {member_service.VALID_ROLES}",
         )
+
+
+async def _resolve_user_id(
+    db: AsyncSession, user_id: int | None, username: str | None
+) -> int:
+    """Turn an id-or-username membership target into a concrete user id."""
+    if user_id is not None:
+        if await db.get(User, user_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        return user_id
+    if username:
+        found = await db.scalar(select(User).where(User.username == username))
+        if found is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        return found.id
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY, "userId or username is required"
+    )
 
 
 # --- Workspace members ----------------------------------------------------
@@ -73,8 +92,9 @@ async def upsert_workspace_member(
     """Add a member or change their role. Requires owner on the workspace."""
     await check_workspace_role(db, workspace_id, user, "owner")
     _validate_role(body.role)
+    target_id = await _resolve_user_id(db, body.user_id, body.username)
     member = await member_service.upsert_workspace_member(
-        db, workspace_id, body.user_id, body.role
+        db, workspace_id, target_id, body.role
     )
     return WorkspaceMemberResponse(
         workspace_id=member.workspace_id,
@@ -155,8 +175,9 @@ async def upsert_project_member(
     project = await _load_project(db, project_uid)
     await check_project_role(db, project, user, "owner")
     _validate_role(body.role)
+    target_id = await _resolve_user_id(db, body.user_id, body.username)
     member = await member_service.upsert_project_member(
-        db, project_uid, body.user_id, body.role
+        db, project_uid, target_id, body.role
     )
     return ProjectMemberResponse(
         project_uid=member.project_uid,

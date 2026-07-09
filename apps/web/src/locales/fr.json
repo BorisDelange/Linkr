@@ -30,6 +30,28 @@
     "settings": "Paramètres",
     "back_to_workspaces": "Retour aux espaces de travail"
   },
+  "members": {
+    "title": "Membres",
+    "workspace_description": "Qui peut accéder à cet espace de travail et ce qu'il peut faire. Les rôles s'appliquent à tous les projets de l'espace, sauf si un projet les redéfinit.",
+    "project_description": "Redéfinitions de rôle propres à ce projet. Un membre défini ici remplace le rôle hérité de l'espace de travail — vous pouvez accorder plus ou moins d'accès pour ce projet uniquement.",
+    "add_label": "Ajouter un membre",
+    "username_placeholder": "Nom d'utilisateur",
+    "add": "Ajouter",
+    "add_override": "Ajouter une redéfinition",
+    "user": "Utilisateur",
+    "role": "Rôle",
+    "role_viewer": "Lecteur",
+    "role_editor": "Éditeur",
+    "role_owner": "Propriétaire",
+    "empty": "Aucun membre pour l'instant.",
+    "no_overrides": "Aucune redéfinition propre au projet. Chacun garde le rôle hérité de l'espace de travail.",
+    "remove": "Retirer le membre",
+    "remove_override": "Retirer la redéfinition",
+    "requires_backend": "La gestion des membres nécessite le backend Python (mode serveur).",
+    "load_error": "Impossible de charger les membres.",
+    "save_error": "Impossible d'enregistrer le membre. Vérifiez le nom d'utilisateur et vos droits.",
+    "remove_error": "Impossible de retirer le membre."
+  },
   "workspaces": {
     "title": "Espaces de travail",
     "description": "Organisez vos projets, plugins et entrepôts de données par organisation.",

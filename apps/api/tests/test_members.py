@@ -84,6 +84,25 @@ async def test_workspace_owner_manages_members(client, db):
     )).status_code == 403
 
 
+async def test_add_member_by_username(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    _, _ = await _make_user(db, client, "carol")
+
+    r = await client.put(
+        f"{API}/workspaces/{ws}/members", headers=admin,
+        json={"username": "carol", "role": "viewer"},
+    )
+    assert r.status_code == 200 and r.json()["role"] == "viewer"
+
+    # Unknown username → 404.
+    r = await client.put(
+        f"{API}/workspaces/{ws}/members", headers=admin,
+        json={"username": "ghost", "role": "viewer"},
+    )
+    assert r.status_code == 404
+
+
 async def test_cannot_remove_last_owner(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)

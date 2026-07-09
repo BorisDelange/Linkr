@@ -27,6 +27,7 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { MembersTab } from '@/features/settings/MembersTab'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -139,6 +140,7 @@ export function ProjectSettingsPage() {
       <Tabs defaultValue="general" className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="general">{t('project_settings.general')}</TabsTrigger>
+          <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="status-badges">{t('project_settings.status_and_badges')}</TabsTrigger>
           <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>
         </TabsList>
@@ -181,6 +183,11 @@ export function ProjectSettingsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Members */}
+        <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
+          {uid && <MembersTab scope="project" targetId={uid} />}
         </TabsContent>
 
         {/* Status & Badges */}

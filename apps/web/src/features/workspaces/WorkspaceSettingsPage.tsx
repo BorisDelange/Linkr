@@ -17,6 +17,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { MembersTab } from '@/features/settings/MembersTab'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import {
   Select,
@@ -143,6 +144,7 @@ export function WorkspaceSettingsPage() {
       <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col px-6">
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="general">{t('workspaces.tab_general')}</TabsTrigger>
+          <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
           <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
           <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>
@@ -180,6 +182,11 @@ export function WorkspaceSettingsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Members */}
+        <TabsContent value="members" className="min-h-0 flex-1 overflow-auto pb-6">
+          <MembersTab scope="workspace" targetId={wsUid} />
         </TabsContent>
 
         {/* Badges */}
