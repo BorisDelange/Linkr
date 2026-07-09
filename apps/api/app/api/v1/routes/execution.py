@@ -18,7 +18,15 @@ from app.schemas.execution import (
     RestartKernelRequest,
     RuntimeFigureResponse,
 )
-from app.services import data_source_service, dataset_service
+from app.schemas.execution_session import (
+    ExecutionSessionCreate,
+    ExecutionSessionResponse,
+)
+from app.services import (
+    data_source_service,
+    dataset_service,
+    execution_session_service,
+)
 from app.services.data import dataset_fs
 from app.services.execution import injection, kernel, pty_kernel, runtime
 
@@ -172,6 +180,43 @@ async def restart_kernel(
     next run starts with a clean namespace."""
     await _require_project_access(db, body.project_uid, user, "editor")
     await kernel.manager.restart(body.project_uid, user.id, body.language, body.env_id)
+
+
+@router.get("/sessions", response_model=list[ExecutionSessionResponse])
+async def list_sessions(
+    project_uid: str = Query(alias="projectUid"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's named execution sessions for a project (per-user, never shared)."""
+    await _require_project_access(db, project_uid, user, "viewer")
+    return await execution_session_service.list_for_user(db, project_uid, user.id)
+
+
+@router.post("/sessions", response_model=ExecutionSessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_session(
+    body: ExecutionSessionCreate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _require_project_access(db, body.project_uid, user, "editor")
+    return await execution_session_service.create(db, body, user.id)
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Drop a session and kill its live kernels. Only the owner may delete it."""
+    session = await execution_session_service.get(db, session_id)
+    if session is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if session.user_id != user.id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your session")
+    await kernel.manager.shutdown_env(session.project_uid, user.id, session.id)
+    await execution_session_service.delete(db, session)
 
 
 async def _make_ws_resolver(connection_id: str | None):
