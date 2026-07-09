@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { useDataSourceStore } from './data-source-store'
 import type {
@@ -60,6 +61,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   loadProjectConnections: async (projectUid: string) => {
     const conns = await getStorage().connections.getByProject(projectUid)
     set({ customConnections: conns })
+
+    // Server mode: connections are queried server-side, nothing is mounted in
+    // the browser (mounting would download the file bytes — the very thing we
+    // avoid). Their stored status stands as-is.
+    if (isServerMode()) return
 
     // Mount custom connections that aren't mounted yet
     for (const conn of conns) {
@@ -199,7 +205,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     await getStorage().connections.create(conn)
     set((s) => ({ customConnections: [...s.customConnections, conn] }))
 
-    if (isLocal) {
+    if (isLocal && isServerMode()) {
+      // Server mode: the file bytes were uploaded to the blob store above and
+      // are queried server-side — no browser WASM mount. Mark it connected.
+      await updateConnStatus(id, 'connected', set, get)
+    } else if (isLocal) {
       // Mount in DuckDB
       try {
         const dsMock = { id, connectionConfig, schemaMapping: undefined } as Parameters<typeof engine.mountDataSource>[0]

@@ -11,6 +11,7 @@
  */
 
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import * as engine from '@/lib/duckdb/engine'
 import { BUILTIN_PRESET_IDS, SCHEMA_PRESETS, getSchemaPreset } from '@/lib/schema-presets'
 import { getAllPlugins } from '@/lib/plugins/registry'
@@ -815,9 +816,22 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
       updatedAt: now,
     }
     await storage.dataSources.create(dataSource)
-    await engine.mountEmptyFromDDL(db.id, schemaMapping.ddl!, db.alias)
+    // Server mode: no browser WASM mount (the empty schema is materialized
+    // server-side on first query). Front-only mounts it in DuckDB-WASM.
+    if (!isServerMode()) {
+      await engine.mountEmptyFromDDL(db.id, schemaMapping.ddl!, db.alias)
+    }
     localStorage.setItem(lsKey, '1')
     console.info(`[seed-loader] In-memory database "${db.name}" created`)
+    return
+  }
+
+  // Server mode: the default Parquet databases are pre-loaded server-side
+  // (portal build), so the browser neither fetches the files nor mounts them
+  // in DuckDB-WASM. A source pointing at browser-only IDB file ids would be
+  // broken here, so skip the whole Parquet path — front-only keeps it below.
+  if (isServerMode()) {
+    localStorage.setItem(lsKey, '1')
     return
   }
 

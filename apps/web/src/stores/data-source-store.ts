@@ -347,8 +347,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
     // Server mode: the source lives on the server — no browser WASM mount.
     // External DBs (Postgres/MySQL) open a live connection; file DBs
-    // (DuckDB/SQLite) were uploaded to the blob store above. Either way the
-    // schema + counts are read server-side.
+    // (DuckDB/SQLite are an `engine`, not a separate sourceType) were uploaded
+    // to the blob store above. Either way the schema + counts are read
+    // server-side. sourceType is only 'database' | 'fhir'; 'fhir' has no WASM
+    // mount path, so gating on 'database' covers every mountable case.
     if (isServerMode() && source.sourceType === 'database') {
       const isExternalEngine =
         connectionConfig.engine === 'postgresql' || connectionConfig.engine === 'mysql'
