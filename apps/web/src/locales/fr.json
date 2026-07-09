@@ -2158,6 +2158,7 @@
     "kernel_count_one": "{{count}} kernel",
     "kernel_count_other": "{{count}} kernels",
     "restart_kernel": "Redémarrer le kernel",
+    "kernel_memory": "{{mb}} Mo",
     "session": "Session",
     "uptime": "Uptime",
     "ready": "Prêt"

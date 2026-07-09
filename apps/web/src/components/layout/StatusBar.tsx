@@ -219,21 +219,29 @@ export function StatusBar() {
                     <p className="text-[10px] text-muted-foreground italic">{t('server.no_kernels')}</p>
                   ) : (
                     kernels.map((k) => (
-                      <div key={`${k.language}-${k.envId}`} className="flex items-center justify-between text-xs">
-                        <span>{k.language === 'python' ? 'Python' : 'R'}{k.envId !== 'default' ? ` · ${k.envId}` : ''}</span>
-                        <div className="flex items-center gap-1.5">
-                          <Circle size={6} className={cn('fill-current', k.busy ? 'text-blue-500' : k.alive ? 'text-emerald-500' : 'text-muted-foreground/30')} />
-                          <span className="text-muted-foreground">
-                            {k.busy ? t('server.runtime_executing') : t('server.runtime_ready')}
-                          </span>
-                          <button
-                            onClick={() => handleRestartKernel(k.language, k.envId)}
-                            className="rounded p-0.5 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                            title={t('server.restart_kernel')}
-                          >
-                            <RotateCcw size={11} />
-                          </button>
+                      <div key={`${k.language}-${k.envId}`} className="space-y-0.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span>{k.language === 'python' ? 'Python' : 'R'}{k.envId !== 'default' ? ` · ${k.envId}` : ''}</span>
+                          <div className="flex items-center gap-1.5">
+                            <Circle size={6} className={cn('fill-current', k.busy ? 'text-blue-500' : k.alive ? 'text-emerald-500' : 'text-muted-foreground/30')} />
+                            <span className="text-muted-foreground">
+                              {k.busy ? t('server.runtime_executing') : t('server.runtime_ready')}
+                            </span>
+                            <button
+                              onClick={() => handleRestartKernel(k.language, k.envId)}
+                              className="rounded p-0.5 hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                              title={t('server.restart_kernel')}
+                            >
+                              <RotateCcw size={11} />
+                            </button>
+                          </div>
                         </div>
+                        {(k.rssKb != null || k.pid != null) && (
+                          <div className="flex items-center gap-2 pl-0 text-[10px] text-muted-foreground/70 tabular-nums">
+                            {k.rssKb != null && <span>{t('server.kernel_memory', { mb: Math.round(k.rssKb / 1024) })}</span>}
+                            {k.pid != null && <span>PID {k.pid}</span>}
+                          </div>
+                        )}
                       </div>
                     ))
                   )

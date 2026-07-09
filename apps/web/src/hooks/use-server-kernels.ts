@@ -6,6 +6,9 @@ export interface ServerKernel {
   envId: string
   alive: boolean
   busy: boolean
+  pid: number | null
+  rssKb: number | null
+  idleSeconds: number
 }
 
 function fetchKernels(projectUid: string): Promise<ServerKernel[]> {
