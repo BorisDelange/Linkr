@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.deps import get_current_user_optional
 from app.core.security import hash_password
 from app.models.user import User
 from app.schemas.auth import (
@@ -25,8 +26,17 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/db-info", response_model=DbInfoResponse)
-async def db_info():
-    """Report the database the server actually uses (configured server-side)."""
+async def db_info(
+    user: User | None = Depends(get_current_user_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """Report the database the server actually uses (configured server-side).
+
+    Public during initial setup (the wizard shows the target DB before any user
+    exists); admin-only once set up, so DB topology isn't leaked to anyone."""
+    count = await db.scalar(select(func.count(User.id)))
+    if count and count > 0 and (user is None or user.role != "admin"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
     url = make_url(settings.resolved_database_url)
     engine = url.get_backend_name()  # "sqlite", "postgresql", ...
     if engine == "sqlite":

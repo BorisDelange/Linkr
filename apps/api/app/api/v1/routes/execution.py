@@ -104,8 +104,14 @@ async def execute_code(
 
     Only the rendered result crosses the wire (stdout/stderr/figures/table) —
     never the underlying data (see storage plan §03/§06)."""
-    if body.project_uid:
-        await _require_project_access(db, body.project_uid, user, "editor")
+    # Every run happens inside a project the caller may edit. Context-less
+    # execution is refused: it would let any authenticated account run arbitrary
+    # code server-side with no workspace/project scope.
+    if not body.project_uid:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "project_uid is required to run code"
+        )
+    await _require_project_access(db, body.project_uid, user, "editor")
 
     code = body.code
     if body.dataset_file_id and body.language in ("python", "r"):
@@ -121,28 +127,22 @@ async def execute_code(
         source = await _require_connection_access(db, body.connection_id, user)
 
         async def resolver(sql: str):
-            return await data_source_service.query(source, sql)
+            return await data_source_service.query(db, source, sql)
 
+    if body.language not in ("python", "r"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"Unsupported language: {body.language}",
+        )
     try:
-        # With a project context, reuse a persistent kernel so variables survive
-        # between runs (§07). Context-less runs stay stateless one-shots.
-        if body.language in ("python", "r") and body.project_uid:
-            try:
-                k = await kernel.manager.get(
-                    body.project_uid, user.id, body.language, body.env_id
-                )
-            except kernel.KernelLimitReached as e:
-                raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
-            out = await k.execute(code, query_resolver=resolver)
-        elif body.language == "python":
-            out = await runtime.run_python(code)
-        elif body.language == "r":
-            out = await runtime.run_r(code)
-        else:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                f"Unsupported language: {body.language}",
+        # Reuse a persistent kernel so variables survive between runs (§07).
+        try:
+            k = await kernel.manager.get(
+                body.project_uid, user.id, body.language, body.env_id
             )
+        except kernel.KernelLimitReached as e:
+            raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
+        out = await k.execute(code, query_resolver=resolver)
     except runtime.ExecutionError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
@@ -219,25 +219,30 @@ async def delete_session(
     await execution_session_service.delete(db, session)
 
 
-async def _make_ws_resolver(connection_id: str | None):
+async def _make_ws_resolver(connection_id: str | None, user: User):
     """Build a SQL resolver bound to the connection, if any (mirrors POST /execute
-    so sql_query() works in the terminal too). Loaded once at connect time."""
+    so sql_query() works in the terminal too). Loaded once at connect time.
+
+    Enforces workspace read access on the source, like the HTTP path — otherwise a
+    terminal could bind an arbitrary connectionId from another workspace."""
     if not connection_id:
         return None
     async with async_session() as db:
-        source = await data_source_service.get(db, connection_id)
-    if source is None:
-        return None
+        try:
+            source = await _require_connection_access(db, connection_id, user)
+        except HTTPException:
+            return None
 
     async def resolver(sql: str):
-        return await data_source_service.query(source, sql)
+        async with async_session() as db:
+            return await data_source_service.query(db, source, sql)
 
     return resolver
 
 
 async def _terminal_kernel_loop(
     websocket: WebSocket, project_uid: str, language: str, env_id: str,
-    connection_id: str | None, user_id: int,
+    connection_id: str | None, user: User,
 ) -> None:
     """REPL over a persistent R/Python kernel: each {code} message streams
     stdout/stderr chunks back live, then a {done} with figures/table. {interrupt}
@@ -247,12 +252,12 @@ async def _terminal_kernel_loop(
     would sit unread until the run finished. So each {code} runs as its own task
     while the loop keeps reading, letting {interrupt} fire mid-run."""
     try:
-        k = await kernel.manager.get(project_uid, user_id, language, env_id)
+        k = await kernel.manager.get(project_uid, user.id, language, env_id)
     except kernel.KernelLimitReached as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()
         return
-    resolver = await _make_ws_resolver(connection_id)
+    resolver = await _make_ws_resolver(connection_id, user)
 
     async def on_chunk(kind: str, data: str) -> None:
         await websocket.send_json({"type": kind, "data": data})
@@ -363,7 +368,7 @@ async def terminal_ws(websocket: WebSocket):
             env_id = websocket.query_params.get("envId", "default")
             connection_id = websocket.query_params.get("connectionId")
             await _terminal_kernel_loop(
-                websocket, project_uid, language, env_id, connection_id, user.id
+                websocket, project_uid, language, env_id, connection_id, user
             )
     except WebSocketDisconnect:
         pass

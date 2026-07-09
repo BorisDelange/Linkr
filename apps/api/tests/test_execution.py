@@ -25,9 +25,15 @@ async def _project(client, headers) -> str:
     return r.json()["uid"]
 
 
-async def _run(client, headers, code: str, language: str = "python"):
+async def _run(client, headers, code: str, language: str = "python", project: str | None = None):
+    """Run code in a project context. /execute now refuses context-less runs, so
+    tests that don't care about a specific project get a throwaway one."""
+    if project is None:
+        project = await _project(client, headers)
     return await client.post(
-        f"{API}/execute", headers=headers, json={"language": language, "code": code}
+        f"{API}/execute",
+        headers=headers,
+        json={"language": language, "code": code, "projectUid": project},
     )
 
 
@@ -219,8 +225,9 @@ async def test_execute_injects_filtered_dataset(client):
 
 async def test_execute_dataset_not_found_is_404(client):
     headers = await _admin_headers(client)
+    uid = await _project(client, headers)
     r = await client.post(f"{API}/execute", headers=headers, json={
-        "language": "python", "code": "1", "datasetFileId": "nope",
+        "language": "python", "code": "1", "datasetFileId": "nope", "projectUid": uid,
     })
     assert r.status_code == 404
 
@@ -239,7 +246,7 @@ async def test_sql_query_bridge_runs_via_host(client, monkeypatch):
     async def fake_get(db, source_id):
         return _FakeSource()
 
-    async def fake_query(source, sql):
+    async def fake_query(db, source, sql):
         assert "person" in sql
         return [{"id": 1, "name": "alice"}, {"id": 2, "name": "bob"}]
 
@@ -283,11 +290,14 @@ async def test_list_kernels_reports_live_sessions(client):
     assert kernels[0]["language"] == "python" and kernels[0]["alive"] is True
 
 
-async def test_stateless_run_without_project_does_not_persist(client):
+async def test_run_without_project_is_refused(client):
+    """Context-less execution has no workspace/project scope, so it's rejected
+    (guards against any authenticated account running arbitrary server code)."""
     headers = await _admin_headers(client)
-    await _run(client, headers, "b = 7")  # no projectUid -> stateless one-shot
-    r = await _run(client, headers, "print(b)")
-    assert "NameError" in r.json()["stderr"]
+    r = await client.post(
+        f"{API}/execute", headers=headers, json={"language": "python", "code": "b = 7"}
+    )
+    assert r.status_code == 400
 
 
 async def test_execute_unsupported_language_is_400(client):
