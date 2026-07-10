@@ -58,13 +58,19 @@ function rangeOverlaps(ranges: RangeRow[], exclude: string, start: number, end: 
   return false
 }
 
+// Session cache of the computed rows per workspace, so re-opening the Source IDs
+// tab shows the counts instantly instead of refetching (Radix unmounts inactive
+// tab content). Refreshed in the background on mount, and after any mutation.
+const rangeCache = new Map<string, RangeRow[]>()
+
 export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const { t } = useTranslation()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const dataSources = useDataSourceStore((s) => s.dataSources)
 
-  const [ranges, setRanges] = useState<RangeRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [ranges, setRanges] = useState<RangeRow[]>(() => rangeCache.get(workspaceId) ?? [])
+  // No spinner when we already have cached rows — refresh happens in the background.
+  const [loading, setLoading] = useState(() => !rangeCache.has(workspaceId))
   const [edits, setEdits] = useState<Record<string, RangeEdit>>({})
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
   const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number } | null>(null)
@@ -80,7 +86,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   ).sort()
 
   const load = useCallback(async () => {
-    setLoading(true)
+    if (!rangeCache.has(workspaceId)) setLoading(true)
     const [stored, counts] = await Promise.all([
       getStorage().sourceConceptIdRanges.getByWorkspace(workspaceId),
       // Per-badge counts as integers — NOT the full entry rows. Loading every
@@ -94,8 +100,9 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
         ...r, id: `${workspaceId}__${r.badgeLabel}`,
         assignedCount: c?.assignedCount ?? 0, ownCount: c?.ownCount ?? 0,
       }
-    })
-    setRanges(rows.sort((a, b) => a.rangeStart - b.rangeStart))
+    }).sort((a, b) => a.rangeStart - b.rangeStart)
+    rangeCache.set(workspaceId, rows)
+    setRanges(rows)
     setLoading(false)
   }, [workspaceId])
 
@@ -378,9 +385,14 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           ) : ranges.length === 0 ? (
             <Card>
               <div className="py-8 text-center text-xs text-muted-foreground">
-                {allBadgeLabels.length === 0
-                  ? t('concept_mapping.source_id_empty_no_badges')
-                  : t('concept_mapping.source_id_empty')}
+                {allBadgeLabels.length === 0 ? (
+                  <>
+                    <p>{t('concept_mapping.source_id_empty_no_badges')}</p>
+                    <p className="mt-0.5">{t('concept_mapping.source_id_empty_no_badges_hint')}</p>
+                  </>
+                ) : (
+                  t('concept_mapping.source_id_empty')
+                )}
               </div>
             </Card>
           ) : (
