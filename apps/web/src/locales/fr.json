@@ -1921,6 +1921,7 @@
     "unsaved_changes": "Non enregistré",
     "system_plugin": "Système",
     "back_to_list": "Retour",
+    "warehouse_test_server_unsupported": "Le test des plugins entrepôt n'est pas encore disponible en mode serveur (ils s'exécutent dans le moteur du navigateur).",
     "no_plugins": "Aucun plugin.",
     "files": "Fichiers",
     "new_file": "nouveau-fichier.txt",
@@ -3625,6 +3626,7 @@
     "disconnected": "[déconnecté]",
     "serverKernel": "kernel serveur",
     "wasm": "WASM",
-    "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code"
+    "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code",
+    "noProjectContext": "Aucun contexte projet — ouvrez ce terminal depuis un projet pour accéder à son kernel serveur."
   }
 }

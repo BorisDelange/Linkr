@@ -23,6 +23,7 @@ import {
 } from '@/components/ui/select'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { buildColumns } from '@/lib/dataset-utils'
 import type { DatasetColumn, DatasetFile, DatasetParseOptions } from '@/types'
 
@@ -215,6 +216,14 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
       }
       reader.readAsArrayBuffer(rawBlob)
     } else if (isParquet(rawFileName)) {
+      // Server mode re-parses the raw blob server-side (see store.reimportData),
+      // ignoring any client-parsed rows — so don't load DuckDB-WASM for a preview
+      // that would be thrown away. A minimal `parsed` keeps the Reimport button live.
+      if (isServerMode()) {
+        setParsed({ columns: [], rows: [], preview: [], totalRows: 0 })
+        setLoading(false)
+        return
+      }
       ;(async () => {
         try {
           const { getDuckDB } = await import('@/lib/duckdb/engine')

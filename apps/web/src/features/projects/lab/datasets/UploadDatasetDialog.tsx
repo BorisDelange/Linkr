@@ -253,6 +253,15 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   }, [skipRows, hasHeader, selectedSheet, t])
 
   const parseParquet = useCallback(async (f: File) => {
+    // Server mode parses the file server-side on import (DuckDB on the backend),
+    // so skip the WASM browser preview entirely — loading DuckDB-WASM here would
+    // defeat the point of full-stack mode. A minimal `parsed` unblocks the import
+    // button; columns/rows come back from the server after upload.
+    if (isServerMode()) {
+      setParsed({ fileName: f.name, columns: [], rows: [], preview: [], totalRows: 0 })
+      setLoading(false)
+      return
+    }
     try {
       // Use DuckDB to read Parquet files
       const { getDuckDB } = await import('@/lib/duckdb/engine')

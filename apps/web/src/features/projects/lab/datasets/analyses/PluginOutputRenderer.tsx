@@ -6,6 +6,7 @@ import { OutputTable } from '@/features/projects/files/OutputTable'
 
 import { installPythonPackage } from '@/lib/runtimes/pyodide-engine'
 import { installRPackage } from '@/lib/runtimes/webr-engine'
+import { isServerMode } from '@/lib/api-client'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { sanitizeHtml } from '@/lib/sanitize'
 
@@ -128,7 +129,9 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
   const hasFigures = result.figures.length > 0
   const hasTable = result.table !== null
   const hasStdout = result.stdout.length > 0
-  const missingPackages = hasError ? detectMissingPackages(errors) : []
+  // In server mode a missing package must be provisioned in the server runtime,
+  // not installed in the browser's WASM engine — hide the in-browser installer.
+  const missingPackages = hasError && !isServerMode() ? detectMissingPackages(errors) : []
 
   // In compact mode, render table directly without ScrollArea wrapper for better space usage
   if (compact && hasTable && result.table && !hasError && !hasFigures) {

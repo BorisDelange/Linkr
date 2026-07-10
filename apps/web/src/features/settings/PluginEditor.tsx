@@ -294,7 +294,9 @@ export function PluginEditor() {
       } catch { /* invalid json */ }
 
       const newlyInstalled: string[] = []
-      if (manifestDeps.length > 0) {
+      // Server mode: deps are provisioned in the server runtime image; installing
+      // them in the browser WASM engine would boot Pyodide/WebR for nothing.
+      if (manifestDeps.length > 0 && !isServerMode()) {
         const installed = testLanguage === 'python'
           ? await listPythonPackages()
           : await listRPackages()
@@ -321,6 +323,14 @@ export function PluginEditor() {
       }
 
       if (isWarehouse) {
+        // Warehouse plugins run in the browser WASM engine with patient context.
+        // There's no server-side path for them yet, so in full-stack mode don't
+        // fall back to WASM — surface it instead of silently loading Pyodide/WebR.
+        if (isServerMode()) {
+          setTestStatusMessage(null)
+          setTestResult({ stdout: '', stderr: t('plugins.warehouse_test_server_unsupported'), figures: [], table: null, html: '' })
+          return
+        }
         // Warehouse mode: execute with patient context (null for test)
         const code = resolveTemplate(template, testConfig, [], parsedSchema, testLanguage)
         const { executeWarehousePluginPython, executeWarehousePluginR } = await import(
@@ -364,7 +374,7 @@ export function PluginEditor() {
       setIsExecuting(false)
       setTestStatusMessage(null)
     }
-  }, [pluginScope, testDataSourceId, testPersonId, testVisitId, testVisitDetailId, testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible, isSystemPlugin, editingPluginId])
+  }, [t, pluginScope, testDataSourceId, testPersonId, testVisitId, testVisitDetailId, testDatasetFileId, testLanguage, files, testConfig, parsedSchema, outputVisible, isSystemPlugin, editingPluginId])
 
   const activeContent = activeFile ? files[activeFile] ?? '' : ''
   const activeLanguage = activeFile ? languageFromFilename(activeFile) : 'plaintext'

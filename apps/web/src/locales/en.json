@@ -1921,6 +1921,7 @@
     "unsaved_changes": "Unsaved",
     "system_plugin": "System",
     "back_to_list": "Back",
+    "warehouse_test_server_unsupported": "Testing warehouse plugins isn't available in server mode yet (they run in the browser engine).",
     "no_plugins": "No plugins yet.",
     "files": "Files",
     "new_file": "new-file.txt",
@@ -3625,6 +3626,7 @@
     "disconnected": "[disconnected]",
     "serverKernel": "server kernel",
     "wasm": "WASM",
-    "bashLimited": "Note: limited shell — use Python or R terminals for code execution"
+    "bashLimited": "Note: limited shell — use Python or R terminals for code execution",
+    "noProjectContext": "No project context — open this terminal from a project to reach its server kernel."
   }
 }

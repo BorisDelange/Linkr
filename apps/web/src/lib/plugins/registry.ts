@@ -1,4 +1,5 @@
 import type { Plugin } from '@/types/plugin'
+import { isServerMode } from '@/lib/api-client'
 import {
   installPythonPackage,
   listPythonPackages,
@@ -71,6 +72,11 @@ export async function ensurePluginDependencies(
   language: 'python' | 'r',
   onLog?: (msg: string) => void,
 ): Promise<string[]> {
+  // Server mode: packages are pre-provisioned in the server runtime image, and
+  // the browser never installs them — checking/installing here would boot the
+  // Pyodide/WebR WASM runtime for nothing.
+  if (isServerMode()) return []
+
   const key = `${pluginId}:${language}`
   if (depsChecked.has(key)) return []
 

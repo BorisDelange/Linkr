@@ -329,6 +329,16 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
         return
       }
 
+      // In server mode a missing socket means no project context (no server
+      // kernel). Never fall back to the WASM runtime — that would load Pyodide/
+      // WebR in a deployment meant to run all compute server-side.
+      if (isServerMode()) {
+        writeOutput(t('terminal.noProjectContext'), true)
+        executing = false
+        terminal.write(config.prompt)
+        return
+      }
+
       if (terminalType === 'python') {
         if (getPyodideStatus() !== 'ready' && getPyodideStatus() !== 'executing') {
           terminal.writeln('\x1b[33mLoading Python runtime...\x1b[0m')
