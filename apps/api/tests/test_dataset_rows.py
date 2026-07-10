@@ -39,6 +39,16 @@ def test_columns_fallback_to_row_keys_when_undeclared():
     assert out == [{"col-1-0": "x"}, {"col-1-0": "y"}]
 
 
+def test_write_parquet_honors_dir(tmp_path):
+    # The temp must land in `dir` so the caller's os.replace into that same dir is
+    # a same-device rename — a cross-device replace (/tmp -> mounted volume) raises
+    # OSError 18 in Docker. Verify the temp is under dir and the file round-trips.
+    dest_dir = tmp_path / "cache"
+    out = write_parquet([{"c0": "a"}, {"c0": "b"}], [{"id": "c0", "type": "string"}], dir=dest_dir)
+    assert dest_dir in out.parents
+    assert read_parquet(out) == [{"c0": "a"}, {"c0": "b"}]
+
+
 def test_empty_rows_and_columns():
     assert _roundtrip([], []) == []
 

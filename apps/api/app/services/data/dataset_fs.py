@@ -72,8 +72,10 @@ def resolve_cache(
     meta = _read_meta(meta_path)
     if force or meta is None or meta.get("sig") != sig or not parquet.is_file():
         columns, rows, row_count = _parse(raw, rel, parse_options)
-        tmp = dataset_rows.write_parquet(rows, columns)
         parquet.parent.mkdir(parents=True, exist_ok=True)
+        # Write the temp on the destination filesystem so the replace() below is a
+        # same-device atomic rename (a mounted volume differs from /tmp in Docker).
+        tmp = dataset_rows.write_parquet(rows, columns, dir=parquet.parent)
         Path(tmp).replace(parquet)
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False}
         _write_meta(meta_path, meta)

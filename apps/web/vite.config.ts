@@ -14,8 +14,26 @@ const gitHash = (() => {
   }
 })()
 
+// In server mode the COI service worker is useless (no WASM/webR to enable
+// SharedArrayBuffer for) and actively harmful: it intercepts API calls and,
+// on its error path, retries a fetch whose body was already consumed —
+// breaking uploads (chunk POSTs). Strip its <script> from index.html at build
+// time when VITE_API_URL is set.
+function stripCoiInServerMode() {
+  const serverMode = !!process.env.VITE_API_URL
+  return {
+    name: 'strip-coi-in-server-mode',
+    transformIndexHtml(html: string) {
+      if (!serverMode) return html
+      return html
+        .replace(/<script>window\.coi[\s\S]*?<\/script>\s*/, '')
+        .replace(/<script src="\/coi-serviceworker\.js"><\/script>\s*/, '')
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), seedHashesPlugin()],
+  plugins: [react(), tailwindcss(), seedHashesPlugin(), stripCoiInServerMode()],
   define: {
     __APP_BUILD_HASH__: JSON.stringify(gitHash),
   },

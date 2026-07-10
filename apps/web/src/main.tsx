@@ -18,6 +18,16 @@ import { createIDBStorage } from '@/lib/storage/idb-storage'
 import { createAPIStorage } from '@/lib/storage/api-storage'
 
 async function boot() {
+  // In server mode the COI service worker (SharedArrayBuffer for webR) is not
+  // just unused — it intercepts fetches and corrupts API upload POSTs (retries
+  // a request whose body was already consumed). New builds don't register it
+  // (see vite.config), but a client that visited a front-only build earlier may
+  // still have it installed, so unregister it defensively.
+  if (isServerMode() && 'serviceWorker' in navigator) {
+    const regs = await navigator.serviceWorker.getRegistrations().catch(() => [])
+    await Promise.all(regs.map((r) => r.unregister().catch(() => false)))
+  }
+
   // Handle pending data reset / cache clear BEFORE opening any IDB connection.
   await executePendingReset()
   await executePendingCacheClear()

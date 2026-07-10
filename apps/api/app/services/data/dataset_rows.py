@@ -62,13 +62,20 @@ def _effective_columns(rows: list[dict], columns: list[dict]) -> list[dict]:
     return [{"id": key, "type": "string"} for key in seen]
 
 
-def write_parquet(rows: list[dict], columns: list[dict]) -> Path:
+def write_parquet(rows: list[dict], columns: list[dict], dir: Path | None = None) -> Path:
     """Write rows to a temp Parquet file (typed by ``columns``); return its path.
 
     Caller is expected to move it into the blob store (``blob_store.store_file``),
-    which renames it to its content hash — so the temp name is throwaway."""
+    which renames it to its content hash — so the temp name is throwaway.
+
+    Pass ``dir`` to create the temp on a specific filesystem: the caller then
+    does an atomic ``os.replace`` into that same dir, which fails cross-device
+    (Errno 18) when the temp is on ``/tmp`` but the destination is a mounted
+    volume (e.g. LINKR_DATA_DIR in Docker)."""
     columns = _effective_columns(rows, columns)
-    tmp_dir = Path(tempfile.mkdtemp(prefix="linkr-rows-"))
+    if dir is not None:
+        dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="linkr-rows-", dir=dir))
     json_path = tmp_dir / "rows.json"
     parquet_path = tmp_dir / "rows.parquet"
     json_path.write_text(json.dumps(rows), encoding="utf-8")
