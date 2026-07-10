@@ -57,6 +57,31 @@ async def _make_cohort(client, headers, project_uid: str):
     )
 
 
+async def test_my_role_reflects_effective_role(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+    bob_id, bob = await _make_user(db, client, "bob")
+
+    # Non-member: no role on either.
+    assert (await client.get(f"{API}/workspaces/{ws}/my-role", headers=bob)).json()["role"] is None
+    assert (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["role"] is None
+
+    # Workspace editor → inherited editor on the project.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "editor"})
+    assert (await client.get(f"{API}/workspaces/{ws}/my-role", headers=bob)).json()["role"] == "editor"
+    assert (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["role"] == "editor"
+
+    # Project override wins (owner here, hidden there).
+    await client.put(f"{API}/projects/{proj}/members", headers=admin,
+                     json={"userId": bob_id, "role": "owner"})
+    assert (await client.get(f"{API}/projects/{proj}/my-role", headers=bob)).json()["role"] == "owner"
+
+    # Admin is always owner.
+    assert (await client.get(f"{API}/workspaces/{ws}/my-role", headers=admin)).json()["role"] == "owner"
+
+
 async def test_workspace_owner_manages_members(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)

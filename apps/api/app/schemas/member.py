@@ -11,6 +11,13 @@ class MemberUser(CamelModel):
     email: str | None = None
 
 
+class MyRoleResponse(CamelModel):
+    """The current user's effective role on a workspace or project, for UI gating.
+    role is null when the user has no access (a "none" project override)."""
+
+    role: str | None = None
+
+
 class WorkspaceMemberResponse(CamelModel):
     workspace_id: str
     user_id: int

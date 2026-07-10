@@ -203,7 +203,6 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
               </Select>
               <Button
                 size="sm"
-                variant="outline"
                 onClick={handleAdd}
                 disabled={selectedUserIds.length === 0 || busy}
                 className="gap-1"

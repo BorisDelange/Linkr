@@ -42,6 +42,14 @@ export const membersApi = {
   /** Light id+username list of all users, to populate member pickers. */
   directory: () => apiRequest<DirectoryUser[]>('/users/directory'),
 
+  /** The current user's effective role on a workspace (null = no access). */
+  myWorkspaceRole: (workspaceId: string) =>
+    apiRequest<{ role: MemberRole | null }>(`/workspaces/${workspaceId}/my-role`),
+
+  /** The current user's effective role on a project (null = no access). */
+  myProjectRole: (projectUid: string) =>
+    apiRequest<{ role: MemberRole | null }>(`/projects/${projectUid}/my-role`),
+
   listWorkspace: (workspaceId: string) =>
     apiRequest<WorkspaceMember[]>(`/workspaces/${workspaceId}/members`),
 

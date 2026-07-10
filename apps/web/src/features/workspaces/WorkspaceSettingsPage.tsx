@@ -18,6 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MembersTab } from '@/features/settings/MembersTab'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import {
   Select,
@@ -45,7 +46,11 @@ export function WorkspaceSettingsPage() {
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
-  const defaultTab = searchParams.get('tab') ?? 'general'
+  // Deleting a workspace requires the owner role (enforced server-side too).
+  const { atLeast: hasWsRole } = useMyWorkspaceRole(wsUid)
+  const canDelete = hasWsRole('owner')
+  const requestedTab = searchParams.get('tab') ?? 'general'
+  const defaultTab = requestedTab === 'danger' && !canDelete ? 'general' : requestedTab
   const language = useAppStore((s) => s.language)
   const { _workspacesRaw, updateWorkspace, updateWorkspaceBadges, deleteWorkspace, closeWorkspace } = useWorkspaceStore()
   const { _organizationsRaw, getOrganization } = useOrganizationStore()
@@ -147,7 +152,7 @@ export function WorkspaceSettingsPage() {
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('workspaces.tab_badges')}</TabsTrigger>
           <TabsTrigger value="organization">{t('workspaces.tab_organization')}</TabsTrigger>
-          <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>
+          {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
         {/* General */}
@@ -320,7 +325,8 @@ export function WorkspaceSettingsPage() {
           </div>
         </TabsContent>
 
-        {/* Danger zone */}
+        {/* Danger zone — owner only */}
+        {canDelete && (
         <TabsContent value="danger" className="min-h-0 flex-1 overflow-auto pb-6">
           <div className="mx-auto max-w-2xl pt-2">
             <Card className="border-destructive/50">
@@ -377,6 +383,7 @@ export function WorkspaceSettingsPage() {
             </Card>
           </div>
         </TabsContent>
+        )}
       </Tabs>
 
       {/* Delete progress modal — non-dismissable while deleteWorkspace runs. */}

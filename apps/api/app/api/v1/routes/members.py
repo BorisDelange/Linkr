@@ -11,12 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_project_role, check_workspace_role
+from app.core.permissions import (
+    check_project_role,
+    check_workspace_role,
+    effective_project_role,
+)
 from app.models.project import Project
 from app.models.user import User
 from app.models.workspace_member import WorkspaceMember
 from app.schemas.member import (
     MemberUser,
+    MyRoleResponse,
     ProjectMemberResponse,
     ProjectMemberWrite,
     WorkspaceMemberResponse,
@@ -52,6 +57,35 @@ async def _resolve_user_id(
     raise HTTPException(
         status.HTTP_422_UNPROCESSABLE_ENTITY, "userId or username is required"
     )
+
+
+# --- "My role" (current user's effective role, for UI gating) --------------
+
+
+@router.get("/workspaces/{workspace_id}/my-role", response_model=MyRoleResponse)
+async def my_workspace_role(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The current user's effective role on this workspace (admin → owner)."""
+    if user.role == "admin":
+        return MyRoleResponse(role="owner")
+    member = await db.get(WorkspaceMember, (workspace_id, user.id))
+    return MyRoleResponse(role=member.role if member else None)
+
+
+@router.get("/projects/{project_uid}/my-role", response_model=MyRoleResponse)
+async def my_project_role(
+    project_uid: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The current user's effective role on this project (override > inherited)."""
+    project = await db.get(Project, project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    return MyRoleResponse(role=await effective_project_role(db, project, user))
 
 
 # --- Workspace members ----------------------------------------------------

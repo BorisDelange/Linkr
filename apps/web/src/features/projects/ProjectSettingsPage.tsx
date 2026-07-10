@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,10 @@ export function ProjectSettingsPage() {
     deleteProject,
     closeProject,
   } = useAppStore()
+
+  // Deleting a project requires the owner role (enforced server-side too).
+  const { atLeast: hasProjectRole } = useMyProjectRole(uid)
+  const canDelete = hasProjectRole('owner')
 
   const projectRaw = _projectsRaw.find((p) => p.uid === uid)
   const project = projects.find((p) => p.uid === uid)
@@ -142,7 +147,7 @@ export function ProjectSettingsPage() {
           <TabsTrigger value="general">{t('project_settings.general')}</TabsTrigger>
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="status-badges">{t('project_settings.status_and_badges')}</TabsTrigger>
-          <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>
+          {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('project_settings.danger_zone')}</TabsTrigger>}
         </TabsList>
 
         {/* General */}
@@ -280,7 +285,8 @@ export function ProjectSettingsPage() {
           </div>
         </TabsContent>
 
-        {/* Danger zone */}
+        {/* Danger zone — owner only */}
+        {canDelete && (
         <TabsContent value="danger" className="min-h-0 flex-1 overflow-auto pb-6">
           <div className="mx-auto max-w-2xl pt-2">
             <Card className="border-destructive/50">
@@ -337,6 +343,7 @@ export function ProjectSettingsPage() {
             </Card>
           </div>
         </TabsContent>
+        )}
       </Tabs>
     </div>
   )
