@@ -1743,7 +1743,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             {/* Filter section — one card, two columns: statuses (left) / unmapped + total (right),
                 aligned with the single mapping project's Export tab. */}
             <Card className="p-4">
-              <div className="mb-1 flex items-center justify-between">
+              <div className="mb-0.5 flex items-center justify-between">
                 <p className="text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
                 <div className="flex items-center gap-1">
                   <button
@@ -1767,7 +1767,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
               {/* Group-by filter — multi-select dropdown, spanning the full width above
                   the two-column split. */}
               {exportGroupOptions.length > 0 && (
-                <div className="mb-3 flex items-center gap-2">
+                <div className="mb-1.5 flex items-center gap-2">
                   <span className="shrink-0 text-[11px] font-medium text-muted-foreground">
                     {t('concept_mapping.global_group_by')}: <span className="font-normal">{groupModeLabel}</span>
                   </span>
