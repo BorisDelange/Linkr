@@ -102,7 +102,7 @@ export function WorkspaceHomePage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Workspace header */}
-      <div className="shrink-0 px-8 pt-8 pb-2">
+      <div className="shrink-0 px-6 pt-6 pb-2">
         <Card>
           <CardContent className="flex gap-0 p-0">
             {/* Workspace (left) */}
@@ -156,7 +156,7 @@ export function WorkspaceHomePage() {
       </div>
 
       {/* Tabs */}
-      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-8 pb-6">
+      <Tabs value={tab} onValueChange={setTab} className="flex min-h-0 flex-1 flex-col px-6 pb-6">
         <TabsList variant="line" className="shrink-0">
           <TabsTrigger value="overview">{t('summary.tab_overview')}</TabsTrigger>
           <TabsTrigger value="readme">{t('summary.tab_readme')}</TabsTrigger>
