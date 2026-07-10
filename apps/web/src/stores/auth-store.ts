@@ -54,14 +54,16 @@ function loadStoredAuth(): { token: string | null; refreshToken: string | null; 
 export function hasGlobalPermission(permission: string): boolean {
   if (!isServerMode()) return true
   const user = useAuthStore.getState().user
+  if (user?.role === 'admin') return true // hard super-admin, mirrors the backend
   return !!user?.permissions?.includes(permission)
 }
 
 /** Reactive variant of hasGlobalPermission for use inside components. */
 export function useHasGlobalPermission(permission: string): boolean {
-  const permissions = useAuthStore((s) => s.user?.permissions)
+  const user = useAuthStore((s) => s.user)
   if (!isServerMode()) return true
-  return !!permissions?.includes(permission)
+  if (user?.role === 'admin') return true // hard super-admin, mirrors the backend
+  return !!user?.permissions?.includes(permission)
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => {

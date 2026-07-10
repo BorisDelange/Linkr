@@ -35,23 +35,32 @@ export function AuthGate({ children }: AuthGateProps) {
     if (isServerMode) checkSetupStatus()
   }, [isServerMode, checkSetupStatus])
 
-  // Validate stored token on mount (if we have one and setup is done)
+  // Validate the stored token on mount (once setup is done). Runs whenever a
+  // token is present — even if a user is already cached from localStorage —
+  // because that cached user is a stale snapshot without the permissions list
+  // (/auth/me refreshes it). Block the UI with a loader only when there's no
+  // cached user; otherwise revalidate in the background so permissions hydrate
+  // without a flicker.
   useEffect(() => {
-    if (!(isServerMode && needsSetup === false && token && !user)) return
+    if (!(isServerMode && needsSetup === false && token)) return
     let cancelled = false
+    const blocking = !user
     const run = async () => {
-      setValidatingToken(true)
+      if (blocking) setValidatingToken(true)
       try {
         await validateToken()
       } finally {
-        if (!cancelled) setValidatingToken(false)
+        if (!cancelled && blocking) setValidatingToken(false)
       }
     }
     void run()
     return () => {
       cancelled = true
     }
-  }, [isServerMode, needsSetup, token, user, validateToken])
+    // Intentionally excludes `user`: this must run once per token, not re-fire
+    // when validateToken updates the user (which would loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isServerMode, needsSetup, token, validateToken])
 
   // In local mode, render children immediately (after hooks, to keep hook order stable)
   if (!isServerMode) return <>{children}</>
