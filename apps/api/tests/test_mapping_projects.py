@@ -197,7 +197,7 @@ async def test_global_table_flat_and_dedup(client):
     r = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
         "workspaceId": ws, "mode": "flat", "limit": 50, "offset": 0,
     })
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
     body = r.json()
     assert body["total"] == 2
     glucose = next(x for x in body["rows"] if x["source_concept_code"] == "1234-5")

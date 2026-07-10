@@ -279,22 +279,21 @@ def cache_path(workspace_id: str, mode: str, signature: str) -> Path:
 
 
 def materialize(rows: list[dict], mode: str, dest: Path) -> None:
-    """Write merged rows to a Parquet cache via DuckDB."""
+    """Write merged rows to a Parquet cache via DuckDB.
+
+    Columnar, single-pass: build one list per column and register it as a DuckDB
+    relation, then COPY to Parquet. Row-by-row executemany over 100k+ rows was the
+    dominant cost of the first (cache-building) load."""
     columns = _FLAT_COLUMNS if mode == "flat" else _DEDUP_COLUMNS
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{db_connect._ext_dir()}'")
     try:
-        # Register the Python rows as a DuckDB relation, then COPY to Parquet.
         col_defs = ", ".join(_col_ddl(c, mode) for c in columns)
         con.execute(f"CREATE TABLE t ({col_defs})")
         if rows:
-            placeholders = ", ".join(["?"] * len(columns))
-            con.executemany(
-                f"INSERT INTO t VALUES ({placeholders})",
-                [[r.get(c) for c in columns] for r in rows],
-            )
+            _insert_rows(con, columns, rows)
         con.execute(f"COPY t TO '{tmp.as_posix()}' (FORMAT PARQUET)")
         tmp.replace(dest)
     finally:
@@ -302,17 +301,54 @@ def materialize(rows: list[dict], mode: str, dest: Path) -> None:
         tmp.unlink(missing_ok=True)
 
 
-def _col_ddl(col: str, mode: str) -> str:
+def _insert_rows(con, columns: list[str], rows: list[dict]) -> None:
+    """Bulk-insert rows into table `t`. Prefers a single columnar Arrow ingest
+    (fast on 100k+ rows); falls back to executemany if pyarrow is unavailable."""
+    try:
+        import pyarrow as pa
+    except ImportError:
+        placeholders = ", ".join(["?"] * len(columns))
+        con.executemany(
+            f"INSERT INTO t VALUES ({placeholders})",
+            [[r.get(c) for c in columns] for r in rows],
+        )
+        return
+    arrays = {}
+    for c in columns:
+        ctype = _col_type(c)
+        if c == "is_unmapped":
+            arrays[c] = pa.array([r.get(c) for r in rows], type=pa.bool_())
+        elif ctype == "BIGINT":
+            arrays[c] = pa.array(
+                [None if r.get(c) is None else int(r.get(c)) for r in rows], type=pa.int64()
+            )
+        else:
+            # VARCHAR: coerce anything (e.g. DB datetime for created_at/updated_at)
+            # to str so Arrow doesn't choke on non-string objects.
+            arrays[c] = pa.array(
+                [None if r.get(c) is None else str(r.get(c)) for r in rows], type=pa.string()
+            )
+    con.register("_src_arrow", pa.table(arrays))
+    try:
+        con.execute("INSERT INTO t SELECT * FROM _src_arrow")
+    finally:
+        con.unregister("_src_arrow")
+
+
+def _col_type(col: str) -> str:
     int_cols = {
         "source_concept_id", "resolved_source_concept_id", "target_concept_id",
         "votes_approved", "votes_flagged", "votes_rejected", "project_count",
     }
-    bool_cols = {"is_unmapped"}
-    if col in bool_cols:
-        return f"{col} BOOLEAN"
+    if col == "is_unmapped":
+        return "BOOLEAN"
     if col in int_cols:
-        return f"{col} BIGINT"
-    return f"{col} VARCHAR"
+        return "BIGINT"
+    return "VARCHAR"
+
+
+def _col_ddl(col: str, mode: str) -> str:
+    return f"{col} {_col_type(col)}"
 
 
 # --- Pagination over the Parquet cache ---------------------------------------
