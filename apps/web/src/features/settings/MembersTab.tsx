@@ -7,6 +7,7 @@ import {
   membersApi,
   type MemberRole,
   type ProjectMember,
+  type ProjectMemberRole,
   type WorkspaceMember,
 } from '@/lib/api/members'
 import { Button } from '@/components/ui/button'
@@ -29,7 +30,9 @@ import {
   TableRow,
 } from '@/components/ui/table'
 
-const ROLES: MemberRole[] = ['viewer', 'editor', 'owner']
+const WORKSPACE_ROLES: MemberRole[] = ['viewer', 'editor', 'owner']
+// Project overrides add "none" = hide this project from the member.
+const PROJECT_ROLES: ProjectMemberRole[] = ['none', 'viewer', 'editor', 'owner']
 
 type Row = WorkspaceMember | ProjectMember
 
@@ -51,8 +54,9 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newUsername, setNewUsername] = useState('')
-  const [newRole, setNewRole] = useState<MemberRole>('editor')
+  const [newRole, setNewRole] = useState<ProjectMemberRole>('editor')
   const [busy, setBusy] = useState(false)
+  const roleOptions = scope === 'project' ? PROJECT_ROLES : WORKSPACE_ROLES
 
   const load = useCallback(async () => {
     if (!isServerMode()) return
@@ -75,7 +79,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
     load()
   }, [load])
 
-  const upsert = async (body: { userId?: number; username?: string; role: MemberRole }) => {
+  const upsert = async (body: { userId?: number; username?: string; role: ProjectMemberRole }) => {
     setBusy(true)
     try {
       if (scope === 'workspace') await membersApi.upsertWorkspace(targetId, body)
@@ -95,7 +99,7 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
     setNewUsername('')
   }
 
-  const handleChangeRole = (userId: number, role: MemberRole) =>
+  const handleChangeRole = (userId: number, role: ProjectMemberRole) =>
     upsert({ userId, role })
 
   const handleRemove = async (userId: number) => {
@@ -151,12 +155,12 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                 placeholder={t('members.username_placeholder')}
                 className="h-8 flex-1 text-sm"
               />
-              <Select value={newRole} onValueChange={(v) => setNewRole(v as MemberRole)}>
-                <SelectTrigger className="h-8 w-32 text-sm">
+              <Select value={newRole} onValueChange={(v) => setNewRole(v as ProjectMemberRole)}>
+                <SelectTrigger className="h-8 w-36 text-sm">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {ROLES.map((r) => (
+                  {roleOptions.map((r) => (
                     <SelectItem key={r} value={r}>
                       {t(`members.role_${r}`)}
                     </SelectItem>
@@ -208,14 +212,14 @@ export function MembersTab({ scope, targetId }: MembersTabProps) {
                       <TableCell>
                         <Select
                           value={m.role}
-                          onValueChange={(v) => handleChangeRole(m.userId, v as MemberRole)}
+                          onValueChange={(v) => handleChangeRole(m.userId, v as ProjectMemberRole)}
                           disabled={busy}
                         >
                           <SelectTrigger className="h-8 text-sm">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {ROLES.map((r) => (
+                            {roleOptions.map((r) => (
                               <SelectItem key={r} value={r}>
                                 {t(`members.role_${r}`)}
                               </SelectItem>

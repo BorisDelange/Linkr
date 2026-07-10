@@ -152,7 +152,8 @@ async def effective_project_role(
     """The user's resolved role on `project` across the three dimensions.
 
     admin (global)          → always "owner"
-    project override        → replaces the inherited role (can widen OR restrict)
+    project override        → replaces the inherited role (widen, restrict, or
+                              "none" = access removed even to a workspace member)
     else inherited          → the user's workspace role on the project's workspace
     else (no workspace)     → "owner" for a legacy/unassigned project (any user)
 
@@ -162,7 +163,8 @@ async def effective_project_role(
         return "owner"
     override = await db.get(ProjectMember, (project.uid, user.id))
     if override is not None:
-        return override.role
+        # "none" is an explicit "hide this project from this member" override.
+        return None if override.role == "none" else override.role
     if project.workspace_id is None:
         # Unassigned project: no membership model applies, open to any user.
         return "owner"

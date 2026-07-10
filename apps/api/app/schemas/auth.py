@@ -24,6 +24,21 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MeResponse(BaseModel):
+    """Current user + the global-tier permissions their role grants, so the UI can
+    gate admin pages/tools (Users, Roles, app-database). Workspace/project
+    permissions are fetched per-context, not here."""
+
+    id: int
+    username: str
+    email: str | None
+    role: str
+    is_active: bool
+    permissions: list[str]
+
+    model_config = {"from_attributes": True}
+
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str

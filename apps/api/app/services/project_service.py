@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.project import Project
@@ -13,7 +13,8 @@ async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
 
     A project is visible when the user has a role on its workspace (inherited) OR
     a per-project override grants them a role directly — the latter lets a project
-    be shared with someone who isn't a workspace member."""
+    be shared with someone who isn't a workspace member. A "none" override hides
+    the project even from a workspace member."""
     if user.role == "admin":
         result = await db.execute(select(Project))
         return list(result.scalars().all())
@@ -21,14 +22,20 @@ async def list_for_user(db: AsyncSession, user: User) -> list[Project]:
     my_workspaces = select(WorkspaceMember.workspace_id).where(
         WorkspaceMember.user_id == user.id
     )
-    my_overrides = select(ProjectMember.project_uid).where(
-        ProjectMember.user_id == user.id
+    hidden = select(ProjectMember.project_uid).where(
+        ProjectMember.user_id == user.id, ProjectMember.role == "none"
+    )
+    granted = select(ProjectMember.project_uid).where(
+        ProjectMember.user_id == user.id, ProjectMember.role != "none"
     )
     result = await db.execute(
         select(Project).where(
             or_(
-                Project.workspace_id.in_(my_workspaces),
-                Project.uid.in_(my_overrides),
+                and_(
+                    Project.workspace_id.in_(my_workspaces),
+                    Project.uid.notin_(hidden),
+                ),
+                Project.uid.in_(granted),
             )
         )
     )

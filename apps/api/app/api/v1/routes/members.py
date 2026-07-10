@@ -27,11 +27,12 @@ from app.services import member_service
 router = APIRouter(tags=["members"])
 
 
-def _validate_role(role: str) -> None:
-    if role not in member_service.VALID_ROLES:
+def _validate_role(role: str, *, allow_none: bool = False) -> None:
+    valid = member_service.VALID_ROLES + (("none",) if allow_none else ())
+    if role not in valid:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            f"role must be one of {member_service.VALID_ROLES}",
+            f"role must be one of {valid}",
         )
 
 
@@ -171,10 +172,11 @@ async def upsert_project_member(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Set a per-project role override for a user. Requires owner on the project."""
+    """Set a per-project role override for a user. Requires owner on the project.
+    Role "none" hides the project from that user even if they're a workspace member."""
     project = await _load_project(db, project_uid)
     await check_project_role(db, project, user, "owner")
-    _validate_role(body.role)
+    _validate_role(body.role, allow_none=True)
     target_id = await _resolve_user_id(db, body.user_id, body.username)
     member = await member_service.upsert_project_member(
         db, project_uid, target_id, body.role

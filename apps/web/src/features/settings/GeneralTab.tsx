@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
+import { useHasGlobalPermission } from '@/stores/auth-store'
 import { AppDatabaseDialog } from '@/features/settings/AppDatabaseDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -238,6 +239,7 @@ export function GeneralTab() {
   const [testMessage, setTestMessage] = useState('')
   const [browseOpen, setBrowseOpen] = useState(false)
   const [queryOpen, setQueryOpen] = useState(false)
+  const canQueryAppDb = useHasGlobalPermission('app-database:read')
 
   const updateField = <K extends keyof DbConnectionConfig>(key: K, value: DbConnectionConfig[K]) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
@@ -431,10 +433,12 @@ export function GeneralTab() {
               {testStatus === 'testing' && <Loader2 size={14} className="animate-spin" />}
               {t('settings.general_db_test')}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setQueryOpen(true)}>
-              <Database size={14} />
-              {t('settings.general_db_query')}
-            </Button>
+            {canQueryAppDb && (
+              <Button variant="outline" size="sm" onClick={() => setQueryOpen(true)}>
+                <Database size={14} />
+                {t('settings.general_db_query')}
+              </Button>
+            )}
 
             {/* Test result */}
             {testStatus === 'success' && (

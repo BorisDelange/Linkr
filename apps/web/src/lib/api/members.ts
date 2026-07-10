@@ -1,6 +1,8 @@
 import { apiRequest } from '@/lib/api-client'
 
 export type MemberRole = 'viewer' | 'editor' | 'owner'
+// Project overrides can also hide a project from a workspace member.
+export type ProjectMemberRole = MemberRole | 'none'
 
 export interface MemberUser {
   id: number
@@ -19,7 +21,7 @@ export interface WorkspaceMember {
 export interface ProjectMember {
   projectUid: string
   userId: number
-  role: MemberRole
+  role: ProjectMemberRole
   user?: MemberUser
   createdAt?: string
 }
@@ -28,7 +30,7 @@ export interface ProjectMember {
 export interface MemberWrite {
   userId?: number
   username?: string
-  role: MemberRole
+  role: ProjectMemberRole
 }
 
 export const membersApi = {

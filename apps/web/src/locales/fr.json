@@ -40,6 +40,7 @@
     "add_override": "Ajouter une redéfinition",
     "user": "Utilisateur",
     "role": "Rôle",
+    "role_none": "Aucun accès (masqué)",
     "role_viewer": "Lecteur",
     "role_editor": "Éditeur",
     "role_owner": "Propriétaire",

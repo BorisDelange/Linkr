@@ -41,7 +41,11 @@ async def test_login_me_refresh(client):
     headers = {"Authorization": f"Bearer {tokens['access_token']}"}
     r = await client.get(f"{API}/auth/me", headers=headers)
     assert r.status_code == 200
-    assert r.json()["username"] == "admin"
+    me = r.json()
+    assert me["username"] == "admin"
+    # /me exposes the global-tier permissions for UI gating; admin gets them all.
+    assert "app-database:read" in me["permissions"]
+    assert "users:read" in me["permissions"]
 
     r = await client.post(
         f"{API}/auth/refresh", json={"refresh_token": tokens["refresh_token"]}

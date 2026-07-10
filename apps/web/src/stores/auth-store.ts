@@ -7,6 +7,10 @@ export interface AuthUser {
   email: string | null
   role: string
   is_active: boolean
+  // Global-tier permissions the user's role grants (from GET /auth/me). Present
+  // after validateToken; absent right after login (login returns the lighter
+  // user shape), so gate on hasGlobalPermission which treats absence as "no".
+  permissions?: string[]
 }
 
 interface AuthState {
@@ -40,6 +44,24 @@ function loadStoredAuth(): { token: string | null; refreshToken: string | null; 
     }
   }
   return { token, refreshToken, user }
+}
+
+/**
+ * True if the current user's global role grants `permission` (e.g.
+ * "users:read", "app-database:read"). In front-only mode there is no auth, so
+ * everything is permitted. Absence of the permission list (or no user) → false.
+ */
+export function hasGlobalPermission(permission: string): boolean {
+  if (!isServerMode()) return true
+  const user = useAuthStore.getState().user
+  return !!user?.permissions?.includes(permission)
+}
+
+/** Reactive variant of hasGlobalPermission for use inside components. */
+export function useHasGlobalPermission(permission: string): boolean {
+  const permissions = useAuthStore((s) => s.user?.permissions)
+  if (!isServerMode()) return true
+  return !!permissions?.includes(permission)
 }
 
 export const useAuthStore = create<AuthState>()((set, get) => {
@@ -93,6 +115,9 @@ export const useAuthStore = create<AuthState>()((set, get) => {
 
         const data = await res.json()
         get().setTokens(data.access_token, data.refresh_token, data.user)
+        // Login returns the light user shape (no permissions); refresh from
+        // /auth/me so the UI can gate admin surfaces without a page reload.
+        await get().validateToken()
         return true
       } catch {
         set({ loginError: 'unreachable' })

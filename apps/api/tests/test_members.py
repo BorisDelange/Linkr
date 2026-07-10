@@ -168,6 +168,29 @@ async def test_project_override_restricts(client, db):
     assert (await _make_cohort(client, bob, proj)).status_code == 201
 
 
+async def test_project_override_none_hides_from_workspace_member(client, db):
+    admin = await _bootstrap_admin(client)
+    ws = await _workspace(client, admin)
+    proj = await _project(client, admin, ws)
+    bob_id, bob = await _make_user(db, client, "bob")
+
+    # Workspace editor sees the project by inheritance.
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+                     json={"userId": bob_id, "role": "editor"})
+    assert (await client.get(f"{API}/cohorts?projectUid={proj}", headers=bob)).status_code == 200
+    assert any(p["uid"] == proj for p in (await client.get(f"{API}/projects", headers=bob)).json())
+
+    # A "none" override hides it: 403 on the project's resources AND absent from the list.
+    await client.put(f"{API}/projects/{proj}/members", headers=admin,
+                     json={"userId": bob_id, "role": "none"})
+    assert (await client.get(f"{API}/cohorts?projectUid={proj}", headers=bob)).status_code == 403
+    assert all(p["uid"] != proj for p in (await client.get(f"{API}/projects", headers=bob)).json())
+
+    # Workspace roles cannot be "none".
+    assert (await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
+            json={"userId": bob_id, "role": "none"})).status_code == 422
+
+
 async def test_project_override_shares_with_non_workspace_member(client, db):
     admin = await _bootstrap_admin(client)
     ws = await _workspace(client, admin)
