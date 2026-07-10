@@ -77,8 +77,9 @@ async def test_requires_auth(client):
     assert r.status_code in (401, 403)
 
 
-async def test_write_requires_admin(client):
-    """A base (non-admin) user may list/read organizations but never mutate them."""
+async def test_requires_organizations_permission(client):
+    """Organizations are a global-tier resource (organizations:read/write/delete),
+    admin-only by default. A base (non-admin) user can neither read nor mutate them."""
     admin = await _admin_headers(client)
     await client.post(
         f"{API}/users",
@@ -94,7 +95,7 @@ async def test_write_requires_admin(client):
         await client.post(f"{API}/organizations", headers=admin, json={"name": "X"})
     ).json()["id"]
 
-    assert (await client.get(f"{API}/organizations", headers=bob)).status_code == 200
+    assert (await client.get(f"{API}/organizations", headers=bob)).status_code == 403
     assert (
         await client.post(f"{API}/organizations", headers=bob, json={"name": "Y"})
     ).status_code == 403

@@ -26,7 +26,6 @@ RESOURCES = [
     "cohorts",
     "concepts",
     "members",
-    "organizations",
     # Running R/Python/SQL server-side in a project. Powerful (a live kernel in
     # the project dir), so it's its own resource rather than folded into
     # "datasets" — an admin can grant read-everything without code execution.
@@ -42,7 +41,9 @@ PERMISSIONS = [f"{r}:{a}" for r in RESOURCES for a in ACTIONS]
 GLOBAL_RESOURCES = [
     "users",
     "roles",
-    "settings",
+    # Organizations are an instance-wide directory (Settings → Organizations),
+    # shared across workspaces — so they're gated globally, not per workspace.
+    "organizations",
     # Read-only SQL against the app's OWN database (Settings → Application
     # database). Holds every table incl. password hashes, so it's admin-tier.
     "app-database",

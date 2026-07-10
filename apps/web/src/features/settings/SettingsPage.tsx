@@ -12,11 +12,13 @@ export function SettingsPage() {
   const [searchParams] = useSearchParams()
   const canManageUsers = useHasGlobalPermission('users:read')
   const canManageRoles = useHasGlobalPermission('roles:read')
+  const canManageOrgs = useHasGlobalPermission('organizations:read')
   const requestedTab = searchParams.get('tab') ?? 'general'
   // Don't land on a tab the user can't see (e.g. a stale ?tab=users link).
   const defaultTab =
     (requestedTab === 'users' && !canManageUsers) ||
-    (requestedTab === 'roles' && !canManageRoles)
+    (requestedTab === 'roles' && !canManageRoles) ||
+    (requestedTab === 'organizations' && !canManageOrgs)
       ? 'general'
       : requestedTab
 
@@ -33,16 +35,18 @@ export function SettingsPage() {
         <Tabs defaultValue={defaultTab} className="mt-6">
           <TabsList className="mx-auto w-fit">
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
-            <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
+            {canManageOrgs && <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>}
             {canManageUsers && <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>}
             {canManageRoles && <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>}
           </TabsList>
           <TabsContent value="general">
             <GeneralTab />
           </TabsContent>
-          <TabsContent value="organizations">
-            <OrganizationsTab />
-          </TabsContent>
+          {canManageOrgs && (
+            <TabsContent value="organizations">
+              <OrganizationsTab />
+            </TabsContent>
+          )}
           {canManageUsers && (
             <TabsContent value="users">
               <UsersTab />

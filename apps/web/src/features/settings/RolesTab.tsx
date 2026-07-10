@@ -41,7 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** Resources that gate the account instance-wide rather than a single workspace. */
-const GLOBAL_RESOURCES = new Set(['users', 'roles', 'settings'])
+const GLOBAL_RESOURCES = new Set(['users', 'roles', 'app-database'])
 
 const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
@@ -180,7 +180,7 @@ export function RolesTab() {
   const [newScope, setNewScope] = useState<'workspace' | 'global'>('workspace')
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Role | null>(null)
-  const [roleTab, setRoleTab] = useState<'workspace' | 'global'>('workspace')
+  const [roleTab, setRoleTab] = useState<'workspace' | 'global'>('global')
 
   const applyRoles = useCallback((r: Role[]) => {
     setRoles(r)
@@ -314,21 +314,10 @@ export function RolesTab() {
       </div>
 
       <Tabs value={roleTab} onValueChange={(v) => setRoleTab(v as 'workspace' | 'global')}>
-        <TabsList>
-          <TabsTrigger value="workspace">{t('settings.roles_workspace_title')}</TabsTrigger>
+        <TabsList className="mx-auto w-fit">
           <TabsTrigger value="global">{t('settings.roles_global_title')}</TabsTrigger>
+          <TabsTrigger value="workspace">{t('settings.roles_workspace_title')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="workspace" className="mt-4">
-          <RoleMatrix
-            description={t('settings.roles_workspace_description')}
-            roles={workspaceRoles}
-            catalogue={workspaceCatalogue}
-            draft={draft}
-            onToggle={toggle}
-            onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
-            onDelete={setDeleteTarget}
-          />
-        </TabsContent>
         <TabsContent value="global" className="mt-4">
           <RoleMatrix
             description={t('settings.roles_global_description')}
@@ -337,6 +326,17 @@ export function RolesTab() {
             draft={draft}
             onToggle={toggle}
             onSetAll={(roleId, next) => setAll(roleId, globalCatalogue, next)}
+            onDelete={setDeleteTarget}
+          />
+        </TabsContent>
+        <TabsContent value="workspace" className="mt-4">
+          <RoleMatrix
+            description={t('settings.roles_workspace_description')}
+            roles={workspaceRoles}
+            catalogue={workspaceCatalogue}
+            draft={draft}
+            onToggle={toggle}
+            onSetAll={(roleId, next) => setAll(roleId, workspaceCatalogue, next)}
             onDelete={setDeleteTarget}
           />
         </TabsContent>
