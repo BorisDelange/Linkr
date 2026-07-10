@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
@@ -62,6 +62,16 @@ export function WorkspacesPage() {
   const { setRemoteConfig, clearRemoteConfig } = useWorkspaceVersioningStore()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
+
+  // Open the create dialog straight away when arriving via "Create a workspace"
+  // (?new=1 from the Home empty state), then clear the flag from the URL.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setDialogOpen(true)
+      setSearchParams((prev) => { prev.delete('new'); return prev }, { replace: true })
+    }
+  }, [searchParams, setSearchParams])
   const importInputRef = useRef<HTMLInputElement>(null)
 
   // Delete confirmation state

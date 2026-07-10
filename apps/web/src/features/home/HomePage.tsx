@@ -131,7 +131,7 @@ export function HomePage() {
                 <p className="mt-1 text-xs text-muted-foreground/60">
                   {t('home.no_recent_workspaces_description')}
                 </p>
-                <Button onClick={() => navigate('/workspaces')} className="mt-4 gap-2">
+                <Button onClick={() => navigate('/workspaces?new=1')} className="mt-4 gap-2">
                   <Plus size={16} />
                   {t('home.create_workspace')}
                 </Button>
