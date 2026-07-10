@@ -435,7 +435,7 @@ def load_file_source_concepts(project: dict) -> list[dict]:
     try:
         rows = db_connect.query_file_source(
             path, project.get("raw_file_name"), parse_options, select_sql,
-            _SOURCE_CONCEPTS_SQL,
+            _SOURCE_CONCEPTS_SQL, max_rows=None,  # full read: this feeds the cache
         )
     except Exception:
         return []

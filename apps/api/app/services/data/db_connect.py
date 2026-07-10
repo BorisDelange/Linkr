@@ -179,11 +179,16 @@ def _split_statements(sql: str) -> list[str]:
 
 
 def _run_statements(
-    con: duckdb.DuckDBPyConnection, search_path: str, sql: str
+    con: duckdb.DuckDBPyConnection, search_path: str, sql: str,
+    max_rows: int | None = MAX_QUERY_ROWS,
 ) -> list[dict]:
     """Execute each statement in `sql` sequentially, returning the last result's
     rows. `search_path` puts DuckDB's writable `memory` catalog first (so CREATE
-    VIEW / temp tables land there) then the read-only attached source for reads."""
+    VIEW / temp tables land there) then the read-only attached source for reads.
+
+    `max_rows` caps the payload (a `SELECT *` on a billion-row table would blow
+    up the response). Pass `None` for internal server-side consumers that need
+    the full result (e.g. materializing the cross-project table cache)."""
     con.execute(f"SET search_path='{search_path}'")
     result: duckdb.DuckDBPyConnection | None = None
     for stmt in _split_statements(sql):
@@ -191,10 +196,7 @@ def _run_statements(
     if result is None or result.description is None:
         return []
     names = [d[0] for d in result.description]
-    # Cap the payload: a `SELECT *` on a billion-row table would otherwise stream
-    # everything back and blow up the response. Fetch one more than the cap so
-    # callers could detect truncation if needed; we just cut to MAX_QUERY_ROWS.
-    rows = result.fetchmany(MAX_QUERY_ROWS)
+    rows = result.fetchall() if max_rows is None else result.fetchmany(max_rows)
     return [_row_to_json(dict(zip(names, row))) for row in rows]
 
 
@@ -281,6 +283,7 @@ def query_file_source(
     parse_options: dict | None,
     select_sql: str,
     sql: str,
+    max_rows: int | None = MAX_QUERY_ROWS,
 ) -> list[dict]:
     """Run SQL over a mapping project's file source blob (CSV/Parquet/Excel).
 
@@ -299,7 +302,7 @@ def query_file_source(
         con.execute(
             f"CREATE VIEW source_concepts AS SELECT {select_sql} FROM {reader}"
         )
-        return _run_statements(con, "memory", sql)
+        return _run_statements(con, "memory", sql, max_rows=max_rows)
     finally:
         con.close()
 
