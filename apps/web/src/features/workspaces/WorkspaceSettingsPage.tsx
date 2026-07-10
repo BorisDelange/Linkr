@@ -11,6 +11,7 @@ import type { BadgeColor, ProjectBadge } from '@/types'
 import { Building2, MapPin, Globe, Mail, Info, Plus, X, Trash2, Loader2 } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -46,8 +47,9 @@ export function WorkspaceSettingsPage() {
   const navigate = useNavigate()
   const { wsUid } = useResolvedParams()
   const [searchParams] = useSearchParams()
-  // Deleting a workspace requires the owner role (enforced server-side too).
+  // Editing needs editor+, deleting needs owner (both enforced server-side too).
   const { atLeast: hasWsRole } = useMyWorkspaceRole(wsUid)
+  const canEdit = hasWsRole('editor')
   const canDelete = hasWsRole('owner')
   const requestedTab = searchParams.get('tab') ?? 'general'
   const defaultTab = requestedTab === 'danger' && !canDelete ? 'general' : requestedTab
@@ -181,9 +183,15 @@ export function WorkspaceSettingsPage() {
                     rows={3}
                   />
                 </div>
-                <Button size="sm" onClick={general.save} disabled={!general.canSaveNow}>
+                <GatedButton
+                  allowed={canEdit}
+                  notAllowedReason={t('common.insufficient_permissions')}
+                  size="sm"
+                  onClick={general.save}
+                  disabled={!general.canSaveNow}
+                >
                   {t('common.save')}
-                </Button>
+                </GatedButton>
               </CardContent>
             </Card>
           </div>
@@ -212,12 +220,14 @@ export function WorkspaceSettingsPage() {
                         style={getBadgeStyle(badge.color)}
                       >
                         {badge.label}
-                        <button
-                          onClick={() => handleRemoveBadge(badge.id)}
-                          className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
-                        >
-                          <X size={12} />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleRemoveBadge(badge.id)}
+                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
@@ -233,7 +243,9 @@ export function WorkspaceSettingsPage() {
                       className="h-8 flex-1 text-sm"
                     />
                     <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                    <Button
+                    <GatedButton
+                      allowed={canEdit}
+                      notAllowedReason={t('common.insufficient_permissions')}
                       size="sm"
                       variant="outline"
                       onClick={handleAddBadge}
@@ -242,7 +254,7 @@ export function WorkspaceSettingsPage() {
                     >
                       <Plus size={14} />
                       {t('project_settings.add_badge')}
-                    </Button>
+                    </GatedButton>
                   </div>
                 </div>
               </CardContent>
@@ -317,9 +329,15 @@ export function WorkspaceSettingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button size="sm" onClick={organization.save} disabled={!organization.canSaveNow}>
+                <GatedButton
+                  allowed={canEdit}
+                  notAllowedReason={t('common.insufficient_permissions')}
+                  size="sm"
+                  onClick={organization.save}
+                  disabled={!organization.canSaveNow}
+                >
                   {t('common.save')}
-                </Button>
+                </GatedButton>
               </CardContent>
             </Card>
           </div>

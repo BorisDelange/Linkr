@@ -8,6 +8,7 @@ import { localized } from '@/lib/localized'
 import type { ProjectStatus, BadgeColor, ProjectBadge } from '@/types'
 import { Trash2, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/ui/gated-button'
 import { Input } from '@/components/ui/input'
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { Label } from '@/components/ui/label'
@@ -70,8 +71,9 @@ export function ProjectSettingsPage() {
     closeProject,
   } = useAppStore()
 
-  // Deleting a project requires the owner role (enforced server-side too).
+  // Editing needs editor+, deleting needs owner (both enforced server-side too).
   const { atLeast: hasProjectRole } = useMyProjectRole(uid)
+  const canEdit = hasProjectRole('editor')
   const canDelete = hasProjectRole('owner')
 
   const projectRaw = _projectsRaw.find((p) => p.uid === uid)
@@ -184,7 +186,7 @@ export function ProjectSettingsPage() {
                     rows={3}
                   />
                 </div>
-                <Button size="sm" onClick={general.save} disabled={!general.canSaveNow}>{t('common.save')}</Button>
+                <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" onClick={general.save} disabled={!general.canSaveNow}>{t('common.save')}</GatedButton>
               </CardContent>
             </Card>
           </div>
@@ -207,6 +209,7 @@ export function ProjectSettingsPage() {
               <CardContent>
                 <Select
                   value={status}
+                  disabled={!canEdit}
                   onValueChange={(value) => {
                     if (uid) updateProjectStatus(uid, value as ProjectStatus)
                   }}
@@ -245,12 +248,14 @@ export function ProjectSettingsPage() {
                         style={getBadgeStyle(badge.color)}
                       >
                         {badge.label}
-                        <button
-                          onClick={() => handleRemoveBadge(badge.id)}
-                          className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
-                        >
-                          <X size={12} />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleRemoveBadge(badge.id)}
+                            className="rounded-full p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/20"
+                          >
+                            <X size={12} />
+                          </button>
+                        )}
                       </span>
                     ))}
                   </div>
@@ -268,7 +273,9 @@ export function ProjectSettingsPage() {
                       className="h-8 flex-1 text-sm"
                     />
                     <BadgeColorButton value={newBadgeColor} onChange={setNewBadgeColor} />
-                    <Button
+                    <GatedButton
+                      allowed={canEdit}
+                      notAllowedReason={t('common.insufficient_permissions')}
                       size="sm"
                       variant="outline"
                       onClick={handleAddBadge}
@@ -277,7 +284,7 @@ export function ProjectSettingsPage() {
                     >
                       <Plus size={14} />
                       {t('project_settings.add_badge')}
-                    </Button>
+                    </GatedButton>
                   </div>
                 </div>
               </CardContent>
