@@ -60,7 +60,8 @@ function normalizeImportedTodos(todos: unknown): TodoItem[] {
 
 // Source-concept-id compact format helpers live in source-concept-ids-io (shared
 // with the per-project export/import, kept out of this module to avoid a cycle).
-export type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source-concept-ids-io'
+import type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source-concept-ids-io'
+export type { CompactSourceConceptIdEntries }
 import {
   toCompactEntries,
   parseSourceConceptIdEntries,

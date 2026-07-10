@@ -371,6 +371,7 @@ interface DeduplicatedMappingRow {
 }
 
 interface GlobalTableFilters {
+  globalSearch?: string  // search box: matches source concept name OR code
   statusFilter?: Set<string>  // multi-select: statuses + 'unmapped'
   groupLabels?: Set<string>  // multi-select: badge labels, project names, or statuses
   sourceVocabularyId?: string | null
