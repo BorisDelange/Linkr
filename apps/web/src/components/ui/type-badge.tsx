@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 
 /** Small colored badge for a SQL/data column type — shared by every schema view. */
 
-const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
+export const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   number:  { icon: '#',  color: 'bg-blue-500/15 text-blue-700 dark:text-blue-400' },
   string:  { icon: 'Aa', color: 'bg-green-500/15 text-green-700 dark:text-green-400' },
   boolean: { icon: '⊘',  color: 'bg-purple-500/15 text-purple-700 dark:text-purple-400' },

@@ -99,7 +99,7 @@ function SqlTab({ active }: { active: boolean }) {
             </Button>
           </div>
           <div className="min-h-0 flex-1">
-            <CodeEditor value={sql} language="sql" onChange={setSql} onRunFile={run} />
+            <CodeEditor value={sql} language="sql" onChange={(v) => setSql(v ?? '')} onRunFile={run} />
           </div>
         </div>
       </Allotment.Pane>

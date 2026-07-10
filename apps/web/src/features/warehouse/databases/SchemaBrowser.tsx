@@ -23,7 +23,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CopySelectButton } from '@/components/ui/copy-select-button'
-import { TypeBadge } from '@/components/ui/type-badge'
+import { TypeBadge, TYPE_CONFIG, mapColumnType } from '@/components/ui/type-badge'
 import { cn } from '@/lib/utils'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import * as duckdbEngine from '@/lib/duckdb/engine'
@@ -238,7 +238,7 @@ export function SchemaBrowser({ dataSourceId }: Props) {
       setStatsLoading(true)
       try {
         const total = rowCount ?? 0
-        const mappedType = mapDuckDBType(col!.data_type)
+        const mappedType = mapColumnType(col!.data_type)
 
         const basicRows = await duckdbEngine.queryDataSource(
           dataSourceId,
@@ -606,7 +606,7 @@ function ColumnStatsDetail({
     )
   }
 
-  const mappedType = mapDuckDBType(column.data_type)
+  const mappedType = mapColumnType(column.data_type)
   const typeConfig = TYPE_CONFIG[mappedType] ?? TYPE_CONFIG.unknown
 
   return (
