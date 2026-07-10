@@ -1106,6 +1106,14 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
+                  {/* Session selector for an active R/Python terminal tab (files get
+                      theirs next to the Run button instead). */}
+                  {activeTerminalTab && (activeTerminalTab.kind === 'python' || activeTerminalTab.kind === 'r') && activeProjectUid && (
+                    <>
+                      <SessionDropdown projectUid={activeProjectUid} />
+                      <div className="mx-0.5 h-4 w-px bg-border" />
+                    </>
+                  )}
                   {/* Order: editor settings, keyboard shortcuts, connections, terminal. */}
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1663,19 +1671,24 @@ export function FilesPage() {
                           />
                         )}
 
-                        {/* Only the active terminal is mounted: a hidden xterm has
-                            zero size (fit breaks) and would still hold a WS. The
-                            kernel session lives server-side, so switching tabs and
-                            back reconnects to the same namespace — variables persist. */}
-                        {activeTerminalTab && (
-                          <div key={activeTerminalTab.id} className="h-full">
+                        {/* All terminals stay mounted (hidden when inactive) so a
+                            bash shell / REPL keeps its scrollback and connection
+                            across tab switches. TerminalPanel re-fits itself when
+                            it becomes visible again (a hidden xterm has zero size). */}
+                        {terminalTabs.map((tt) => (
+                          <div
+                            key={tt.id}
+                            className="h-full"
+                            style={{ display: tt.id === selectedFileId ? 'block' : 'none' }}
+                          >
                             <TerminalPanel
-                              terminalType={activeTerminalTab.kind}
+                              terminalType={tt.kind}
                               projectUid={activeProjectUid ?? undefined}
                               envId={activeSessionId}
+                              active={tt.id === selectedFileId}
                             />
                           </div>
-                        )}
+                        ))}
 
                         {/* Empty state */}
                         {!selectedNode && !activeTerminalTab && (

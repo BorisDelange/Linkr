@@ -25,6 +25,9 @@ interface TerminalPanelProps {
   projectUid?: string
   /** Kernel namespace (session) for python/r REPLs. Ignored for bash. */
   envId?: string
+  /** True when this terminal's tab is the active one. A hidden xterm has zero
+   * size, so we re-fit when it becomes active again. */
+  active?: boolean
 }
 
 async function executePythonRepl(code: string): Promise<{ stdout: string; stderr: string }> {
@@ -113,7 +116,7 @@ const terminalThemes = {
   },
 }
 
-export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId }: TerminalPanelProps) {
+export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId, active = true }: TerminalPanelProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -129,6 +132,17 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     // Also update container background
     if (containerRef.current) containerRef.current.style.backgroundColor = xtermTheme.background
   }, [xtermTheme])
+
+  // Becoming visible again: a hidden xterm measured zero size, so refit + refocus.
+  useEffect(() => {
+    if (!active) return
+    // Defer to after the display:block paint so the container has real dimensions.
+    const id = requestAnimationFrame(() => {
+      try { fitAddonRef.current?.fit() } catch { /* not ready yet */ }
+      terminalRef.current?.focus()
+    })
+    return () => cancelAnimationFrame(id)
+  }, [active])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -215,6 +229,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     if (serverMode && terminalType === 'bash') {
       terminal.clear()
       terminal.writeln(`\x1b[2m${t('terminal.connecting')}\x1b[0m`)
+      let firstOutput = true
       socket = new TerminalSocket(
         { projectUid: projectUid!, language: 'bash' },
         {
@@ -224,7 +239,16 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
             socket?.resize(rows, cols)
           },
           onMessage: (msg) => {
-            if (msg.type === 'output' && msg.data) terminal.write(msg.data)
+            if (msg.type === 'output' && msg.data) {
+              let data = msg.data
+              // The PTY emits a leading CR/LF on start (macOS bash); strip it from
+              // the very first chunk so the terminal doesn't open on a blank line.
+              if (firstOutput) {
+                data = data.replace(/^[\r\n]+/, '')
+                firstOutput = false
+              }
+              terminal.write(data)
+            }
             else if (msg.type === 'exit') terminal.writeln(`\r\n\x1b[2m${t('terminal.shellExited')}\x1b[0m`)
           },
           onClose: ({ authFailed }) => {
