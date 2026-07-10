@@ -623,6 +623,15 @@ export async function buildMappingProjectFolder(
       // Scores export failed — continue without them
     }
   }
+
+  // Assigned source-concept-ids (workspace registry, scoped to this project's
+  // badges) — otherwise a project export silently loses them.
+  try {
+    const { buildProjectSourceConceptIds } = await import('@/lib/concept-mapping/source-concept-ids-io')
+    await buildProjectSourceConceptIds(zip, prefix, project, storage)
+  } catch {
+    // Source-id export failed — continue without it
+  }
 }
 
 // ---------------------------------------------------------------------------

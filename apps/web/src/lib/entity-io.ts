@@ -58,44 +58,14 @@ function normalizeImportedTodos(todos: unknown): TodoItem[] {
   })
 }
 
-// ---------------------------------------------------------------------------
-// Source-concept-id compact format helpers
-// ---------------------------------------------------------------------------
-
-/** Compact JSON format for source-concept-id entries (smaller than one object per entry). */
-export interface CompactSourceConceptIdEntries {
-  /** Column order: [badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt] */
-  columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt']
-  entries: [string, string, string, number, string][]
-}
-
-/** Serialize SourceConceptIdEntry[] to compact format for export. */
-function toCompactEntries(entries: SourceConceptIdEntry[]): CompactSourceConceptIdEntries {
-  return {
-    columns: ['badgeLabel', 'vocabularyId', 'conceptCode', 'sourceConceptId', 'createdAt'],
-    entries: entries.map(e => [e.badgeLabel, e.vocabularyId, e.conceptCode, e.sourceConceptId, e.createdAt]),
-  }
-}
-
-/** Deserialize compact or legacy entries.json into SourceConceptIdEntry[]. */
-export function parseSourceConceptIdEntries(
-  raw: CompactSourceConceptIdEntries | SourceConceptIdEntry[],
-  workspaceId: string,
-): SourceConceptIdEntry[] {
-  // Legacy format: array of full objects
-  if (Array.isArray(raw)) return raw
-
-  // Compact format: { columns, entries }
-  return raw.entries.map(([badgeLabel, vocabularyId, conceptCode, sourceConceptId, createdAt]) => ({
-    id: `${workspaceId}__${badgeLabel}__${vocabularyId}__${conceptCode}`,
-    workspaceId,
-    badgeLabel,
-    vocabularyId,
-    conceptCode,
-    sourceConceptId,
-    createdAt,
-  }))
-}
+// Source-concept-id compact format helpers live in source-concept-ids-io (shared
+// with the per-project export/import, kept out of this module to avoid a cycle).
+export type { CompactSourceConceptIdEntries } from '@/lib/concept-mapping/source-concept-ids-io'
+import {
+  toCompactEntries,
+  parseSourceConceptIdEntries,
+} from '@/lib/concept-mapping/source-concept-ids-io'
+export { parseSourceConceptIdEntries }
 
 // ---------------------------------------------------------------------------
 // Download helpers

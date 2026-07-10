@@ -157,7 +157,11 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     },
   ]
 
-  type ImportChildren = { mappings: import('@/types').ConceptMapping[] }
+  type ImportChildren = {
+    mappings: import('@/types').ConceptMapping[]
+    sourceIdRanges?: unknown
+    sourceIdEntries?: unknown
+  }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [newIdWarning, setNewIdWarning] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -204,6 +208,26 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         projectId,
       })
     }
+
+    // Restore assigned source-concept-ids into the workspace registry (retargeted
+    // to this workspace). Best-effort: never let it fail the whole import.
+    if (children.sourceIdRanges || children.sourceIdEntries) {
+      try {
+        const { parseSourceConceptIdEntries } = await import('@/lib/concept-mapping/source-concept-ids-io')
+        const ws = entity.workspaceId
+        const ranges = (children.sourceIdRanges as import('@/types').SourceConceptIdRange[] | undefined) ?? []
+        for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws })
+        if (children.sourceIdEntries) {
+          const entries = parseSourceConceptIdEntries(
+            children.sourceIdEntries as Parameters<typeof parseSourceConceptIdEntries>[0], ws,
+          )
+          if (entries.length > 0) await getStorage().sourceConceptIdEntries.saveBatch(entries)
+        }
+      } catch {
+        /* leave the registry as-is */
+      }
+    }
+
     await loadMappingProjects()
   }, [activeWorkspaceId, loadMappingProjects])
 
@@ -216,6 +240,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         return
       }
       const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
+      // Assigned source-concept-ids (optional folder — absent in older ZIPs).
+      const children: ImportChildren = {
+        mappings,
+        sourceIdRanges: parsed['source-concept-ids/ranges.json'],
+        sourceIdEntries: parsed['source-concept-ids/entries.json'],
+      }
 
       // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based project)
       if (project.sourceType === 'file' && project.fileSourceData) {
@@ -231,9 +261,9 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         (project.entityId && p.entityId === project.entityId) || localized(p.name, 'en') === localized(project.name, 'en')
       )
       if (existing) {
-        setConflict({ name: localized(existing.name, language), existingId: existing.id, pending: project, children: { mappings } })
+        setConflict({ name: localized(existing.name, language), existingId: existing.id, pending: project, children })
       } else {
-        await doImport(project, { mappings }, false)
+        await doImport(project, children, false)
       }
     } catch (err) {
       setImportError(t('concept_mapping.import_error', { error: err instanceof Error ? err.message : String(err) }))
