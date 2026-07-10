@@ -1572,8 +1572,10 @@ export function FilesPage() {
                   {/* Top: editor + output (horizontal split) */}
                   <Allotment.Pane>
                     <Allotment>
-                      {/* Editor panel — notebooks are kept alive (hidden when inactive) */}
-                      <Allotment.Pane minSize={150} visible={editorVisible}>
+                      {/* Editor panel — notebooks are kept alive (hidden when inactive).
+                          Also visible when a terminal tab is active (terminals live in
+                          this pane). */}
+                      <Allotment.Pane minSize={150} visible={editorVisible || !!activeTerminalTab}>
                         {/* Keep-alive notebooks: render ALL open notebook files, hide inactive ones */}
                         {openFileIds.map((fid) => {
                           const node = nodes.find((n) => n.id === fid)
