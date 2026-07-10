@@ -399,6 +399,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // tens of seconds to minutes for large workspaces (~300k+ rows). The body shows
   // a loading row in this state instead of "Aucun résultat".
   const [tablePopulating, setTablePopulating] = useState(false)
+  // True while loadSourceConcepts pulls every project's source concepts from the
+  // server (paged; can take a while on 100k+ rows). Without this the table shows
+  // "No results" during that load instead of a spinner.
+  const [loadingSourceConcepts, setLoadingSourceConcepts] = useState(false)
   const tablePage = useRef(0)
   const tableLoadingRef = useRef(false)
 
@@ -457,7 +461,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // Heavy: all source-concept ROWS for every project (used only by the Table /
   // Export tabs). Deferred until one of those tabs is opened; runs in parallel.
   const loadSourceConcepts = useCallback(async () => {
+    setLoadingSourceConcepts(true)
     const sourceConceptsMap = new Map<string, SourceConceptRaw[]>()
+    try {
     await Promise.all(
       projects.map(async (p) => {
         const isFile = p.sourceType === 'file' || !!p.fileSourceData
@@ -504,6 +510,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       }),
     )
     setAllSourceConceptsByProject(sourceConceptsMap)
+    } finally {
+      setLoadingSourceConcepts(false)
+    }
   }, [projects, dataSources, ensureMounted])
 
   // Load registry entries for this workspace (used in table + export)
@@ -1539,7 +1548,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(loadingMappings || tablePopulating || (tableLoading && tableRows.length === 0)) ? (
+                {(loadingMappings || loadingSourceConcepts || tablePopulating || (tableLoading && tableRows.length === 0)) ? (
                   <TableRow>
                     <TableCell colSpan={activeColumns.length} className="h-24 text-center text-muted-foreground">
                       {t('concept_mapping.global_loading')}
