@@ -1,24 +1,36 @@
 # Build context is the repo root (see docker-compose.yml).
-FROM python:3.12-slim
+#
+# Base on rocker/r-ver (R + Posit Package Manager binary repo, incl. arm64) so
+# the R packages install as prebuilt binaries in seconds — `arrow` in particular
+# isn't in Debian and compiling it from source on ARM is very slow. This is an
+# Ubuntu image; we add Python 3.12 (noble ships it) for the FastAPI backend.
+FROM rocker/r-ver:latest
 
 WORKDIR /app
 
-# Install system deps. R packages: svglite (standalone SVG device, no X11/cairo),
-# jsonlite + base64enc (persistent R kernel wire protocol — see execution/kernel.py).
+# Python (for the API) + Rscript is already present. r-cran-* aren't used —
+# we install the R packages from p3m below as binaries.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    r-base \
-    r-cran-svglite \
-    r-cran-jsonlite \
-    r-cran-base64enc \
-    r-cran-arrow \
+    python3 \
+    python3-venv \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python deps (with server-side execution extras: pandas, matplotlib,
-# pyarrow, scipy, statsmodels, lifelines — needed by the server-side viz components)
-COPY apps/api/pyproject.toml .
-RUN pip install --no-cache-dir -e ".[execution]"
+# R packages for server-side execution: arrow (Parquet dataset injection),
+# svglite (standalone SVG device), jsonlite + base64enc (persistent R kernel
+# wire protocol — see execution/kernel.py). Binary installs from p3m (fast).
+RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc"))' \
+    && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc)'
 
+# Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
+# Execution extras: pandas, matplotlib, pyarrow, scipy, statsmodels, lifelines.
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv "$VIRTUAL_ENV"
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# The full source is needed for the editable install (hatchling packages `app`).
 COPY apps/api/ ./
+RUN pip install --no-cache-dir -e ".[execution]"
 
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh

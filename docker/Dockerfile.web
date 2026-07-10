@@ -2,9 +2,22 @@
 # Build stage
 FROM node:22-alpine AS build
 WORKDIR /app
-COPY apps/web/package*.json ./
-RUN npm ci
-COPY apps/web/ ./
+
+# Monorepo: the lockfile lives at the root (npm workspaces). Copy the root
+# manifests + the whole web workspace, then `npm ci` the web workspace. The web
+# postinstall (copies DuckDB .wasm into apps/web/public/) needs the workspace
+# source present, so we copy it before installing.
+COPY package.json package-lock.json ./
+COPY apps/web/ apps/web/
+# The web build resolves the `@default-plugins` path alias to this workspace
+# (vite + tsconfig), so it must be present at the same relative location.
+COPY packages/default-plugins/ packages/default-plugins/
+# --ignore-scripts skips the root `prepare` (install-git-hooks.mjs — dev-only, no
+# .git here); then run the web postinstall explicitly to copy the DuckDB .wasm.
+RUN npm ci --workspace web --ignore-scripts \
+    && npm run postinstall --workspace web
+
+WORKDIR /app/apps/web
 # Server mode: a truthy VITE_API_URL makes isServerMode() true at build time.
 # "/" keeps API calls relative (/api/v1/...), so nginx proxies them to the api
 # service — the backend URL is never baked into the bundle. Empty = front-only.
@@ -14,6 +27,6 @@ RUN npm run build
 
 # Serve stage
 FROM nginx:alpine
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 EXPOSE 80
