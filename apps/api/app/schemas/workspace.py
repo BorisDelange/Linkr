@@ -9,7 +9,7 @@ class WorkspaceCreate(CamelModel):
     description: dict[str, str] = {}
     organization_id: str | None = None
     badges: list[dict] | None = None
-    readme: str | None = None
+    readme: dict | str | None = None
     git_remote_config: dict | None = None
     origin: str = "user"
 
@@ -19,7 +19,7 @@ class WorkspaceUpdate(CamelModel):
     description: dict[str, str] | None = None
     organization_id: str | None = None
     badges: list[dict] | None = None
-    readme: str | None = None
+    readme: dict | str | None = None
     git_remote_config: dict | None = None
 
 
@@ -29,7 +29,7 @@ class WorkspaceResponse(CamelModel):
     description: dict[str, str]
     organization_id: str | None = None
     badges: list[dict] | None = None
-    readme: str | None = None
+    readme: dict | str | None = None
     git_remote_config: dict | None = None
     origin: str
     owner_id: int | None = None

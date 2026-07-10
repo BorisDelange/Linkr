@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin, UUIDPKMixin
@@ -11,7 +11,8 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     organization_id: Mapped[str | None] = mapped_column(String(36))
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[str | None] = mapped_column(Text)
+    # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text.
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     owner_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))

@@ -25,6 +25,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
+import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
 
 interface SummaryOverviewTabProps {
   uid: string
@@ -116,12 +117,13 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   }, [dataSources, cohorts, pipeline, dashboards, project?.todos, language])
 
   const readme = localized(project?.readme, language)
+  const { resolveAttachmentUrls } = useReadmeAttachments(uid)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
       {/* Readme + To-do previews — top half */}
       <div className="grid min-h-0 basis-1/2 grid-cols-1 gap-4 lg:grid-cols-2">
-        <ReadmePreview readme={readme} onViewFull={() => onNavigateTab('readme')} />
+        <ReadmePreview readme={readme} resolveUrls={resolveAttachmentUrls} onViewFull={() => onNavigateTab('readme')} />
         <TodoPreview
           todos={stats.todos}
           done={stats.todosDone}
@@ -297,8 +299,11 @@ export function SummaryOverviewTab({ uid, onNavigateTab }: SummaryOverviewTabPro
   )
 }
 
-function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () => void }) {
+function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; resolveUrls: (md: string) => string; onViewFull: () => void }) {
   const { t } = useTranslation()
+  // Rewrite attachments/<file> paths to blob URLs so images render (same as the
+  // README tab, which resolves before rendering the markdown).
+  const resolved = resolveUrls(readme)
   return (
     <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 shadow-sm">
       <div className="flex shrink-0 items-center justify-between">
@@ -316,7 +321,7 @@ function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () 
           <>
             <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
               <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
-                {readme}
+                {resolved}
               </ReactMarkdown>
             </div>
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-card to-transparent" />

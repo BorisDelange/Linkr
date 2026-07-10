@@ -15,9 +15,9 @@ class ProjectCreate(CamelModel):
     status: str | None = None
     badges: list[dict] | None = None
     todos: list[dict] | None = None
-    notes: str | None = None
-    readme: str | None = None
-    readme_history: list[dict] | None = None
+    # LocalizedString; accept a bare string too for legacy data / round-trips.
+    notes: dict | str | None = None
+    readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     catalog_visibility: str | None = None
@@ -35,9 +35,8 @@ class ProjectUpdate(CamelModel):
     status: str | None = None
     badges: list[dict] | None = None
     todos: list[dict] | None = None
-    notes: str | None = None
-    readme: str | None = None
-    readme_history: list[dict] | None = None
+    notes: dict | str | None = None
+    readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     catalog_visibility: str | None = None
@@ -55,9 +54,8 @@ class ProjectResponse(CamelModel):
     status: str | None = None
     badges: list[dict] | None = None
     todos: list[dict] | None = None
-    notes: str | None = None
-    readme: str | None = None
-    readme_history: list[dict] | None = None
+    notes: dict | str | None = None
+    readme: dict | str | None = None
     linked_data_source_ids: list[str] | None = None
     organization: dict | None = None
     catalog_visibility: str | None = None

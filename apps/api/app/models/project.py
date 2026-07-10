@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin
@@ -26,9 +26,10 @@ class Project(Base, TimestampMixin):
     status: Mapped[str | None] = mapped_column(String(20))
     badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     todos: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    notes: Mapped[str | None] = mapped_column(Text)
-    readme: Mapped[str | None] = mapped_column(Text)
-    readme_history: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    # LocalizedString ({"en": ..., "fr": ...}); JSON, not Text — the client
+    # always sends an object. `| str` tolerance is handled at the schema layer.
+    notes: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     linked_data_source_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     catalog_visibility: Mapped[str | None] = mapped_column(String(20))
