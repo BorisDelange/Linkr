@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api-client'
+import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type {
   ConceptMappingStorage,
@@ -22,6 +22,15 @@ export function queryFileSourceOnServer(
     method: 'POST',
     body: JSON.stringify({ sql }),
   })
+}
+
+/** Download a file-source project's raw source file (CSV/Parquet/Excel) from the
+ * blob store. In server mode the bytes never live in the browser, so export must
+ * fetch them here to include source-concepts.csv. Returns null if there's no file. */
+export async function fetchRawFileFromServer(projectId: string): Promise<Uint8Array | null> {
+  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/raw-file`)
+  if (!res.ok) return null
+  return new Uint8Array(await res.arrayBuffer())
 }
 
 export interface GlobalTablePage {

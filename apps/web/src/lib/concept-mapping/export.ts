@@ -590,6 +590,22 @@ export async function buildMappingProjectFolder(
           project.fileSourceData.columnMapping,
         ),
       )
+    } else {
+      // Server mode: the raw bytes never came to the browser (no rawFileBuffer,
+      // rows empty). Fetch the source file from the blob store so the export
+      // actually contains it — otherwise re-import has no source concepts.
+      try {
+        const { isServerMode } = await import('@/lib/api-client')
+        if (isServerMode()) {
+          const { fetchRawFileFromServer } = await import('@/lib/api/mapping-projects')
+          const buf = await fetchRawFileFromServer(project.id)
+          if (buf && buf.byteLength > 0) {
+            zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+          }
+        }
+      } catch {
+        // Source file fetch failed — continue without it
+      }
     }
   }
   if (!options.skipSourceConcepts && project.sourceType !== 'file' && project.dataSourceId && options.queryDataSource) {
