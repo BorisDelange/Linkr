@@ -106,7 +106,7 @@ async def test_readme_non_member_forbidden(client, db):
 async def _wiki_page(client, headers, ws, pid="w1") -> str:
     return (await client.post(f"{API}/wiki-pages", headers=headers, json={
         "id": pid, "workspaceId": ws, "parentId": None, "title": {"en": "Page"},
-        "slug": "page", "content": {"en": ""}, "sortOrder": 0, "history": [],
+        "slug": "page", "content": {"en": ""}, "sortOrder": 0,
     })).json()["id"]
 
 

@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
-import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, MoreHorizontal, Download, History } from 'lucide-react'
+import { ArrowLeft, Save, Copy, Trash2, X, ChevronLeft, ChevronRight, Settings, Plus, PanelLeft, Eye, EyeOff, MoreHorizontal, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -15,7 +15,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import {
   Tooltip,
   TooltipContent,
@@ -26,8 +25,6 @@ import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
-import { useWorkspaceStore } from '@/stores/workspace-store'
-import { EntityHistoryPanel } from '@/features/versioning/EntityHistoryPanel'
 import { IconPicker } from '@/components/ui/icon-picker'
 import { PluginFileList } from './PluginFileList'
 import { PluginTestPanel } from './PluginTestPanel'
@@ -191,7 +188,6 @@ export function PluginEditor() {
   const pluginPythonDeps: string = (manifest.dependencies?.python ?? []).join('\n')
   const pluginRDeps: string = (manifest.dependencies?.r ?? []).join('\n')
 
-  const [historyOpen, setHistoryOpen] = useState(false)
 
   const handleExport = useCallback(async () => {
     if (!editingPluginId) return
@@ -772,7 +768,7 @@ export function PluginEditor() {
               </PopoverContent>
             </Popover>
           )}
-          {/* "..." dropdown: Export, History, Duplicate, Delete */}
+          {/* "..." dropdown: Export, Duplicate, Delete */}
           {!isSystemPlugin && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -784,11 +780,6 @@ export function PluginEditor() {
                 <DropdownMenuItem onClick={handleExport}>
                   <Download size={14} />
                   {t('plugins.export')}
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled>
-                  <History size={14} />
-                  {t('plugins.history')}
-                  <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleDuplicate}>
                   <Copy size={14} />
@@ -1057,29 +1048,6 @@ export function PluginEditor() {
           </Allotment.Pane>
         </Allotment>
       </div>
-
-      {/* Entity history dialog */}
-      {editingPluginId && (
-        <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-          <DialogContent className="sm:max-w-4xl h-[80vh] flex flex-col p-0 gap-0" showCloseButton>
-            <DialogHeader className="px-4 py-3 border-b shrink-0">
-              <DialogTitle>{t('plugins.history')} — {pluginName}</DialogTitle>
-            </DialogHeader>
-            <div className="flex-1 min-h-0 overflow-auto">
-              <EntityHistoryPanel
-                workspaceId={useWorkspaceStore.getState().activeWorkspaceId!}
-                entityType="plugin"
-                entityId={editingPluginId}
-                entityName={pluginName}
-                onRestored={() => {
-                  usePluginEditorStore.getState().openPlugin(editingPluginId)
-                  setHistoryOpen(false)
-                }}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   )
 }

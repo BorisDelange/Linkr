@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Paperclip, History } from 'lucide-react'
+import { Paperclip } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useAppStore } from '@/stores/app-store'
 import { localized } from '@/lib/localized'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
@@ -37,33 +36,15 @@ export function SummaryReadmeTab({ uid }: SummaryReadmeTabProps) {
         onSave={(content) => updateProjectReadme(uid, content)}
         resolveUrls={resolveAttachmentUrls}
         headerActions={
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-5 px-2 text-xs text-muted-foreground"
-              onClick={() => setAttachmentsOpen(true)}
-            >
-              <Paperclip size={12} />
-              {t('summary.attachments')}
-            </Button>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span tabIndex={0}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled
-                    className="h-5 px-2 text-xs text-muted-foreground"
-                  >
-                    <History size={12} />
-                    {t('summary.history')}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{t('common.server_only')}</TooltipContent>
-            </Tooltip>
-          </>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 px-2 text-xs text-muted-foreground"
+            onClick={() => setAttachmentsOpen(true)}
+          >
+            <Paperclip size={12} />
+            {t('summary.attachments')}
+          </Button>
         }
       />
       <ReadmeAttachmentsDialog

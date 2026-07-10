@@ -15,7 +15,7 @@ import { getStorage } from '@/lib/storage'
 import { paths } from '@/lib/paths'
 import { buildProjectZip, parseProjectZip, downloadBlob, slugify, deleteProjectData, importProjectContent } from '@/lib/entity-io'
 import type { ParsedProjectZip } from '@/lib/entity-io'
-import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, History, Trash2, Pencil } from 'lucide-react'
+import { Plus, FolderOpen, Search, Upload, MoreHorizontal, Download, GitBranch, Copy, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -353,11 +353,6 @@ export function ProjectsPage() {
                             <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />
                               {t('common.duplicate')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem disabled>
-                              <History size={14} />
-                              {t('common.history')}
-                              <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem

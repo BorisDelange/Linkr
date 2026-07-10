@@ -174,7 +174,6 @@ export interface Project extends Seedable, Authored {
   todos?: TodoItem[]
   notes?: LocalizedString
   readme?: LocalizedString
-  readmeHistory?: ReadmeSnapshot[]
 
   /** IDs of app-level databases linked to this project. */
   linkedDataSourceIds?: string[]
@@ -357,12 +356,6 @@ export interface TodoItem {
   done: boolean
 }
 
-export interface ReadmeSnapshot {
-  id: string
-  content: string
-  savedAt: string
-}
-
 export interface ReadmeAttachment {
   id: string
   /** Exactly one of projectUid / workspaceId is set — a README belongs to a
@@ -378,12 +371,6 @@ export interface ReadmeAttachment {
 
 
 // --- Wiki Types ---
-
-export interface WikiSnapshot {
-  id: string
-  content: string
-  savedAt: string
-}
 
 export interface WikiPage extends Authored {
   id: string
@@ -401,7 +388,6 @@ export interface WikiPage extends Authored {
   verifiedAt?: string
   reviewDueAt?: string
   sortOrder: number
-  history: WikiSnapshot[]
   createdAt: string
   updatedAt: string
 }

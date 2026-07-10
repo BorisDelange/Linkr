@@ -7,7 +7,6 @@ import {
   FileText,
   FolderOpen,
   Search,
-  History,
   Pencil,
   Trash2,
   FilePlus,
@@ -53,11 +52,10 @@ interface WikiTreeSidebarProps {
   workspaceId: string
   onCreatePage: (parentId: string | null) => void
   onSearch: () => void
-  onHistory: () => void
   onChangeIcon: (pageId: string) => void
 }
 
-export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSearch, onHistory, onChangeIcon }: WikiTreeSidebarProps) {
+export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSearch, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
   const canEdit = useMyWorkspaceRole().atLeast('editor')
@@ -83,19 +81,6 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
               </Button>
             </TooltipTrigger>
             <TooltipContent sideOffset={4}>{t('wiki.search')}</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
-                onClick={onHistory}
-              >
-                <History size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={4}>{t('wiki.wiki_history')}</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>

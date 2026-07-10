@@ -14,7 +14,7 @@ import { useDqStore } from '@/stores/dq-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { formatDate } from '@/lib/format-helpers'
-import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, History, Pencil } from 'lucide-react'
+import { Plus, Building2, Upload, MoreHorizontal, Download, Trash2, Loader2, GitBranch, Check, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Card } from '@/components/ui/card'
@@ -678,11 +678,6 @@ export function WorkspacesPage() {
                           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setVersioningTarget({ id: ws.id, tab: 'git' }) }}>
                             <GitBranch size={14} />
                             {t('common.versioning')}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem disabled>
-                            <History size={14} />
-                            {t('common.history')}
-                            <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem

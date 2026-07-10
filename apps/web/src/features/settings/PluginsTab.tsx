@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, History, Info } from 'lucide-react'
+import { Plus, Puzzle, Trash2, Download, Upload, MoreHorizontal, Copy, Info } from 'lucide-react'
 import * as LucideIcons from 'lucide-react'
 import JSZip from 'jszip'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -131,11 +131,6 @@ function PluginCard({ plugin, lang, onOpen, onExport, onDuplicate, onDelete, t }
             <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onDuplicate(plugin.id) }}>
               <Copy size={14} />
               {t('common.duplicate')}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <History size={14} />
-              {t('common.history')}
-              <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem

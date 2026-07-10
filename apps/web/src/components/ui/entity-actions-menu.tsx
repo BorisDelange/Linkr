@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Trash2, Pencil, Download, GitBranch, History, MoreHorizontal } from 'lucide-react'
+import { Trash2, Pencil, Download, GitBranch, MoreHorizontal } from 'lucide-react'
 import { EntityVersioningDialog } from '@/components/ui/entity-versioning-dialog'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { localized } from '@/lib/localized'
@@ -145,11 +145,6 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
               {t('common.versioning')}
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem disabled>
-            <History size={14} />
-            {t('common.history')}
-            <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
-          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
             disabled={!canDelete}

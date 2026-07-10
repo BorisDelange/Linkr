@@ -5,7 +5,6 @@ import {
   Pencil,
   Check,
   X,
-  History,
   Paperclip,
   Shield,
   ShieldCheck,
@@ -27,7 +26,6 @@ import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { useWikiAttachments } from '@/hooks/use-wiki-attachments'
 import { WikiAttachmentsDialog } from './WikiAttachmentsDialog'
-import { WikiHistoryPanel } from './WikiHistoryPanel'
 import type { WikiPage } from '@/types'
 
 function resolveIcon(name: string): LucideIcons.LucideIcon {
@@ -110,33 +108,12 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
     })
   }, [page.id, page.verified, updatePage])
 
-  const handleRestoreVersion = useCallback((snapshotId: string) => {
-    const snapshot = page.history.find((s) => s.id === snapshotId)
-    if (snapshot) {
-      savePage(page.id, setLocalized(page.content, language, snapshot.content))
-      setViewMode('view')
-    }
-  }, [page.id, page.content, language, page.history, savePage, setViewMode])
-
   // Resolve wikilinks to page IDs
   const resolveWikilink = useCallback((name: string): string | null => {
     const target = pages.find((p) => localized(p.title, language).toLowerCase() === name.toLowerCase())
     if (target) return `#wiki-page-${target.id}`
     return null
   }, [pages, language])
-
-  // History mode
-  if (viewMode === 'history') {
-    return (
-      <WikiHistoryPanel
-        page={page}
-        workspaceId={workspaceId}
-        resolveAttachmentUrls={resolveAttachmentUrls}
-        onRestore={handleRestoreVersion}
-        onClose={() => setViewMode('view')}
-      />
-    )
-  }
 
   const updatedDate = new Date(page.updatedAt)
   const updatedAgo = formatTimeAgo(updatedDate)
@@ -214,14 +191,6 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
             </>
           ) : (
             <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('history')}>
-                    <History size={12} /> {t('summary.history')}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent sideOffset={4}>{t('summary.history')}</TooltipContent>
-              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button variant="ghost" size="sm" disabled={!canEdit} className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('edit')}>

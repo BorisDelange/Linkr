@@ -21,7 +21,6 @@ import {
   Search,
   ChevronDown,
   ChevronRight,
-  History,
   FileSpreadsheet,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -936,11 +935,6 @@ function SchemaCard({
             <DropdownMenuItem onSelect={onDuplicate}>
               <Copy size={14} />
               {t('settings.schema_preset_duplicate')}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              <History size={14} />
-              {t('common.history')}
-              <span className="ml-auto inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground leading-none">{t('common.server_only')}</span>
             </DropdownMenuItem>
             {onDelete && (
               <>

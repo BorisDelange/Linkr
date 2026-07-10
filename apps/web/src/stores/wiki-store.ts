@@ -3,9 +3,9 @@ import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { stampAuthored } from '@/stores/app-store'
-import type { WikiPage, WikiSnapshot, LocalizedString } from '@/types'
+import type { WikiPage, LocalizedString } from '@/types'
 
-export type WikiViewMode = 'view' | 'edit' | 'history'
+export type WikiViewMode = 'view' | 'edit'
 
 interface WikiTreeNode {
   page: WikiPage
@@ -116,7 +116,6 @@ export const useWikiStore = create<WikiState>((set, get) => ({
       content: content ?? {},
       template,
       sortOrder: maxOrder + 1,
-      history: [],
       ...stampAuthored(),
       createdAt: now,
       updatedAt: now,
@@ -145,18 +144,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
 
     const now = new Date().toISOString()
 
-    // Backward compat: keep inline snapshots only for pages that already have them
-    let history = page.history
-    if (page.history.length > 0) {
-      const snapshot: WikiSnapshot = {
-        id: `snap-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        content: localized(page.content, 'en'),
-        savedAt: now,
-      }
-      history = [...page.history, snapshot].slice(-50)
-    }
-
-    const updates = { content, history, updatedAt: now }
+    const updates = { content, updatedAt: now }
     await getStorage().wikiPages.update(id, updates)
     const updatedPage = { ...page, ...updates }
     set((s) => ({

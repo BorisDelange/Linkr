@@ -4,8 +4,6 @@ import { buildWorkspaceZip, downloadBlob, slugify } from '@/lib/entity-io'
 import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
 import { getStorage } from '@/lib/storage'
 
-export type VersionedEntityType = 'plugin' | 'schema' | 'database'
-
 const BACKEND_MSG = '[versioning] Requires backend — no-op in local mode'
 
 interface WorkspaceVersioningState {
@@ -33,8 +31,6 @@ interface WorkspaceVersioningState {
   restoreWikiToCommit: (workspaceId: string, oid: string) => Promise<void>
   getCommitFiles: (workspaceId: string, oid: string) => Promise<CommitFileChange[]>
   getFileDiff: (workspaceId: string, oid: string, filepath: string) => Promise<{ filepath: string; changeType: FileChangeType; oldContent: string; newContent: string } | null>
-  getEntityCommits: (workspaceId: string, entityType: VersionedEntityType, entityId: string) => Promise<GitCommit[]>
-  restoreEntity: (workspaceId: string, entityType: VersionedEntityType, entityId: string, oid: string) => Promise<RestoreResult>
   restoreToCommit: (workspaceId: string, oid: string) => Promise<RestoreResult>
 
   loadRemoteConfig: (workspaceId: string) => Promise<void>
@@ -68,8 +64,6 @@ export const useWorkspaceVersioningStore = create<WorkspaceVersioningState>((set
   restoreWikiToCommit: async () => { console.info(BACKEND_MSG) },
   getCommitFiles: async () => { console.info(BACKEND_MSG); return [] },
   getFileDiff: async () => { console.info(BACKEND_MSG); return null },
-  getEntityCommits: async () => { console.info(BACKEND_MSG); return [] },
-  restoreEntity: async () => { console.info(BACKEND_MSG); return { success: false, restoredFiles: [] } },
   restoreToCommit: async () => { console.info(BACKEND_MSG); return { success: false, restoredFiles: [] } },
 
   loadRemoteConfig: async (workspaceId) => {

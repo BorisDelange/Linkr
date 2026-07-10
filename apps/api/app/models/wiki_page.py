@@ -27,7 +27,6 @@ class WikiPage(Base, TimestampMixin):
     verified_at: Mapped[str | None] = mapped_column(String(40))
     review_due_at: Mapped[str | None] = mapped_column(String(40))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
-    history: Mapped[list | None] = mapped_column(JSONB_or_JSON)  # WikiSnapshot[]
     # Authored mixin fields (display-name string + structured identity), kept as
     # plain data to round-trip the frontend type faithfully.
     created_by: Mapped[str | None] = mapped_column(Text)

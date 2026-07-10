@@ -327,7 +327,7 @@ export async function buildProjectZip(
   const zip = new JSZip()
 
   // --- project.json (without readme/todos/notes — those go in separate files) ---
-  const { readme: _r, todos: _t, notes: _n, readmeHistory: _rh, ...projectMeta } = project
+  const { readme: _r, todos: _t, notes: _n, ...projectMeta } = project
   zip.file('project.json', json({ ...projectMeta, appVersion: APP_VERSION }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
@@ -1247,7 +1247,7 @@ export async function buildWorkspaceZip(
       if (excluded[project.uid]) continue
       const folder = project.projectId || slugify(resolveProjectName(project))
       const git = resolveGitRemote(project)
-      const { todos: _t, notes: _n, readme: _rd, readmeHistory: _rh, gitUrl: _gu, ...projectMeta } = project
+      const { todos: _t, notes: _n, readme: _rd, gitUrl: _gu, ...projectMeta } = project
       const projectMetaOut = { ...projectMeta, ...(git ? { gitRemoteConfig: git } : {}), appVersion: APP_VERSION }
 
       if (git) {
@@ -1284,7 +1284,7 @@ export async function buildWorkspaceZip(
   if (on('wiki')) {
     const wikiPages = await storage.wikiPages.getByWorkspace(workspaceId)
     if (wikiPages.length > 0) {
-      const treeMeta = wikiPages.map(({ content: _, history: _h, ...meta }) => meta)
+      const treeMeta = wikiPages.map(({ content: _, ...meta }) => meta)
       zip.file('wiki/_tree.json', json(treeMeta))
 
       for (const page of wikiPages) {
@@ -1615,7 +1615,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
 
   // --- wiki/ ---
   const wikiPages: WikiPage[] = []
-  const wikiTreeMeta = await readJsonFile<Omit<WikiPage, 'content' | 'history'>[]>(zipData, 'wiki/_tree.json')
+  const wikiTreeMeta = await readJsonFile<Omit<WikiPage, 'content'>[]>(zipData, 'wiki/_tree.json')
   if (wikiTreeMeta) {
     for (const meta of wikiTreeMeta) {
       // Content lives in wiki/<folder>.md (en/first) + wiki/<folder>.<lang>.md.
@@ -1631,7 +1631,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
         const matches = folder ? base === folder : base.endsWith(`--${meta.id}`)
         if (matches) content[lang] = await entry.async('string')
       }
-      wikiPages.push({ ...meta, content, history: [] } as WikiPage)
+      wikiPages.push({ ...meta, content } as WikiPage)
     }
   }
 

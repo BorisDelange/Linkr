@@ -18,7 +18,6 @@ class WikiPageCreate(CamelModel):
     verified_at: str | None = None
     review_due_at: str | None = None
     sort_order: int = 0
-    history: list[dict] | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -37,7 +36,6 @@ class WikiPageUpdate(CamelModel):
     verified_at: str | None = None
     review_due_at: str | None = None
     sort_order: int | None = None
-    history: list[dict] | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 
@@ -57,7 +55,6 @@ class WikiPageResponse(CamelModel):
     verified_at: str | None = None
     review_due_at: str | None = None
     sort_order: int
-    history: list[dict] | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
     created_at: datetime

@@ -84,7 +84,6 @@ async def test_wiki_page_camelcase_rich_fields(client):
         verified=True,
         verifiedAt="2026-01-01T00:00:00Z",
         reviewDueAt="2026-06-01T00:00:00Z",
-        history=[{"id": "s1", "content": "v1", "savedAt": "2026-01-01T00:00:00Z"}],
         createdBy="Alice",
         createdByDetails={"firstName": "Alice", "orcid": "0000-0002"},
     )
@@ -93,7 +92,6 @@ async def test_wiki_page_camelcase_rich_fields(client):
     assert p["entityId"] == "getting-started" and p["verified"] is True
     assert p["verifiedAt"] == "2026-01-01T00:00:00Z"
     assert p["reviewDueAt"] == "2026-06-01T00:00:00Z"
-    assert p["history"][0]["content"] == "v1"
     assert p["createdBy"] == "Alice"
     assert p["createdByDetails"]["orcid"] == "0000-0002"
 
