@@ -129,6 +129,18 @@ async def test_delete_by_parent_batch(client):
     assert tabs == []
 
 
+async def test_legacy_string_name_accepted(client):
+    # Old dashboards (and export ZIPs) carry a bare string name instead of a
+    # LocalizedString dict — the import must not 422 on it.
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    r = await client.post(f"{API}/dashboards", headers=headers, json={
+        "id": "leg1", "projectUid": proj, "name": "Test 1", "filterConfig": [],
+    })
+    assert r.status_code == 201
+    assert r.json()["name"] == "Test 1"
+
+
 async def test_non_member_cannot_access(client, db):
     admin = await _admin_headers(client)
     proj = await _project(client, admin)

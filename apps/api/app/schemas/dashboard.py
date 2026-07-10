@@ -3,10 +3,12 @@ from datetime import datetime
 from app.schemas.base import CamelModel
 
 
+# Multilingual name is a LocalizedString dict ({"en": ...}), but legacy dashboards
+# (and old export ZIPs) may carry a bare string — accept both so imports don't 422.
 class DashboardCreate(CamelModel):
     id: str
     project_uid: str
-    name: dict = {}
+    name: dict | str = {}
     filter_config: list = []
     show_widget_titles: bool | None = None
     default_dataset_file_id: str | None = None
@@ -20,7 +22,7 @@ class DashboardCreate(CamelModel):
 
 
 class DashboardUpdate(CamelModel):
-    name: dict | None = None
+    name: dict | str | None = None
     filter_config: list | None = None
     show_widget_titles: bool | None = None
     default_dataset_file_id: str | None = None
@@ -35,7 +37,7 @@ class DashboardUpdate(CamelModel):
 class DashboardResponse(CamelModel):
     id: str
     project_uid: str
-    name: dict
+    name: dict | str
     filter_config: list
     show_widget_titles: bool | None = None
     default_dataset_file_id: str | None = None
