@@ -140,8 +140,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
     const storedFiles: StoredFile[] = []
 
     if (isLocal) {
-      // Local engine: file-based
-      if (useFileHandles && source.fileHandles) {
+      // Local engine: file-based. FS Access handles are client-only; never
+      // persist them in server mode (the picker is hidden there anyway).
+      if (useFileHandles && source.fileHandles && !isServerMode()) {
         for (const fh of source.fileHandles) {
           const stored: StoredFileHandle = {
             id: crypto.randomUUID(),

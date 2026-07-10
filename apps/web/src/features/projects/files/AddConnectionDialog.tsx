@@ -455,7 +455,10 @@ function FolderUploadArea({
   onClear: () => void
   t: (key: string, opts?: Record<string, unknown>) => string
 }) {
-  const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function'
+  // FS Access handles are client-only (not serialisable to the server), so the
+  // zero-copy folder picker is offered only in front-only mode — matching
+  // AddDatabaseDialog. In server mode the file is uploaded instead.
+  const supportsDirectoryPicker = typeof window.showDirectoryPicker === 'function' && !isServerMode()
 
   const handlePickFolder = async () => {
     if (supportsDirectoryPicker) {

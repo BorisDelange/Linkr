@@ -228,7 +228,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // Server mode: files streamed to the server *after* the source row is created.
     let serverFilesToUpload: File[] | null = null
 
-    if (useFileHandles && source.fileHandles) {
+    // FS Access handles are client-only; never persist them in server mode
+    // (the picker is hidden there, but guard the write defensively).
+    if (useFileHandles && source.fileHandles && !isServerMode()) {
       for (const fh of source.fileHandles) {
         const stored: StoredFileHandle = {
           id: crypto.randomUUID(),
