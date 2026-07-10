@@ -81,15 +81,20 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const stored = await getStorage().sourceConceptIdRanges.getByWorkspace(workspaceId)
-    // Compute assigned counts per badge
-    const rows: RangeRow[] = await Promise.all(
-      stored.map(async (r) => {
-        const entries = await getStorage().sourceConceptIdEntries.getByWorkspaceAndBadge(workspaceId, r.badgeLabel)
-        const ownCount = entries.filter((e) => e.sourceConceptId >= r.rangeStart && e.sourceConceptId <= r.rangeEnd).length
-        return { ...r, id: `${workspaceId}__${r.badgeLabel}`, assignedCount: entries.length, ownCount }
-      }),
-    )
+    const [stored, counts] = await Promise.all([
+      getStorage().sourceConceptIdRanges.getByWorkspace(workspaceId),
+      // Per-badge counts as integers — NOT the full entry rows. Loading every
+      // entry just to .length them made this tab crawl on reload (100k+ rows).
+      getStorage().sourceConceptIdEntries.getCountsByWorkspace(workspaceId),
+    ])
+    const countByBadge = new Map(counts.map((c) => [c.badgeLabel, c]))
+    const rows: RangeRow[] = stored.map((r) => {
+      const c = countByBadge.get(r.badgeLabel)
+      return {
+        ...r, id: `${workspaceId}__${r.badgeLabel}`,
+        assignedCount: c?.assignedCount ?? 0, ownCount: c?.ownCount ?? 0,
+      }
+    })
     setRanges(rows.sort((a, b) => a.rangeStart - b.rangeStart))
     setLoading(false)
   }, [workspaceId])

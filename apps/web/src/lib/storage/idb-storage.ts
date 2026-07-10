@@ -1,6 +1,6 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
 import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, ConceptCountCache, Pipeline, ReadmeAttachment, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, DqRuleSet, DqCustomCheck, ConceptSet, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, ConceptCountCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, ConceptCountCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, ConceptSetStorage, MappingProjectStorage, ConceptMappingStorage, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
 import { getSchemaPreset } from '@/lib/schema-presets'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -2099,6 +2099,30 @@ class IDBSourceConceptIdEntryStorage implements SourceConceptIdEntryStorage {
   async getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]> {
     const db = await getDB()
     return db.getAllFromIndex('source_concept_id_entries', 'by-workspace-badge', this.workspaceBadgeKey(workspaceId, badgeLabel))
+  }
+
+  async getCountsByWorkspace(workspaceId: string): Promise<SourceConceptIdBadgeCounts[]> {
+    // Local IDB: no network cost, so read entries + ranges and tally in memory.
+    const db = await getDB()
+    const [entries, ranges] = await Promise.all([
+      db.getAllFromIndex('source_concept_id_entries', 'by-workspace', workspaceId),
+      db.getAllFromIndex('source_concept_id_ranges', 'by-workspace', workspaceId),
+    ])
+    const rangeByBadge = new Map(ranges.map((r) => [r.badgeLabel, r]))
+    const counts = new Map<string, SourceConceptIdBadgeCounts>()
+    for (const e of entries) {
+      let c = counts.get(e.badgeLabel)
+      if (!c) {
+        c = { badgeLabel: e.badgeLabel, assignedCount: 0, ownCount: 0 }
+        counts.set(e.badgeLabel, c)
+      }
+      c.assignedCount++
+      const range = rangeByBadge.get(e.badgeLabel)
+      if (range && e.sourceConceptId >= range.rangeStart && e.sourceConceptId <= range.rangeEnd) {
+        c.ownCount++
+      }
+    }
+    return [...counts.values()]
   }
 
   async get(id: string): Promise<SourceConceptIdEntry | undefined> {

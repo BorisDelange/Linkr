@@ -79,6 +79,18 @@ async def delete_ranges_for_workspace(
 
 # --- Entries ---------------------------------------------------------------
 
+@router.get(_ENTRIES + "/counts")
+async def entry_counts(
+    workspace_id: str = Query(alias="workspaceId"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per-badge assigned/own counts (integers only) — lets the Source IDs tab
+    show counts without downloading every entry."""
+    await check_workspace_role(db, workspace_id, user, "viewer")
+    return await svc.count_entries_by_badge(db, workspace_id)
+
+
 @router.get(_ENTRIES, response_model=list[SourceConceptIdEntryResponse])
 async def list_entries(
     workspace_id: str = Query(alias="workspaceId"),

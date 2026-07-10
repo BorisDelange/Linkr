@@ -1,5 +1,5 @@
-from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
+from sqlalchemy import and_, delete as sa_delete
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
@@ -84,6 +84,49 @@ async def list_entries_for_badge(
         )
     )
     return list(result.scalars().all())
+
+
+async def count_entries_by_badge(
+    db: AsyncSession, workspace_id: str
+) -> list[dict]:
+    """Per-badge entry counts for the workspace WITHOUT transferring the rows:
+    total assigned, and how many fall inside the badge's own range. Loading every
+    entry just to `.length` them was the source of the slow Source IDs tab reload
+    (100k+ rows as JSON each time)."""
+    total_col = func.count().label("assigned_count")
+    result = await db.execute(
+        select(SourceConceptIdEntry.badge_label, total_col)
+        .where(SourceConceptIdEntry.workspace_id == workspace_id)
+        .group_by(SourceConceptIdEntry.badge_label)
+    )
+    totals = {row[0]: row[1] for row in result.all()}
+
+    # own_count: entries whose id sits within the badge's own [range_start, range_end].
+    own_result = await db.execute(
+        select(
+            SourceConceptIdEntry.badge_label,
+            func.count().label("own_count"),
+        )
+        .join(
+            SourceConceptIdRange,
+            and_(
+                SourceConceptIdRange.workspace_id == SourceConceptIdEntry.workspace_id,
+                SourceConceptIdRange.badge_label == SourceConceptIdEntry.badge_label,
+            ),
+        )
+        .where(
+            SourceConceptIdEntry.workspace_id == workspace_id,
+            SourceConceptIdEntry.source_concept_id >= SourceConceptIdRange.range_start,
+            SourceConceptIdEntry.source_concept_id <= SourceConceptIdRange.range_end,
+        )
+        .group_by(SourceConceptIdEntry.badge_label)
+    )
+    owns = {row[0]: row[1] for row in own_result.all()}
+
+    return [
+        {"badgeLabel": label, "assignedCount": count, "ownCount": owns.get(label, 0)}
+        for label, count in totals.items()
+    ]
 
 
 async def _upsert_entry(db: AsyncSession, data: SourceConceptIdEntrySave) -> None:

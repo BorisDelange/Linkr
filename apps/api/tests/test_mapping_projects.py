@@ -142,6 +142,28 @@ async def test_file_source_query(client):
     assert rows[0]["vocabulary_id"] == "LOINC"
 
 
+async def test_source_concept_id_counts(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    # A range [2_000_000, 2_000_099] for badge ICU.
+    await client.put(f"{API}/source-concept-id-ranges", headers=headers, json={
+        "workspaceId": ws, "badgeLabel": "ICU", "rangeStart": 2000000,
+        "rangeEnd": 2000099, "nextId": 2000002,
+    })
+    # Two entries in-range, one out-of-range (inherited from another badge).
+    await client.put(f"{API}/source-concept-id-entries/batch", headers=headers, json={"entries": [
+        {"id": f"{ws}__ICU__LOINC__a", "workspaceId": ws, "badgeLabel": "ICU", "vocabularyId": "LOINC", "conceptCode": "a", "sourceConceptId": 2000000},
+        {"id": f"{ws}__ICU__LOINC__b", "workspaceId": ws, "badgeLabel": "ICU", "vocabularyId": "LOINC", "conceptCode": "b", "sourceConceptId": 2000001},
+        {"id": f"{ws}__ICU__LOINC__c", "workspaceId": ws, "badgeLabel": "ICU", "vocabularyId": "LOINC", "conceptCode": "c", "sourceConceptId": 9999999},
+    ]})
+
+    r = await client.get(f"{API}/source-concept-id-entries/counts?workspaceId={ws}", headers=headers)
+    assert r.status_code == 200
+    counts = {c["badgeLabel"]: c for c in r.json()}
+    assert counts["ICU"]["assignedCount"] == 3
+    assert counts["ICU"]["ownCount"] == 2  # only the two within the range
+
+
 async def test_global_table_flat_and_dedup(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)

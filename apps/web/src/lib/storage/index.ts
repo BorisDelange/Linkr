@@ -382,10 +382,20 @@ export interface SourceConceptIdRangeStorage {
   deleteByWorkspace(workspaceId: string): Promise<void>
 }
 
+/** Per-badge entry counts (integers only) — for the Source IDs tab without
+ *  materializing every entry. */
+export interface SourceConceptIdBadgeCounts {
+  badgeLabel: string
+  assignedCount: number
+  ownCount: number
+}
+
 /** Storage interface for source concept ID registry entries. */
 export interface SourceConceptIdEntryStorage {
   getByWorkspace(workspaceId: string): Promise<SourceConceptIdEntry[]>
   getByWorkspaceAndBadge(workspaceId: string, badgeLabel: string): Promise<SourceConceptIdEntry[]>
+  /** Per-badge counts without loading the rows (server-side aggregate in fullstack mode). */
+  getCountsByWorkspace(workspaceId: string): Promise<SourceConceptIdBadgeCounts[]>
   get(id: string): Promise<SourceConceptIdEntry | undefined>
   save(entry: SourceConceptIdEntry): Promise<void>
   saveBatch(entries: SourceConceptIdEntry[]): Promise<void>

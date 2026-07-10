@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
 import type {
+  SourceConceptIdBadgeCounts,
   SourceConceptIdEntryStorage,
   SourceConceptIdRangeStorage,
 } from '@/lib/storage'
@@ -44,6 +45,9 @@ export const apiSourceConceptIdEntryStorage: SourceConceptIdEntryStorage = {
     apiRequest<SourceConceptIdEntry[]>(
       `${ENTRIES}?workspaceId=${enc(workspaceId)}&badgeLabel=${enc(badgeLabel)}`,
     ),
+
+  getCountsByWorkspace: (workspaceId) =>
+    apiRequest<SourceConceptIdBadgeCounts[]>(`${ENTRIES}/counts?workspaceId=${enc(workspaceId)}`),
 
   get: async (id) => {
     // No single-entry GET endpoint; callers resolve entries via the list methods.
