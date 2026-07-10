@@ -92,6 +92,7 @@ const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
 
 const PAGE_SIZE = 50
 const TOP_N = 10
+const EXPORT_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 interface GroupStat {
@@ -1609,112 +1610,142 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
         {/* ── EXPORT TAB ── */}
         <TabsContent value="export" className="flex-1 overflow-auto p-4">
-          <div className="mx-auto max-w-3xl space-y-6">
+          <div className="mx-auto max-w-3xl space-y-4">
 
-            {/* Group filter */}
-            {exportGroupOptions.length > 0 && (
-              <Card className="p-4">
-                <p className="mb-3 text-sm font-medium">
-                  {t('concept_mapping.global_group_by')}: <span className="font-normal text-muted-foreground">{groupModeLabel}</span>
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {exportGroupOptions.map((opt) => {
-                    const active = exportGroupFilter.has(opt)
-                    return (
-                      <button
-                        key={opt}
-                        type="button"
-                        onClick={() => setExportGroupFilter((prev) => {
-                          const next = new Set(prev)
-                          if (next.has(opt)) next.delete(opt)
-                          else next.add(opt)
-                          return next
-                        })}
-                        className={`rounded-full border px-2.5 py-0.5 text-xs transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'}`}
-                      >
-                        {opt}
-                      </button>
-                    )
-                  })}
-                  {exportGroupFilter.size > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setExportGroupFilter(new Set())}
-                      className="rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-                    >
-                      {t('common.clear')}
-                    </button>
-                  )}
-                </div>
-              </Card>
-            )}
-
-            {/* Status filter */}
+            {/* Filter section — one card, two columns: statuses (left) / unmapped + total (right),
+                aligned with the single mapping project's Export tab. */}
             <Card className="p-4">
-              <p className="mb-3 text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
-              <div className="space-y-2">
-                {(['approved', 'rejected', 'flagged', 'unchecked', 'ignored'] as MappingStatus[]).map((status) => {
-                  const checked = exportStatuses.has(status)
-                  return (
-                    <div key={status}>
-                      <label className="flex cursor-pointer items-center gap-2.5">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => setExportStatuses((prev) => {
-                            const next = new Set(prev)
-                            if (next.has(status)) next.delete(status)
-                            else next.add(status)
-                            return next
-                          })}
-                          className="size-3.5 rounded border-gray-300 accent-primary"
-                        />
-                        <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
-                        <Badge variant="secondary" className="text-[10px]">
-                          {exportGroupOnlyMappings.filter((m) => effectiveStatus(m) === status).length}
-                        </Badge>
-                      </label>
-                      {status === 'approved' && checked && (
-                        <div className="ml-6 mt-1.5 space-y-1">
-                          {(['at_least_one', 'majority', 'no_rejections'] as const).map((rule) => (
-                            <label key={rule} className="flex cursor-pointer items-center gap-2">
-                              <input
-                                type="radio"
-                                name="export-approval-rule"
-                                checked={exportApprovalRule === rule}
-                                onChange={() => setExportApprovalRule(rule)}
-                                className="size-3 accent-primary"
-                              />
-                              <span className="text-[11px] text-muted-foreground">{t(`concept_mapping.export_rule_${rule}`)}</span>
-                            </label>
-                          ))}
-                        </div>
-                      )}
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-medium">{t('concept_mapping.export_filter_title')}</p>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => { setExportStatuses(new Set(EXPORT_STATUSES)); setExportIncludeUnmapped(true) }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    {t('common.select_all')}
+                  </button>
+                  <span className="text-[10px] text-muted-foreground">/</span>
+                  <button
+                    type="button"
+                    onClick={() => { setExportStatuses(new Set()); setExportIncludeUnmapped(false) }}
+                    className="text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    {t('common.select_none')}
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 sm:divide-x">
+                {/* Left: group-by filter (badges) + status checkboxes */}
+                <div className="space-y-3">
+                  {exportGroupOptions.length > 0 && (
+                    <div>
+                      <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">
+                        {t('concept_mapping.global_group_by')}: <span className="font-normal">{groupModeLabel}</span>
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {exportGroupOptions.map((opt) => {
+                          const active = exportGroupFilter.has(opt)
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              onClick={() => setExportGroupFilter((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(opt)) next.delete(opt)
+                                else next.add(opt)
+                                return next
+                              })}
+                              className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${active ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground'}`}
+                            >
+                              {opt}
+                            </button>
+                          )
+                        })}
+                        {exportGroupFilter.size > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setExportGroupFilter(new Set())}
+                            className="rounded-full border border-dashed border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                          >
+                            {t('common.clear')}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  )
-                })}
-                {/* Unmapped (STCM only) */}
-                <div>
-                  <label className="flex cursor-pointer items-center gap-2.5">
+                  )}
+
+                  <div className="space-y-1">
+                    {(['approved', 'rejected', 'flagged', 'unchecked', 'ignored'] as MappingStatus[]).map((status) => {
+                      const checked = exportStatuses.has(status)
+                      return (
+                        <div key={status}>
+                          <label className="flex cursor-pointer items-center gap-2.5">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => setExportStatuses((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(status)) next.delete(status)
+                                else next.add(status)
+                                return next
+                              })}
+                              className="size-3.5 rounded border-gray-300 accent-primary"
+                            />
+                            <span className="text-xs">{t(`concept_mapping.status_${status}`)}</span>
+                            <Badge variant="secondary" className="text-[10px]">
+                              {exportGroupOnlyMappings.filter((m) => effectiveStatus(m) === status).length}
+                            </Badge>
+                          </label>
+                          {status === 'approved' && checked && (
+                            <div className="ml-6 mt-1.5 space-y-1">
+                              {(['at_least_one', 'majority', 'no_rejections'] as const).map((rule) => (
+                                <label key={rule} className="flex cursor-pointer items-center gap-2">
+                                  <input
+                                    type="radio"
+                                    name="export-approval-rule"
+                                    checked={exportApprovalRule === rule}
+                                    onChange={() => setExportApprovalRule(rule)}
+                                    className="size-3 accent-primary"
+                                  />
+                                  <span className="text-[11px] text-muted-foreground">{t(`concept_mapping.export_rule_${rule}`)}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Right: unmapped toggle + total */}
+                <div className="flex flex-col sm:pl-4">
+                  <label className="flex cursor-pointer items-start gap-2.5">
                     <input
                       type="checkbox"
                       checked={exportIncludeUnmapped}
                       onChange={() => setExportIncludeUnmapped((v) => !v)}
-                      className="size-3.5 rounded border-gray-300 accent-primary"
+                      className="mt-0.5 size-3.5 rounded border-gray-300 accent-primary"
                     />
-                    <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
-                    {totals.unmapped > 0 && (
-                      <Badge variant="secondary" className="text-[10px]">{totals.unmapped}</Badge>
-                    )}
-                    <span className="text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs">{t('concept_mapping.export_unmapped')}</span>
+                        {totals.unmapped > 0 && (
+                          <Badge variant="secondary" className="text-[10px]">{totals.unmapped}</Badge>
+                        )}
+                      </div>
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{t('concept_mapping.export_unmapped_stcm_only')}</p>
+                    </div>
                   </label>
-                </div>
-              </div>
 
-              <div className="mt-3 border-t pt-3">
-                <p className="text-xs text-muted-foreground">
-                  {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length + (exportIncludeUnmapped ? totals.unmapped : 0)}</strong> {t('concept_mapping.export_mappings_count')}
-                </p>
+                  <div className="mt-auto border-t pt-2">
+                    <p className="text-xs text-muted-foreground">
+                      {t('concept_mapping.export_total')}: <strong>{exportFilteredMappings.length + (exportIncludeUnmapped ? totals.unmapped : 0)}</strong> {t('concept_mapping.export_mappings_count')}
+                    </p>
+                  </div>
+                </div>
               </div>
             </Card>
 
