@@ -17,7 +17,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
+import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import type { MappingProject, SourceConceptIdRange } from '@/types'
 
@@ -199,7 +199,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 proj.fileSourceData.rawFileBuffer,
               )
               const dsId = fileSourceDataSourceId(proj.id)
-              const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code FROM source_concepts')
+              const rows = await queryDataSourceAll(dsId, 'SELECT vocabulary_id, concept_code FROM source_concepts')
               for (const row of rows) {
                 const code = String(row.concept_code ?? '')
                 const vocab = String(row.vocabulary_id ?? proj.name)
@@ -217,7 +217,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             await ensureMounted(ds.id)
             const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
             if (!sql) continue
-            const rows = await queryDataSource(ds.id, sql)
+            const rows = await queryDataSourceAll(ds.id, sql)
             for (const row of rows) {
               const code = String(row.concept_code || row.concept_id || '')
               const vocab = String(row.vocabulary_id ?? ds.id)

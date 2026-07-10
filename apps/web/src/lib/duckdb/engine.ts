@@ -489,6 +489,36 @@ export async function queryDataSource(
   }
 }
 
+/**
+ * Like queryDataSource but returns ALL rows, not just the server's per-request
+ * page. Server-mode responses are capped (MAX_QUERY_ROWS) to protect the API, so
+ * a `SELECT *` over a large source silently truncates — which is exactly what
+ * broke ID assignment (183k concepts → only ~10k assigned). Here we page through
+ * with LIMIT/OFFSET wrapped around the base SQL until a short page ends it. In
+ * WASM mode there is no cap, so we do a single query.
+ *
+ * `baseSql` must be a single SELECT with no trailing semicolon and no LIMIT of
+ * its own (it gets wrapped as `SELECT * FROM (<baseSql>) LIMIT n OFFSET k`).
+ */
+export async function queryDataSourceAll(
+  dataSourceId: string,
+  baseSql: string,
+  pageSize = 10_000,
+): Promise<Record<string, unknown>[]> {
+  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql)
+
+  const all: Record<string, unknown>[] = []
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await queryDataSource(
+      dataSourceId,
+      `SELECT * FROM (${baseSql}) AS _src LIMIT ${pageSize} OFFSET ${offset}`,
+    )
+    all.push(...page)
+    if (page.length < pageSize) break
+  }
+  return all
+}
+
 // --- Helpers ---
 
 /** Convert BigInt values in a row to Number, and DATE/TIMESTAMP BigInts to ISO strings. */
