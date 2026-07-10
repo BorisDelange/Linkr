@@ -88,7 +88,9 @@ nuage), mais on garde les agrégats petits quand un agrégat suffit.*
 **Séquençage** (l'app reste utilisable à chaque étape) :
 - **(a) Stockage** — métadonnées en base, blobs (lignes de dataset en Parquet) sur disque. **[FAIT]**
 - **(b) Moteur DuckDB serveur** — une API de requêtes remplace `queryDataSource` (~142 appels)
-  et `computeStats` ; le navigateur reçoit des lignes de résultat. **[À FAIRE — plus gros reste]**
+  et `computeStats` ; le navigateur reçoit des lignes de résultat. **[LARGEMENT FAIT — 2026-07-09]**
+  (routage `isServerMode()` dans `engine.ts`, pool de connexions, cache Parquet matérialisé ;
+  voir l'état de session 2026-07-09. Reste : quelques fuites WASM mineures, voir 2026-07-10.)
 - **(c) R / Python serveur** — exécution par session (voir §06/§07). **[FAIT]** (kernels
   persistants) ; **terminal streaming = §07(d) [FAIT]**.
 
@@ -206,3 +208,23 @@ Un environnement = `{ langage, id, projet, paquets installés, process vivant }`
 
 ### Coordination
 Sessions parallèles sur `feature/fastapi-backend` (voir mémoire `parallel-session-git`). Les fichiers untracked `ide_files.py` / `schemas/ide_file.py` appartiennent à la session IDE — ne pas committer.
+
+---
+
+## État de session — 2026-07-10
+
+### Fait cette session
+- **✅ Dashboards persistés serveur (§02) — FAIT.** Les dashboards/tabs/widgets étaient la **dernière entité métier encore client-only** en mode serveur (pas d'override dans `createAPIStorage` → fallback IndexedDB, non partagé entre postes). Ajouté : 3 tables à plat (`dashboards` / `dashboard_tabs` / `dashboard_widgets`, miroir des object stores IDB), FK cascade projet→dashboard→tab→widget, routes CRUD project-scopées (viewer/editor), 3 adaptateurs front branchés dans la façade — **le dashboard store est inchangé**. Code inline des widgets gardé **inline en JSON** (comme `etl_files.content`). Commit `44408a1d` (+ migration Alembic `904d4117f8ab`).
+  - Fix **race Tab 1** : l'onglet par défaut était persisté en parallèle du dashboard → `POST /tabs` 404 (FK) si arrivé avant le parent, avalé par `.catch`. Séquencé (`await` dashboard puis tab). Commit `44408a1d`.
+  - Fix **name legacy** : d'anciens dashboards (ex. export `neoclip.zip`) ont `name` en **string** (pas dict `LocalizedString`) ; le schéma strict rejetait l'import (422). `name` accepte `dict | str`. Commit `79e2c2fc`.
+  - UI : modal « no dataset » → Cancel mis en évidence + fix hover ; suppression du **dernier onglet** → item désactivé + libellé au lieu de disparaître. Commit `3ead740e`.
+- **✅ Déploiement Docker fullstack — FONCTIONNEL.** Le Docker existant ne pouvait pas builder un vrai fullstack : (1) `VITE_API_URL` non injecté au build web → `isServerMode()=false` → l'app utilisait IndexedDB, pas l'API ; (2) `COPY ../../docker/…` échappait le contexte de build (illégal) ; (3) aucune migration au démarrage. Corrigé : build web `VITE_API_URL=/` (mode serveur, chemins relatifs proxyés par nginx — URL backend jamais bakée ; `getApiBaseUrl()` strip le slash final) ; contexte de build racine + `.dockerignore` ; entrypoint API `alembic upgrade head` avant uvicorn ; secrets via `docker/.env` (git/docker-ignoré, requis) + `.env.example` ; nginx `client_max_body_size` + timeouts longs (exécutions serveur / WS) ; tuto README. Commit `2b2f845e`. **Reste : le build Docker réel n'a pas encore été exécuté bout en bout (config/typecheck OK, build non lancé).**
+
+### À FAIRE (fuites client-only restantes en mode serveur — identifiées cette session)
+- **`readmeAttachments` / `wikiAttachments`** (blobs) — pas d'adaptateur API → restent en IndexedDB local en mode serveur (données métier, pas des caches). À migrer serveur.
+- **`fileHandles`** — écriture non gardée par `isServerMode()` dans `connection-store`/`data-source-store`, et le picker de dossier du dialog Files (`AddConnectionDialog.tsx`) n'est **pas** gardé serveur (contraste avec `AddDatabaseDialog` qui l'est). FS Access = client-only par nature ; à ne pas écrire en mode serveur.
+- **Runtimes WASM chargés inutilement en fullstack** : terminal navigateur (`TerminalPanel`), plugins warehouse patient-data (`warehouse-plugin-executor`), `WidgetEditorDialog`, gestion d'environnements/packages (`EnvironmentsDialog`/`PluginEditor`), et appels directs `getDuckDB()` (upload dataset, concept-mapping, scores) n'ont pas de garde `isServerMode()`. DuckDB-WASM (glue JS) reste bundlé dans le build principal (imports statiques). Pour ne rien charger en fullstack : gardes `isServerMode()` + `import()` dynamiques → Vite tree-shakerait les chunks WASM.
+- **Caches recalculables tolérés** (`databaseStatsCache`, `conceptCountCache`, `catalogResults`, `scoresBlob`/`scoresMeta` + OPFS) — restent client, acceptable.
+
+### Coordination
+Sessions parallèles sur `feature/fastapi-backend` (auth « Lot 0-5 » + IDE/terminal). Committer uniquement ses propres fichiers, jamais `git add -A`. Le chantier dashboards ne touche aucun fichier des autres sessions.
