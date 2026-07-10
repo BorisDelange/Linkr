@@ -144,7 +144,27 @@ LINKR_CORS_ORIGINS=https://linkr.example.org
 # LINKR_DATABASE_URL=postgresql+asyncpg://linkr:...@localhost:5432/linkr
 ```
 
-**Docker** — pass the same variables via `env_file:` / secrets and mount a volume at `LINKR_DATA_DIR` (see `docker/`). Either way, leaving `LINKR_DATABASE_URL` unset puts a SQLite database inside `/var/lib/linkr` next to the blobs; set it to a PostgreSQL URL for multi-user deployments.
+#### Docker Compose (full-stack)
+
+The `docker/` folder ships a full-stack stack: the front (built in **server mode** and served by nginx), the FastAPI backend (which runs DB migrations on start), and a named volume for the SQLite database + blobs. From the repo root:
+
+```bash
+# One-time: create the secrets file Compose reads automatically.
+cp docker/.env.example docker/.env
+chmod 600 docker/.env
+# Put a real signing key in it (JWT + Fernet encryption of stored DB secrets):
+python3 -c "import secrets; print('LINKR_SECRET_KEY=' + secrets.token_urlsafe(48))" > docker/.env
+
+docker compose -f docker/docker-compose.yml up --build
+```
+
+Then open http://localhost:3000 — first launch shows the admin setup wizard (see step 5). The API is on http://localhost:8000. Data persists in the `linkr-data` volume across restarts; `docker compose down -v` wipes it.
+
+**How it wires up.** The web image is built with `VITE_API_URL=/`, which turns on server mode while keeping API calls relative — nginx proxies `/api` and `/ws` to the `api` service, so the backend URL is never baked into the bundle. Migrations run automatically at container start (`alembic upgrade head`), so the schema is ready on first boot.
+
+**Secrets — via `docker/.env`, never in the image.** Compose reads `docker/.env` (git- and docker-ignored, so it never lands in an image) and injects the values into the containers; `LINKR_SECRET_KEY` is **required** — Compose refuses to start without it. Keep the file `chmod 600`. Note the two `.env` files are unrelated: `docker/.env` feeds Compose interpolation, while `apps/api/.env` is only for running the backend directly in dev. Under the hood the backend reads `LINKR_`-prefixed settings from environment variables (which take precedence over `apps/api/.env`) via `pydantic-settings`. For orchestrated deployments (Swarm/K8s), prefer that platform's secret store — a mounted file or secret object — over an env var visible to `docker inspect`.
+
+**PostgreSQL (multi-user).** Uncomment the `db` service in `docker-compose.yml` and set `LINKR_DATABASE_URL=postgresql+asyncpg://…`. Left unset, the API uses a SQLite file inside `LINKR_DATA_DIR` next to the blobs.
 
 ## Architecture
 

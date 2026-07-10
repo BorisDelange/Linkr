@@ -1,3 +1,4 @@
+# Build context is the repo root (see docker-compose.yml).
 FROM python:3.12-slim
 
 WORKDIR /app
@@ -14,11 +15,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install Python deps (with server-side execution extras: pandas, matplotlib,
 # pyarrow, scipy, statsmodels, lifelines — needed by the server-side viz components)
-COPY pyproject.toml .
+COPY apps/api/pyproject.toml .
 RUN pip install --no-cache-dir -e ".[execution]"
 
-COPY . .
+COPY apps/api/ ./
+
+COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
+RUN chmod +x /usr/local/bin/api-entrypoint.sh
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Migrate then serve (see api-entrypoint.sh).
+CMD ["/usr/local/bin/api-entrypoint.sh"]

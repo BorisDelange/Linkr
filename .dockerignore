@@ -1,0 +1,15 @@
+# Keep the root build context (docker/*) small and reproducible.
+**/node_modules
+**/.venv
+**/dist
+**/__pycache__
+**/*.pyc
+.git
+**/.turbo
+# Local data & secrets — never bake into an image.
+**/.linkr
+**/linkr.db
+**/.env
+**/.env.local
+apps/web/public/duckdb/*.wasm
+v1

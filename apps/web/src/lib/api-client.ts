@@ -11,8 +11,11 @@ export function isServerMode(): boolean {
 
 export function getApiBaseUrl(): string {
   // In dev, Vite proxy handles /api/* → localhost:8000
-  // In prod, VITE_API_URL points to the backend
-  return import.meta.env.VITE_API_URL || ''
+  // In prod, VITE_API_URL points to the backend.
+  // Strip a trailing slash so callers can join `${base}/api/v1/...` without a
+  // double slash — notably VITE_API_URL="/" (server mode, nginx routes relative
+  // paths) must yield "" here, not "/".
+  return (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 }
 
 function getStoredToken(): string | null {

@@ -1,8 +1,18 @@
+# Fullstack deployment (front + API + nginx proxy), SQLite in a named volume.
+# From the repo root:  docker compose -f docker/docker-compose.yml up --build
+#
+# Set LINKR_SECRET_KEY in the environment before `up` (Fernet + JWT signing key):
+#   export LINKR_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
 services:
   web:
     build:
-      context: ../apps/web
-      dockerfile: ../../docker/Dockerfile.web
+      # Root context so the Dockerfile can reach both apps/web and docker/.
+      context: ..
+      dockerfile: docker/Dockerfile.web
+      args:
+        # Truthy => isServerMode() true; "/" keeps API calls relative so nginx
+        # proxies them to the api service (backend URL never baked in).
+        VITE_API_URL: /
     ports:
       - "3000:80"
     depends_on:
@@ -10,17 +20,20 @@ services:
 
   api:
     build:
-      context: ../apps/api
-      dockerfile: ../../docker/Dockerfile.api
+      context: ..
+      dockerfile: docker/Dockerfile.api
     ports:
       - "8000:8000"
     environment:
-      - LINKR_DATABASE_URL=sqlite+aiosqlite:///./linkr.db
-      - LINKR_DEBUG=true
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:////root/.linkr/linkr.db
+      - LINKR_DATA_DIR=/root/.linkr
+      - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?set LINKR_SECRET_KEY before up}
+      - LINKR_CORS_ORIGINS=http://localhost:3000
+      - LINKR_DEBUG=false
     volumes:
       - linkr-data:/root/.linkr
 
-  # Uncomment for PostgreSQL in production
+  # Uncomment for PostgreSQL in production (and point LINKR_DATABASE_URL at it):
   # db:
   #   image: postgres:16-alpine
   #   environment:
