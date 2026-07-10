@@ -153,6 +153,13 @@ export interface FileSourceData {
   rawFileBuffer?: Uint8Array
   /** Total row count (known without parsing all rows when rawFileBuffer is used). */
   totalRowCount?: number
+  /**
+   * Blob sha of a file already uploaded during the create flow (server mode
+   * Parquet, whose columns are previewed server-side before the project exists).
+   * When set, the create/update path attaches this sha instead of re-uploading.
+   * Client-only; never persisted to the browser DB or sent as project metadata.
+   */
+  preUploadedSha?: string
 }
 
 export type MappingProjectStatus = 'in_progress' | 'on_hold' | 'completed'

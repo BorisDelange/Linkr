@@ -188,6 +188,34 @@ async def query_file_source(
     return rows
 
 
+class FileColumnsPreview(CamelModel):
+    sha: str
+    file_name: str
+    parse_options: dict | None = None
+
+
+@router.post(_PROJ + "/preview-columns")
+async def preview_file_columns(
+    body: FileColumnsPreview,
+    user: User = Depends(get_current_user),
+):
+    """Columns + row count of an already-uploaded blob, before a project exists.
+    Lets the create dialog map columns of a file whose headers can't be read in
+    the browser (Parquet in server mode) without booting DuckDB-WASM."""
+    if not blob_store.exists(body.sha):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Uploaded file not found")
+    path = str(blob_store.path_for(body.sha))
+    try:
+        cols, total = await asyncio.to_thread(
+            db_connect.file_source_columns, path, body.file_name, body.parse_options,
+        )
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
+    return {"columns": cols, "rowCount": total}
+
+
 @router.get(_PROJ + "/{project_id}/raw-file")
 async def get_raw_file(
     project_id: str,

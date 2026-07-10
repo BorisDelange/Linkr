@@ -36,6 +36,8 @@ import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSetti
 import { BadgeColorButton } from '@/components/ui/badge-color-button'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
+import { isServerMode } from '@/lib/api-client'
+import { previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge, BadgeColor } from '@/types'
 
 interface CreateMappingProjectDialogProps {
@@ -47,6 +49,10 @@ interface CreateMappingProjectDialogProps {
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
+
+// Rows parsed client-side purely to render the modal preview + detect columns.
+// The full file is read server-side (or WASM) at query time, never here.
+const PREVIEW_ROWS = 20
 
 export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatus, { bg: string; text: string; dot: string }> = {
   in_progress: { bg: 'bg-blue-100 dark:bg-blue-950',     text: 'text-blue-700 dark:text-blue-300',     dot: 'bg-blue-500' },
@@ -91,6 +97,9 @@ export function CreateMappingProjectDialog({
   // --- File source ---
   const [file, setFile] = useState<File | null>(null)
   const [rawFileBuffer, setRawFileBuffer] = useState<Uint8Array | null>(null)
+  // Set when a file was uploaded during preview (server-mode Parquet) so create
+  // reuses the blob instead of re-uploading it.
+  const [preUploadedSha, setPreUploadedSha] = useState<string | null>(null)
   const [parsedColumns, setParsedColumns] = useState<string[]>([])
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([])
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([])
@@ -270,10 +279,27 @@ export function CreateMappingProjectDialog({
     setColumnMapping(mapping)
   }, [])
 
+  // WASM-mode only: count the rows of a CSV via DuckDB-WASM. In server mode the
+  // count comes from the server, so this must never run there.
+  const countRowsWasm = useCallback(async (buffer: Uint8Array, _kind: 'csv'): Promise<number> => {
+    try {
+      const { getDuckDB } = await import('@/lib/duckdb/engine')
+      const db = await getDuckDB()
+      const conn = await db.connect()
+      const tmpName = `__count_${crypto.randomUUID()}.csv`
+      await db.registerFileBuffer(tmpName, buffer)
+      const res = await conn.query(`SELECT COUNT(*) AS total FROM read_csv_auto('${tmpName}', nullstr='NA')`)
+      const total = Number(res.toArray()[0]?.total ?? 0)
+      await conn.close()
+      return total
+    } catch {
+      return 0
+    }
+  }, [])
+
   const parseCSV = useCallback((f: File) => {
     // Parse only a preview (first rows) for column detection and auto-mapping.
-    // The full data will be loaded via DuckDB read_csv_auto from the raw file buffer.
-    const PREVIEW_ROWS = 20
+    // The full data is read server-side (or WASM) from the raw file at query time.
     let rowCount = 0
     let headers: string[] = []
     const previewData: Record<string, unknown>[] = []
@@ -325,33 +351,23 @@ export function CreateMappingProjectDialog({
         setFileLoading(false)
         return
       }
-      // Store preview rows (not the full dataset)
+      // Preview is ready from the 20 papaparse rows — show it immediately.
       applyParsedData(headers, previewData)
-
-      // Read raw file buffer for DuckDB and get total count
       const buffer = new Uint8Array(await f.arrayBuffer())
       setRawFileBuffer(buffer)
-
-      // Use DuckDB to count total rows quickly
-      try {
-        const { getDuckDB } = await import('@/lib/duckdb/engine')
-        const db = await getDuckDB()
-        const conn = await db.connect()
-        const tmpName = `__preview_${Date.now()}.csv`
-        await db.registerFileBuffer(tmpName, new Uint8Array(buffer))
-        const countResult = await conn.query(`SELECT COUNT(*) AS total FROM read_csv_auto('${tmpName}')`)
-        const total = Number(countResult.toArray()[0]?.total ?? previewData.length)
-        setTotalRows(total)
-        await conn.close()
-      } catch {
-        // Fallback: estimate from file size / avg row size
-        setTotalRows(_rowCount)
+      // Server mode: the exact count comes from the server after upload — do NOT
+      // boot DuckDB-WASM here just to COUNT (that was the source of the slow
+      // preview). WASM mode: no server round-trip later, so count locally now.
+      if (isServerMode()) {
+        setTotalRows(0)
+      } else {
+        setTotalRows(await countRowsWasm(buffer, 'csv'))
       }
     } catch {
       setFileError(t('datasets.upload_parse_error'))
     }
     setFileLoading(false)
-  }, [t, applyParsedData])
+  }, [t, applyParsedData, countRowsWasm])
 
   const parseExcel = useCallback((f: File) => {
     const reader = new FileReader()
@@ -370,9 +386,15 @@ export function CreateMappingProjectDialog({
           return
         }
         const ws = wb.Sheets[sheetName]
+        const serverMode = isServerMode()
+        // Server mode: cap the sheet→JSON conversion to a preview so a huge
+        // workbook doesn't block — the full sheet is read server-side, and the
+        // exact count comes back from the server after upload. WASM mode: read
+        // the whole sheet (no later server round-trip to get the count).
         let jsonData = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, {
           header: hasHeader ? undefined : 1,
           defval: null,
+          ...(serverMode ? { sheetRows: (skipRows > 0 ? skipRows : 0) + PREVIEW_ROWS + 1 } : {}),
         })
         if (skipRows > 0) jsonData = jsonData.slice(skipRows)
         const headers = Object.keys(jsonData[0] || {}).map(String)
@@ -382,6 +404,10 @@ export function CreateMappingProjectDialog({
           return
         }
         applyParsedData(headers, jsonData)
+        setRawFileBuffer(new Uint8Array(data))
+        // applyParsedData set totalRows to the (possibly capped) preview length;
+        // in server mode that's not the real total — let the server fill it in.
+        if (serverMode) setTotalRows(0)
       } catch {
         setFileError(t('datasets.upload_parse_error'))
       }
@@ -395,21 +421,40 @@ export function CreateMappingProjectDialog({
   }, [skipRows, hasHeader, selectedSheet, t, applyParsedData])
 
   const parseParquet = useCallback(async (f: File) => {
+    // Server mode: Parquet has no client-readable headers, and column mapping is
+    // required before the project exists. Upload once now and read columns +
+    // count server-side (native, no DuckDB-WASM). Reuse the sha at create time.
+    if (isServerMode()) {
+      try {
+        const { columns, rowCount, sha } = await previewFileColumnsOnServer(f, f.name)
+        applyParsedData(columns, [])
+        setTotalRows(rowCount)
+        setPreUploadedSha(sha)
+      } catch {
+        setFileError(t('datasets.upload_parse_error'))
+      }
+      setFileLoading(false)
+      return
+    }
     try {
       const { getDuckDB } = await import('@/lib/duckdb/engine')
       const db = await getDuckDB()
       const conn = await db.connect()
       const buffer = await f.arrayBuffer()
       await db.registerFileBuffer(f.name, new Uint8Array(buffer))
-      const result = await conn.query(`SELECT * FROM read_parquet('${f.name}')`)
+      const result = await conn.query(`SELECT * FROM read_parquet('${f.name}') LIMIT ${PREVIEW_ROWS}`)
       const rows = result.toArray().map((row: Record<string, unknown>) => {
         const obj: Record<string, unknown> = {}
         for (const key of Object.keys(row)) obj[key] = row[key]
         return obj
       })
       const headers = result.schema.fields.map((field: { name: string }) => field.name)
+      const countRes = await conn.query(`SELECT COUNT(*) AS total FROM read_parquet('${f.name}')`)
+      const total = Number(countRes.toArray()[0]?.total ?? rows.length)
       await conn.close()
       applyParsedData(headers, rows)
+      setRawFileBuffer(new Uint8Array(buffer))
+      setTotalRows(total)
     } catch {
       setFileError(t('datasets.upload_parse_error'))
     }
@@ -439,6 +484,7 @@ export function CreateMappingProjectDialog({
     setParsedColumns([])
     setParsedRows([])
     setPreviewRows([])
+    setPreUploadedSha(null)
     setFileError(null)
     parseFile(f)
     setPage('import-settings')
@@ -454,6 +500,7 @@ export function CreateMappingProjectDialog({
   const handleClearFile = useCallback(() => {
     setFile(null)
     setRawFileBuffer(null)
+    setPreUploadedSha(null)
     setParsedColumns([])
     setParsedRows([])
     setPreviewRows([])
@@ -521,6 +568,7 @@ export function CreateMappingProjectDialog({
           parseOptions: buildParseOptions(),
           rawFileBuffer: rawFileBuffer ?? editingProject.fileSourceData?.rawFileBuffer,
           totalRowCount: file ? totalRows : (editingProject.fileSourceData?.totalRowCount ?? editingProject.fileSourceData?.rows.length),
+          preUploadedSha: preUploadedSha ?? undefined,
         }
         changes.dataSourceId = ''
         changes.fileSourceData = newFileData
@@ -558,6 +606,7 @@ export function CreateMappingProjectDialog({
           parseOptions: buildParseOptions(),
           rawFileBuffer: rawFileBuffer ?? undefined,
           totalRowCount: totalRows,
+          preUploadedSha: preUploadedSha ?? undefined,
         }
       }
       await createMappingProject(project)

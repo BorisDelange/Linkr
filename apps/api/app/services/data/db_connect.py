@@ -304,6 +304,26 @@ def query_file_source(
         con.close()
 
 
+def file_source_columns(
+    path: str, file_name: str | None, parse_options: dict | None
+) -> tuple[list[str], int]:
+    """Column names + total row count of a raw file blob, before any project /
+    columnMapping exists. Used to preview a file whose columns can't be read
+    client-side (Parquet in server mode) so the user can map them. Reads only the
+    schema for names (LIMIT 0) plus a COUNT(*); never materializes rows."""
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    try:
+        reader = file_reader.build_read_expr(
+            con, path, file_name, parse_options or {}, nullstr="NA"
+        )
+        cols = [d[0] for d in con.execute(f"SELECT * FROM {reader} LIMIT 0").description]
+        total = con.execute(f"SELECT COUNT(*) FROM {reader}").fetchone()[0]
+        return cols, int(total)
+    finally:
+        con.close()
+
+
 def introspect_file(engine: str, path: str) -> list[dict]:
     """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
     (the file has no separate native catalog to passthrough to)."""

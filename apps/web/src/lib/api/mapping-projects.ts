@@ -24,37 +24,93 @@ export function queryFileSourceOnServer(
   })
 }
 
-/**
- * Strip the heavy raw CSV bytes out of a project before it goes over JSON: they
- * live in the content-addressed blob store, referenced by sha. If a project
- * carries a fresh `rawFileBuffer`.
- */
-
-/** Whether this project has fresh CSV bytes that must be offloaded to the blob store. */
-function hasRawBuffer(project: Partial<MappingProject>): boolean {
-  return !!project.fileSourceData?.rawFileBuffer?.byteLength
+/** Upload a file and get its columns + row count server-side, before the project
+ * exists — for previewing a file whose headers can't be read in the browser
+ * (Parquet in server mode). Returns the sha so the caller can reuse the blob at
+ * create time instead of re-uploading. */
+export async function previewFileColumnsOnServer(
+  file: Blob,
+  fileName: string,
+  parseOptions?: Record<string, unknown>,
+): Promise<{ columns: string[]; rowCount: number; sha: string }> {
+  const { sha } = await uploadFileInChunks(file, fileName)
+  const res = await apiRequest<{ columns: string[]; rowCount: number }>(
+    `${PROJ}/preview-columns`,
+    { method: 'POST', body: JSON.stringify({ sha, fileName, parseOptions }) },
+  )
+  return { ...res, sha }
 }
 
-/** Project metadata with the CSV bytes removed (rows stays empty — legacy only). */
+// The raw file bytes live in the content-addressed blob store, referenced by
+// sha — they must never travel inside the project's JSON metadata.
+
+/** Whether this project carries a new file to attach server-side: either fresh
+ * bytes to upload, or a blob already uploaded during preview (server-mode
+ * Parquet), referenced by preUploadedSha. */
+function hasRawBuffer(project: Partial<MappingProject>): boolean {
+  const fsd = project.fileSourceData
+  return !!fsd?.rawFileBuffer?.byteLength || !!fsd?.preUploadedSha
+}
+
+/** Project metadata with the raw bytes and the client-only preUploadedSha
+ * removed (rows stays empty — legacy only). */
 function stripBuffer<T extends Partial<MappingProject>>(project: T): T {
   const fsd = project.fileSourceData
   if (!fsd) return project
-  return { ...project, fileSourceData: { ...fsd, rawFileBuffer: undefined, rows: [] } }
+  return {
+    ...project,
+    fileSourceData: { ...fsd, rawFileBuffer: undefined, preUploadedSha: undefined, rows: [] },
+  }
 }
 
-/** Upload the CSV bytes to the blob store and attach the sha to the project.
- * The project must already exist server-side (raw-file 404s otherwise). */
+/** Attach a file to the project server-side. If the blob was already uploaded
+ * during preview (preUploadedSha), reuse it; otherwise upload the bytes now.
+ * The original filename is kept so the server picks the right reader
+ * (CSV/Parquet/Excel) from the extension — no format conversion. The project
+ * must already exist (raw-file 404s otherwise). */
 async function uploadRawFile(projectId: string, project: Partial<MappingProject>): Promise<void> {
   const fsd = project.fileSourceData
-  const buffer = fsd?.rawFileBuffer
-  if (!fsd || !buffer || buffer.byteLength === 0) return
-  const blob = new Blob([buffer as unknown as BlobPart], { type: 'text/csv' })
+  if (!fsd) return
   const fileName = fsd.fileName || 'source.csv'
-  const { sha } = await uploadFileInChunks(blob, fileName)
+  let sha = fsd.preUploadedSha
+  if (!sha) {
+    const buffer = fsd.rawFileBuffer
+    if (!buffer || buffer.byteLength === 0) return
+    const blob = new Blob([buffer as unknown as BlobPart], { type: 'application/octet-stream' })
+    ;({ sha } = await uploadFileInChunks(blob, fileName))
+  }
   await apiRequest(`${PROJ}/${projectId}/raw-file`, {
     method: 'POST',
     body: JSON.stringify({ sha, fileName }),
   })
+}
+
+/** After upload, ask the server for the exact source row count (via the shared
+ * source_concepts view) and persist it into fileSourceData.totalRowCount, so the
+ * project stats show the real size instead of 0 (the preview no longer counts
+ * client-side). Best-effort: a failure here (e.g. Excel extension missing on an
+ * offline server) must not fail the whole save. */
+async function patchServerRowCount(
+  projectId: string,
+  fsd: MappingProject['fileSourceData'] | undefined,
+): Promise<void> {
+  if (!fsd) return
+  try {
+    const rows = await queryFileSourceOnServer(
+      projectId,
+      'SELECT COUNT(*) AS n FROM source_concepts',
+    )
+    const raw = rows[0]?.n
+    const total = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(total)) return
+    const nextFsd = { ...fsd, rawFileBuffer: undefined, rows: [], totalRowCount: total }
+    await apiRequest(`${PROJ}/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ fileSourceData: nextFsd }),
+    })
+  } catch {
+    /* leave totalRowCount as-is */
+  }
 }
 
 export const apiMappingProjectStorage: MappingProjectStorage = {
@@ -75,10 +131,13 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
   },
 
   create: async (project) => {
-    // Create the row first (metadata, no bytes), THEN upload the CSV — the
+    // Create the row first (metadata, no bytes), THEN upload the file — the
     // raw-file endpoint needs the project to exist.
     await apiRequest(PROJ, { method: 'POST', body: JSON.stringify(stripBuffer(project)) })
-    if (hasRawBuffer(project)) await uploadRawFile(project.id, project)
+    if (hasRawBuffer(project)) {
+      await uploadRawFile(project.id, project)
+      await patchServerRowCount(project.id, project.fileSourceData)
+    }
   },
 
   update: async (id, changes) => {
@@ -86,7 +145,10 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
       method: 'PATCH',
       body: JSON.stringify(stripBuffer(changes)),
     })
-    if (hasRawBuffer(changes)) await uploadRawFile(id, changes)
+    if (hasRawBuffer(changes)) {
+      await uploadRawFile(id, changes)
+      await patchServerRowCount(id, changes.fileSourceData)
+    }
   },
 
   delete: async (id) => {
