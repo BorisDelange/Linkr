@@ -260,12 +260,6 @@ export function FilesPage() {
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
-  useEffect(() => {
-    console.log('[term-debug] selectedFileId=', selectedFileId,
-      '| isTerminal=', terminalTabs.some((t) => t.id === selectedFileId),
-      '| terminalTabs=', terminalTabs.map((t) => t.id),
-      '| openFileIds=', openFileIds)
-  }, [selectedFileId, terminalTabs, openFileIds])
   const activeSessionId = useSessionStore(
     (s) => (activeProjectUid ? s.getActiveSessionId(activeProjectUid) : undefined),
   )
@@ -381,6 +375,9 @@ export function FilesPage() {
   // When no file is selected: auto-select first open file, or hide editor if only output tabs remain
   useEffect(() => {
     if (selectedNode) return
+    // A terminal tab is active — it's a valid selection even though it's not a
+    // file node; don't yank selection back to a file.
+    if (activeTerminalTab) return
     // Re-select the first open file tab if available
     if (openFileIds.length > 0) {
       selectFile(openFileIds[0])
@@ -391,7 +388,7 @@ export function FilesPage() {
       setEditorVisible(false)
       setOutputVisible(true)
     }
-  }, [selectedNode, hasOutput, editorVisible, openFileIds, selectFile, setOutputVisible])
+  }, [selectedNode, activeTerminalTab, hasOutput, editorVisible, openFileIds, selectFile, setOutputVisible])
 
   // CSV column colorization in Monaco — apply inline decorations per column
   const csvDecorationsRef = useRef<string[]>([])
@@ -1328,7 +1325,6 @@ export function FilesPage() {
                         <button
                           key={tt.id}
                           onClick={() => {
-                            console.log('[term-tab] click', tt.id, 'was selectedFileId=', selectedFileId)
                             selectTerminalTab(tt.id)
                             if (!editorVisible) setEditorVisible(true)
                           }}
