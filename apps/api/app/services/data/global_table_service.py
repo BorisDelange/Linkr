@@ -245,6 +245,11 @@ def _localized(value: Any, lang: str = "en") -> str:
 # --- Cache signature + materialization ---------------------------------------
 
 
+# Bump when the cache row shape or build logic changes, so stale Parquet files
+# (e.g. the pre-fix 10k-truncated ones) are rebuilt instead of reused.
+_CACHE_VERSION = 2
+
+
 def cache_signature(
     projects: list[dict],
     mappings_by_project: dict[str, list[dict]],
@@ -253,6 +258,7 @@ def cache_signature(
     """Stable hash of everything that changes the merged rows. Cheap to compute
     and independent of row order."""
     h = hashlib.sha256()
+    h.update(f"v{_CACHE_VERSION}".encode())
     for p in sorted(projects, key=lambda x: x["id"]):
         h.update(p["id"].encode())
         h.update(str(p.get("updated_at") or "").encode())
