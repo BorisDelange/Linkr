@@ -19,7 +19,7 @@ import { getStorage } from '@/lib/storage'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
-import type { MappingProject, SourceConceptIdRange } from '@/types'
+import type { MappingProject, SourceConceptIdRange, SourceConceptIdEntry } from '@/types'
 
 // OMOP convention: custom source concept IDs start at 2,000,000,001
 // Max safe value: 2,147,483,647 (INT32 max, for compatibility with INTEGER columns)
@@ -199,7 +199,9 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                 proj.fileSourceData.rawFileBuffer,
               )
               const dsId = fileSourceDataSourceId(proj.id)
-              const rows = await queryDataSourceAll(dsId, 'SELECT vocabulary_id, concept_code FROM source_concepts')
+              // SELECT * — vocabulary_id is only in the view when a terminology column
+              // was mapped; naming it explicitly threw and silently assigned nothing.
+              const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
               for (const row of rows) {
                 const code = String(row.concept_code ?? '')
                 const vocab = String(row.vocabulary_id ?? proj.name)
@@ -241,6 +243,10 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       const now = new Date().toISOString()
       let newlyAssigned = 0 // IDs consumed from this range (truly new)
 
+      // Accumulate all new entries and persist them in ONE saveBatch — a per-entry
+      // save() meant one HTTP round-trip each in server mode (183k concepts →
+      // 183k requests), which is what made assignment crawl.
+      const toSave: SourceConceptIdEntry[] = []
       for (const pairKey of pairsToAssign) {
         if (existingMap.has(pairKey)) continue // already in this badge
 
@@ -259,7 +265,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           newlyAssigned++
         }
 
-        await getStorage().sourceConceptIdEntries.save({
+        toSave.push({
           id: entryId,
           workspaceId,
           badgeLabel,
@@ -269,6 +275,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           createdAt: now,
         })
       }
+      if (toSave.length > 0) await getStorage().sourceConceptIdEntries.saveBatch(toSave)
 
       // Always save range with updated nextId and totalConcepts
       await getStorage().sourceConceptIdRanges.save({

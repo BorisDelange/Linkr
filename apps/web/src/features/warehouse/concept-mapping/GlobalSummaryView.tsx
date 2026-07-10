@@ -453,7 +453,11 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           try {
             await mountFileSourceIntoDuckDB(p.id, p.fileSourceData.rows, p.fileSourceData.columnMapping, p.fileSourceData.rawFileBuffer)
             const dsId = fileSourceDataSourceId(p.id)
-            const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_name, concept_code, vocabulary_id FROM source_concepts')
+            // SELECT * (not a hard-coded column list): the source_concepts view only
+            // exposes vocabulary_id when a terminology column was mapped, so naming
+            // it explicitly threw a Binder error that was silently swallowed here —
+            // leaving the table empty. Read whatever columns exist, with fallbacks.
+            const rows = await queryDataSource(dsId, 'SELECT * FROM source_concepts')
             const seen = new Map<string, SourceConceptRaw>()
             for (const row of rows) {
               const code = String(row.concept_code ?? '')
@@ -813,7 +817,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             try {
               await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
               const dsId = fileSourceDataSourceId(proj.id)
-              const rows = await queryDataSource(dsId, 'SELECT vocabulary_id, concept_code, concept_name FROM source_concepts')
+              // SELECT * — vocabulary_id may be absent from the view (see loadSourceConcepts).
+              const rows = await queryDataSource(dsId, 'SELECT * FROM source_concepts')
               for (const r of rows) {
                 const code = String(r.concept_code ?? '')
                 const vocab = String(r.vocabulary_id ?? proj.name)

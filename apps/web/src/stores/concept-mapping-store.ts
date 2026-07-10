@@ -174,7 +174,11 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
 
   createMappingProject: async (project) => {
     await getStorage().mappingProjects.create(project)
-    set((s) => ({ mappingProjects: [...s.mappingProjects, project] }))
+    // Re-fetch: create may enrich the project server-side (e.g. totalRowCount is
+    // computed from the uploaded file after the row is created), so the object we
+    // passed in is stale. Fall back to it if the re-fetch fails.
+    const fresh = await getStorage().mappingProjects.getById(project.id).catch(() => undefined)
+    set((s) => ({ mappingProjects: [...s.mappingProjects, fresh ?? project] }))
   },
 
   updateMappingProject: async (id, changes) => {
