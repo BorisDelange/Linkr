@@ -544,6 +544,7 @@ export type {
   CriteriaGroupNode,
   CriteriaTreeNode,
   Cohort,
+  CohortMaterialization,
   AttritionStep,
   CohortExecutionResult,
 } from './cohort'

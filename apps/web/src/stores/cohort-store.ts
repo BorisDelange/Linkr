@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries } from '@/lib/duckdb/cohort-query'
+import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
 import * as engine from '@/lib/duckdb/engine'
 import type {
   Cohort,
   CohortLevel,
   CriteriaGroupNode,
   CohortExecutionResult,
+  CohortMaterialization,
   AttritionStep,
   SchemaMapping,
 } from '@/types'
@@ -178,6 +179,15 @@ interface CohortState {
     dataSourceId: string,
     schemaMapping?: SchemaMapping,
   ) => Promise<number>
+
+  /** Freeze the cohort membership (full id set) into a persisted snapshot. */
+  materializeCohort: (
+    id: string,
+    dataSourceId: string,
+    schemaMapping?: SchemaMapping,
+  ) => Promise<number>
+
+  clearMaterialization: (id: string) => Promise<void>
 }
 
 function makeEmptyTree(): CriteriaGroupNode {
@@ -341,5 +351,64 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       }))
       throw err
     }
+  },
+
+  materializeCohort: async (id, dataSourceId, schemaMapping) => {
+    const cohort = get().cohorts.find((c) => c.id === id)
+    if (!cohort || !schemaMapping) return 0
+    // Event-level cohorts span multiple event tables with no single membership.
+    if (cohort.level === 'event') return 0
+
+    set((s) => ({
+      executionLoading: new Map(s.executionLoading).set(id, true),
+    }))
+
+    try {
+      const sql = buildCohortMembershipSql(cohort, schemaMapping)
+      if (!sql) return 0
+
+      const rows = await engine.queryDataSource(dataSourceId, sql)
+      const ids: string[] = []
+      const patientSet = new Set<string>()
+      for (const row of rows) {
+        if (row.id != null) ids.push(String(row.id))
+        if (row.patient_id != null) patientSet.add(String(row.patient_id))
+      }
+
+      const materialization: CohortMaterialization = {
+        level: cohort.level,
+        ids,
+        patientIds: [...patientSet],
+        count: ids.length,
+        materializedAt: new Date().toISOString(),
+      }
+
+      await getStorage().cohorts.update(id, { materialization, resultCount: ids.length })
+
+      set((s) => ({
+        cohorts: s.cohorts.map((c) =>
+          c.id === id ? { ...c, materialization, resultCount: ids.length } : c,
+        ),
+        executionLoading: new Map(s.executionLoading).set(id, false),
+      }))
+
+      return ids.length
+    } catch (err) {
+      set((s) => ({
+        executionLoading: new Map(s.executionLoading).set(id, false),
+      }))
+      throw err
+    }
+  },
+
+  clearMaterialization: async (id) => {
+    // `null` (not `undefined`) so it survives JSON serialization to the backend
+    // and actually clears the stored column in fullstack mode.
+    await getStorage().cohorts.update(id, { materialization: null } as unknown as Partial<Cohort>)
+    set((s) => ({
+      cohorts: s.cohorts.map((c) =>
+        c.id === id ? { ...c, materialization: undefined } : c,
+      ),
+    }))
   },
 }))

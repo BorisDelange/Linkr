@@ -13,6 +13,7 @@ import {
   List,
   Upload,
   Download,
+  Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +38,7 @@ import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
 import { ImportAtlasDialog } from './atlas/ImportAtlasDialog'
 import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
+import { formatDateTime } from '@/lib/format-helpers'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
@@ -49,8 +51,15 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
 export function CohortBuilderPage() {
   const { t } = useTranslation()
   const { projectUid: uid, raw } = useResolvedParams()
-  const { cohorts, updateCohort, setCustomSql, executeCohort, executionResults, executionLoading } =
-    useCohortStore()
+  const {
+    cohorts,
+    updateCohort,
+    setCustomSql,
+    executeCohort,
+    materializeCohort,
+    executionResults,
+    executionLoading,
+  } = useCohortStore()
   const { getActiveSource } = useDataSourceStore()
 
   const cohort = resolveByIdPrefix(cohorts, raw.cohortId, (c) => c.id)
@@ -62,6 +71,7 @@ export function CohortBuilderPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [exportDialogOpen, setExportDialogOpen] = useState(false)
   const [overwriteSqlDialogOpen, setOverwriteSqlDialogOpen] = useState(false)
+  const [rematerializeDialogOpen, setRematerializeDialogOpen] = useState(false)
   const pendingTreeRef = useRef<CriteriaGroupNode | null>(null)
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
@@ -137,6 +147,29 @@ export function CohortBuilderPage() {
       // Error handled by store
     }
   }, [cohortId, activeSource, executeCohort])
+
+  const runMaterialize = useCallback(async () => {
+    if (!cohortId || !activeSource) return
+    try {
+      await materializeCohort(cohortId, activeSource.id, activeSource.schemaMapping)
+    } catch {
+      // Error handled by store
+    }
+  }, [cohortId, activeSource, materializeCohort])
+
+  const handleMaterialize = () => {
+    // Re-freezing replaces the existing snapshot — confirm first.
+    if (cohort?.materialization) {
+      setRematerializeDialogOpen(true)
+      return
+    }
+    void runMaterialize()
+  }
+
+  const handleConfirmRematerialize = () => {
+    setRematerializeDialogOpen(false)
+    void runMaterialize()
+  }
 
   const handleExportCsv = useCallback(() => {
     if (!result || result.rows.length === 0) return
@@ -226,6 +259,22 @@ export function CohortBuilderPage() {
 
         <div className="flex-1" />
 
+        {/* Materialization freshness */}
+        {cohort.materialization && (
+          <span
+            className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-700 dark:text-emerald-400"
+            title={t('cohorts.materialized_tooltip', {
+              count: cohort.materialization.count,
+              date: formatDateTime(cohort.materialization.materializedAt),
+            })}
+          >
+            <Database size={11} />
+            {t('cohorts.materialized_at', {
+              date: formatDateTime(cohort.materialization.materializedAt),
+            })}
+          </span>
+        )}
+
         {/* Import/Export */}
         <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
           <Upload size={12} />
@@ -234,6 +283,19 @@ export function CohortBuilderPage() {
         <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="h-6 gap-1 text-xs">
           <Download size={12} />
           {t('common.export')}
+        </Button>
+
+        {/* Materialize (freeze membership) */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleMaterialize}
+          disabled={loading || !activeSource || cohort.level === 'event'}
+          className="h-6 gap-1 text-xs"
+          title={cohort.level === 'event' ? t('cohorts.materialize_event_disabled') : undefined}
+        >
+          <Database size={12} />
+          {t('cohorts.materialize')}
         </Button>
 
         {/* Execute */}
@@ -312,6 +374,28 @@ export function CohortBuilderPage() {
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction onClick={handleConfirmOverwriteSql}>
               {t('cohorts.sql_overwrite_confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirm re-materializing (replaces the frozen snapshot) */}
+      <AlertDialog open={rematerializeDialogOpen} onOpenChange={setRematerializeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.rematerialize_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cohort.materialization
+                ? t('cohorts.rematerialize_description', {
+                    date: formatDateTime(cohort.materialization.materializedAt),
+                  })
+                : t('cohorts.rematerialize_description_generic')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmRematerialize}>
+              {t('cohorts.rematerialize_confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

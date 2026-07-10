@@ -55,6 +55,28 @@ async def test_cohort_crud(client):
     assert (await client.get(f"{API}/cohorts/{c['id']}", headers=headers)).status_code == 404
 
 
+async def test_materialization_round_trip(client):
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    c = await _cohort(client, headers, proj)
+
+    mat = {
+        "level": "patient",
+        "ids": ["1", "2", "3"],
+        "patientIds": ["1", "2", "3"],
+        "count": 3,
+        "materializedAt": "2026-07-09T09:30:00Z",
+    }
+    r = await client.patch(f"{API}/cohorts/{c['id']}", headers=headers,
+                           json={"materialization": mat})
+    assert r.json()["materialization"] == mat
+
+    # Clearing the snapshot sets it back to null.
+    r = await client.patch(f"{API}/cohorts/{c['id']}", headers=headers,
+                           json={"materialization": None})
+    assert r.json()["materialization"] is None
+
+
 async def test_list_all_without_project_filter(client):
     # The store loads cohorts app-wide (no projectUid) — must not 422.
     headers = await _admin_headers(client)

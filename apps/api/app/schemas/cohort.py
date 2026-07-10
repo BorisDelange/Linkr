@@ -13,6 +13,7 @@ class CohortCreate(CamelModel):
     custom_sql: str | None = None
     result_count: int | None = None
     attrition: list | None = None
+    materialization: dict | None = None
     schema_version: int = 3
 
 
@@ -24,6 +25,7 @@ class CohortUpdate(CamelModel):
     custom_sql: str | None = None
     result_count: int | None = None
     attrition: list | None = None
+    materialization: dict | None = None
     schema_version: int | None = None
 
 
@@ -37,6 +39,7 @@ class CohortResponse(CamelModel):
     custom_sql: str | None = None
     result_count: int | None = None
     attrition: list | None = None
+    materialization: dict | None = None
     schema_version: int
     created_at: datetime
     updated_at: datetime

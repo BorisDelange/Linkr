@@ -477,6 +477,36 @@ function buildPatientBaseQuery(
   const deathDateGroupBy = (patientTableAlias: string): string =>
     pt.deathDateColumn ? `, ${patientTableAlias}."${pt.deathDateColumn}"` : ''
 
+  // Materialized cohort: read the frozen membership instead of recomputing the
+  // criteria tree, so results stay stable even if the source data changed.
+  const mat = cohort?.materialization
+  if (mat) {
+    // An empty snapshot is a valid (empty) cohort — force a no-match filter.
+    // Ids are quoted+escaped; string comparison works for numeric id columns too.
+    const inList = mat.patientIds.map((id) => `'${escSql(id)}'`).join(', ')
+    const whereIn = inList
+      ? `WHERE p."${pt.idColumn}" IN (${inList})`
+      : `WHERE 1=0`
+
+    const genderCol = pt.genderColumn ? `, p."${pt.genderColumn}" AS gender` : ''
+    if (vt) {
+      const ageExpr = buildAgeExprAlias('p', pt, `MIN(v."${vt.startDateColumn}")`)
+      const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+      return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol},
+  COUNT(DISTINCT v."${vt.idColumn}") AS visit_count${stayCountExpr(`p."${pt.idColumn}"`)}${deathDateExpr('p', `p."${pt.idColumn}"`)},
+  MIN(v."${vt.startDateColumn}") AS first_admission
+FROM "${pt.table}" p
+LEFT JOIN "${vt.table}" v ON p."${pt.idColumn}" = v."${vt.patientIdColumn}"
+${whereIn}
+GROUP BY p."${pt.idColumn}"${pt.genderColumn ? `, p."${pt.genderColumn}"` : ''}${deathDateGroupBy('p')}${buildBirthGroupBy('p', pt)}`
+    }
+    const ageExpr = buildAgeExprAlias('p', pt, 'CURRENT_DATE')
+    const ageCol = ageExpr ? `, ${ageExpr} AS age` : ''
+    return `SELECT p."${pt.idColumn}" AS patient_id${genderCol}${ageCol}${deathDateExpr('p', `p."${pt.idColumn}"`)}
+FROM "${pt.table}" p
+${whereIn}`
+  }
+
   if (cohort && cohort.criteriaTree.children.length > 0) {
     const parts = buildCohortQueryParts(cohort, mapping)
     if (!parts) return null

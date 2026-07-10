@@ -23,4 +23,7 @@ class Cohort(Base, TimestampMixin):
     custom_sql: Mapped[str | None] = mapped_column(Text)
     result_count: Mapped[int | None] = mapped_column(Integer)
     attrition: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    # Frozen membership snapshot (level, ids, patientIds, count, materializedAt).
+    # Persisted and shared across users in fullstack mode.
+    materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     schema_version: Mapped[int] = mapped_column(Integer, default=3)

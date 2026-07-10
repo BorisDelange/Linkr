@@ -101,6 +101,38 @@ export function buildCohortResultsSql(
 }
 
 /**
+ * Build a query returning the full cohort membership (no LIMIT) for materialization.
+ * Returns two columns: `id` (level id) and `patient_id`. At patient level the two
+ * are identical. Event level has no single base table, so it returns null.
+ */
+export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+  if (cohort.level === 'event') return null
+  const parts = buildCohortQueryParts(cohort, mapping)
+  if (!parts) return null
+
+  const patientIdCol = getPatientIdColumn(cohort.level, mapping)
+  const patientIdExpr =
+    cohort.level === 'patient'
+      ? `"${parts.baseTable}"."${parts.idColumn}"`
+      : patientIdCol
+        ? `"${parts.baseTable}"."${patientIdCol}"`
+        : null
+  if (!patientIdExpr) return null
+
+  const lines = [
+    `SELECT DISTINCT`,
+    `  "${parts.baseTable}"."${parts.idColumn}" AS id,`,
+    `  ${patientIdExpr} AS patient_id`,
+    `FROM`,
+    `  ${parts.from}`,
+  ]
+  if (parts.whereClause) {
+    lines.push(`WHERE`, `  ${parts.whereClause}`)
+  }
+  return lines.join('\n')
+}
+
+/**
  * Build attrition queries: one COUNT per top-level child, progressively accumulated.
  */
 export function buildAttritionQueries(

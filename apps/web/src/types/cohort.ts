@@ -150,10 +150,33 @@ export interface Cohort {
   resultCount?: number
   /** Attrition data from last execution */
   attrition?: AttritionStep[]
+  /**
+   * Frozen snapshot of the cohort membership. Unlike resultCount/attrition
+   * (a live preview), this materialization is the persisted set the app reads
+   * (e.g. Patient data) so results stay stable even if the source data changes.
+   * In fullstack mode it lives in the app DB and is shared across users.
+   */
+  materialization?: CohortMaterialization
   /** Schema version for migration (current = 3) */
   schemaVersion: number
   createdAt: string
   updatedAt: string
+}
+
+// --- Materialization (frozen membership snapshot) ---
+
+export interface CohortMaterialization {
+  /** Level the snapshot was built at (matches the cohort level at freeze time). */
+  level: CohortLevel
+  /** IDs at the cohort level (patient / visit / visit_detail ids). */
+  ids: string[]
+  /** Distinct patient ids covered by the snapshot — always populated so
+   *  patient-facing pages can filter regardless of the snapshot level. */
+  patientIds: string[]
+  /** Membership size (distinct level ids). */
+  count: number
+  /** When the snapshot was frozen (ISO timestamp). */
+  materializedAt: string
 }
 
 // --- Attrition ---

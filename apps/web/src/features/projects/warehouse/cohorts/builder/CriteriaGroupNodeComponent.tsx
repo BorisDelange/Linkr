@@ -16,11 +16,21 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical, Power, X, Pencil, Check } from 'lucide-react'
+import { GripVertical, Power, Trash2, Pencil, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { CriterionCard } from './CriterionCard'
 import { AddCriterionMenu } from './AddCriterionMenu'
 import { OperatorSeparator } from './OperatorSeparator'
@@ -67,6 +77,15 @@ export function CriteriaGroupNodeComponent({
   const { t } = useTranslation()
   const [editingLabel, setEditingLabel] = useState(false)
   const [labelDraft, setLabelDraft] = useState(node.label ?? '')
+  const [deleteOpen, setDeleteOpen] = useState(false)
+
+  const handleRemoveClick = () => {
+    if (node.children.length > 0) {
+      setDeleteOpen(true)
+    } else {
+      onRemove(node.id)
+    }
+  }
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -237,10 +256,10 @@ export function CriteriaGroupNodeComponent({
             variant="ghost"
             size="icon"
             className="h-6 w-6 shrink-0"
-            onClick={() => onRemove(node.id)}
-            title={t('common.remove')}
+            onClick={handleRemoveClick}
+            title={t('common.delete')}
           >
-            <X size={12} />
+            <Trash2 size={12} />
           </Button>
         </div>
 
@@ -315,6 +334,27 @@ export function CriteriaGroupNodeComponent({
           </div>
         </div>
       </div>
+
+      {/* Delete confirmation (only when the group holds criteria) */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.group_delete_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.group_delete_description')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => onRemove(node.id)}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

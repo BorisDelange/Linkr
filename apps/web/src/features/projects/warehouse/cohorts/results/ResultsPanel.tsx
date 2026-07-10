@@ -53,7 +53,7 @@ export function ResultsPanel({ result, loading, onExecute, onExportCsv }: Result
             <span className="text-[10px] text-muted-foreground">
               {result.durationMs}ms
             </span>
-            <Button variant="ghost" size="sm" onClick={onExportCsv} className="gap-1.5 text-xs h-7">
+            <Button variant="ghost" size="sm" onClick={onExportCsv} className="h-6 gap-1 text-xs">
               <Download size={12} />
               CSV
             </Button>
