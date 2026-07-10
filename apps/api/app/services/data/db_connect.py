@@ -17,7 +17,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.services.data import connection_pool
+from app.services.data import connection_pool, file_reader
 
 _ATTACH_ALIAS = "ext"
 
@@ -275,20 +275,29 @@ def query_file(
     )
 
 
-def query_csv(path: str, select_sql: str, sql: str) -> list[dict]:
-    """Run SQL over a CSV blob for a mapping project's file source.
+def query_file_source(
+    path: str,
+    file_name: str | None,
+    parse_options: dict | None,
+    select_sql: str,
+    sql: str,
+) -> list[dict]:
+    """Run SQL over a mapping project's file source blob (CSV/Parquet/Excel).
 
     `select_sql` is the column-normalizing projection (built from the project's
     columnMapping, mirroring the DuckDB-WASM mount) that becomes the view
-    ``source_concepts`` — the table name the frontend's SQL references. The CSV
-    is read with ``read_csv_auto(..., nullstr='NA')`` to match the browser path.
+    ``source_concepts`` — the table name the frontend's SQL references. The read
+    expression (reader + sheet/delimiter options + Excel extension) is built by
+    the shared `file_reader.build_read_expr`, the same one dataset import uses.
     """
     con = duckdb.connect()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
+        reader = file_reader.build_read_expr(
+            con, path, file_name, parse_options or {}, nullstr="NA"
+        )
         con.execute(
-            f"CREATE VIEW source_concepts AS SELECT {select_sql} "
-            f"FROM read_csv_auto('{path}', nullstr='NA')"
+            f"CREATE VIEW source_concepts AS SELECT {select_sql} FROM {reader}"
         )
         return _run_statements(con, "memory", sql)
     finally:

@@ -32,6 +32,21 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY apps/api/ ./
 RUN pip install --no-cache-dir -e ".[execution]"
 
+# Pre-bundle DuckDB extensions into the image so an offline deployment never
+# needs to reach the network on first use. They install under
+# <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
+# extension dir from here. `excel` powers native .xlsx reads (mapping/datasets);
+# postgres/mysql/sqlite back the external-database connectors.
+ENV LINKR_DUCKDB_EXT_BUNDLE=/opt/duckdb_ext
+RUN python3 - <<'PY'
+import duckdb, os
+d = os.environ["LINKR_DUCKDB_EXT_BUNDLE"]
+con = duckdb.connect()
+con.execute(f"SET extension_directory = '{d}'")
+for ext in ("excel", "postgres", "mysql", "sqlite"):
+    con.execute(f"INSTALL {ext}")
+PY
+
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh
 

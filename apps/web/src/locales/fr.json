@@ -2820,6 +2820,7 @@
     "show_concept_stats": "Voir les statistiques du concept",
     "no_concepts": "Aucun concept source trouvé.",
     "query_error": "Échec de la requête",
+    "excel_support_unavailable": "Les fichiers Excel ne sont pas pris en charge sur ce serveur (l'extension DuckDB « excel » n'est pas installée). Convertissez le fichier en CSV puis réimportez-le.",
     "total_concepts": "concepts",
     "select_source": "Sélectionnez un concept source dans le panneau de gauche pour voir et créer des alignements.",
     "browse_target_hint": "Parcourir les concepts cibles sans concept source sélectionné.",

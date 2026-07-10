@@ -20,56 +20,14 @@ from typing import Any
 
 import duckdb
 
+from app.services.data.file_reader import build_read_expr
 from app.services.data.type_inference import infer_column_type, parse_boolean
-
-_EXCEL_EXT = {".xlsx", ".xls"}
-
-
-def _sql_str(value: str) -> str:
-    """A single-quoted DuckDB string literal with embedded quotes doubled.
-
-    `path` is server-derived, but `sheet`/`delimiter` come from client
-    parse_options, so they must be escaped before going into a read_* call.
-    """
-    return "'" + value.replace("'", "''") + "'"
 
 
 def _relation(con: duckdb.DuckDBPyConnection, path: Path, name: str, opts: dict):
-    ext = Path(name).suffix.lower()
-    p = str(path)
-    header = opts.get("hasHeader", True)
-    skip = int(opts.get("skipRows") or 0)
-
-    if ext == ".parquet":
-        return con.sql(f"SELECT * FROM read_parquet({_sql_str(p)})")
-
-    if ext in _EXCEL_EXT:
-        # A real .xlsx is a zip starting with "PK". Files renamed from CSV are a
-        # common trap — give a clear message instead of DuckDB's "open zip" error.
-        with open(p, "rb") as fh:
-            if fh.read(2) != b"PK":
-                raise ValueError(
-                    f"'{name}' has an .xlsx extension but is not a valid Excel "
-                    "file (it looks like a CSV or text file renamed to .xlsx). "
-                    "Rename it to .csv and import again."
-                )
-        con.execute("INSTALL excel; LOAD excel;")
-        sheet = opts.get("sheet")
-        sheet_arg = f", sheet={_sql_str(sheet)}" if sheet else ""
-        # all_varchar keeps our own type inference authoritative.
-        return con.sql(
-            f"SELECT * FROM read_xlsx({_sql_str(p)}{sheet_arg}, "
-            f"header={str(header).lower()}, all_varchar=true)"
-        )
-
-    # CSV / TSV / TXT
-    args = [_sql_str(p), "all_varchar=true", f"header={str(header).lower()}"]
-    delim = opts.get("delimiter")
-    if delim:
-        args.append(f"delim={_sql_str(delim)}")
-    if skip:
-        args.append(f"skip={skip}")
-    return con.sql(f"SELECT * FROM read_csv({', '.join(args)})")
+    # build_read_expr forces all_varchar so our own type inference stays
+    # authoritative, and handles the CSV/Parquet/Excel dispatch + sheet option.
+    return con.sql(f"SELECT * FROM {build_read_expr(con, str(path), name, opts)}")
 
 
 def _coerce(value: Any, col_type: str) -> Any:

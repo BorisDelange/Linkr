@@ -27,7 +27,7 @@ import asyncio
 
 from app.services import blob_store
 from app.services import mapping_project_service as svc
-from app.services.data import db_connect
+from app.services.data import db_connect, file_reader
 from app.services.data.file_source import build_source_concepts_select
 
 router = APIRouter(tags=["mapping-projects"])
@@ -169,11 +169,20 @@ async def query_file_source(
     project = await _load_project(db, project_id, user, "viewer")
     if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
-    column_mapping = (project.file_source_data or {}).get("columnMapping", {})
+    fsd = project.file_source_data or {}
+    column_mapping = fsd.get("columnMapping", {})
+    parse_options = fsd.get("parseOptions", {})
     select_sql = build_source_concepts_select(column_mapping)
     path = str(blob_store.path_for(project.raw_file_sha))
     try:
-        rows = await asyncio.to_thread(db_connect.query_csv, path, select_sql, body.sql)
+        rows = await asyncio.to_thread(
+            db_connect.query_file_source,
+            path, project.raw_file_name, parse_options, select_sql, body.sql,
+        )
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(
+            status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable"
+        )
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Query failed: {e}")
     return rows

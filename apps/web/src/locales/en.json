@@ -2820,6 +2820,7 @@
     "show_concept_stats": "View concept statistics",
     "no_concepts": "No source concepts found.",
     "query_error": "Query failed",
+    "excel_support_unavailable": "Excel files aren't supported on this server (the DuckDB 'excel' extension isn't installed). Convert the file to CSV and import it again.",
     "total_concepts": "concepts",
     "select_source": "Select a source concept from the left panel to view and create mappings.",
     "browse_target_hint": "Browse target concepts while no source concept is selected.",

@@ -38,6 +38,7 @@ dev = [
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
     "ruff>=0.5",
+    "openpyxl>=3.1",  # only to author .xlsx fixtures in tests (server reads via DuckDB)
 ]
 postgres = [
     "asyncpg>=0.30",

@@ -142,6 +142,73 @@ async def test_file_source_query(client):
     assert rows[0]["vocabulary_id"] == "LOINC"
 
 
+async def test_file_source_query_nullstr_na(client):
+    # Parity with the browser's DuckDB-WASM mount: a literal "NA" cell reads as
+    # NULL server-side too (query_file_source passes nullstr='NA').
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = (await client.post(f"{API}/mapping-projects", headers=headers, json={
+        "id": "mpna", "workspaceId": ws, "name": {"en": "NA"}, "description": {},
+        "sourceType": "file", "conceptSetIds": [],
+        "fileSourceData": {
+            "fileName": "src.csv", "columns": ["code", "vocab"], "rows": [],
+            "columnMapping": {"conceptCodeColumn": "code", "terminologyColumn": "vocab"},
+        },
+    })).json()
+    csv = b"code,vocab\nNA,LOINC\n1234-5,LOINC\n"
+    sha, _ = await blob_store.store_bytes(csv)
+    await client.post(f"{API}/mapping-projects/{p['id']}/raw-file", headers=headers,
+                      json={"sha": sha, "fileName": "src.csv"})
+    r = await client.post(f"{API}/mapping-projects/{p['id']}/query", headers=headers, json={
+        "sql": "SELECT COUNT(*) AS n FROM source_concepts WHERE concept_code IS NULL",
+    })
+    assert r.status_code == 200 and r.json()[0]["n"] == 1
+
+
+async def test_file_source_query_xlsx_sheet(client):
+    # Native Excel read server-side, honoring the chosen sheet from parseOptions.
+    import io
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        import pytest
+        pytest.skip("openpyxl not installed")
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = (await client.post(f"{API}/mapping-projects", headers=headers, json={
+        "id": "mpx", "workspaceId": ws, "name": {"en": "X"}, "description": {},
+        "sourceType": "file", "conceptSetIds": [],
+        "fileSourceData": {
+            "fileName": "src.xlsx", "columns": ["code", "vocab"], "rows": [],
+            "columnMapping": {"conceptCodeColumn": "code", "terminologyColumn": "vocab"},
+            "parseOptions": {"sheet": "Beta"},
+        },
+    })).json()
+
+    wb = Workbook()
+    alpha = wb.active
+    alpha.title = "Alpha"
+    alpha.append(["code", "vocab"])
+    alpha.append(["A1", "LOINC"])
+    beta = wb.create_sheet("Beta")
+    beta.append(["code", "vocab"])
+    beta.append(["B1", "SNOMED"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    sha, _ = await blob_store.store_bytes(buf.getvalue())
+    await client.post(f"{API}/mapping-projects/{p['id']}/raw-file", headers=headers,
+                      json={"sha": sha, "fileName": "src.xlsx"})
+
+    r = await client.post(f"{API}/mapping-projects/{p['id']}/query", headers=headers, json={
+        "sql": "SELECT concept_code, vocabulary_id FROM source_concepts",
+    })
+    assert r.status_code == 200
+    rows = r.json()
+    assert len(rows) == 1 and rows[0]["concept_code"] == "B1"
+    assert rows[0]["vocabulary_id"] == "SNOMED"
+
+
 async def test_service_mapping_crud(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
