@@ -3,6 +3,7 @@ import { useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
+import { useContextRoleStore } from '@/stores/context-role-store'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
@@ -26,6 +27,12 @@ export function WorkspaceGuard({ children }: { children: React.ReactNode }) {
   // against activeWorkspaceId (which is always the full id).
   const resolvedWs = resolveByIdPrefix(_workspacesRaw, wsUid, (w) => w.id)
   const resolvedWsId = resolvedWs?.id
+  const loadWorkspaceRole = useContextRoleStore((s) => s.loadWorkspaceRole)
+
+  // Load the current user's role on this workspace once, for UI gating.
+  useEffect(() => {
+    if (resolvedWsId) loadWorkspaceRole(resolvedWsId)
+  }, [resolvedWsId, loadWorkspaceRole])
 
   useEffect(() => {
     if (!wsUid || !workspacesLoaded) return

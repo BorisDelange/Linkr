@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useAppStore } from '@/stores/app-store'
+import { useContextRoleStore } from '@/stores/context-role-store'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
@@ -25,6 +26,12 @@ export function ProjectGuard({ children }: { children: React.ReactNode }) {
   // against activeProjectUid (always the full uid).
   const resolvedProject = resolveByIdPrefix(projects, uid, (p) => p.uid)
   const resolvedUid = resolvedProject?.uid
+  const loadProjectRole = useContextRoleStore((s) => s.loadProjectRole)
+
+  // Load the current user's effective role on this project once, for UI gating.
+  useEffect(() => {
+    if (resolvedUid) loadProjectRole(resolvedUid)
+  }, [resolvedUid, loadProjectRole])
 
   useEffect(() => {
     if (!uid || !projectsLoaded) return

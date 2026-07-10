@@ -2261,6 +2261,7 @@
     "filters": "Filters",
     "no_access_title": "Access not available",
     "no_access_description": "Your account doesn't have permission to access this section.",
+    "insufficient_permissions": "You don't have permission to do this.",
     "entity_not_found_title": "{{entity}} not found",
     "entity_not_found_description": "It may have been deleted, or the link is incorrect.",
     "entity_project": "Project",

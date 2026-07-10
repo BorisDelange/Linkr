@@ -1,55 +1,36 @@
-import { useEffect, useState } from 'react'
 import { isServerMode } from '@/lib/api-client'
-import { membersApi, type MemberRole } from '@/lib/api/members'
+import { type MemberRole } from '@/lib/api/members'
+import { useContextRoleStore } from '@/stores/context-role-store'
 
 const RANK: Record<string, number> = { viewer: 0, editor: 1, owner: 2 }
 
 export interface ContextRole {
   role: MemberRole | null
-  loading: boolean
   /** True if the effective role is at least `min` (front-only mode → always true). */
   atLeast: (min: MemberRole) => boolean
 }
 
-function useRole(
-  fetcher: (() => Promise<{ role: MemberRole | null }>) | null,
-  deps: unknown[],
-): ContextRole {
+function make(role: MemberRole | null): ContextRole {
   const serverMode = isServerMode()
-  const [role, setRole] = useState<MemberRole | null>(serverMode ? null : 'owner')
-  const [loading, setLoading] = useState(serverMode)
-
-  useEffect(() => {
-    if (!serverMode || !fetcher) return
-    let cancelled = false
-    setLoading(true)
-    fetcher()
-      .then((r) => { if (!cancelled) setRole(r.role) })
-      .catch(() => { if (!cancelled) setRole(null) })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps)
-
-  // Front-only mode has no server-side authorization: permit everything.
-  const atLeast = (min: MemberRole) =>
-    !serverMode || (role != null && RANK[role] >= RANK[min])
-
-  return { role, loading, atLeast }
+  return {
+    role,
+    atLeast: (min: MemberRole) =>
+      !serverMode || (role != null && RANK[role] >= RANK[min]),
+  }
 }
 
-/** Current user's effective role on a workspace, for UI gating. */
-export function useMyWorkspaceRole(workspaceId: string | undefined): ContextRole {
-  return useRole(
-    workspaceId ? () => membersApi.myWorkspaceRole(workspaceId) : null,
-    [workspaceId],
-  )
+/**
+ * Current user's effective role on the active workspace, read from the shared
+ * store (loaded once by WorkspaceGuard). The `workspaceId` arg is kept for call
+ * sites that pass it, but the store is the single source of truth.
+ */
+export function useMyWorkspaceRole(_workspaceId?: string | undefined): ContextRole {
+  const role = useContextRoleStore((s) => s.workspaceRole)
+  return make(role)
 }
 
-/** Current user's effective role on a project, for UI gating. */
-export function useMyProjectRole(projectUid: string | undefined): ContextRole {
-  return useRole(
-    projectUid ? () => membersApi.myProjectRole(projectUid) : null,
-    [projectUid],
-  )
+/** Current user's effective role on the active project (from the shared store). */
+export function useMyProjectRole(_projectUid?: string | undefined): ContextRole {
+  const role = useContextRoleStore((s) => s.projectRole)
+  return make(role)
 }
