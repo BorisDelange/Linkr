@@ -379,6 +379,7 @@
     "plugin_no_plugins": "Aucun plugin d'analyse disponible.",
     "delete_tab_title": "Supprimer l'onglet ?",
     "delete_tab_description": "Cela supprimera définitivement l'onglet \"{{name}}\" et tous ses widgets.",
+    "delete_tab_last": "Impossible de supprimer le dernier onglet",
     "delete_widget_title": "Supprimer le widget ?",
     "delete_widget_description": "Cela supprimera définitivement le widget \"{{name}}\".",
     "widget_name_taken": "Un widget avec ce nom existe déjà dans cet onglet.",

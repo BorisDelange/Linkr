@@ -379,6 +379,7 @@
     "plugin_no_plugins": "No analysis plugins available.",
     "delete_tab_title": "Delete tab?",
     "delete_tab_description": "This will permanently delete the tab \"{{name}}\" and all its widgets.",
+    "delete_tab_last": "Can't delete the last tab",
     "delete_widget_title": "Delete widget?",
     "delete_widget_description": "This will permanently delete the widget \"{{name}}\".",
     "widget_name_taken": "A widget with this name already exists in this tab.",

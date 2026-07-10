@@ -467,10 +467,15 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction onClick={() => { pendingAction?.(); setPendingAction(null) }}>
+          <AlertDialogAction
+            onClick={() => { pendingAction?.(); setPendingAction(null) }}
+            className="border bg-background text-foreground shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50"
+          >
             {t('common.confirm')}
           </AlertDialogAction>
+          <AlertDialogCancel className="border-transparent bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 hover:text-primary-foreground dark:bg-primary dark:hover:bg-primary/90">
+            {t('common.cancel')}
+          </AlertDialogCancel>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

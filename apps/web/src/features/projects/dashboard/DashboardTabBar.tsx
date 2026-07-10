@@ -160,14 +160,19 @@ function SortableTab({
           <FolderPlus size={14} />
           {t('dashboard.add_sub_tab')}
         </ContextMenuItem>
-        {canClose && (
-          <>
-            <ContextMenuSeparator />
-            <ContextMenuItem variant="destructive" onClick={onClose}>
-              <Trash2 size={14} />
-              {t('common.delete')}
-            </ContextMenuItem>
-          </>
+        <ContextMenuSeparator />
+        {canClose ? (
+          <ContextMenuItem variant="destructive" onClick={onClose}>
+            <Trash2 size={14} />
+            {t('common.delete')}
+          </ContextMenuItem>
+        ) : (
+          // Last root tab: a dashboard always keeps at least one tab, so the delete stays
+          // visible but disabled with an explanation instead of silently vanishing.
+          <ContextMenuItem disabled>
+            <Trash2 size={14} />
+            {t('dashboard.delete_tab_last')}
+          </ContextMenuItem>
         )}
       </ContextMenuContent>
     </ContextMenu>
