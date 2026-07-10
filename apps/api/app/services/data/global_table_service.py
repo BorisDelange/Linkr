@@ -34,7 +34,7 @@ _FLAT_COLUMNS = [
     "source_concept_name", "equivalence", "target_vocabulary_id",
     "target_concept_id", "target_concept_name", "status", "mapped_by",
     "created_at", "updated_at", "votes_approved", "votes_flagged",
-    "votes_rejected",
+    "votes_rejected", "reviews_json",
 ]
 
 _DEDUP_COLUMNS = [
@@ -119,6 +119,7 @@ def build_flat_rows(
                 "created_at": m.get("created_at") or "",
                 "updated_at": m.get("updated_at") or "",
                 "votes_approved": va, "votes_flagged": vf, "votes_rejected": vr,
+                "reviews_json": json.dumps(m.get("reviews") or []),
             })
 
     for pid, source_concepts in source_concepts_by_project.items():
@@ -146,6 +147,7 @@ def build_flat_rows(
                 "status": "unchecked", "mapped_by": "",
                 "created_at": "", "updated_at": "",
                 "votes_approved": 0, "votes_flagged": 0, "votes_rejected": 0,
+                "reviews_json": "[]",
             })
 
     return rows

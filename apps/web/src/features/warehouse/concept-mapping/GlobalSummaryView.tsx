@@ -69,6 +69,8 @@ import {
   queryFlatDistinct,
   queryDedupDistinct,
 } from '@/lib/concept-mapping/global-summary-queries'
+import { queryGlobalTableOnServer } from '@/lib/api/mapping-projects'
+import { isServerMode } from '@/lib/api-client'
 import { SourceIdTab } from './SourceIdTab'
 import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
 
@@ -96,6 +98,15 @@ const EQUIV_BADGE: Record<string, { label: string; className: string }> = {
 const PAGE_SIZE = 50
 const TOP_N = 10
 const EXPORT_STATUSES: MappingStatus[] = ['approved', 'rejected', 'flagged', 'unchecked', 'ignored']
+
+/** GlobalTableFilters → the server endpoint's JSON shape (Sets become arrays). */
+function serializeGlobalFilters(f: GlobalTableFilters): Record<string, unknown> {
+  return {
+    ...f,
+    statusFilter: f.statusFilter ? [...f.statusFilter] : undefined,
+    groupLabels: f.groupLabels ? [...f.groupLabels] : undefined,
+  }
+}
 const FILTER_INPUT_CLASS = 'h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary'
 
 interface GroupStat {
@@ -466,6 +477,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   // Heavy: all source-concept ROWS for every project (used only by the Table /
   // Export tabs). Deferred until one of those tabs is opened; runs in parallel.
   const loadSourceConcepts = useCallback(async () => {
+    // Server mode: the merged table (incl. source concepts) is built server-side,
+    // so we must NOT pull every source concept into the browser here.
+    if (isServerMode()) { setAllSourceConceptsByProject(new Map()); return }
     setLoadingSourceConcepts(true)
     const sourceConceptsMap = new Map<string, SourceConceptRaw[]>()
     try {
@@ -537,9 +551,15 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     [registryEntries],
   )
 
-  // Populate DuckDB temp table when data is ready
+  // Prepare the table. Server mode: nothing to build in the browser — the merge
+  // + pagination happen server-side (loadTableRows), so just flip tableReady.
+  // WASM mode: build the in-browser DuckDB temp table from the loaded data.
   const populateTable = useCallback(async () => {
     if (loadingMappings) return
+    if (isServerMode()) {
+      setTableReady(true)
+      return
+    }
     invalidateGlobalTables()
     setTablePopulating(true)
     try {
@@ -556,21 +576,32 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     }
   }, [loadingMappings, allMappings, allSourceConceptsByProject, projects, registryMap, groupMode])
 
-  // Load a page of rows from DuckDB
+  // Load a page of rows. Server mode: paginate the merged table server-side (no
+  // WASM). WASM mode: page the in-browser temp table.
   const loadTableRows = useCallback(async (pageToLoad: number) => {
     if (!tableReady || tableLoadingRef.current) return
     tableLoadingRef.current = true
     setTableLoading(true)
     try {
-      const queryCount = groupMode === 'badge' ? queryDedupCount : queryFlatCount
-      const queryPage = groupMode === 'badge' ? queryDedupPage : queryFlatPage
-
-      if (pageToLoad === 0) {
-        const count = await queryCount(colFilters)
-        setTableTotalCount(count)
+      let rows: Record<string, unknown>[]
+      if (isServerMode()) {
+        if (!activeWorkspaceId) { setTableRows([]); return }
+        const page = await queryGlobalTableOnServer({
+          workspaceId: activeWorkspaceId,
+          mode: groupMode === 'badge' ? 'dedup' : 'flat',
+          filters: serializeGlobalFilters(colFilters),
+          sort: sorting,
+          limit: PAGE_SIZE,
+          offset: pageToLoad * PAGE_SIZE,
+        })
+        if (pageToLoad === 0) setTableTotalCount(page.total)
+        rows = page.rows
+      } else {
+        const queryCount = groupMode === 'badge' ? queryDedupCount : queryFlatCount
+        const queryPage = groupMode === 'badge' ? queryDedupPage : queryFlatPage
+        if (pageToLoad === 0) setTableTotalCount(await queryCount(colFilters))
+        rows = await queryPage(colFilters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
       }
-
-      const rows = await queryPage(colFilters, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
 
       if (pageToLoad === 0) {
         setTableRows(rows)
@@ -585,7 +616,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       setTableLoading(false)
       tableLoadingRef.current = false
     }
-  }, [tableReady, groupMode, colFilters, sorting])
+  }, [tableReady, groupMode, colFilters, sorting, activeWorkspaceId])
 
   const loadTableRowsRef = useRef(loadTableRows)
   loadTableRowsRef.current = loadTableRows

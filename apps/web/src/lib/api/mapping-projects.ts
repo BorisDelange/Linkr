@@ -24,6 +24,28 @@ export function queryFileSourceOnServer(
   })
 }
 
+export interface GlobalTablePage {
+  rows: Record<string, unknown>[]
+  total: number
+}
+
+/** One page of the cross-project overview Table, merged + paginated server-side
+ * (source concepts + mappings + assigned-id registry). Replaces the DuckDB-WASM
+ * temp table in fullstack mode. `mode`: 'flat' (project) | 'dedup' (badge). */
+export function queryGlobalTableOnServer(params: {
+  workspaceId: string
+  mode: 'flat' | 'dedup'
+  filters?: Record<string, unknown>
+  sort?: { columnId: string; desc: boolean } | null
+  limit: number
+  offset: number
+}): Promise<GlobalTablePage> {
+  return apiRequest<GlobalTablePage>(`${PROJ}/global-table`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
 /** Upload a file and get its columns + row count server-side, before the project
  * exists — for previewing a file whose headers can't be read in the browser
  * (Parquet in server mode). Returns the sha so the caller can reuse the blob at
