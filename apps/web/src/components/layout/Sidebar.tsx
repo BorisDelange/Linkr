@@ -7,7 +7,6 @@ import { shortWorkspaceId, shortProjectId } from '@/lib/paths'
 import {
   Home,
   FolderOpen,
-  Settings,
   User,
   BarChart3,
   UsersRound,
@@ -104,7 +103,7 @@ const appNavItems: AppNavItem[] = [
 ]
 
 const appBottomItems: AppNavItem[] = [
-  { path: '/settings', icon: Settings, labelKey: 'nav.settings', iconColor: 'text-slate-400' },
+  { path: '/settings', icon: Settings2, labelKey: 'nav.settings', iconColor: 'text-slate-400' },
 ]
 
 // ── Workspace-level nav (segment-based) ──────────────────────────
