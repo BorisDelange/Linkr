@@ -3152,6 +3152,7 @@
     "global_mappings": "mappings",
     "global_loading": "Loading mappings…",
     "global_showing": "Showing {{shown}} / {{total}}",
+    "global_search_placeholder": "Search source concept name or code…",
     "global_total": "Total mappings",
     "global_chart_title": "Mappings by group",
     "global_filter_group": "Filter:",

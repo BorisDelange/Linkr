@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, FileSpreadsheet } from 'lucide-react'
+import { ArrowLeft, LayoutGrid, Settings2, ArrowUpDown, ArrowUp, ArrowDown, Download, FileCode, FileText, FileSpreadsheet, Search, SlidersHorizontal, X } from 'lucide-react'
 import {
   flexRender,
   getCoreRowModel,
@@ -32,6 +32,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Input } from '@/components/ui/input'
+import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
 import {
   Table,
   TableBody,
@@ -386,6 +389,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [activeTab, setActiveTab] = useState('summary')
   const [sorting, setSorting] = useState<{ columnId: string; desc: boolean } | null>(null)
   const [colFilters, setColFilters] = useState<GlobalTableFilters>({})
+  // Search bar: typed text is local, commits to colFilters.globalSearch on Enter / button.
+  const [pendingSearch, setPendingSearch] = useState('')
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ sourceConceptCode: false, targetConceptId: false })
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
 
@@ -898,6 +903,28 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const updateFilter = (key: keyof GlobalTableFilters, value: string | null | Set<string>) => {
     setColFilters((prev) => ({ ...prev, [key]: value ?? undefined }))
   }
+
+  // Search bar: commit on Enter / button (mirrors the single-project source table).
+  useEffect(() => { setPendingSearch(colFilters.globalSearch ?? '') }, [colFilters.globalSearch])
+  const commitSearch = () => {
+    const term = pendingSearch.trim()
+    setColFilters((prev) => ({ ...prev, globalSearch: term || undefined }))
+  }
+  const clearSearch = () => {
+    setPendingSearch('')
+    setColFilters((prev) => ({ ...prev, globalSearch: undefined }))
+  }
+
+  // Filters popover: source vocabulary + mapped/unmapped status + group labels.
+  const statusFilterSet = colFilters.statusFilter ?? new Set<string>()
+  const groupLabelsSet = colFilters.groupLabels ?? new Set<string>()
+  const popoverGroupOptions = groupMode === 'badge'
+    ? allBadgeLabels
+    : projects.map((p) => localized(p.name, 'en'))
+  const activeFilterCount =
+    (colFilters.sourceVocabularyId ? 1 : 0)
+    + statusFilterSet.size
+    + groupLabelsSet.size
 
   // ── Badge mode columns ──
   const dedupedColumns = useMemo<ColumnDef<DeduplicatedMappingRow>[]>(() => [
@@ -1495,6 +1522,98 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
         {/* ── TABLE TAB ── */}
         <TabsContent value="table" className="flex flex-1 flex-col overflow-hidden">
+          {/* Toolbar — filters popover + global search, aligned with the single
+              project's source-concepts table (SourceConceptTable). */}
+          <div className="flex items-center gap-1.5 border-b px-3 py-2">
+            <Popover>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon-sm" className={`h-8 w-8 shrink-0 ${activeFilterCount > 0 ? 'text-primary' : ''}`}>
+                      <SlidersHorizontal size={14} />
+                    </Button>
+                  </PopoverTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">{t('common.filters')}</TooltipContent>
+              </UiTooltip>
+              <PopoverContent align="start" className="w-[260px] space-y-3 p-3" onCloseAutoFocus={(e) => e.preventDefault()}>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-medium">{t('common.filters')}</p>
+                  {activeFilterCount > 0 && (
+                    <button
+                      type="button"
+                      className="text-[10px] text-muted-foreground hover:text-foreground"
+                      onClick={() => setColFilters((prev) => ({ ...prev, sourceVocabularyId: undefined, statusFilter: undefined, groupLabels: undefined }))}
+                    >
+                      {t('common.clear')}
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_status')}</label>
+                  <SharedMultiSelectFilter
+                    value={[...statusFilterSet]}
+                    options={[
+                      { value: 'mapped', label: t('concept_mapping.status_mapped') },
+                      { value: 'unmapped', label: t('concept_mapping.filter_unmapped') },
+                    ]}
+                    placeholder={t('concepts.filter_all')}
+                    onChange={(v) => updateFilter('statusFilter', new Set(v))}
+                    triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                  />
+                </div>
+                {popoverGroupOptions.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{groupModeLabel}</label>
+                    <SharedMultiSelectFilter
+                      value={[...groupLabelsSet]}
+                      options={popoverGroupOptions}
+                      placeholder={t('concepts.filter_all')}
+                      onChange={(v) => updateFilter('groupLabels', new Set(v))}
+                      triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                    />
+                  </div>
+                )}
+                {allSourceVocabs.length > 0 && (
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
+                    <SharedMultiSelectFilter
+                      value={colFilters.sourceVocabularyId ? [colFilters.sourceVocabularyId] : []}
+                      options={allSourceVocabs}
+                      placeholder={t('concepts.filter_all')}
+                      onChange={(v) => updateFilter('sourceVocabularyId', v[v.length - 1] ?? null)}
+                      triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+                    />
+                  </div>
+                )}
+              </PopoverContent>
+            </Popover>
+
+            <div className="relative flex-1">
+              <Search size={13} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={pendingSearch}
+                onChange={(e) => setPendingSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') commitSearch() }}
+                placeholder={t('concept_mapping.global_search_placeholder')}
+                className="h-8 pl-7 pr-7 text-xs"
+              />
+              {pendingSearch && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <Button size="sm" className="h-8" onClick={commitSearch}>
+              <Search size={13} />
+              {t('common.search')}
+            </Button>
+          </div>
+
           <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto">
             <Table className="w-full text-xs" style={{ tableLayout: 'fixed' }}>
               <TableHeader>

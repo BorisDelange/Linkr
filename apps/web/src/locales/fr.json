@@ -3152,6 +3152,7 @@
     "global_mappings": "alignements",
     "global_loading": "Chargement des alignements…",
     "global_showing": "{{shown}} / {{total}} affichés",
+    "global_search_placeholder": "Rechercher un nom ou code de concept source…",
     "global_total": "Total alignements",
     "global_chart_title": "Alignements par groupe",
     "global_filter_group": "Filtrer :",

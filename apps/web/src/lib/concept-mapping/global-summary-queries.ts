@@ -22,6 +22,8 @@ export interface SourceConceptRaw {
 }
 
 export interface GlobalTableFilters {
+  /** Global search box — matches source concept name OR code (case-insensitive). */
+  globalSearch?: string
   statusFilter?: Set<string>
   groupLabels?: Set<string>
   sourceVocabularyId?: string | null
@@ -277,8 +279,18 @@ export function invalidateGlobalTables(): void {
 /*  Query builders                                                     */
 /* ------------------------------------------------------------------ */
 
+/** Global search clause: match the source concept name OR code, case-insensitive. */
+function globalSearchClause(f: GlobalTableFilters): string | null {
+  const q = f.globalSearch?.trim()
+  if (!q) return null
+  const like = `LOWER('%${esc(q)}%')`
+  return `(LOWER(source_concept_name) LIKE ${like} OR LOWER(source_concept_code) LIKE ${like})`
+}
+
 function buildFlatWhere(f: GlobalTableFilters): string {
   const clauses: string[] = []
+  const search = globalSearchClause(f)
+  if (search) clauses.push(search)
   if (f.statusFilter?.size) {
     const parts: string[] = []
     if (f.statusFilter.has('unmapped')) parts.push('is_unmapped = true')
@@ -302,6 +314,8 @@ function buildFlatWhere(f: GlobalTableFilters): string {
 
 function buildDedupWhere(f: GlobalTableFilters): string {
   const clauses: string[] = []
+  const search = globalSearchClause(f)
+  if (search) clauses.push(search)
   if (f.statusFilter?.size) {
     const parts: string[] = []
     if (f.statusFilter.has('unmapped')) parts.push('is_unmapped = true')
