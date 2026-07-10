@@ -500,21 +500,30 @@ export async function queryDataSource(
  * `baseSql` must be a single SELECT with no trailing semicolon and no LIMIT of
  * its own (it gets wrapped as `SELECT * FROM (<baseSql>) LIMIT n OFFSET k`).
  */
+// Must stay ≤ the server's MAX_QUERY_ROWS (db_connect.py). The server silently
+// truncates any response to that many rows; if a page asked for MORE, a full
+// (truncated) page would look short and stop the loop early — dropping data. So
+// the page size is exactly the server cap: a full page means "there may be more".
+const SERVER_PAGE_ROWS = 10_000
+
 export async function queryDataSourceAll(
   dataSourceId: string,
   baseSql: string,
-  pageSize = 10_000,
+  pageSize = SERVER_PAGE_ROWS,
 ): Promise<Record<string, unknown>[]> {
   if (!isServerMode()) return queryDataSource(dataSourceId, baseSql)
 
+  // Never exceed the server cap (see note above) — a larger page can't be
+  // distinguished from a truncated one, which would silently lose rows.
+  const step = Math.min(pageSize, SERVER_PAGE_ROWS)
   const all: Record<string, unknown>[] = []
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0; ; offset += step) {
     const page = await queryDataSource(
       dataSourceId,
-      `SELECT * FROM (${baseSql}) AS _src LIMIT ${pageSize} OFFSET ${offset}`,
+      `SELECT * FROM (${baseSql}) AS _src LIMIT ${step} OFFSET ${offset}`,
     )
     all.push(...page)
-    if (page.length < pageSize) break
+    if (page.length < step) break
   }
   return all
 }

@@ -54,7 +54,7 @@ import { localized } from '@/lib/localized'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
+import { queryDataSource, queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import {
   populateFlatTable,
   populateDedupTable,
@@ -469,7 +469,10 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             // exposes vocabulary_id when a terminology column was mapped, so naming
             // it explicitly threw a Binder error that was silently swallowed here —
             // leaving the table empty. Read whatever columns exist, with fallbacks.
-            const rows = await queryDataSource(dsId, 'SELECT * FROM source_concepts')
+            // queryDataSourceAll, not queryDataSource: the server caps a single
+            // response at MAX_QUERY_ROWS (10k), which capped the whole table at
+            // "10k total". Page through to load every source concept.
+            const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
             const seen = new Map<string, SourceConceptRaw>()
             for (const row of rows) {
               const code = String(row.concept_code ?? '')
@@ -489,7 +492,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           await ensureMounted(ds.id)
           const allSql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
           if (!allSql) return
-          const rows = await queryDataSource(ds.id, allSql)
+          const rows = await queryDataSourceAll(ds.id, allSql)
           sourceConceptsMap.set(p.id, rows.map((row) => ({
             concept_id: Number(row.concept_id ?? 0),
             concept_name: String(row.concept_name ?? ''),
@@ -831,8 +834,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             try {
               await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
               const dsId = fileSourceDataSourceId(proj.id)
-              // SELECT * — vocabulary_id may be absent from the view (see loadSourceConcepts).
-              const rows = await queryDataSource(dsId, 'SELECT * FROM source_concepts')
+              // queryDataSourceAll + SELECT *: page past the 10k server cap, and
+              // vocabulary_id may be absent from the view (see loadSourceConcepts).
+              const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
               for (const r of rows) {
                 const code = String(r.concept_code ?? '')
                 const vocab = String(r.vocabulary_id ?? proj.name)
@@ -848,7 +852,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
             await ensureMounted(ds.id)
             const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
             if (!sql) continue
-            const rows = await queryDataSource(ds.id, sql)
+            const rows = await queryDataSourceAll(ds.id, sql)
             for (const r of rows) {
               const code = String(r.concept_code ?? '')
               const vocab = String(r.vocabulary_id ?? ds.id)
