@@ -142,6 +142,61 @@ async def test_file_source_query(client):
     assert rows[0]["vocabulary_id"] == "LOINC"
 
 
+async def test_global_table_flat_and_dedup(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    # File project, no conceptIdColumn → artificial ids resolved via the registry.
+    p = (await client.post(f"{API}/mapping-projects", headers=headers, json={
+        "id": "mpg", "workspaceId": ws, "name": {"en": "G"}, "description": {},
+        "sourceType": "file", "conceptSetIds": [], "badges": [{"id": "b1", "label": "ICU"}],
+        "fileSourceData": {
+            "fileName": "src.csv", "columns": ["code", "label", "vocab"], "rows": [],
+            "columnMapping": {"conceptCodeColumn": "code", "conceptNameColumn": "label", "terminologyColumn": "vocab"},
+        },
+    })).json()
+    csv = b"code,label,vocab\n1234-5,Glucose,LOINC\n6789-0,Sodium,LOINC\n"
+    sha, _ = await blob_store.store_bytes(csv)
+    await client.post(f"{API}/mapping-projects/{p['id']}/raw-file", headers=headers,
+                      json={"sha": sha, "fileName": "src.csv"})
+
+    # One mapping (Glucose) + one registry id for it.
+    await client.post(f"{API}/concept-mappings", headers=headers, json={
+        "id": "gm1", "projectId": p["id"], "sourceVocabularyId": "LOINC",
+        "sourceConceptCode": "1234-5", "sourceConceptName": "Glucose",
+        "targetConceptId": 3000905, "targetConceptName": "Glucose [Mass/volume]",
+        "targetVocabularyId": "LOINC", "status": "approved",
+    })
+    await client.put(f"{API}/source-concept-id-entries", headers=headers, json={
+        "id": f"{ws}__ICU__LOINC__1234-5", "workspaceId": ws, "badgeLabel": "ICU",
+        "vocabularyId": "LOINC", "conceptCode": "1234-5", "sourceConceptId": 2000001,
+    })
+
+    # Flat mode: 1 mapped (Glucose) + 1 unmapped (Sodium) = 2 rows.
+    r = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "limit": 50, "offset": 0,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 2
+    glucose = next(x for x in body["rows"] if x["source_concept_code"] == "1234-5")
+    sodium = next(x for x in body["rows"] if x["source_concept_code"] == "6789-0")
+    assert glucose["is_unmapped"] is False
+    assert glucose["resolved_source_concept_id"] == 2000001  # from registry
+    assert sodium["is_unmapped"] is True
+
+    # Search filter narrows to Sodium.
+    r2 = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
+        "workspaceId": ws, "mode": "flat", "filters": {"globalSearch": "sodium"},
+    })
+    assert r2.json()["total"] == 1
+
+    # Dedup (badge) mode also returns both, one row each.
+    r3 = await client.post(f"{API}/mapping-projects/global-table", headers=headers, json={
+        "workspaceId": ws, "mode": "dedup",
+    })
+    assert r3.status_code == 200 and r3.json()["total"] == 2
+
+
 async def test_file_source_query_nullstr_na(client):
     # Parity with the browser's DuckDB-WASM mount: a literal "NA" cell reads as
     # NULL server-side too (query_file_source passes nullstr='NA').

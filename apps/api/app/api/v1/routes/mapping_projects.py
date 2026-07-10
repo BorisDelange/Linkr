@@ -27,7 +27,9 @@ import asyncio
 
 from app.services import blob_store
 from app.services import mapping_project_service as svc
+from app.services import source_concept_id_service as sci_svc
 from app.services.data import db_connect, file_reader
+from app.services.data import global_table_service
 from app.services.data.file_source import build_source_concepts_select
 
 router = APIRouter(tags=["mapping-projects"])
@@ -214,6 +216,77 @@ async def preview_file_columns(
     except Exception as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Preview failed: {e}")
     return {"columns": cols, "rowCount": total}
+
+
+def _project_to_dict(p: MappingProject) -> dict:
+    return {
+        "id": p.id, "name": p.name, "source_type": p.source_type,
+        "updated_at": p.updated_at, "badges": p.badges,
+        "raw_file_sha": p.raw_file_sha, "raw_file_name": p.raw_file_name,
+        "file_source_data": p.file_source_data, "data_source_id": p.data_source_id,
+    }
+
+
+def _mapping_to_dict(m: ConceptMapping) -> dict:
+    return {
+        "id": m.id, "source_vocabulary_id": m.source_vocabulary_id,
+        "source_concept_code": m.source_concept_code,
+        "source_concept_name": m.source_concept_name,
+        "source_concept_id": m.source_concept_id,
+        "target_vocabulary_id": m.target_vocabulary_id,
+        "target_concept_id": m.target_concept_id,
+        "target_concept_name": m.target_concept_name,
+        "equivalence": m.equivalence, "status": m.status,
+        "mapped_by": m.mapped_by, "reviews": m.reviews,
+        "created_at": m.created_at, "updated_at": m.updated_at,
+    }
+
+
+class GlobalTableQuery(CamelModel):
+    workspace_id: str
+    mode: str = "flat"  # 'flat' (project) | 'dedup' (badge)
+    filters: dict = {}
+    sort: dict | None = None
+    limit: int = 50
+    offset: int = 0
+
+
+@router.post(_PROJ + "/global-table")
+async def global_table(
+    body: GlobalTableQuery,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One page of the cross-project overview Table, merged + paginated
+    server-side (source concepts + mappings + assigned-id registry). Replaces the
+    browser's DuckDB-WASM temp table in fullstack mode."""
+    await check_workspace_role(db, body.workspace_id, user, "viewer")
+    mode = body.mode if body.mode in ("flat", "dedup") else "flat"
+
+    projects = await svc.list_for_workspace(db, body.workspace_id)
+    project_dicts = [_project_to_dict(p) for p in projects]
+    mappings_by_project = {
+        p.id: [_mapping_to_dict(m) for m in await svc.list_mappings(db, p.id)]
+        for p in projects
+    }
+    entries = await sci_svc.list_entries(db, body.workspace_id)
+    registry = {f"{e.vocabulary_id}__{e.concept_code}": e.source_concept_id for e in entries}
+
+    def _run():
+        path = global_table_service.get_or_build_cache(
+            body.workspace_id, mode, project_dicts, mappings_by_project, registry,
+        )
+        return global_table_service.query_page(
+            path, mode, body.filters, body.sort, body.limit, body.offset,
+        )
+
+    try:
+        rows, total = await asyncio.to_thread(_run)
+    except file_reader.ExcelSupportUnavailable:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable")
+    except Exception as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Global table failed: {e}")
+    return {"rows": rows, "total": total}
 
 
 @router.get(_PROJ + "/{project_id}/raw-file")

@@ -405,3 +405,89 @@ def query_page(
         return rows, int(total)
     finally:
         con.close()
+
+
+# --- Source concepts per project (file source only) --------------------------
+
+_SOURCE_CONCEPTS_SQL = (
+    "SELECT concept_id, concept_name, concept_code, "
+    "COALESCE(vocabulary_id, '') AS vocabulary_id FROM source_concepts"
+)
+
+
+def load_file_source_concepts(project: dict) -> list[dict]:
+    """All source concepts of a file-source project, read server-side via DuckDB
+    (no WASM). Database-source projects return [] — the server has no
+    schemaMapping query builder, so only their mappings show (unmapped rows are
+    omitted, matching the pre-existing degraded behavior)."""
+    from app.services import blob_store  # local import: avoid cycle at module load
+
+    sha = project.get("raw_file_sha")
+    if project.get("source_type") != "file" or not sha or not blob_store.exists(sha):
+        return []
+    fsd = project.get("file_source_data") or {}
+    column_mapping = fsd.get("columnMapping", {})
+    parse_options = fsd.get("parseOptions", {})
+    select_sql = _source_concepts_select(column_mapping)
+    path = str(blob_store.path_for(sha))
+    try:
+        rows = db_connect.query_file_source(
+            path, project.get("raw_file_name"), parse_options, select_sql,
+            _SOURCE_CONCEPTS_SQL,
+        )
+    except Exception:
+        return []
+    # Dedup by (vocabulary_id, concept_code) — mirrors loadSourceConcepts' seen map.
+    seen: dict[str, dict] = {}
+    for r in rows:
+        code = str(r.get("concept_code") or "")
+        vocab = str(r.get("vocabulary_id") or _localized(project.get("name")))
+        key = f"{vocab}__{code}"
+        if key not in seen:
+            seen[key] = {
+                "vocabulary_id": vocab, "concept_code": code,
+                "concept_name": str(r.get("concept_name") or ""),
+                "concept_id": int(r.get("concept_id") or 0),
+            }
+    return list(seen.values())
+
+
+def _source_concepts_select(column_mapping: dict) -> str:
+    from app.services.data.file_source import build_source_concepts_select
+    return build_source_concepts_select(column_mapping)
+
+
+# --- Cache orchestration -----------------------------------------------------
+
+
+def get_or_build_cache(
+    workspace_id: str,
+    mode: str,
+    projects: list[dict],
+    mappings_by_project: dict[str, list[dict]],
+    registry: dict[str, int],
+) -> Path:
+    """Return the Parquet cache for (workspace, mode), rebuilding it (both modes)
+    when the input signature changes. Reading the source concepts + writing the
+    Parquet is the expensive part, done once per signature. Synchronous — call
+    from a thread."""
+    signature = cache_signature(projects, mappings_by_project, registry)
+    dest = cache_path(workspace_id, mode, signature)
+    if dest.exists():
+        return dest
+
+    # A changed signature obsoletes this workspace+mode's old caches — drop them
+    # (keep the other mode's current-signature file untouched).
+    prefix = f"{workspace_id}__{mode}__"
+    for old in _cache_dir().glob(f"{prefix}*.parquet"):
+        old.unlink(missing_ok=True)
+
+    source_concepts_by_project = {
+        p["id"]: load_file_source_concepts(p) for p in projects
+    }
+    if mode == "flat":
+        rows = build_flat_rows(projects, mappings_by_project, source_concepts_by_project, registry)
+    else:
+        rows = build_dedup_rows(projects, mappings_by_project, source_concepts_by_project, registry)
+    materialize(rows, mode, dest)
+    return dest
