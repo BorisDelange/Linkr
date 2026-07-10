@@ -68,6 +68,27 @@ async def test_readme_dedup_and_ref_counting(client):
     assert blob.status_code == 200 and blob.content == PNG
 
 
+async def test_readme_workspace_scope(client):
+    # README attachments can also be workspace-scoped (workspace has a README too).
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+
+    qs = f"id=w1&workspaceId={ws}&fileName=ws.png&mimeType=image/png"
+    r = await client.post(f"{API}/readme-attachments?{qs}", headers=headers, content=PNG)
+    assert r.status_code == 201
+    assert r.json()["workspaceId"] == ws and r.json()["projectUid"] is None
+
+    listed = (await client.get(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).json()
+    assert [a["id"] for a in listed] == ["w1"]
+
+    blob = await client.get(f"{API}/readme-attachments/w1/blob", headers=headers)
+    assert blob.content == PNG
+
+    # Batch delete by workspace.
+    assert (await client.delete(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).status_code == 204
+    assert (await client.get(f"{API}/readme-attachments?workspaceId={ws}", headers=headers)).json() == []
+
+
 async def test_readme_non_member_forbidden(client, db):
     admin = await _admin_headers(client)
     ws = await _workspace(client, admin)

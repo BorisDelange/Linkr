@@ -365,7 +365,10 @@ export interface ReadmeSnapshot {
 
 export interface ReadmeAttachment {
   id: string
-  projectUid: string
+  /** Exactly one of projectUid / workspaceId is set — a README belongs to a
+   *  project or a workspace. */
+  projectUid?: string
+  workspaceId?: string
   fileName: string
   mimeType: string
   fileSize: number

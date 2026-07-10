@@ -219,6 +219,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     phase('workspaces.delete_phase_wiki')
     await yieldToBrowser()
     await storage.wikiAttachments.deleteByWorkspace(id).catch(() => {})
+    await storage.readmeAttachments.deleteByWorkspace(id).catch(() => {})
     await storage.wikiPages.deleteByWorkspace(id).catch(() => {})
 
     // SQL scripts

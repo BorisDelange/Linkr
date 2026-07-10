@@ -5,14 +5,19 @@ from app.models.base import Base
 
 
 class ReadmeAttachment(Base):
-    """An image/file attached to a project's README. Metadata in the DB, the
-    binary in the blob store (dedup by sha). Scoped to the owning project."""
+    """An image/file attached to a README. Metadata in the DB, the binary in the
+    blob store (dedup by sha). Scoped to a project OR a workspace (exactly one of
+    project_uid / workspace_id is set) — projects and workspaces both have a
+    README."""
 
     __tablename__ = "readme_attachments"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    project_uid: Mapped[str] = mapped_column(
+    project_uid: Mapped[str | None] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
+    )
+    workspace_id: Mapped[str | None] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE")
     )
     file_name: Mapped[str] = mapped_column(String(255))
     mime_type: Mapped[str] = mapped_column(String(255), default="")

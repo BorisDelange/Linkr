@@ -3,7 +3,8 @@ from app.schemas.base import CamelModel
 
 class ReadmeAttachmentResponse(CamelModel):
     id: str
-    project_uid: str
+    project_uid: str | None = None
+    workspace_id: str | None = None
     file_name: str
     mime_type: str
     file_size: int

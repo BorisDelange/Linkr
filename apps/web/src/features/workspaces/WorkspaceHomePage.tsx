@@ -31,6 +31,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { getStatusClasses, getStatusDotClass } from '@/features/projects/ProjectSettingsPage'
 import { ReadmeEditor, remarkPlugins, rehypePlugins, urlTransform } from '@/components/editor/ReadmeEditor'
+import { Paperclip } from 'lucide-react'
+import { useWorkspaceReadmeAttachments } from '@/hooks/use-workspace-readme-attachments'
+import { ReadmeAttachmentsDialog } from '@/features/projects/summary/ReadmeAttachmentsDialog'
 
 const MAX_RECENT = 2
 
@@ -42,6 +45,9 @@ export function WorkspaceHomePage() {
   const { _projectsRaw, getWorkspaceProjects, openProject, language } = useAppStore()
 
   const [tab, setTab] = useState('overview')
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false)
+  const { attachments, uploadAttachment, deleteAttachment, resolveAttachmentUrls } =
+    useWorkspaceReadmeAttachments(wsUid ?? '')
 
   const workspace = _workspacesRaw.find((ws) => ws.id === wsUid)
   const projects = wsUid ? getWorkspaceProjects(wsUid) : []
@@ -159,6 +165,7 @@ export function WorkspaceHomePage() {
         <TabsContent value="overview" className="min-h-0 flex-1 overflow-hidden">
           <OverviewTab
             readme={readme}
+            resolveUrls={resolveAttachmentUrls}
             onViewReadme={() => setTab('readme')}
             recentProjects={recentProjects}
             totalProjects={projects.length}
@@ -186,10 +193,30 @@ export function WorkspaceHomePage() {
             <ReadmeEditor
               readme={readme}
               onSave={(content) => updateWorkspaceReadme(wsUid, content)}
+              resolveUrls={resolveAttachmentUrls}
+              headerActions={
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-5 px-2 text-xs text-muted-foreground"
+                  onClick={() => setAttachmentsOpen(true)}
+                >
+                  <Paperclip size={12} />
+                  {t('summary.attachments')}
+                </Button>
+              }
             />
           )}
         </TabsContent>
       </Tabs>
+
+      <ReadmeAttachmentsDialog
+        open={attachmentsOpen}
+        onOpenChange={setAttachmentsOpen}
+        attachments={attachments}
+        onUpload={async (file) => { await uploadAttachment(file) }}
+        onDelete={async (id) => { await deleteAttachment(id) }}
+      />
     </div>
   )
 }
@@ -208,6 +235,7 @@ interface RecentMappingProject {
 
 function OverviewTab({
   readme,
+  resolveUrls,
   onViewReadme,
   recentProjects,
   totalProjects,
@@ -224,6 +252,7 @@ function OverviewTab({
   counts,
 }: {
   readme: string
+  resolveUrls: (md: string) => string
   onViewReadme: () => void
   recentProjects: RecentProject[]
   totalProjects: number
@@ -250,7 +279,7 @@ function OverviewTab({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden pt-4">
       {/* Readme + Recent entities — top half */}
       <div className="grid min-h-0 basis-1/2 grid-cols-1 gap-4 lg:grid-cols-2">
-        <ReadmePreview readme={readme} onViewFull={onViewReadme} />
+        <ReadmePreview readme={readme} resolveUrls={resolveUrls} onViewFull={onViewReadme} />
         <RecentEntitiesCard
           recentProjects={recentProjects}
           totalProjects={totalProjects}
@@ -304,8 +333,9 @@ function OverviewTab({
   )
 }
 
-function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () => void }) {
+function ReadmePreview({ readme, resolveUrls, onViewFull }: { readme: string; resolveUrls: (md: string) => string; onViewFull: () => void }) {
   const { t } = useTranslation()
+  const resolved = resolveUrls(readme)
   return (
     <div className="flex min-h-0 flex-col rounded-xl border bg-card p-5 shadow-sm">
       <div className="flex shrink-0 items-center justify-between">
@@ -322,7 +352,7 @@ function ReadmePreview({ readme, onViewFull }: { readme: string; onViewFull: () 
         {readme.trim() ? (
           <div className="prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:!mt-0">
             <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={rehypePlugins} urlTransform={urlTransform}>
-              {readme}
+              {resolved}
             </ReactMarkdown>
           </div>
         ) : (

@@ -28,18 +28,26 @@ async def list_readme(db: AsyncSession, project_uid: str) -> list[ReadmeAttachme
     return list(result.scalars().all())
 
 
+async def list_readme_by_workspace(db: AsyncSession, workspace_id: str) -> list[ReadmeAttachment]:
+    result = await db.execute(
+        select(ReadmeAttachment).where(ReadmeAttachment.workspace_id == workspace_id)
+    )
+    return list(result.scalars().all())
+
+
 async def get_readme(db: AsyncSession, att_id: str) -> ReadmeAttachment | None:
     return await db.get(ReadmeAttachment, att_id)
 
 
 async def create_readme(
-    db: AsyncSession, *, id: str, project_uid: str, file_name: str,
-    mime_type: str, created_at: str | None, data: bytes,
+    db: AsyncSession, *, id: str, project_uid: str | None = None,
+    workspace_id: str | None = None, file_name: str, mime_type: str,
+    created_at: str | None, data: bytes,
 ) -> ReadmeAttachment:
     sha, size = await blob_store.store_bytes(data)
     att = ReadmeAttachment(
-        id=id, project_uid=project_uid, file_name=file_name, mime_type=mime_type,
-        file_size=size, blob_sha=sha, created_at=created_at,
+        id=id, project_uid=project_uid, workspace_id=workspace_id, file_name=file_name,
+        mime_type=mime_type, file_size=size, blob_sha=sha, created_at=created_at,
     )
     db.add(att)
     await db.commit()
@@ -55,18 +63,22 @@ async def delete_readme(db: AsyncSession, att: ReadmeAttachment) -> None:
         await blob_store.delete(sha)
 
 
-async def delete_readme_for_project(db: AsyncSession, project_uid: str) -> None:
-    result = await db.execute(
-        select(ReadmeAttachment).where(ReadmeAttachment.project_uid == project_uid)
-    )
+async def _delete_readme_where(db: AsyncSession, whereclause) -> None:
+    result = await db.execute(select(ReadmeAttachment).where(whereclause))
     shas = [a.blob_sha for a in result.scalars().all()]
-    await db.execute(
-        sa_delete(ReadmeAttachment).where(ReadmeAttachment.project_uid == project_uid)
-    )
+    await db.execute(sa_delete(ReadmeAttachment).where(whereclause))
     await db.commit()
     for sha in set(shas):
         if await _blob_unreferenced(db, ReadmeAttachment, sha):
             await blob_store.delete(sha)
+
+
+async def delete_readme_for_project(db: AsyncSession, project_uid: str) -> None:
+    await _delete_readme_where(db, ReadmeAttachment.project_uid == project_uid)
+
+
+async def delete_readme_for_workspace(db: AsyncSession, workspace_id: str) -> None:
+    await _delete_readme_where(db, ReadmeAttachment.workspace_id == workspace_id)
 
 
 # --- Wiki attachments (page / workspace-scoped) -----------------------------

@@ -98,10 +98,12 @@ export interface ConceptCountCacheStorage {
 /** Storage interface for readme attachment blobs. */
 export interface ReadmeAttachmentStorage {
   getByProject(projectUid: string): Promise<ReadmeAttachment[]>
+  getByWorkspace(workspaceId: string): Promise<ReadmeAttachment[]>
   getById(id: string): Promise<ReadmeAttachment | undefined>
   create(attachment: ReadmeAttachment): Promise<void>
   delete(id: string): Promise<void>
   deleteByProject(projectUid: string): Promise<void>
+  deleteByWorkspace(workspaceId: string): Promise<void>
 }
 
 /** Storage interface for File System Access API file handles (zero-copy). */

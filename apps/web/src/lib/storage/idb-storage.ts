@@ -66,6 +66,7 @@ interface LinkrDB extends DBSchema {
     value: ReadmeAttachment
     indexes: {
       'by-project': string
+      'by-workspace': string
     }
   }
   schema_presets: {
@@ -283,7 +284,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 33
+const DB_VERSION = 34
 
 let _dbPromise: Promise<IDBPDatabase<LinkrDB>> | null = null
 
@@ -756,6 +757,10 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       if (oldVersion < 33) {
         db.createObjectStore('concept_count_cache', { keyPath: 'dataSourceId' })
       }
+      // Version 34: README attachments can also be workspace-scoped.
+      if (oldVersion < 34) {
+        transaction.objectStore('readme_attachments').createIndex('by-workspace', 'workspaceId')
+      }
     },
   })
   // Auto-close when another tab requests a deleteDatabase or version upgrade
@@ -1134,6 +1139,11 @@ class IDBReadmeAttachmentStorage implements ReadmeAttachmentStorage {
     return db.getAllFromIndex('readme_attachments', 'by-project', projectUid)
   }
 
+  async getByWorkspace(workspaceId: string): Promise<ReadmeAttachment[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('readme_attachments', 'by-workspace', workspaceId)
+  }
+
   async getById(id: string): Promise<ReadmeAttachment | undefined> {
     const db = await getDB()
     return db.get('readme_attachments', id)
@@ -1150,8 +1160,16 @@ class IDBReadmeAttachmentStorage implements ReadmeAttachmentStorage {
   }
 
   async deleteByProject(projectUid: string): Promise<void> {
+    await this._deleteByIndex('by-project', projectUid)
+  }
+
+  async deleteByWorkspace(workspaceId: string): Promise<void> {
+    await this._deleteByIndex('by-workspace', workspaceId)
+  }
+
+  private async _deleteByIndex(index: 'by-project' | 'by-workspace', key: string): Promise<void> {
     const db = await getDB()
-    const items = await db.getAllFromIndex('readme_attachments', 'by-project', projectUid)
+    const items = await db.getAllFromIndex('readme_attachments', index, key)
     const tx = db.transaction('readme_attachments', 'readwrite')
     for (const item of items) {
       tx.store.delete(item.id)

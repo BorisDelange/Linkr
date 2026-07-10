@@ -24,16 +24,18 @@ export const apiReadmeAttachmentStorage: ReadmeAttachmentStorage = {
     return Promise.all(metas.map(withData))
   },
 
+  getByWorkspace: async (workspaceId) => {
+    const metas = await apiRequest<Meta[]>(`${BASE}?workspaceId=${encodeURIComponent(workspaceId)}`)
+    return Promise.all(metas.map(withData))
+  },
+
   // No caller uses getById for attachments (loads are always by parent).
   getById: async () => undefined,
 
   create: async (att) => {
-    const qs = new URLSearchParams({
-      id: att.id,
-      projectUid: att.projectUid,
-      fileName: att.fileName,
-      mimeType: att.mimeType,
-    })
+    const qs = new URLSearchParams({ id: att.id, fileName: att.fileName, mimeType: att.mimeType })
+    if (att.projectUid) qs.set('projectUid', att.projectUid)
+    if (att.workspaceId) qs.set('workspaceId', att.workspaceId)
     if (att.createdAt) qs.set('createdAt', att.createdAt)
     await apiFetch(`/api/v1${BASE}?${qs}`, { method: 'POST', body: att.data })
   },
@@ -44,5 +46,9 @@ export const apiReadmeAttachmentStorage: ReadmeAttachmentStorage = {
 
   deleteByProject: async (projectUid) => {
     await apiRequest(`${BASE}?projectUid=${encodeURIComponent(projectUid)}`, { method: 'DELETE' })
+  },
+
+  deleteByWorkspace: async (workspaceId) => {
+    await apiRequest(`${BASE}?workspaceId=${encodeURIComponent(workspaceId)}`, { method: 'DELETE' })
   },
 }
