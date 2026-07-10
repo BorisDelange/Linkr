@@ -15,14 +15,20 @@ interface NoAccessNoticeProps {
 export function NoAccessNotice({ description }: NoAccessNoticeProps) {
   const { t } = useTranslation()
   return (
-    <div className="flex flex-col items-center py-12">
-      <Lock size={32} className="text-muted-foreground/50" />
-      <p className="mt-3 text-sm font-medium text-foreground">
-        {t('common.no_access_title')}
-      </p>
-      <p className="mt-1 max-w-md text-center text-xs text-muted-foreground">
-        {description ?? t('common.no_access_description')}
-      </p>
+    <div className="flex justify-center py-10">
+      <div className="flex max-w-md items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800/70 dark:bg-amber-950/40">
+        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50">
+          <Lock size={16} className="text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+            {t('common.no_access_title')}
+          </p>
+          <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300/90">
+            {description ?? t('common.no_access_description')}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
