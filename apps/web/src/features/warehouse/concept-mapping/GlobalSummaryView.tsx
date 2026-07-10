@@ -147,19 +147,41 @@ function computeGroupStats(
 
   const projectMap = new Map(projects.map((p) => [p.id, p]))
 
+  // Group keys a project belongs to (its name in project mode, its badge labels
+  // in badge mode — 'Other' when it has none).
+  const projectKeys = (p: MappingProject): string[] => {
+    if (groupMode === 'project') return [localized(p.name, 'en')]
+    const labels = (p.badges ?? []).map((b) => b.label).filter(Boolean)
+    return labels.length > 0 ? labels : ['Other']
+  }
+
   // Compute per-project total from stats for the group aggregation
   // We count each project's stats once per group key it belongs to
   const projectStatsCounted = new Set<string>() // `${groupKey}__${projectId}`
 
+  // Seed groups + their source-concept totals from the PROJECTS themselves, so a
+  // project with source concepts but no mappings yet still appears in the table
+  // (mappings-only iteration would drop it entirely — empty Summary table).
+  for (const p of projects) {
+    const projectTotal = p.sourceType === 'file'
+      ? (p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0)
+      : (dbProjectTotals.get(p.id) ?? 0)
+    for (const key of projectKeys(p)) {
+      const g = ensure(key)
+      g.projectIds.add(p.id)
+      const statKey = `${key}__${p.id}`
+      if (!projectStatsCounted.has(statKey)) {
+        projectStatsCounted.add(statKey)
+        g.totalSourceConceptsFromStats += projectTotal
+      }
+    }
+  }
+
   for (const m of mappings) {
     const p = projectMap.get(m.projectId)
-    let keys: string[]
-    if (groupMode === 'project') {
-      keys = p ? [localized(p.name, 'en')] : []
-    } else {
-      const labels = (p?.badges ?? []).map((b) => b.label).filter(Boolean)
-      keys = labels.length > 0 ? labels : ['Other']
-    }
+    // Totals were already seeded per project above; here we only fold in the
+    // mapping-derived stats (status counts, mapped source concepts).
+    const keys = p ? projectKeys(p) : []
     const eff = effectiveStatus(m)
     const sourceKey = m.sourceConceptCode ?? String(m.sourceConceptId)
     for (const key of keys) {
@@ -172,16 +194,6 @@ function computeGroupStats(
       else if (eff === 'rejected') g.rejected++
       else if (eff === 'ignored') g.ignored++
       else g.unchecked++
-
-      // Add project total once per (groupKey, projectId)
-      const statKey = `${key}__${m.projectId}`
-      if (!projectStatsCounted.has(statKey)) {
-        projectStatsCounted.add(statKey)
-        const projectTotal = p?.sourceType === 'file'
-          ? (p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0)
-          : (dbProjectTotals.get(p?.id ?? '') ?? 0)
-        g.totalSourceConceptsFromStats += projectTotal
-      }
     }
   }
 
@@ -587,10 +599,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   useEffect(() => {
     if (activeTab !== 'table' || loadingMappings) return
     // Key on the inputs that actually require a rebuild of the temp table.
-    // allMappings / allSourceConceptsByProject are state arrays — their reference
-    // changes whenever a mapping is created / updated / deleted, which is the
-    // signal we want for a rebuild.
-    const key = `${groupMode}::${allMappings.length}::${allMappings.length > 0 ? allMappings[allMappings.length - 1].updatedAt : ''}`
+    // allSourceConceptsByProject is loaded ASYNCHRONOUSLY (loadSourceConcepts,
+    // server round-trip) and lands AFTER allMappings, so it MUST be in the key —
+    // otherwise a freshly imported project with no mappings yet populates the
+    // table before its source concepts arrive, and never rebuilds → empty table.
+    const srcCount = [...allSourceConceptsByProject.values()].reduce((n, a) => n + a.length, 0)
+    const key = `${groupMode}::${allMappings.length}::${allMappings.length > 0 ? allMappings[allMappings.length - 1].updatedAt : ''}::${allSourceConceptsByProject.size}:${srcCount}`
     if (lastPopulateKey.current === key && tableReady) return
     lastPopulateKey.current = key
     invalidateGlobalTables()
@@ -598,7 +612,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     setTableRows([])
     populateTable()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, loadingMappings, groupMode, allMappings])
+  }, [activeTab, loadingMappings, groupMode, allMappings, allSourceConceptsByProject])
 
   // Load first page when table is ready or filters/sorting change
   useEffect(() => {

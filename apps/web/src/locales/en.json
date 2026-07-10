@@ -3186,6 +3186,7 @@
     "source_id_assign_no_concepts": "No source concepts found for this badge.",
     "source_id_assign_all_done": "All {{total}} concepts already assigned.",
     "source_id_assign_result": "{{count}} new IDs assigned ({{total}} total concepts).",
+    "source_id_assign_progress": "Assigning… {{done}} / {{total}}",
     "status_tip_unmapped": "Not mapped yet",
     "status_tip_mapped": "Mapped in this project",
     "status_tip_mapped_elsewhere": "Mapped in another project ({{count}})",

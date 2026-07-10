@@ -68,6 +68,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const [edits, setEdits] = useState<Record<string, RangeEdit>>({})
   const [assignLoading, setAssignLoading] = useState<string | null>(null)
   const [assignResult, setAssignResult] = useState<{ badge: string; newlyAssigned: number; total: number } | null>(null)
+  // Live progress during a large assignment: { done, total } saved so far.
+  const [assignProgress, setAssignProgress] = useState<{ badge: string; done: number; total: number } | null>(null)
   const [resetConfirm, setResetConfirm] = useState<string | null>(null) // badgeLabel or 'all'
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null) // badgeLabel
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -166,6 +168,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const assignIds = async (badgeLabel: string) => {
     setAssignLoading(badgeLabel)
     setAssignResult(null)
+    setAssignProgress(null)
     try {
       const range = ranges.find((r) => r.badgeLabel === badgeLabel)
       if (!range) return
@@ -275,7 +278,17 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
           createdAt: now,
         })
       }
-      if (toSave.length > 0) await getStorage().sourceConceptIdEntries.saveBatch(toSave)
+      // Persist in chunks: one giant saveBatch is a single long transaction with
+      // no feedback (and risks a server timeout on 100k+ rows). Chunking gives a
+      // live "done / total" progress and keeps each request bounded.
+      const CHUNK = 5000
+      if (toSave.length > 0) {
+        setAssignProgress({ badge: badgeLabel, done: 0, total: toSave.length })
+        for (let i = 0; i < toSave.length; i += CHUNK) {
+          await getStorage().sourceConceptIdEntries.saveBatch(toSave.slice(i, i + CHUNK))
+          setAssignProgress({ badge: badgeLabel, done: Math.min(i + CHUNK, toSave.length), total: toSave.length })
+        }
+      }
 
       // Always save range with updated nextId and totalConcepts
       await getStorage().sourceConceptIdRanges.save({
@@ -287,6 +300,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
       await load()
       setAssignResult({ badge: badgeLabel, newlyAssigned, total: pairsToAssign.size })
     } finally {
+      setAssignProgress(null)
       setAssignLoading(null)
     }
   }
@@ -426,7 +440,15 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                             </button>
                           </div>
                         )}
-                        {assignResult && assignResult.badge === range.badgeLabel && (
+                        {assignProgress && assignProgress.badge === range.badgeLabel && (
+                          <p className="text-[11px] text-muted-foreground tabular-nums">
+                            {t('concept_mapping.source_id_assign_progress', {
+                              done: assignProgress.done.toLocaleString(),
+                              total: assignProgress.total.toLocaleString(),
+                            } as Record<string, string>)}
+                          </p>
+                        )}
+                        {!assignProgress && assignResult && assignResult.badge === range.badgeLabel && (
                           <p className={`text-[11px] ${assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
                             {assignResult.total === 0
                               ? t('concept_mapping.source_id_assign_no_concepts')
