@@ -260,6 +260,12 @@ export function FilesPage() {
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
+  useEffect(() => {
+    console.log('[term-debug] selectedFileId=', selectedFileId,
+      '| isTerminal=', terminalTabs.some((t) => t.id === selectedFileId),
+      '| terminalTabs=', terminalTabs.map((t) => t.id),
+      '| openFileIds=', openFileIds)
+  }, [selectedFileId, terminalTabs, openFileIds])
   const activeSessionId = useSessionStore(
     (s) => (activeProjectUid ? s.getActiveSessionId(activeProjectUid) : undefined),
   )
@@ -1322,6 +1328,7 @@ export function FilesPage() {
                         <button
                           key={tt.id}
                           onClick={() => {
+                            console.log('[term-tab] click', tt.id, 'was selectedFileId=', selectedFileId)
                             selectTerminalTab(tt.id)
                             if (!editorVisible) setEditorVisible(true)
                           }}
