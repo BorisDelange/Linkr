@@ -140,7 +140,7 @@
     "unassigned_description": "Projects not assigned to any workspace",
     "select_organization": "Select an organization",
     "create_new_organization": "Create new organization...",
-    "organization_shared_note": "To edit organization details, go to Settings > Organizations. Changes apply to all linked workspaces.",
+    "organization_shared_note": "To edit organization details, go to Home > Settings > Organizations. Changes apply to all linked workspaces.",
     "change_organization": "Change organization",
     "no_organization": "No organization",
     "tab_badges": "Badges",

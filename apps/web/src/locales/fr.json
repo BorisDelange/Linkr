@@ -140,7 +140,7 @@
     "unassigned_description": "Projets non assignés à un espace de travail",
     "select_organization": "Sélectionner une organisation",
     "create_new_organization": "Créer une nouvelle organisation...",
-    "organization_shared_note": "Pour modifier les détails de l'organisation, allez dans Paramètres > Organisations. Les modifications s'appliquent à tous les espaces de travail liés.",
+    "organization_shared_note": "Pour modifier les détails de l'organisation, allez dans Accueil > Paramètres > Organisations. Les modifications s'appliquent à tous les espaces de travail liés.",
     "change_organization": "Changer d'organisation",
     "no_organization": "Aucune organisation",
     "tab_badges": "Badges",
