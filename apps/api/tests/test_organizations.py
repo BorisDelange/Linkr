@@ -77,9 +77,10 @@ async def test_requires_auth(client):
     assert r.status_code in (401, 403)
 
 
-async def test_requires_organizations_permission(client):
-    """Organizations are a global-tier resource (organizations:read/write/delete),
-    admin-only by default. A base (non-admin) user can neither read nor mutate them."""
+async def test_read_open_write_requires_permission(client):
+    """Organizations are a shared reference directory: any authenticated user may
+    LIST/READ them, but creating/editing/deleting requires organizations:write /
+    organizations:delete (admin-only by default)."""
     admin = await _admin_headers(client)
     await client.post(
         f"{API}/users",
@@ -95,7 +96,10 @@ async def test_requires_organizations_permission(client):
         await client.post(f"{API}/organizations", headers=admin, json={"name": "X"})
     ).json()["id"]
 
-    assert (await client.get(f"{API}/organizations", headers=bob)).status_code == 403
+    # Read is open to any authenticated user (directory).
+    assert (await client.get(f"{API}/organizations", headers=bob)).status_code == 200
+    assert (await client.get(f"{API}/organizations/{org_id}", headers=bob)).status_code == 200
+    # Mutations are gated.
     assert (
         await client.post(f"{API}/organizations", headers=bob, json={"name": "Y"})
     ).status_code == 403

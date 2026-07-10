@@ -23,8 +23,15 @@ export const useOrganizationStore = create<OrganizationState>((set, get) => ({
 
   loadOrganizations: async () => {
     const storage = getStorage()
-    const organizations = await storage.organizations.getAll()
-    set({ _organizationsRaw: organizations, organizationsLoaded: true })
+    try {
+      const organizations = await storage.organizations.getAll()
+      set({ _organizationsRaw: organizations, organizationsLoaded: true })
+    } catch {
+      // Organizations are a global-tier resource (organizations:read); a user
+      // without that permission gets a 403. That's expected — treat it as "no
+      // organizations visible" rather than crashing the app at boot.
+      set({ _organizationsRaw: [], organizationsLoaded: true })
+    }
   },
 
   addOrganization: async (info) => {

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user
 from app.core.permissions import require_global_permission
 from app.models.user import User
 from app.schemas.organization import (
@@ -16,7 +17,10 @@ router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 @router.get("", response_model=list[OrganizationResponse])
 async def list_organizations(
-    _user: User = Depends(require_global_permission("organizations:read")),
+    # Organizations are a shared reference directory read across the UI (a
+    # workspace's org name, DCAT catalog…), so listing is open to any
+    # authenticated user; only mutations are gated by organizations:write/delete.
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     return await organization_service.list_all(db)
@@ -34,7 +38,7 @@ async def create_organization(
 @router.get("/{org_id}", response_model=OrganizationResponse)
 async def get_organization(
     org_id: str,
-    _user: User = Depends(require_global_permission("organizations:read")),
+    _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     org = await organization_service.get(db, org_id)

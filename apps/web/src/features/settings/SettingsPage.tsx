@@ -15,7 +15,7 @@ export function SettingsPage() {
   // contents with a "no access" notice (the real gate is server-side).
   const canManageUsers = useHasGlobalPermission('users:read')
   const canManageRoles = useHasGlobalPermission('roles:read')
-  const canManageOrgs = useHasGlobalPermission('organizations:read')
+  const canManageOrgs = useHasGlobalPermission('organizations:write')
   const defaultTab = searchParams.get('tab') ?? 'general'
 
   return (
