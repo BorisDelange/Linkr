@@ -42,6 +42,8 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const [zipExporting, setZipExporting] = useState(false)
+  // Id of the format currently generating (SSSOM/STCM/Usagi) — drives its button spinner.
+  const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null)
   const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
 
   // Linkr ZIP export modal: lets the user opt into bundling the (large) scores parquet.
@@ -288,9 +290,16 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   ]
 
   const handleDownload = async (format: (typeof formats)[number]) => {
-    const content = await format.generate()
-    const filename = `${slug}-${format.id}.${format.ext}`
-    downloadFile(content, filename, format.mime)
+    // Generation can fetch source concepts from the server (slow); show a spinner
+    // on this format's button, like the Linkr ZIP export.
+    setDownloadingFormat(format.id)
+    try {
+      const content = await format.generate()
+      const filename = `${slug}-${format.id}.${format.ext}`
+      downloadFile(content, filename, format.mime)
+    } finally {
+      setDownloadingFormat(null)
+    }
   }
 
   const handleExportZip = useCallback(async (withScores: boolean) => {
@@ -522,9 +531,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => handleDownload(format)}
-                  disabled={totalExportCount === 0 && !('alwaysEnabled' in format && format.alwaysEnabled)}
+                  disabled={downloadingFormat !== null || (totalExportCount === 0 && !('alwaysEnabled' in format && format.alwaysEnabled))}
                 >
-                  <Download size={14} />
+                  {downloadingFormat === format.id ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                   {t('concept_mapping.export_download')}
                 </Button>
               </div>
