@@ -4,6 +4,42 @@
 > `feature/fastapi-backend`). Voir la section « État d'implémentation » en fin de doc.
 > À tester en mode serveur avant merge.
 
+---
+
+## ⏳ TODO — à faire avant de considérer le chantier terminé
+
+### 1. 🔴 Revoir le MODÈLE de droits (décision produit — à valider par le PO)
+**Non revu pour l'instant.** Le catalogue actuel a été construit au fil de l'eau
+pendant l'implémentation ; il faut que le product owner le **valide de bout en bout** :
+- **Quels blocs de droits on veut vraiment** (ressources × actions), et à quel niveau
+  (global / workspace / projet). Le découpage actuel (voir « État d'implémentation »
+  → catalogue) est une proposition, pas une décision arrêtée.
+- **Quels rôles par défaut** et quelles permissions chacun a (viewer/editor/owner +
+  admin global) — revoir la matrice, notamment : qui doit pouvoir exécuter du code,
+  gérer les organisations, requêter la base applicative, gérer les membres.
+- **Granularité** : garde-t-on le grain « rôle » (viewer<editor<owner) ou passe-t-on
+  à du grain fin par ressource sur certaines surfaces ?
+- **Cas limites** : ressources partagées/annuaires (organizations = lecture ouverte,
+  décidé) ; rôle projet `none` (masquer un projet) ; héritage workspace→projet.
+→ **Rien ne doit être considéré comme figé tant que le PO n'a pas revu ce modèle.**
+
+### 2. Finir + vérifier le GATING UI
+- **Vérifier** en mode serveur tout le gating déjà posé (settings, warehouse/lab
+  list features, datasets, dashboards, wiki, projets, bases de données) avec des
+  comptes viewer / editor / owner / non-membre.
+- **Surfaces UI restantes non gatées** (backend déjà protégé — confort UI only) :
+  concept-mapping (bulk-delete concept sets, delete import batch, edit mapping
+  project, comments/approve, source-ID ranges), DQ checks editor (create/save),
+  catalog config (age brackets, anonymisation), SQL scripts editor (create/save
+  file), pipeline (add/remove node/edge/script), summary (README, tâches,
+  attachments), patient-data widgets (add/edit/settings), dashboards détail
+  (toggle edit, add widget, settings, tabs), IDE files (create/rename/upload),
+  wiki (context-menu par nœud : create child/rename/delete, métadonnées/pièces
+  jointes). Cartographie complète : voir l'inventaire produit le 2026-07-10.
+- **Rappel** : le gating UI n'est que cosmétique — l'enforcement réel est serveur
+  (403). À (re)prioriser une fois le modèle de droits validé (point 1), car
+  certains gates changeront si le catalogue change.
+
 
 
 > Audit du 2026-07-09, branche `feature/fastapi-backend`. Répond à : « est-ce
