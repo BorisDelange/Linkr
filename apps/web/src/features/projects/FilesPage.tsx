@@ -86,6 +86,7 @@ import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
+import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { TerminalPanel } from '@/components/terminal/TerminalPanel'
 import { useSessionStore } from '@/stores/session-store'
 import { KeyboardShortcutsDialog } from './files/KeyboardShortcutsDialog'
@@ -749,9 +750,9 @@ export function FilesPage() {
     }
   }, [outputTabs, closeOutputTab, clearExecutionResults])
 
-  // Cmd+K: clear terminal + console output
+  // Cmd+K from a script editor: clear ONLY the Console output tab. A terminal has
+  // its own Cmd+K (handled inside xterm) that clears its scrollback, not this.
   const handleClearTerminal = useCallback(() => {
-    window.dispatchEvent(new CustomEvent('linkr:clear-terminal'))
     clearExecutionResults()
   }, [clearExecutionResults])
 
@@ -889,6 +890,12 @@ export function FilesPage() {
                       {t('files.expand_explorer')}
                     </TooltipContent>
                   </Tooltip>
+                )}
+
+                {/* Session selector for an active R/Python terminal tab — on the
+                    left, like a script's (files get theirs next to Run). */}
+                {activeTerminalTab && (activeTerminalTab.kind === 'python' || activeTerminalTab.kind === 'r') && activeProjectUid && (
+                  <SessionDropdown projectUid={activeProjectUid} />
                 )}
 
                 <Tooltip>
@@ -1106,14 +1113,6 @@ export function FilesPage() {
                 )}
 
                 <div className="ml-auto flex items-center gap-1">
-                  {/* Session selector for an active R/Python terminal tab (files get
-                      theirs next to the Run button instead). */}
-                  {activeTerminalTab && (activeTerminalTab.kind === 'python' || activeTerminalTab.kind === 'r') && activeProjectUid && (
-                    <>
-                      <SessionDropdown projectUid={activeProjectUid} />
-                      <div className="mx-0.5 h-4 w-px bg-border" />
-                    </>
-                  )}
                   {/* Order: editor settings, keyboard shortcuts, connections, terminal. */}
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1170,13 +1169,16 @@ export function FilesPage() {
                       <TooltipContent>{t('files.terminal')}</TooltipContent>
                     </Tooltip>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onSelect={() => { openTerminalTab('bash'); setEditorVisible(true) }}>
+                      <DropdownMenuItem className="gap-2" onSelect={() => { openTerminalTab('bash'); setEditorVisible(true) }}>
+                        <Terminal size={14} className="text-muted-foreground" />
                         {t('files.terminal_bash')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => { openTerminalTab('python'); setEditorVisible(true) }}>
+                      <DropdownMenuItem className="gap-2" onSelect={() => { openTerminalTab('python'); setEditorVisible(true) }}>
+                        <PythonLogo size={14} />
                         {t('files.terminal_python')}
                       </DropdownMenuItem>
-                      <DropdownMenuItem onSelect={() => { openTerminalTab('r'); setEditorVisible(true) }}>
+                      <DropdownMenuItem className="gap-2" onSelect={() => { openTerminalTab('r'); setEditorVisible(true) }}>
+                        <RLogo size={14} />
                         {t('files.terminal_r')}
                       </DropdownMenuItem>
                     </DropdownMenuContent>

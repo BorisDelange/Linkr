@@ -144,17 +144,25 @@ export function CodeEditor({
         () => editor.getAction('editor.action.commentLine')?.run()
       )
 
-      // Clear terminal / output (Cmd+K) — dispatch global event so FilesPage handler fires
+      // Clear terminal / output (Cmd+K) — dispatch a global keydown so the
+      // FilesPage global-shortcut handler fires. matchesCombo compares
+      // event.code (e.g. 'KeyK') for letters, so the synthetic event MUST set
+      // `code` too — a bare `key` alone never matches.
       editor.addCommand(
         toMonacoKeybinding(monaco, shortcuts.clear_terminal.binding),
-        () => window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: shortcuts.clear_terminal.binding.key,
-          metaKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
-          ctrlKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
-          shiftKey: shortcuts.clear_terminal.binding.shift,
-          altKey: shortcuts.clear_terminal.binding.alt,
-          bubbles: true,
-        }))
+        () => {
+          const k = shortcuts.clear_terminal.binding.key
+          const code = /^[a-z]$/i.test(k) ? `Key${k.toUpperCase()}` : k
+          window.dispatchEvent(new KeyboardEvent('keydown', {
+            key: k,
+            code,
+            metaKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
+            ctrlKey: shortcuts.clear_terminal.binding.ctrlOrMeta,
+            shiftKey: shortcuts.clear_terminal.binding.shift,
+            altKey: shortcuts.clear_terminal.binding.alt,
+            bubbles: true,
+          }))
+        }
       )
     },
     [externalRef]

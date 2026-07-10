@@ -69,25 +69,26 @@ export function SessionDropdown({ projectUid }: { projectUid: string }) {
           <DropdownMenuItem
             key={s.id}
             className="flex items-center gap-2 text-xs"
-            onSelect={(e) => {
-              // Keep the menu open when clicking the delete affordance.
-              e.preventDefault()
-              setActiveSession(projectUid, s.id)
-            }}
+            onSelect={() => setActiveSession(projectUid, s.id)}
           >
             <Check size={12} className={s.id === activeId ? 'opacity-100' : 'opacity-0'} />
             <span className="flex-1 truncate">{s.name}</span>
             {s.id !== 'default' && (
               <button
                 type="button"
-                className="rounded p-0.5 text-muted-foreground hover:text-destructive"
+                // hover:!text-destructive overrides the DropdownMenuItem's
+                // focus/hover text color that otherwise wins over the child.
+                className="group/trash rounded p-0.5 text-muted-foreground"
+                // Stop the pointer/click from reaching the DropdownMenuItem, so
+                // deleting doesn't also select (and close) the session.
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation()
                   removeSession(projectUid, s.id)
                 }}
                 aria-label={t('sessions.delete')}
               >
-                <Trash2 size={12} />
+                <Trash2 size={12} className="group-hover/trash:text-destructive" />
               </button>
             )}
           </DropdownMenuItem>

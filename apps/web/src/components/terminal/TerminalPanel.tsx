@@ -174,12 +174,15 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     terminal.open(containerRef.current)
     fitAddon.fit()
 
-    // Intercept Cmd/Ctrl+K: clear terminal and let the event bubble to window
+    // Intercept Cmd/Ctrl+K: clear the terminal's own scrollback (like iTerm), and
+    // stop the event so the GLOBAL clear_terminal shortcut doesn't also fire and
+    // wipe the Console tab — that only happens from a script editor, not here.
     terminal.attachCustomKeyEventHandler((e) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && e.key === 'k') {
         terminal.clear()
         terminal.write(config.prompt)
-        // Let the event propagate so useGlobalShortcuts also fires (clears console output)
+        e.preventDefault()
+        e.stopPropagation()
         return false
       }
       return true
@@ -210,14 +213,8 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
 
     const resizeObserver = new ResizeObserver(() => fitAddon.fit())
     resizeObserver.observe(containerRef.current)
-    const handleClear = () => {
-      terminal.clear()
-      if (!(serverMode && terminalType === 'bash')) terminal.write(config.prompt)
-    }
-    window.addEventListener('linkr:clear-terminal', handleClear)
 
     const teardown = () => {
-      window.removeEventListener('linkr:clear-terminal', handleClear)
       resizeObserver.disconnect()
       socket?.close()
       terminal.dispose()
