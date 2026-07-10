@@ -39,6 +39,8 @@ import {
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { GatedButton } from '@/components/ui/gated-button'
 import { localized, setLocalized } from '@/lib/localized'
 import { DashboardRenameDialog } from './DashboardRenameDialog'
 
@@ -48,6 +50,9 @@ export function LabDashboardsPage() {
   const navigate = useNavigate()
   const { wsUid, projectUid: resolvedProjectUid } = useResolvedParams()
   const projectUid = resolvedProjectUid ?? ''
+  const { atLeast } = useMyProjectRole(projectUid)
+  const canEdit = atLeast('editor')
+  const canDelete = atLeast('owner')
 
   const { dashboards, tabs, widgets, loaded, loadProjectDashboards, createDashboard, deleteDashboard } = useDashboardStore()
   const { loadProjectDatasets } = useDatasetStore()
@@ -112,10 +117,10 @@ export function LabDashboardsPage() {
               {t('dashboard.dashboards_description')}
             </p>
           </div>
-          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
+          <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setCreateOpen(true)}>
             <Plus size={14} />
             {t('dashboard.create_dashboard')}
-          </Button>
+          </GatedButton>
         </div>
 
         {projectDashboards.length > 0 && (
@@ -136,10 +141,10 @@ export function LabDashboardsPage() {
               <p className="mt-1 text-xs text-muted-foreground">
                 {t('dashboard.no_dashboards_description')}
               </p>
-              <Button onClick={() => setCreateOpen(true)} className="mt-4 gap-2">
+              <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} onClick={() => setCreateOpen(true)} className="mt-4 gap-2">
                 <Plus size={16} />
                 {t('dashboard.create_dashboard')}
-              </Button>
+              </GatedButton>
             </div>
           </Card>
         ) : filteredDashboards.length === 0 ? (
@@ -179,12 +184,12 @@ export function LabDashboardsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                          <DropdownMenuItem onClick={() => setRenameTarget(dash)}>
+                          <DropdownMenuItem disabled={!canEdit} onClick={() => setRenameTarget(dash)}>
                             <Pencil size={14} />
                             {t('common.rename')}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(dash.id)}>
+                          <DropdownMenuItem disabled={!canDelete} variant="destructive" onClick={() => setDeleteTarget(dash.id)}>
                             <Trash2 size={14} />
                             {t('common.delete')}
                           </DropdownMenuItem>

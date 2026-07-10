@@ -52,6 +52,10 @@ export interface EntityActionsMenuProps<T extends { id: string; name: LocalizedS
    *  opening the versioning dialog — e.g. to navigate to the entity's own export
    *  view. Versioning (git) stays available. */
   onExportOverride?: (item: T) => void
+  /** When false, the Edit item is disabled (viewer). Default true. */
+  canEdit?: boolean
+  /** When false, the Delete item is disabled (non-owner). Default true. */
+  canDelete?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -74,6 +78,8 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
   align = 'end',
   onDeleted,
   onExportOverride,
+  canEdit = true,
+  canDelete = true,
 }: EntityActionsMenuProps<T>) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -112,7 +118,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align}>
-          <DropdownMenuItem onClick={(e) => { e.stopPropagation(); setToEdit(item) }}>
+          <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); setToEdit(item) }}>
             <Pencil size={14} />
             {t('common.edit')}
           </DropdownMenuItem>
@@ -146,6 +152,7 @@ export function EntityActionsMenu<T extends { id: string; name: LocalizedString 
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
+            disabled={!canDelete}
             onClick={(e) => { e.stopPropagation(); setToDelete(item) }}
             className="text-destructive focus:text-destructive"
           >

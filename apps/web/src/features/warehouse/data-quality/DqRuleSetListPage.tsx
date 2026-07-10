@@ -14,6 +14,7 @@ import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import type { DqRuleSet, DqRuleSetStatus } from '@/types'
@@ -38,6 +39,7 @@ export function DqRuleSetListPage() {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast } = useMyWorkspaceRole()
   const { dqRuleSetsLoaded, loadDqRuleSets, getWorkspaceRuleSets } = useDqStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const dqActions = useDqRuleSetActions()
@@ -103,6 +105,8 @@ export function DqRuleSetListPage() {
       onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.pendingChecks, false); setConflict(null) }}
     />
     <ListPageTemplate<DqRuleSet>
+      canEdit={atLeast('editor')}
+      canDelete={atLeast('owner')}
       titleKey="data_quality.rs_title"
       descriptionKey="data_quality.rs_description"
       newButtonKey="data_quality.new_rule_set"

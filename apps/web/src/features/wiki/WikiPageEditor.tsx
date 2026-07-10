@@ -22,6 +22,7 @@ import { MarkdownToolbar, applyMarkdownFormat } from '@/components/editor/Markdo
 import type { MarkdownFormat } from '@/components/editor/MarkdownToolbar'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { useWikiAttachments } from '@/hooks/use-wiki-attachments'
@@ -44,6 +45,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
   const { t } = useTranslation()
   const { viewMode, setViewMode, savePage, updatePage, getBreadcrumbs, pages } = useWikiStore()
   const language = useAppStore((s) => s.language)
+  const canEdit = useMyWorkspaceRole().atLeast('editor')
   const [localContent, setLocalContent] = useState(() => localized(page.content, language))
   const [attachmentsOpen, setAttachmentsOpen] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -222,7 +224,7 @@ export function WikiPageEditor({ page, workspaceId }: WikiPageEditorProps) {
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('edit')}>
+                  <Button variant="ghost" size="sm" disabled={!canEdit} className="h-5 px-2 text-xs text-muted-foreground" onClick={() => setViewMode('edit')}>
                     <Pencil size={12} /> {t('summary.edit')}
                   </Button>
                 </TooltipTrigger>

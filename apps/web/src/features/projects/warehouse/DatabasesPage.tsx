@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
+import { GatedButton } from '@/components/ui/gated-button'
 import { useAppStore } from '@/stores/app-store'
 import type { DataSource } from '@/types'
 import { Database, Link as LinkIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import {
@@ -35,6 +36,7 @@ const STATUS_DOT: Record<string, string> = {
 export function DatabasesPage() {
   const { t } = useTranslation()
   const { projectUid: uid } = useResolvedParams()
+  const canEdit = useMyProjectRole(uid).atLeast('editor')
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const setActiveDataSource = useDataSourceStore((s) => s.setActiveDataSource)
   const testConnection = useDataSourceStore((s) => s.testConnection)
@@ -139,10 +141,10 @@ export function DatabasesPage() {
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('databases.list_description')}</p>
           </div>
-          <Button size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setLinkDialogOpen(true)}>
+          <GatedButton allowed={canEdit} notAllowedReason={t('common.insufficient_permissions')} size="sm" className="shrink-0 gap-1 text-xs" onClick={() => setLinkDialogOpen(true)}>
             <LinkIcon size={14} />
             {t('app_warehouse.link_database')}
-          </Button>
+          </GatedButton>
         </div>
 
         {sources.length > 0 && (
@@ -184,6 +186,7 @@ export function DatabasesPage() {
                 onDisconnect={() => disconnectDataSource(ds.id)}
                 onReconnect={() => reconnectDataSource(ds.id)}
                 onRemove={() => setSourceToUnlink(ds)}
+                canEdit={canEdit}
               />
             ))}
           </div>

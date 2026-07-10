@@ -32,6 +32,8 @@ interface DatabaseCardProps {
   onReconnect?: () => void
   onEdit?: () => void
   onRemove: () => void
+  /** When false, edit/remove actions are disabled (viewer). Default true. */
+  canEdit?: boolean
 }
 
 function getSourceSummary(source: DataSource): string {
@@ -84,6 +86,7 @@ export const DatabaseCard = memo(function DatabaseCard({
   onReconnect,
   onEdit,
   onRemove,
+  canEdit = true,
 }: DatabaseCardProps) {
   const { t } = useTranslation()
 
@@ -136,7 +139,7 @@ export const DatabaseCard = memo(function DatabaseCard({
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {onEdit && (
-                    <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onEdit() }}>
+                    <DropdownMenuItem disabled={!canEdit} onClick={(e) => { e.stopPropagation(); onEdit() }}>
                       <Pencil size={14} />
                       {t('common.edit')}
                     </DropdownMenuItem>
@@ -167,6 +170,7 @@ export const DatabaseCard = memo(function DatabaseCard({
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
+                    disabled={!canEdit}
                     onClick={(e) => { e.stopPropagation(); onRemove() }}
                     className="text-destructive focus:text-destructive"
                   >

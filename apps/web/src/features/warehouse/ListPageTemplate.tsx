@@ -6,6 +6,7 @@ import { EntityActionsMenu } from '@/components/ui/entity-actions-menu'
 import { shortenIdAmong } from '@/lib/short-id'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import { Button } from '@/components/ui/button'
+import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
 import {
   Tooltip,
@@ -71,6 +72,10 @@ interface ListPageTemplateProps<T extends { id: string; name: LocalizedString | 
   toolbar?: ReactNode
   /** Optional back button/element rendered on the left of the header row */
   backAction?: ReactNode
+  /** When false, create/import/edit controls are disabled (viewer). Default true. */
+  canEdit?: boolean
+  /** When false, the delete action is disabled (non-owner). Default true. */
+  canDelete?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +107,8 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   headerActions,
   toolbar,
   backAction,
+  canEdit = true,
+  canDelete = true,
 }: ListPageTemplateProps<T>) {
   const { t } = useTranslation()
 
@@ -122,7 +129,9 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             <div className="flex shrink-0 items-center gap-1">
             {headerActions}
             {onImport ? (
-              <Button
+              <GatedButton
+                allowed={canEdit}
+                notAllowedReason={t('common.insufficient_permissions')}
                 variant="outline"
                 size="sm"
                 className="gap-1 text-xs"
@@ -130,7 +139,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
               >
                 <Upload size={14} />
                 {t('common.import')}
-              </Button>
+              </GatedButton>
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -144,10 +153,16 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                 <TooltipContent>{t('common.coming_soon')}</TooltipContent>
               </Tooltip>
             )}
-            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+            <GatedButton
+              allowed={canEdit}
+              notAllowedReason={t('common.insufficient_permissions')}
+              size="sm"
+              onClick={() => setDialogOpen(true)}
+              className="gap-1 text-xs"
+            >
               <Plus size={14} />
               {t(newButtonKey)}
-            </Button>
+            </GatedButton>
             </div>
           </div>
           {toolbar}
@@ -185,6 +200,8 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                     renderEditDialog={renderEditDialog}
                     deleteConfirmTitleKey={deleteConfirmTitleKey}
                     deleteConfirmDescriptionKey={deleteConfirmDescriptionKey}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
                   />
                 </div>
               </Card>

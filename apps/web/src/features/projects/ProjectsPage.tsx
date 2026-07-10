@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
+import { GatedButton } from '@/components/ui/gated-button'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
@@ -50,6 +52,9 @@ export function ProjectsPage() {
   const { wsUid } = useResolvedParams()
   const { _projectsRaw, projects, getWorkspaceProjects, openProject, deleteProject, loadProjects } = useAppStore()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast: hasWsRole } = useMyWorkspaceRole()
+  const canEditWs = hasWsRole('editor')
+  const canDeleteWs = hasWsRole('owner')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -257,7 +262,9 @@ export function ProjectsPage() {
             <p className="mt-1 text-sm text-muted-foreground">{t('projects.description')}</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            <Button
+            <GatedButton
+              allowed={canEditWs}
+              notAllowedReason={t('common.insufficient_permissions')}
               variant="outline"
               size="sm"
               className="gap-1 text-xs"
@@ -265,11 +272,11 @@ export function ProjectsPage() {
             >
               <Upload size={14} />
               {t('common.import')}
-            </Button>
-            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
+            </GatedButton>
+            <GatedButton allowed={canEditWs} notAllowedReason={t('common.insufficient_permissions')} size="sm" onClick={() => setDialogOpen(true)} className="gap-1 text-xs">
               <Plus size={14} />
               {t('projects.create')}
-            </Button>
+            </GatedButton>
           </div>
         </div>
 
@@ -331,7 +338,7 @@ export function ProjectsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); const raw = _projectsRaw.find((p) => p.uid === project.uid); if (raw) setEditingProject(raw) }}>
+                            <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); const raw = _projectsRaw.find((p) => p.uid === project.uid); if (raw) setEditingProject(raw) }}>
                               <Pencil size={14} />
                               {t('common.edit')}
                             </DropdownMenuItem>
@@ -343,7 +350,7 @@ export function ProjectsPage() {
                               <GitBranch size={14} />
                               {t('common.versioning')}
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
+                            <DropdownMenuItem disabled={!canEditWs} onClick={(e) => { e.stopPropagation(); handleDuplicateProject(project.uid) }}>
                               <Copy size={14} />
                               {t('common.duplicate')}
                             </DropdownMenuItem>
@@ -354,6 +361,7 @@ export function ProjectsPage() {
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
+                              disabled={!canDeleteWs}
                               onClick={(e) => { e.stopPropagation(); setDeleteTarget({ uid: project.uid, name: project.name }) }}
                               className="text-destructive focus:text-destructive"
                             >

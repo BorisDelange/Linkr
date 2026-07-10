@@ -10,6 +10,7 @@ import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateSqlScriptsDialog } from './CreateSqlScriptsDialog'
 import { useSqlCollectionActions } from './use-sql-collection-actions'
 import type { SqlScriptCollection } from '@/types'
@@ -17,6 +18,7 @@ import type { SqlScriptCollection } from '@/types'
 export function SqlScriptsListPage() {
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast } = useMyWorkspaceRole()
   const language = useAppStore((s) => s.language)
   const { collectionsLoaded, loadCollections, getWorkspaceCollections } = useSqlScriptsStore()
   const sqlActions = useSqlCollectionActions()
@@ -84,6 +86,8 @@ export function SqlScriptsListPage() {
       onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.pendingFiles, false); setConflict(null) }}
     />
     <ListPageTemplate<SqlScriptCollection>
+      canEdit={atLeast('editor')}
+      canDelete={atLeast('owner')}
       titleKey="sql_scripts.title"
       descriptionKey="sql_scripts.description"
       newButtonKey="sql_scripts.new_collection"

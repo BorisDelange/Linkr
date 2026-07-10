@@ -12,6 +12,7 @@ import { getStorage } from '@/lib/storage'
 import { parseImportZip, reconstructTreeFiles } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ListPageTemplate } from '../ListPageTemplate'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateEtlDialog } from './CreateEtlDialog'
 import { useEtlActions } from './use-etl-actions'
 import type { EtlPipeline, EtlPipelineStatus } from '@/types'
@@ -28,6 +29,7 @@ export function EtlListPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast } = useMyWorkspaceRole()
   const language = useAppStore((s) => s.language)
   const { etlPipelinesLoaded, loadEtlPipelines, getWorkspacePipelines } = useEtlStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -100,6 +102,8 @@ export function EtlListPage() {
       onOverwrite={() => { if (conflict) doImport(conflict.pending, conflict.pendingFiles, false); setConflict(null) }}
     />
     <ListPageTemplate<EtlPipeline>
+      canEdit={atLeast('editor')}
+      canDelete={atLeast('owner')}
       titleKey="etl.title"
       descriptionKey="etl.description"
       newButtonKey="etl.new_pipeline"

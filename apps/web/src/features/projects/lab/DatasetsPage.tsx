@@ -54,6 +54,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useAppStore } from '@/stores/app-store'
+import { useMyProjectRole } from '@/hooks/use-context-role'
 import { DatasetFileTree } from './datasets/DatasetFileTree'
 import { DatasetTable } from './datasets/DatasetTable'
 import { ColumnStatsPanel } from './datasets/ColumnStatsPanel'
@@ -249,6 +250,7 @@ export function DatasetsPage() {
     _dirtyVersion,
   } = useDatasetStore()
   const { activeProjectUid } = useAppStore()
+  const canEdit = useMyProjectRole().atLeast('editor')
 
   const [createDatasetOpen, setCreateDatasetOpen] = useState(false)
   const [createFolderOpen, setCreateFolderOpen] = useState(false)
@@ -412,6 +414,7 @@ export function DatasetsPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canEdit}
                         onClick={() => setCreateDatasetOpen(true)}
                       >
                         <FilePlus size={14} />
@@ -424,6 +427,7 @@ export function DatasetsPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canEdit}
                         onClick={() => setCreateFolderOpen(true)}
                       >
                         <FolderPlus size={14} />
@@ -436,6 +440,7 @@ export function DatasetsPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
+                        disabled={!canEdit}
                         onClick={() => setUploadOpen(true)}
                       >
                         <Upload size={14} />
@@ -495,7 +500,7 @@ export function DatasetsPage() {
                         variant="ghost"
                         size="icon-xs"
                         onClick={() => setCreateAnalysisOpen(true)}
-                        disabled={!selectedFileId}
+                        disabled={!selectedFileId || !canEdit}
                       >
                         <Plus size={14} />
                       </Button>

@@ -33,6 +33,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { useWikiStore } from '@/stores/wiki-store'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import type { WikiPage } from '@/types'
@@ -59,6 +60,7 @@ interface WikiTreeSidebarProps {
 export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSearch, onHistory, onChangeIcon }: WikiTreeSidebarProps) {
   const { t } = useTranslation()
   const { getTree, activePageId, setActivePage } = useWikiStore()
+  const canEdit = useMyWorkspaceRole().atLeast('editor')
   const tree = getTree()
 
   return (
@@ -100,6 +102,7 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={!canEdit}
                 className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
                 onClick={() => onCreatePage(null)}
               >
@@ -122,6 +125,7 @@ export function WikiTreeSidebar({ workspaceId: _workspaceId, onCreatePage, onSea
             <Button
               variant="outline"
               size="sm"
+              disabled={!canEdit}
               className="mt-3 h-7 text-xs"
               onClick={() => onCreatePage(null)}
             >

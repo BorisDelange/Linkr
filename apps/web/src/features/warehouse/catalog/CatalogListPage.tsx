@@ -13,6 +13,7 @@ import { parseImportZip } from '@/lib/entity-io'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ListPageTemplate } from '../ListPageTemplate'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import { useCatalogActions } from './use-catalog-actions'
 import type { DataCatalog, CatalogStatus } from '@/types'
@@ -30,6 +31,7 @@ export function CatalogListPage() {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast } = useMyWorkspaceRole()
   const { catalogsLoaded, loadCatalogs, getWorkspaceCatalogs } = useCatalogStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const catalogActions = useCatalogActions()
@@ -86,6 +88,8 @@ export function CatalogListPage() {
       onOverwrite={() => { if (conflict) doImport(conflict.pending, false); setConflict(null) }}
     />
     <ListPageTemplate<DataCatalog>
+      canEdit={atLeast('editor')}
+      canDelete={atLeast('owner')}
       titleKey="data_catalog.title"
       descriptionKey="data_catalog.description"
       newButtonKey="data_catalog.new_catalog"

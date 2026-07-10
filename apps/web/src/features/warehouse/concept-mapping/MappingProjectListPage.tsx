@@ -35,6 +35,7 @@ import { TruncatedText } from '@/components/ui/truncated-text'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
 import { MAPPING_STATUS_COLORS } from './CreateMappingProjectDialog'
 import { ListPageTemplate } from '../ListPageTemplate'
+import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateMappingProjectDialog } from './CreateMappingProjectDialog'
 import { useMappingProjectActions } from './use-mapping-project-actions'
 import type { MappingProject, MappingProjectStatus } from '@/types'
@@ -88,6 +89,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const language = useAppStore((s) => s.language)
   const navigate = useNavigate()
   const { activeWorkspaceId } = useWorkspaceStore()
+  const { atLeast } = useMyWorkspaceRole()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const mappingActions = useMappingProjectActions()
@@ -351,6 +353,8 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       </AlertDialog>
 
       <ListPageTemplate<MappingProject>
+        canEdit={atLeast('editor')}
+        canDelete={atLeast('owner')}
         titleKey="concept_mapping.projects_widget_title"
         descriptionKey="concept_mapping.new_project_description"
         newButtonKey="concept_mapping.new_project"
