@@ -16,11 +16,9 @@ from app.services import user_plugin_service
 router = APIRouter(prefix="/user-plugins", tags=["user-plugins"])
 
 
-async def _check_access(db: AsyncSession, workspace_id: str | None, user: User, min_role: str) -> None:
-    """Global plugins (no workspace) are readable/writable by any authenticated
-    user; workspace-scoped plugins require the matching role."""
-    if workspace_id is not None:
-        await check_workspace_role(db, workspace_id, user, min_role)
+async def _check_access(db: AsyncSession, workspace_id: str, user: User, min_role: str) -> None:
+    """Plugins are always workspace-scoped, so access is the workspace role."""
+    await check_workspace_role(db, workspace_id, user, min_role)
 
 
 async def _load(db: AsyncSession, plugin_id: str, user: User, min_role: str) -> UserPlugin:
@@ -40,13 +38,10 @@ async def list_plugins(
     if workspace_id is not None:
         await check_workspace_role(db, workspace_id, user, "viewer")
         return await user_plugin_service.list_for_workspace(db, workspace_id)
-    # No filter: global plugins + those in workspaces the user can see.
+    # No filter: every plugin in a workspace the user can see.
     plugins = await user_plugin_service.list_all(db)
     visible: list[UserPlugin] = []
     for p in plugins:
-        if p.workspace_id is None:
-            visible.append(p)
-            continue
         try:
             await check_workspace_role(db, p.workspace_id, user, "viewer")
             visible.append(p)

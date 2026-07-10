@@ -1904,6 +1904,7 @@
     "title": "Plugins",
     "description": "Créer et gérer des plugins d'analyse.",
     "new_plugin": "Nouveau plugin",
+    "requires_workspace": "Ouvrez un espace de travail pour créer un plugin.",
     "add_default": "Ajouter par défaut",
     "no_defaults_available": "Tous les plugins par défaut ont déjà été ajoutés.",
     "duplicate": "Dupliquer",

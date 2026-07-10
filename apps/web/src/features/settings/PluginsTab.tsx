@@ -35,6 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { usePluginEditorStore, type PluginListItem } from '@/stores/plugin-editor-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getAllPlugins } from '@/lib/plugins/registry'
 import { getStorage } from '@/lib/storage'
 import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
@@ -205,6 +206,8 @@ export function PluginsTab() {
     setActivePluginTab: setActiveTab,
   } = usePluginEditorStore()
 
+  // Plugins are workspace-scoped: creating one needs an open workspace.
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [showAddDefaultDialog, setShowAddDefaultDialog] = useState(false)
@@ -369,12 +372,18 @@ export function PluginsTab() {
             onChange={handleImportFile}
           />
           {availableBuiltins.length > 0 && (
-            <Button size="sm" variant="outline" onClick={() => setShowAddDefaultDialog(true)} className="gap-1 text-xs">
+            <Button size="sm" variant="outline" disabled={!activeWorkspaceId} onClick={() => setShowAddDefaultDialog(true)} className="gap-1 text-xs">
               <Puzzle size={14} />
               {t('plugins.add_default')}
             </Button>
           )}
-          <Button size="sm" onClick={() => { setNewPluginName(''); setNewPluginEntityId(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }} className="gap-1 text-xs">
+          <Button
+            size="sm"
+            disabled={!activeWorkspaceId}
+            title={!activeWorkspaceId ? t('plugins.requires_workspace') : undefined}
+            onClick={() => { setNewPluginName(''); setNewPluginEntityId(''); setCreateScope(activeTab === 'warehouse' ? 'warehouse' : 'lab'); setShowCreateDialog(true) }}
+            className="gap-1 text-xs"
+          >
             <Plus size={14} />
             {t('plugins.new_plugin')}
           </Button>

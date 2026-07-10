@@ -14,6 +14,14 @@ import { computePluginContentHash } from '@/lib/plugin-hash'
 import { useWorkspaceStore } from './workspace-store'
 import { useOrganizationStore } from './organization-store'
 
+/** Plugins are always workspace-scoped. Callers guard the UI so this only throws
+ * as a backstop (e.g. a create attempted with no workspace open). */
+function requireActiveWorkspace(): string {
+  const wsId = useWorkspaceStore.getState().activeWorkspaceId
+  if (!wsId) throw new Error('A workspace must be open to create or edit a plugin')
+  return wsId
+}
+
 export interface PluginListItem {
   id: string
   manifest: PluginManifest
@@ -254,13 +262,13 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
       'analysis.py.template': scaffoldTemplate,
     }
     const now = new Date().toISOString()
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
+    const wsId = requireActiveWorkspace()
+    const userPlugin: UserPlugin = { id, entityId: entityId || undefined, files, createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     // Register in runtime
     const plugin = buildPlugin(manifest as unknown as Record<string, unknown>, { python: scaffoldTemplate })
-    plugin.workspaceId = wsId ?? undefined
+    plugin.workspaceId = wsId
     registerPlugin(plugin)
     set({
       editingPluginId: id,
@@ -280,7 +288,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     const plugin = getAllPlugins().find(p => p.manifest.id === pluginId)
     if (!plugin) return null
     const now = new Date().toISOString()
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
+    const wsId = requireActiveWorkspace()
     const files: Record<string, string> = {
       'plugin.json': JSON.stringify(plugin.manifest, null, 2),
     }
@@ -290,7 +298,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         files[`analysis${ext}`] = content
       }
     }
-    const userPlugin: UserPlugin = { id: pluginId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
+    const userPlugin: UserPlugin = { id: pluginId, entityId: pluginId, files, createdAt: now, updatedAt: now, workspaceId: wsId }
     const storage = getStorage()
     await storage.userPlugins.create(userPlugin)
     registerPlugin(plugin)
@@ -331,8 +339,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
     } catch { /* keep as-is */ }
 
     const now = new Date().toISOString()
-    const wsId = useWorkspaceStore.getState().activeWorkspaceId
-    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined }
+    const wsId = requireActiveWorkspace()
+    const newPlugin: UserPlugin = { id: newId, files: sourceFiles, createdAt: now, updatedAt: now, workspaceId: wsId }
     await storage.userPlugins.create(newPlugin)
 
     // Register
@@ -344,7 +352,7 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
         else if (filename.endsWith('.R.template')) templates.r = content
       }
       const plugin = buildPlugin(manifest, Object.keys(templates).length > 0 ? templates : null)
-      plugin.workspaceId = wsId ?? undefined
+      plugin.workspaceId = wsId
       registerPlugin(plugin)
     } catch { /* skip */ }
 
@@ -406,8 +414,8 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
 
     if (isBuiltIn) {
       // First save of a built-in plugin: create as user plugin
-      const wsId = useWorkspaceStore.getState().activeWorkspaceId
-      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now, workspaceId: wsId ?? undefined })
+      const wsId = requireActiveWorkspace()
+      await storage.userPlugins.create({ id: editingPluginId, files: { ...files }, createdAt: now, updatedAt: now, workspaceId: wsId })
       set({ isBuiltIn: false })
     } else {
       await storage.userPlugins.update(editingPluginId, {
