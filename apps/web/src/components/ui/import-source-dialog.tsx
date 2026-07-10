@@ -39,6 +39,7 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
   const [token, setToken] = useState('')
   const [proxy, setProxy] = useState(() => getGitCorsProxy())
   const [cloning, setCloning] = useState(false)
+  const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showProxyHelp, setShowProxyHelp] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -50,8 +51,21 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
   }
 
   const submitFile = async (file: File) => {
-    onOpenChange(false)
-    await onImport(file)
+    // Keep the modal open with a blocking loader until the import (upload + parse
+    // + persist, which can be long for a big source file) actually finishes —
+    // closing first made it look done while it was still uploading in the
+    // background, so the new project appeared only after a manual reload.
+    setError(null)
+    setImporting(true)
+    try {
+      await onImport(file)
+      onOpenChange(false)
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err)
+      setError(`${t('import_source.error_unknown')}${raw ? `\n(${raw})` : ''}`)
+    } finally {
+      setImporting(false)
+    }
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,8 +103,14 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
     }
   }
 
+  const busy = importing || cloning
+
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) setError(null); onOpenChange(o) }}>
+    <Dialog open={open} onOpenChange={(o) => {
+      if (busy) return  // don't let the modal close mid-import
+      if (!o) setError(null)
+      onOpenChange(o)
+    }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('import_source.title')}</DialogTitle>
@@ -111,20 +131,27 @@ export function ImportSourceDialog({ open, onOpenChange, accept = '.zip', onImpo
 
           {/* Upload ZIP — drag-and-drop zone (matches the dataset upload dialog) */}
           <TabsContent value="upload" className="min-h-[230px] pt-3">
-            <div
-              className={`flex h-[214px] flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
-                dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
-            >
-              <Upload size={32} className="text-muted-foreground/50" />
-              <p className="mt-3 text-sm text-muted-foreground text-center">{t('import_source.drag_drop_or')}</p>
-              <p className="mt-2 text-[10px] text-muted-foreground">{t('import_source.upload_hint')}</p>
-              <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
-            </div>
+            {importing ? (
+              <div className="flex h-[214px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-8">
+                <Loader2 size={32} className="animate-spin text-primary" />
+                <p className="mt-3 text-sm text-muted-foreground text-center">{t('import_source.importing')}</p>
+              </div>
+            ) : (
+              <div
+                className={`flex h-[214px] flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
+                  dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
+                }`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+                onDragLeave={() => setDragActive(false)}
+                onDrop={handleDrop}
+              >
+                <Upload size={32} className="text-muted-foreground/50" />
+                <p className="mt-3 text-sm text-muted-foreground text-center">{t('import_source.drag_drop_or')}</p>
+                <p className="mt-2 text-[10px] text-muted-foreground">{t('import_source.upload_hint')}</p>
+                <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
+              </div>
+            )}
           </TabsContent>
 
           {/* Clone from Git */}

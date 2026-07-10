@@ -3565,6 +3565,7 @@
   "import_source": {
     "title": "Import",
     "description": "Import from a ZIP file or clone a Git repository.",
+    "importing": "Importing… this can take a while for large files.",
     "tab_upload": "Upload ZIP",
     "tab_git": "From Git",
     "drag_drop_or": "Drag and drop a file here, or click to browse",

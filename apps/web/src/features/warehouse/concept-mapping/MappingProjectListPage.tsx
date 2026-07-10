@@ -91,6 +91,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const { activeWorkspaceId } = useWorkspaceStore()
   const { atLeast } = useMyWorkspaceRole()
   const { mappingProjectsLoaded, loadMappingProjects, getWorkspaceProjects } = useConceptMappingStore()
+  // Subscribe to the mappingProjects slice itself so the list re-renders after an
+  // import/create refresh — reading only getWorkspaceProjects (a stable fn) left
+  // the widgets stale until a full reload.
+  const allMappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const mappingActions = useMappingProjectActions()
 
@@ -98,7 +102,10 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     if (!mappingProjectsLoaded) loadMappingProjects()
   }, [mappingProjectsLoaded, loadMappingProjects])
 
-  const projects = activeWorkspaceId ? getWorkspaceProjects(activeWorkspaceId) : []
+  const projects = useMemo(
+    () => (activeWorkspaceId ? allMappingProjects.filter((p) => p.workspaceId === activeWorkspaceId) : []),
+    [allMappingProjects, activeWorkspaceId],
+  )
   // Stats are persisted in MappingProject.stats and refreshed on every mapping mutation
   // (via createMapping / updateMapping / deleteMapping in the store). No need to recompute
   // them on every list-page mount.
@@ -194,41 +201,43 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
       updatedAt: now,
       ...(duplicate ? { name: setLocalized(project.name, language, `${localized(project.name, language)} (copy)`), createdAt: now } : {}),
     }
-    await getStorage().mappingProjects.create(entity)
-    for (const m of children.mappings) {
-      // Migrate legacy `comment` string → `comments[]` array
-      const legacy = (m as unknown as Record<string, unknown>).comment
-      const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
-        ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? new Date().toISOString() }]
-        : m.comments
-      await getStorage().conceptMappings.create({
-        ...m,
-        comments: migratedComments,
-        id: crypto.randomUUID(),
-        projectId,
+    // The project row is created first; the mappings + registry follow. Any
+    // failure in those later steps must NOT skip the list refresh — the project
+    // already exists server-side, so it has to appear without a manual reload.
+    try {
+      await getStorage().mappingProjects.create(entity)
+
+      const toCreate = children.mappings.map((m) => {
+        // Migrate legacy `comment` string → `comments[]` array
+        const legacy = (m as unknown as Record<string, unknown>).comment
+        const migratedComments = (!m.comments?.length && typeof legacy === 'string' && legacy.trim())
+          ? [{ id: crypto.randomUUID(), authorId: m.mappedBy ?? 'unknown', text: legacy.trim(), createdAt: m.mappedOn ?? new Date().toISOString() }]
+          : m.comments
+        return { ...m, comments: migratedComments, id: crypto.randomUUID(), projectId }
       })
-    }
+      if (toCreate.length > 0) await getStorage().conceptMappings.createBatch(toCreate)
 
-    // Restore assigned source-concept-ids into the workspace registry (retargeted
-    // to this workspace). Best-effort: never let it fail the whole import.
-    if (children.sourceIdRanges || children.sourceIdEntries) {
-      try {
-        const { parseSourceConceptIdEntries } = await import('@/lib/concept-mapping/source-concept-ids-io')
-        const ws = entity.workspaceId
-        const ranges = (children.sourceIdRanges as import('@/types').SourceConceptIdRange[] | undefined) ?? []
-        for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws })
-        if (children.sourceIdEntries) {
-          const entries = parseSourceConceptIdEntries(
-            children.sourceIdEntries as Parameters<typeof parseSourceConceptIdEntries>[0], ws,
-          )
-          if (entries.length > 0) await getStorage().sourceConceptIdEntries.saveBatch(entries)
+      // Restore assigned source-concept-ids into the workspace registry (retargeted
+      // to this workspace). Best-effort: never let it fail the whole import.
+      if (children.sourceIdRanges || children.sourceIdEntries) {
+        try {
+          const { parseSourceConceptIdEntries } = await import('@/lib/concept-mapping/source-concept-ids-io')
+          const ws = entity.workspaceId
+          const ranges = (children.sourceIdRanges as import('@/types').SourceConceptIdRange[] | undefined) ?? []
+          for (const r of ranges) await getStorage().sourceConceptIdRanges.save({ ...r, workspaceId: ws })
+          if (children.sourceIdEntries) {
+            const entries = parseSourceConceptIdEntries(
+              children.sourceIdEntries as Parameters<typeof parseSourceConceptIdEntries>[0], ws,
+            )
+            if (entries.length > 0) await getStorage().sourceConceptIdEntries.saveBatch(entries)
+          }
+        } catch {
+          /* leave the registry as-is */
         }
-      } catch {
-        /* leave the registry as-is */
       }
+    } finally {
+      await loadMappingProjects()
     }
-
-    await loadMappingProjects()
   }, [activeWorkspaceId, loadMappingProjects])
 
   const handleImport = useCallback(async (file: File) => {
