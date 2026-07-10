@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { GeneralTab } from './GeneralTab'
 import { UsersTab } from './UsersTab'
@@ -10,17 +11,12 @@ import { OrganizationsTab } from './OrganizationsTab'
 export function SettingsPage() {
   const { t } = useTranslation()
   const [searchParams] = useSearchParams()
+  // Tabs stay visible for everyone; a missing permission replaces the tab's
+  // contents with a "no access" notice (the real gate is server-side).
   const canManageUsers = useHasGlobalPermission('users:read')
   const canManageRoles = useHasGlobalPermission('roles:read')
   const canManageOrgs = useHasGlobalPermission('organizations:read')
-  const requestedTab = searchParams.get('tab') ?? 'general'
-  // Don't land on a tab the user can't see (e.g. a stale ?tab=users link).
-  const defaultTab =
-    (requestedTab === 'users' && !canManageUsers) ||
-    (requestedTab === 'roles' && !canManageRoles) ||
-    (requestedTab === 'organizations' && !canManageOrgs)
-      ? 'general'
-      : requestedTab
+  const defaultTab = searchParams.get('tab') ?? 'general'
 
   return (
     <div className="h-full overflow-auto">
@@ -35,28 +31,22 @@ export function SettingsPage() {
         <Tabs defaultValue={defaultTab} className="mt-6">
           <TabsList className="mx-auto w-fit">
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
-            {canManageOrgs && <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>}
-            {canManageUsers && <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>}
-            {canManageRoles && <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>}
+            <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
+            <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
+            <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
           </TabsList>
           <TabsContent value="general">
             <GeneralTab />
           </TabsContent>
-          {canManageOrgs && (
-            <TabsContent value="organizations">
-              <OrganizationsTab />
-            </TabsContent>
-          )}
-          {canManageUsers && (
-            <TabsContent value="users">
-              <UsersTab />
-            </TabsContent>
-          )}
-          {canManageRoles && (
-            <TabsContent value="roles">
-              <RolesTab />
-            </TabsContent>
-          )}
+          <TabsContent value="organizations">
+            {canManageOrgs ? <OrganizationsTab /> : <NoAccessNotice />}
+          </TabsContent>
+          <TabsContent value="users">
+            {canManageUsers ? <UsersTab /> : <NoAccessNotice />}
+          </TabsContent>
+          <TabsContent value="roles">
+            {canManageRoles ? <RolesTab /> : <NoAccessNotice />}
+          </TabsContent>
         </Tabs>
       </div>
     </div>

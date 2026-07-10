@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Database, CheckCircle2, XCircle, Loader2, FolderOpen, ChevronRight, Folder, File, ArrowLeft, Info } from 'lucide-react'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { useHasGlobalPermission } from '@/stores/auth-store'
+import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { AppDatabaseDialog } from '@/features/settings/AppDatabaseDialog'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -315,6 +316,9 @@ export function GeneralTab() {
         </p>
       </div>
 
+      {!canQueryAppDb ? (
+        <NoAccessNotice />
+      ) : (
       <Card className="mt-4">
         <CardContent className="px-5 pb-5 pt-2">
           <div className="flex items-center gap-2 text-sm font-medium text-foreground">
@@ -456,6 +460,7 @@ export function GeneralTab() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* File browser dialog */}
       <FileBrowserDialog

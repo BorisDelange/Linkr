@@ -2258,6 +2258,8 @@
   },
   "common": {
     "filters": "Filters",
+    "no_access_title": "Access not available",
+    "no_access_description": "Your account doesn't have permission to access this section.",
     "entity_not_found_title": "{{entity}} not found",
     "entity_not_found_description": "It may have been deleted, or the link is incorrect.",
     "entity_project": "Project",

@@ -41,7 +41,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 /** Resources that gate the account instance-wide rather than a single workspace. */
-const GLOBAL_RESOURCES = new Set(['users', 'roles', 'app-database'])
+const GLOBAL_RESOURCES = new Set(['users', 'roles', 'organizations', 'app-database'])
 
 const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
