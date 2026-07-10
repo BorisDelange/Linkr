@@ -1639,8 +1639,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 </button>
               )}
             </div>
-            <Button size="sm" className="h-8" onClick={commitSearch}>
-              <Search size={13} />
+            <Button size="sm" variant="outline" className="h-8 shrink-0 text-xs" onClick={commitSearch}>
               {t('common.search')}
             </Button>
           </div>
