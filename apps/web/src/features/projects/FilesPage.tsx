@@ -260,6 +260,9 @@ export function FilesPage() {
 
   const selectedNode = nodes.find((n) => n.id === selectedFileId)
   const activeTerminalTab = terminalTabs.find((t) => t.id === selectedFileId)
+  const activeSessionId = useSessionStore(
+    (s) => (activeProjectUid ? s.getActiveSessionId(activeProjectUid) : undefined),
+  )
   const isVirtualFile = selectedNode?.virtual === true
   const hasOutput = outputTabs.length > 0 || executionResults.length > 0
   const selectedLanguage = selectedNode?.language
@@ -1204,7 +1207,7 @@ export function FilesPage() {
               </div>
 
               {/* Unified tab bar: file tabs (left) | separator | output tabs (right) */}
-              {(openFileIds.length > 0 || outputTabOrder.length > 0) && (
+              {(openFileIds.length > 0 || terminalTabs.length > 0 || outputTabOrder.length > 0) && (
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
                   {openFileIds.length > 0 && (
@@ -1655,28 +1658,19 @@ export function FilesPage() {
                           />
                         )}
 
-                        {/* Terminal tabs: all kept mounted (sessions survive tab
-                            switches); only the active one is visible. */}
-                        {terminalTabs.map((tt) => {
-                          const isActive = tt.id === selectedFileId
-                          return (
-                            <div
-                              key={tt.id}
-                              className="h-full"
-                              style={{ display: isActive ? 'block' : 'none' }}
-                            >
-                              <TerminalPanel
-                                terminalType={tt.kind}
-                                projectUid={activeProjectUid ?? undefined}
-                                envId={
-                                  activeProjectUid
-                                    ? useSessionStore.getState().getActiveSessionId(activeProjectUid)
-                                    : undefined
-                                }
-                              />
-                            </div>
-                          )
-                        })}
+                        {/* Only the active terminal is mounted: a hidden xterm has
+                            zero size (fit breaks) and would still hold a WS. The
+                            kernel session lives server-side, so switching tabs and
+                            back reconnects to the same namespace — variables persist. */}
+                        {activeTerminalTab && (
+                          <div key={activeTerminalTab.id} className="h-full">
+                            <TerminalPanel
+                              terminalType={activeTerminalTab.kind}
+                              projectUid={activeProjectUid ?? undefined}
+                              envId={activeSessionId}
+                            />
+                          </div>
+                        )}
 
                         {/* Empty state */}
                         {!selectedNode && !activeTerminalTab && (

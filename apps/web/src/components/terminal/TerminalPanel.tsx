@@ -185,7 +185,9 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
       python: `\x1b[1;33mPython\x1b[0m (${engineLabel})\r\n`,
       r: `\x1b[1;36mR\x1b[0m (${engineLabel})\r\n`,
     }
-    if (banner[terminalType]) terminal.writeln(banner[terminalType])
+    // The banner already ends in \r\n; write (not writeln) so there's no extra
+    // blank line before the prompt.
+    if (banner[terminalType]) terminal.write(banner[terminalType])
     if (!(serverMode && terminalType === 'bash')) terminal.write(config.prompt)
 
     if (onData) {
@@ -437,7 +439,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, envId
     <div
       ref={containerRef}
       className="h-full w-full"
-      style={{ backgroundColor: xtermTheme.background }}
+      style={{ backgroundColor: xtermTheme.background, padding: '6px 0 6px 8px' }}
     />
   )
 }
